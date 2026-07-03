@@ -484,3 +484,339 @@ canvas {
 .hidden {
   display: none !important;
 }
+
+/* ===================== MOBA ===================== */
+.moba-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #0c2016;
+}
+.moba-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  touch-action: none;
+}
+
+/* 顶部信息条 */
+.moba-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  padding: calc(env(safe-area-inset-top) + 6px) 10px 6px;
+  pointer-events: none;
+  font-size: 12px;
+}
+.moba-bases {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 5px;
+}
+.moba-base {
+  background: rgba(8, 20, 14, 0.7);
+  padding: 3px 9px;
+  border-radius: 20px;
+}
+.moba-base.enemy b {
+  color: var(--danger);
+}
+.moba-base.ally b {
+  color: var(--accent);
+}
+.moba-time {
+  background: rgba(8, 20, 14, 0.7);
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.moba-hero-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 460px;
+  margin: 0 auto;
+}
+.moba-lv {
+  background: #1b3a2a;
+  color: #ffe082;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+.moba-bar {
+  position: relative;
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.moba-bar.hp {
+  flex: 1;
+}
+.moba-bar.mp {
+  width: 70px;
+  height: 8px;
+}
+.moba-bar i {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border-radius: 7px;
+  transition: width 0.12s linear;
+}
+.moba-bar.hp i {
+  background: linear-gradient(90deg, #43a047, #66bb6a);
+}
+.moba-bar.mp i {
+  background: linear-gradient(90deg, #3949ab, #5c6bc0);
+}
+.moba-bar em {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-style: normal;
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+.moba-gold {
+  color: var(--accent2);
+  font-weight: 700;
+}
+.moba-kda {
+  color: var(--muted);
+}
+
+/* 返回 / 商店按钮 */
+.moba-back {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 4px);
+  left: 8px;
+  z-index: 16;
+  background: rgba(8, 20, 14, 0.75);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 5px 11px;
+  font-size: 12px;
+}
+.moba-shop-btn {
+  position: absolute;
+  right: 10px;
+  bottom: calc(env(safe-area-inset-bottom) + 150px);
+  z-index: 16;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: rgba(8, 20, 14, 0.8);
+  font-size: 22px;
+}
+.moba-shop {
+  position: absolute;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 170px);
+  transform: translateX(-50%);
+  z-index: 18;
+  width: min(340px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px;
+  backdrop-filter: blur(6px);
+}
+.moba-shop-head {
+  font-weight: 700;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.moba-shop-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.moba-shop-item {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 8px;
+  width: 100%;
+  text-align: left;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+.moba-shop-item.afford {
+  border-color: var(--accent);
+}
+.moba-shop-item .si-ic {
+  grid-row: 1 / 3;
+  font-size: 20px;
+}
+.moba-shop-item .si-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.moba-shop-item .si-desc {
+  grid-column: 2;
+  font-size: 11px;
+  color: var(--muted);
+}
+.moba-shop-item .si-cost {
+  grid-row: 1 / 3;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.moba-shop-item.afford .si-cost {
+  color: var(--accent2);
+}
+
+/* 控制层 */
+.moba-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 14;
+  pointer-events: none;
+}
+.moba-joy {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 45%;
+  height: 220px;
+  pointer-events: auto;
+}
+.moba-joy-base {
+  position: absolute;
+  left: 26px;
+  bottom: calc(env(safe-area-inset-bottom) + 34px);
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid rgba(255, 255, 255, 0.16);
+}
+.moba-joy-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  background: rgba(64, 196, 255, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.7);
+}
+.moba-skills {
+  position: absolute;
+  right: 18px;
+  bottom: calc(env(safe-area-inset-bottom) + 26px);
+  display: grid;
+  grid-template-columns: repeat(2, 66px);
+  grid-template-rows: repeat(2, 66px);
+  gap: 12px;
+  pointer-events: auto;
+}
+.moba-skill {
+  position: relative;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(20, 40, 30, 0.75);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.moba-skill.ready {
+  border-color: #ffca28;
+  box-shadow: 0 0 10px rgba(255, 202, 40, 0.5);
+  background: rgba(40, 60, 40, 0.9);
+}
+.moba-skill.locked {
+  opacity: 0.5;
+}
+.moba-skill:active {
+  transform: scale(0.94);
+}
+.moba-skill-key {
+  font-weight: 800;
+  font-size: 17px;
+}
+.moba-skill-name {
+  font-size: 9px;
+  color: #cfe;
+}
+.moba-skill-cd {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 800;
+  background: rgba(0, 0, 0, 0.5);
+}
+.moba-skill-cd:empty {
+  display: none;
+}
+/* 技能配色 */
+.skill-q {
+  background: rgba(41, 98, 160, 0.75);
+}
+.skill-w {
+  background: rgba(120, 60, 160, 0.75);
+}
+.skill-e {
+  background: rgba(40, 120, 90, 0.75);
+}
+.skill-r {
+  background: rgba(160, 90, 30, 0.75);
+}
+
+.moba-toast {
+  position: absolute;
+  left: 50%;
+  top: 120px;
+  transform: translateX(-50%) translateY(-8px);
+  z-index: 20;
+  background: rgba(8, 20, 14, 0.9);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 7px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.moba-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.moba-result {
+  z-index: 40;
+}
+
+/* 首页 */
+.home-card .title {
+  font-size: 16px;
+}
