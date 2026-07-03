@@ -11,8 +11,22 @@ import { DIFFICULTIES, TOTAL_WAVES, waveBonus, waveGoldScale, type Difficulty } 
 import { pickReward, type RewardPick } from './rewards';
 import { Hud } from '../ui/hud';
 import { recordResult } from './save';
+import type { StatPayload } from '../net/protocol';
 
 type Phase = 'prep' | 'wave' | 'over';
+
+/** 联机对战时注入的网络钩子。 */
+export interface BattleNet {
+  opponentName: string;
+  /** 本方战况有更新时回调（已节流），由外层通过网络发给对手。 */
+  onStat: (s: StatPayload) => void;
+}
+
+export interface BattleOpts {
+  /** 波次随机种子；联机时双方相同以保证同波公平。 */
+  seed?: number;
+  net?: BattleNet;
+}
 
 /** 生成竖直渐变的天空贴图，避免大片纯黑背景 */
 function makeSkyTexture(): THREE.Texture {
@@ -71,10 +85,23 @@ export class Battle {
   private running = true;
   private onFinish: (r: GameResult) => void;
 
-  constructor(container: HTMLElement, def: MapDef, diff: Difficulty, onFinish: (r: GameResult) => void) {
+  private seed?: number;
+  private net?: BattleNet;
+  private wonFlag = false;
+  private lastStatSent = 0;
+
+  constructor(
+    container: HTMLElement,
+    def: MapDef,
+    diff: Difficulty,
+    onFinish: (r: GameResult) => void,
+    opts: BattleOpts = {},
+  ) {
     this.def = def;
     this.diff = diff;
     this.onFinish = onFinish;
+    this.seed = opts.seed;
+    this.net = opts.net;
     this.layout = computeLayout(def);
     const d = DIFFICULTIES[diff];
     this.gold = d.startGold;
@@ -124,6 +151,7 @@ export class Battle {
       onSell: () => this.sellSelected(),
     });
     container.appendChild(this.hud.root);
+    if (this.net) this.hud.enableVersus(this.net.opponentName);
     this.refreshHud();
     this.hud.setWaveButton('▶ 开始第 1 波', true);
 
@@ -138,6 +166,28 @@ export class Battle {
 
   private refreshHud() {
     this.hud.setStats(this.lives, Math.floor(this.gold), this.wave, TOTAL_WAVES);
+    this.emitStat();
+  }
+
+  /** 联机：把本方战况节流后交给网络层发送。 */
+  private emitStat(force = false) {
+    if (!this.net) return;
+    const now = performance.now();
+    if (!force && now - this.lastStatSent < 250) return;
+    this.lastStatSent = now;
+    this.net.onStat({
+      wave: this.wave,
+      lives: this.lives,
+      maxLives: this.maxLives,
+      gold: Math.floor(this.gold),
+      over: this.phase === 'over',
+      won: this.wonFlag,
+    });
+  }
+
+  /** 联机：外层收到对手战况后调用，刷新对手信息条。 */
+  setOpponentStat(s: StatPayload) {
+    this.hud.updateOpponent(s);
   }
 
   // ---------------------------------------------------------------- 交互
@@ -224,7 +274,7 @@ export class Battle {
   private startWave() {
     if (this.phase === 'wave' || this.phase === 'over') return;
     this.wave++;
-    this.curWave = buildWave(this.wave, this.layout.paths.length);
+    this.curWave = buildWave(this.wave, this.layout.paths.length, this.seed);
     this.pendingSpawns = [...this.curWave.items];
     this.waveTimer = 0;
     this.phase = 'wave';
@@ -440,7 +490,9 @@ export class Battle {
 
   private endGame(won: boolean) {
     this.phase = 'over';
-    recordResult(this.def.id, this.diff, this.wave, won);
+    this.wonFlag = won;
+    if (!this.net) recordResult(this.def.id, this.diff, this.wave, won);
+    this.emitStat(true);
     this.hud.closeAll();
     this.hud.setWaveButton(won ? '全部通关！' : '基地失守', false);
     // 稍作延迟，让玩家看清最后一刻

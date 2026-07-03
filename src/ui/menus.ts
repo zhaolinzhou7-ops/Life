@@ -2,10 +2,45 @@ import { MAPS } from '../maps/maps';
 import { DIFFICULTIES, DIFFICULTY_ORDER, type Difficulty } from '../core/economy';
 import { getProgress } from '../core/save';
 
+/** 首页：选择「单人闯关」或「联机对战」。 */
+export function showHome(
+  container: HTMLElement,
+  cb: { onSingle: () => void; onVersus: () => void },
+): HTMLElement {
+  const screen = document.createElement('div');
+  screen.className = 'screen';
+  screen.innerHTML = `
+    <h1>塔防远征</h1>
+    <div class="sub">3D 塔防 · 单人闯关，或联机与好友同波竞速</div>
+  `;
+
+  const single = document.createElement('button');
+  single.className = 'btn';
+  single.innerHTML = '🏰 单人闯关';
+  single.addEventListener('click', cb.onSingle);
+  screen.appendChild(single);
+
+  const versus = document.createElement('button');
+  versus.className = 'btn ghost';
+  versus.innerHTML = '⚔️ 联机对战';
+  versus.addEventListener('click', cb.onVersus);
+  screen.appendChild(versus);
+
+  const hint = document.createElement('div');
+  hint.style.cssText = 'color:var(--muted);font-size:11.5px;margin-top:16px;text-align:center;max-width:460px;';
+  hint.textContent = '联机对战：两名玩家面对完全相同的波次，比谁守得更久、走得更远。';
+  screen.appendChild(hint);
+
+  container.appendChild(screen);
+  return screen;
+}
+
 /** 主菜单 / 选关 / 难度选择：一体化流程，回调返回选择结果 */
 export function showStartFlow(
   container: HTMLElement,
   onStart: (mapId: string, diff: Difficulty) => void,
+  onBack?: () => void,
+  ctaLabel = '开始游戏',
 ): HTMLElement {
   let selectedMap = MAPS[0].id;
   let selectedDiff: Difficulty = 'normal';
@@ -67,9 +102,17 @@ export function showStartFlow(
 
     const btn = document.createElement('button');
     btn.className = 'btn';
-    btn.textContent = '开始游戏';
+    btn.textContent = ctaLabel;
     btn.addEventListener('click', () => onStart(selectedMap, selectedDiff));
     screen.appendChild(btn);
+
+    if (onBack) {
+      const back = document.createElement('button');
+      back.className = 'btn ghost';
+      back.textContent = '返回';
+      back.addEventListener('click', onBack);
+      screen.appendChild(back);
+    }
 
     const hint = document.createElement('div');
     hint.style.cssText = 'color:var(--muted);font-size:11.5px;margin-top:14px;text-align:center;max-width:460px;';

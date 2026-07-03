@@ -483,3 +483,138 @@ canvas {
 .hidden {
   display: none !important;
 }
+
+/* ---------- 联机：对手战况条 ---------- */
+.opp-panel {
+  position: absolute;
+  top: 54px;
+  right: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+  pointer-events: none;
+  max-width: calc(100% - 20px);
+}
+.opp-tag {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+.opp-name {
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.opp-stat {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.opp-stat small {
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.opp-status.good {
+  color: var(--ok);
+}
+.opp-status.bad {
+  color: var(--danger);
+}
+
+/* ---------- 联机：房间码与大厅 ---------- */
+.room-code {
+  font-size: 46px;
+  font-weight: 800;
+  letter-spacing: 10px;
+  padding: 14px 10px 14px 20px;
+  margin: 8px 0 16px;
+  border-radius: 14px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  color: var(--accent);
+}
+.code-input {
+  appearance: none;
+  width: 100%;
+  max-width: 260px;
+  text-align: center;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 14px;
+  padding: 12px 8px 12px 22px;
+  margin-bottom: 18px;
+  border-radius: 14px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  color: var(--text);
+  text-transform: uppercase;
+  outline: none;
+}
+.code-input:focus {
+  border-color: var(--accent);
+}
+.lobby-status {
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  line-height: 1.7;
+  max-width: 420px;
+  margin-bottom: 16px;
+}
+.spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+  margin-bottom: 20px;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- 联机：对战结算表 ---------- */
+.vs-table {
+  width: 100%;
+  max-width: 320px;
+  margin: 6px 0 14px;
+}
+.vs-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+.vs-row.me {
+  border-color: var(--accent);
+}
+.vs-who {
+  font-weight: 700;
+  color: var(--muted);
+}
+.vs-row.me .vs-who {
+  color: var(--accent);
+}
+.vs-val {
+  font-weight: 700;
+}

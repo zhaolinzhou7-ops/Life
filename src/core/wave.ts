@@ -1,5 +1,6 @@
 import { ENEMY_STATS, type EnemyStats } from '../entities/enemy';
 import { TOTAL_WAVES, waveHpScale } from './economy';
+import { mulberry32, mixSeed } from './rng';
 
 export interface SpawnItem {
   stats: EnemyStats;
@@ -17,8 +18,13 @@ export interface WaveDef {
   hpScale: number;
 }
 
-/** 依据波次号程序化生成一波敌人（在若干路线间分配） */
-export function buildWave(wave: number, routeCount: number): WaveDef {
+/**
+ * 依据波次号程序化生成一波敌人（在若干路线间分配）。
+ * 传入 seed 时，同一 (seed, wave) 必定产出完全相同的一波——用于联机对战双方公平同波。
+ * 不传 seed 时沿用 Math.random（单人闯关）。
+ */
+export function buildWave(wave: number, routeCount: number, seed?: number): WaveDef {
+  const rand = seed === undefined ? Math.random : mulberry32(mixSeed(seed, wave));
   const isBoss = wave % 5 === 0;
   const hpScale = waveHpScale(wave);
   const items: SpawnItem[] = [];
@@ -47,7 +53,7 @@ export function buildWave(wave: number, routeCount: number): WaveDef {
     const count = 8 + wave; // 数量随波次增加
     for (let i = 0; i < count; i++) {
       let kind: keyof typeof ENEMY_STATS = 'normal';
-      const roll = Math.random();
+      const roll = rand();
       if (wave >= 3 && roll < 0.28) kind = 'fast';
       else if (wave >= 5 && roll < 0.45) kind = 'tank';
       else if (wave >= 8 && roll > 0.82) kind = 'fly';

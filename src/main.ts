@@ -2,12 +2,14 @@ import './style.css';
 import { MAPS } from './maps/maps';
 import { DIFFICULTIES, TOTAL_WAVES, type Difficulty } from './core/economy';
 import { Battle, type GameResult } from './core/game';
-import { showResult, showStartFlow } from './ui/menus';
+import { showHome, showResult, showStartFlow } from './ui/menus';
+import { runVersus } from './net/versus';
 
 const app = document.getElementById('app') as HTMLElement;
 
 let battle: Battle | null = null;
 let currentScreen: HTMLElement | null = null;
+let disposeFlow: (() => void) | null = null; // 联机流程自管理的清理句柄
 
 function clearScreen() {
   currentScreen?.remove();
@@ -19,10 +21,27 @@ function disposeBattle() {
   battle = null;
 }
 
-function toMenu() {
-  disposeBattle();
+/** 离开当前任何界面/对局/联机流程，回到干净状态。 */
+function disposeAll() {
+  disposeFlow?.();
+  disposeFlow = null;
   clearScreen();
-  currentScreen = showStartFlow(app, (mapId, diff) => startBattle(mapId, diff));
+  disposeBattle();
+}
+
+function toHome() {
+  disposeAll();
+  currentScreen = showHome(app, { onSingle: toSingleSelect, onVersus: toVersus });
+}
+
+function toSingleSelect() {
+  disposeAll();
+  currentScreen = showStartFlow(app, (mapId, diff) => startBattle(mapId, diff), toHome);
+}
+
+function toVersus() {
+  disposeAll();
+  disposeFlow = runVersus(app, toHome);
 }
 
 function startBattle(mapId: string, diff: Difficulty) {
@@ -43,8 +62,8 @@ function onBattleEnd(mapId: string, diff: Difficulty, result: GameResult) {
     def.name,
     DIFFICULTIES[diff].label,
     () => startBattle(mapId, diff),
-    () => toMenu(),
+    () => toSingleSelect(),
   );
 }
 
-toMenu();
+toHome();

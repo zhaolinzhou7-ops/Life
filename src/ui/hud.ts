@@ -1,5 +1,6 @@
 import { TOWER_DEFS, TOWER_ORDER, buildCost, type Tower } from '../entities/tower';
 import type { TowerKind } from '../render/models';
+import type { StatPayload } from '../net/protocol';
 
 const TOWER_EMOJI: Record<TowerKind, string> = {
   arrow: '🏹',
@@ -30,6 +31,7 @@ export class Hud {
   private radial: HTMLDivElement | null = null;
   private panel: HTMLDivElement | null = null;
   private rewardCard: HTMLDivElement | null = null;
+  private oppPanel: HTMLDivElement | null = null;
   private cb: HudCallbacks;
   private toastTimer = 0;
 
@@ -62,6 +64,42 @@ export class Hud {
     this.waveBtn.addEventListener('click', () => this.cb.onStartWave());
     this.speedBtn.addEventListener('click', () => this.cb.onSpeedToggle());
     this.pauseBtn.addEventListener('click', () => this.cb.onPauseToggle());
+  }
+
+  /** 联机对战：在顶栏下方开启对手战况条。 */
+  enableVersus(name: string) {
+    if (this.oppPanel) return;
+    const p = document.createElement('div');
+    p.className = 'opp-panel';
+    p.innerHTML = `
+      <span class="opp-tag">对手</span>
+      <span class="opp-name" data-opp-name></span>
+      <span class="opp-stat"><span>❤</span><span data-opp-lives>-</span></span>
+      <span class="opp-stat"><small>波次</small><span data-opp-wave>0/${25}</span></span>
+      <span class="opp-status" data-opp-status></span>
+    `;
+    (p.querySelector('[data-opp-name]') as HTMLElement).textContent = name || '对手';
+    this.root.appendChild(p);
+    this.oppPanel = p;
+  }
+
+  /** 联机对战：刷新对手战况条。 */
+  updateOpponent(s: StatPayload) {
+    if (!this.oppPanel) return;
+    const set = (sel: string, v: string) => {
+      const el = this.oppPanel!.querySelector(sel) as HTMLElement | null;
+      if (el) el.textContent = v;
+    };
+    set('[data-opp-lives]', String(s.lives));
+    set('[data-opp-wave]', `${s.wave}/25`);
+    const status = this.oppPanel.querySelector('[data-opp-status]') as HTMLElement;
+    if (s.over) {
+      status.textContent = s.won ? '✅ 通关' : '💥 失守';
+      status.className = 'opp-status ' + (s.won ? 'good' : 'bad');
+    } else {
+      status.textContent = '';
+      status.className = 'opp-status';
+    }
   }
 
   setStats(lives: number, gold: number, wave: number, total: number) {
@@ -225,6 +263,8 @@ export class Hud {
     this.closeAll();
     this.rewardCard?.remove();
     this.rewardCard = null;
+    this.oppPanel?.remove();
+    this.oppPanel = null;
     this.root.remove();
   }
 }
