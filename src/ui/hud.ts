@@ -29,6 +29,7 @@ export class Hud {
   private toast!: HTMLElement;
   private radial: HTMLDivElement | null = null;
   private panel: HTMLDivElement | null = null;
+  private rewardCard: HTMLDivElement | null = null;
   private cb: HudCallbacks;
   private toastTimer = 0;
 
@@ -89,6 +90,32 @@ export class Hud {
     this.toast.classList.add('show');
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => this.toast.classList.remove('show'), 1600);
+  }
+
+  /** 波次清空后的奖励卡：显示清波奖励 + 随机奖励，点击或超时消失 */
+  showReward(clearBonus: number, reward: { emoji: string; name: string; desc: string }) {
+    this.rewardCard?.remove();
+    const card = document.createElement('div');
+    card.className = 'reward-card';
+    card.innerHTML = `
+      <div class="rc-emoji">${reward.emoji}</div>
+      <div class="rc-title">波次清空！</div>
+      <div class="rc-bonus">清波奖励 +${clearBonus} 金币</div>
+      <div class="rc-reward">
+        <div class="rc-name">${reward.name}</div>
+        <div class="rc-desc">${reward.desc}</div>
+      </div>
+      <div class="rc-hint">点击继续</div>
+    `;
+    const close = () => {
+      card.remove();
+      clearTimeout(timer);
+      if (this.rewardCard === card) this.rewardCard = null;
+    };
+    card.addEventListener('click', close);
+    const timer = window.setTimeout(close, 3400);
+    this.root.parentElement!.appendChild(card);
+    this.rewardCard = card;
   }
 
   // ---------- 建塔环形菜单 ----------
@@ -196,6 +223,8 @@ export class Hud {
 
   dispose() {
     this.closeAll();
+    this.rewardCard?.remove();
+    this.rewardCard = null;
     this.root.remove();
   }
 }

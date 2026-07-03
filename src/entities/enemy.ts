@@ -34,6 +34,10 @@ export class Enemy {
   slowFactor = 1;
   private hpBar: { group: THREE.Group; set: (r: number) => void };
   private spinNodes: THREE.Object3D[] = [];
+  private wingNodes: THREE.Object3D[] = [];
+  private model: THREE.Group;
+  private animPhase = Math.random() * Math.PI * 2;
+  private baseModelY = 0;
 
   constructor(stats: EnemyStats, hpMul: number, speedMul: number, path: THREE.Vector3[]) {
     this.stats = stats;
@@ -44,10 +48,11 @@ export class Enemy {
     this.speed = stats.speed * speedMul;
 
     this.group = new THREE.Group();
-    const model = makeEnemyMesh(stats.kind);
-    this.group.add(model);
-    model.traverse((o) => {
+    this.model = makeEnemyMesh(stats.kind);
+    this.group.add(this.model);
+    this.model.traverse((o) => {
       if (o.name === 'spin') this.spinNodes.push(o);
+      else if (o.name === 'wingL' || o.name === 'wingR') this.wingNodes.push(o);
     });
 
     this.hpBar = makeHpBar(stats.hpBarWidth);
@@ -122,7 +127,19 @@ export class Enemy {
       this.group.rotation.y = Math.atan2(dir.x, dir.z);
     }
 
+    // 动画：自旋、行走上下颠簸、飞行拍翼
+    this.animPhase += dt * (6 + this.speed * 2);
     for (const n of this.spinNodes) n.rotation.y += dt * 4;
-    // 减速时染上冰蓝色调（通过缩放血条不做，简单起见跳过着色）
+    if (this.stats.flying) {
+      const flap = Math.sin(this.animPhase * 1.6) * 0.7;
+      for (const w of this.wingNodes) {
+        w.rotation.z = w.name === 'wingL' ? flap : -flap;
+      }
+      this.model.position.y = this.baseModelY + Math.sin(this.animPhase * 0.8) * 0.06;
+    } else {
+      // 落地小怪走路时轻微起伏 + 摇摆
+      this.model.position.y = this.baseModelY + Math.abs(Math.sin(this.animPhase)) * 0.05;
+      this.model.rotation.z = Math.sin(this.animPhase) * 0.05;
+    }
   }
 }

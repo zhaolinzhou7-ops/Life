@@ -8,6 +8,7 @@ import { Tower, TOWER_DEFS, buildCost } from '../entities/tower';
 import type { TowerKind } from '../render/models';
 import { buildWave, type WaveDef, type SpawnItem } from './wave';
 import { DIFFICULTIES, TOTAL_WAVES, waveBonus, waveGoldScale, type Difficulty } from './economy';
+import { pickReward, type RewardPick } from './rewards';
 import { Hud } from '../ui/hud';
 import { recordResult } from './save';
 
@@ -52,6 +53,8 @@ export class Battle {
 
   private gold: number;
   private lives: number;
+  private maxLives: number;
+  private globalDamageMul = 1;
   private wave = 0;
   private phase: Phase = 'prep';
   private paused = false;
@@ -76,6 +79,7 @@ export class Battle {
     const d = DIFFICULTIES[diff];
     this.gold = d.startGold;
     this.lives = d.lives;
+    this.maxLives = d.lives;
 
     // 渲染器
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -291,6 +295,7 @@ export class Battle {
     for (const t of this.towers.values()) {
       const p = t.update(dt, this.enemies);
       if (p) {
+        p.damage *= this.globalDamageMul; // 应用全局增伤奖励
         this.scene.add(p.mesh);
         this.projectiles.push(p);
       }
@@ -380,13 +385,57 @@ export class Battle {
     this.gold += bonus;
     this.phase = 'prep';
     this.curWave = null;
-    this.refreshHud();
+
     if (this.wave >= TOTAL_WAVES) {
+      this.refreshHud();
       this.endGame(true);
       return;
     }
-    this.hud.setWaveButton(`▶ 开始第 ${this.wave + 1} 波 (+${bonus}◈)`, true);
-    this.hud.showToast(`波次清空 · 奖励 ${bonus}◈`);
+
+    // 随机奖励
+    const reward = pickReward({
+      wave: this.wave,
+      goldMul: DIFFICULTIES[this.diff].goldMul,
+      currentGold: this.gold,
+      livesDeficit: this.maxLives - this.lives,
+      canUpgrade: [...this.towers.values()].some((t) => !t.maxLevel),
+    });
+    this.applyReward(reward);
+
+    this.refreshHud();
+    this.hud.setWaveButton(`▶ 开始第 ${this.wave + 1} 波`, true);
+    this.hud.showReward(bonus, reward);
+  }
+
+  private applyReward(r: RewardPick) {
+    switch (r.kind) {
+      case 'gold':
+      case 'treasure':
+      case 'interest':
+        this.gold += r.amount;
+        break;
+      case 'repair':
+        this.lives = Math.min(this.maxLives, this.lives + r.amount);
+        break;
+      case 'damage':
+        this.globalDamageMul += r.amount;
+        break;
+      case 'upgrade':
+        this.upgradeRandomTower();
+        break;
+    }
+  }
+
+  private upgradeRandomTower() {
+    const candidates = [...this.towers.values()].filter((t) => !t.maxLevel);
+    if (!candidates.length) return;
+    const t = candidates[Math.floor(Math.random() * candidates.length)];
+    t.upgrade();
+    // 若正打开该塔面板，刷新显示
+    if (this.selectedCell === t.cell) {
+      this.showRange(t);
+      this.hud.openTowerPanel(t, this.gold);
+    }
   }
 
   private endGame(won: boolean) {
