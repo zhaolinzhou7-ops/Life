@@ -5,12 +5,22 @@ import { cellKey, cellToWorld, computeLayout, worldToCell, type MapDef, type Map
 import { Enemy } from '../entities/enemy';
 import { Projectile } from '../entities/projectile';
 import { Tower, TOWER_DEFS, buildCost } from '../entities/tower';
-import type { TowerKind } from '../render/models';
+import type { EnemyKind, TowerKind } from '../render/models';
 import { buildWave, type WaveDef, type SpawnItem } from './wave';
 import { DIFFICULTIES, TOTAL_WAVES, waveBonus, waveGoldScale, type Difficulty } from './economy';
 import { pickReward, type RewardPick } from './rewards';
 import { Hud } from '../ui/hud';
-import { recordResult } from './save';
+import { recordEndless, recordResult } from './save';
+import { Sfx } from '../audio';
+
+/** 敌人被击杀时迸溅碎片的颜色 */
+const KILL_COLOR: Record<EnemyKind, number> = {
+  normal: 0x7cb342,
+  fast: 0xffa726,
+  tank: 0x78909c,
+  fly: 0xab47bc,
+  boss: 0xc62828,
+};
 
 type Phase = 'prep' | 'wave' | 'over';
 
@@ -34,6 +44,7 @@ function makeSkyTexture(): THREE.Texture {
 export interface GameResult {
   won: boolean;
   wave: number;
+  newRecord: boolean;
 }
 
 /** 一整局战斗。挂载到给定容器，负责渲染循环、交互与规则。 */
@@ -50,6 +61,9 @@ export class Battle {
   private enemies: Enemy[] = [];
   private projectiles: Projectile[] = [];
   private effects: { mesh: THREE.Mesh; life: number; max: number }[] = [];
+  private particles: { mesh: THREE.Mesh; vel: THREE.Vector3; life: number; max: number; scale0: number }[] = [];
+  private sparkGeo = new THREE.TetrahedronGeometry(0.07, 0);
+  private endless: boolean;
 
   private gold: number;
   private lives: number;
@@ -71,9 +85,16 @@ export class Battle {
   private running = true;
   private onFinish: (r: GameResult) => void;
 
-  constructor(container: HTMLElement, def: MapDef, diff: Difficulty, onFinish: (r: GameResult) => void) {
+  constructor(
+    container: HTMLElement,
+    def: MapDef,
+    diff: Difficulty,
+    endless: boolean,
+    onFinish: (r: GameResult) => void,
+  ) {
     this.def = def;
     this.diff = diff;
+    this.endless = endless;
     this.onFinish = onFinish;
     this.layout = computeLayout(def);
     const d = DIFFICULTIES[diff];
@@ -137,7 +158,7 @@ export class Battle {
   };
 
   private refreshHud() {
-    this.hud.setStats(this.lives, Math.floor(this.gold), this.wave, TOTAL_WAVES);
+    this.hud.setStats(this.lives, Math.floor(this.gold), this.wave, this.endless ? -1 : TOTAL_WAVES);
   }
 
   // ---------------------------------------------------------------- 交互
@@ -190,6 +211,7 @@ export class Battle {
     this.towers.set(this.selectedCell, tower);
     this.gold -= cost;
     this.refreshHud();
+    Sfx.build();
     this.hud.showToast(`建造 ${TOWER_DEFS[kind].name}`);
   }
 
@@ -202,6 +224,7 @@ export class Battle {
     this.gold -= cost;
     t.upgrade();
     this.refreshHud();
+    Sfx.upgrade();
     this.showRange(t);
     this.hud.openTowerPanel(t, this.gold);
     this.hud.showToast(`升级至 ${t.level} 级`);
@@ -217,6 +240,7 @@ export class Battle {
     this.selectedCell = null;
     this.rangeRing.visible = false;
     this.hud.closeAll();
+    Sfx.sell();
     this.refreshHud();
   }
 
@@ -230,6 +254,8 @@ export class Battle {
     this.phase = 'wave';
     this.hud.setWaveButton('进攻中…', false);
     this.hud.showToast(this.curWave.isBoss ? `⚠ 第 ${this.wave} 波 · BOSS 来袭` : `第 ${this.wave} 波开始`);
+    if (this.curWave.isBoss) Sfx.boss();
+    else Sfx.waveStart();
     this.refreshHud();
   }
 
@@ -283,6 +309,8 @@ export class Battle {
         e.dead = true;
         this.lives -= e.stats.kind === 'boss' ? 10 : 1;
         this.scene.remove(e.group);
+        Sfx.loseLife();
+        this.refreshHud();
         if (this.lives <= 0) {
           this.lives = 0;
           this.endGame(false);
@@ -296,6 +324,7 @@ export class Battle {
       const p = t.update(dt, this.enemies);
       if (p) {
         p.damage *= this.globalDamageMul; // 应用全局增伤奖励
+        this.playFireSound(t.def.kind);
         this.scene.add(p.mesh);
         this.projectiles.push(p);
       }
@@ -331,6 +360,22 @@ export class Battle {
       (fx.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, k) * 0.6;
       if (fx.life <= 0) {
         this.scene.remove(fx.mesh);
+        fx.mesh.geometry.dispose();
+        return false;
+      }
+      return true;
+    });
+
+    // 命中/死亡碎片：抛物飞散并逐渐缩小
+    this.particles = this.particles.filter((pt) => {
+      pt.life -= dt;
+      pt.vel.y -= 7 * dt;
+      pt.mesh.position.addScaledVector(pt.vel, dt);
+      pt.mesh.rotation.x += dt * 9;
+      pt.mesh.rotation.y += dt * 7;
+      pt.mesh.scale.setScalar(Math.max(0.01, pt.scale0 * (pt.life / pt.max)));
+      if (pt.life <= 0) {
+        this.scene.remove(pt.mesh);
         return false;
       }
       return true;
@@ -345,11 +390,14 @@ export class Battle {
   private resolveHit(p: Projectile, primary: Enemy[]) {
     const applyOne = (e: Enemy, dmg: number) => {
       if (e.dead) return;
-      const before = e.dead;
       e.takeDamage(dmg);
       if (p.slowFactor < 1) e.applySlow(p.slowFactor, p.slowDuration);
-      if (!before && e.dead) {
+      if (e.dead) {
         this.gold += Math.round(e.reward * DIFFICULTIES[this.diff].goldMul * waveGoldScale(this.wave));
+        this.spawnDeath(e.position, KILL_COLOR[e.stats.kind], e.stats.kind === 'boss');
+        Sfx.kill();
+      } else {
+        this.spawnSpark(p.position, p.slowFactor < 1 ? 0x81d4fa : 0xfff59d, 3);
       }
     };
 
@@ -380,13 +428,49 @@ export class Battle {
     this.effects.push({ mesh: m, life: 0.28, max: 0.28 });
   }
 
+  private playFireSound(kind: TowerKind) {
+    if (kind === 'arrow') Sfx.fireArrow();
+    else if (kind === 'cannon') Sfx.fireCannon();
+    else if (kind === 'frost') Sfx.fireFrost();
+    else Sfx.fireBolt();
+  }
+
+  /** 命中火花：几片小碎片朝上迸溅 */
+  private spawnSpark(pos: THREE.Vector3, color: number, count: number) {
+    if (this.particles.length > 150) return;
+    for (let i = 0; i < count; i++) {
+      const m = new THREE.Mesh(this.sparkGeo, mat(color));
+      m.position.set(pos.x, Math.max(0.3, pos.y), pos.z);
+      const vel = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.3, Math.random() - 0.5).multiplyScalar(2.4);
+      this.scene.add(m);
+      this.particles.push({ mesh: m, vel, life: 0.32, max: 0.32, scale0: 1 });
+    }
+  }
+
+  /** 死亡爆碎：更多碎片四散，Boss 更夸张 */
+  private spawnDeath(pos: THREE.Vector3, color: number, big: boolean) {
+    if (this.particles.length > 150) return;
+    const count = big ? 16 : 7;
+    const speed = big ? 4.2 : 2.8;
+    const s0 = big ? 1.6 : 1;
+    for (let i = 0; i < count; i++) {
+      const m = new THREE.Mesh(this.sparkGeo, mat(color));
+      m.position.set(pos.x, pos.y + 0.3, pos.z);
+      const vel = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.9 + 0.2, Math.random() - 0.5)
+        .normalize()
+        .multiplyScalar(speed * (0.6 + Math.random() * 0.6));
+      this.scene.add(m);
+      this.particles.push({ mesh: m, vel, life: big ? 0.7 : 0.5, max: big ? 0.7 : 0.5, scale0: s0 });
+    }
+  }
+
   private finishWave() {
     const bonus = Math.round(waveBonus(this.wave) * DIFFICULTIES[this.diff].goldMul);
     this.gold += bonus;
     this.phase = 'prep';
     this.curWave = null;
 
-    if (this.wave >= TOTAL_WAVES) {
+    if (!this.endless && this.wave >= TOTAL_WAVES) {
       this.refreshHud();
       this.endGame(true);
       return;
@@ -404,6 +488,7 @@ export class Battle {
 
     this.refreshHud();
     this.hud.setWaveButton(`▶ 开始第 ${this.wave + 1} 波`, true);
+    Sfx.reward();
     this.hud.showReward(bonus, reward);
   }
 
@@ -440,11 +525,18 @@ export class Battle {
 
   private endGame(won: boolean) {
     this.phase = 'over';
-    recordResult(this.def.id, this.diff, this.wave, won);
+    let record = false;
+    if (this.endless) {
+      record = recordEndless(this.def.id, this.diff, this.wave);
+    } else {
+      recordResult(this.def.id, this.diff, this.wave, won);
+    }
     this.hud.closeAll();
     this.hud.setWaveButton(won ? '全部通关！' : '基地失守', false);
+    if (won) Sfx.victory();
+    else Sfx.defeat();
     // 稍作延迟，让玩家看清最后一刻
-    setTimeout(() => this.onFinish({ won, wave: this.wave }), won ? 900 : 700);
+    setTimeout(() => this.onFinish({ won, wave: this.wave, newRecord: record }), won ? 900 : 700);
   }
 
   dispose() {
@@ -458,6 +550,7 @@ export class Battle {
       const m = o as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();
     });
+    this.sparkGeo.dispose();
     void mat; // 共享材质缓存跨局复用，无需释放
   }
 }

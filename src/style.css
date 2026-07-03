@@ -170,21 +170,21 @@ canvas {
   left: 0;
   right: 0;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  padding: calc(env(safe-area-inset-top) + 8px) 10px 8px;
+  padding: calc(env(safe-area-inset-top) + 8px) 8px 8px;
   background: linear-gradient(#0c141dcc, #0c141d00);
 }
 .stat {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 7px 11px;
-  font-size: 14px;
+  padding: 7px 9px;
+  font-size: 13.5px;
   font-weight: 700;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   pointer-events: auto;
 }
 .stat small {
@@ -210,10 +210,11 @@ canvas {
   border: 1px solid var(--line);
   color: var(--text);
   border-radius: 10px;
-  width: 40px;
-  height: 40px;
-  font-size: 17px;
+  width: 38px;
+  height: 38px;
+  font-size: 16px;
   cursor: pointer;
+  flex: none;
 }
 .icon-btn.active {
   border-color: var(--accent);

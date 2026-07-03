@@ -8,6 +8,8 @@ export interface LevelProgress {
 
 interface SaveData {
   progress: Record<string, Partial<Record<Difficulty, LevelProgress>>>;
+  /** 无尽模式每张地图每个难度的最高波数 */
+  endless?: Record<string, Partial<Record<Difficulty, number>>>;
 }
 
 const KEY = 'td3d-save-v1';
@@ -44,4 +46,16 @@ export function recordResult(mapId: string, diff: Difficulty, wave: number, won:
   };
   (data.progress[mapId] ??= {})[diff] = next;
   persist();
+}
+
+export function getEndlessBest(mapId: string, diff: Difficulty): number {
+  return data.endless?.[mapId]?.[diff] ?? 0;
+}
+
+/** 记录无尽模式成绩，返回是否创造新纪录 */
+export function recordEndless(mapId: string, diff: Difficulty, wave: number): boolean {
+  const cur = getEndlessBest(mapId, diff);
+  ((data.endless ??= {})[mapId] ??= {})[diff] = Math.max(cur, wave);
+  persist();
+  return wave > cur;
 }

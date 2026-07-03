@@ -1,5 +1,6 @@
 import { TOWER_DEFS, TOWER_ORDER, buildCost, type Tower } from '../entities/tower';
 import type { TowerKind } from '../render/models';
+import { Sfx, isMuted, toggleMute } from '../audio';
 
 const TOWER_EMOJI: Record<TowerKind, string> = {
   arrow: '🏹',
@@ -43,6 +44,7 @@ export class Hud {
         <div class="stat gold"><span>◈</span><span data-gold>0</span></div>
         <div class="stat wave"><small>波次</small><span data-wave>0/25</span></div>
         <div class="spacer"></div>
+        <button class="icon-btn" data-mute>🔊</button>
         <button class="icon-btn" data-speed>x1</button>
         <button class="icon-btn" data-pause>⏸</button>
       </div>
@@ -62,12 +64,25 @@ export class Hud {
     this.waveBtn.addEventListener('click', () => this.cb.onStartWave());
     this.speedBtn.addEventListener('click', () => this.cb.onSpeedToggle());
     this.pauseBtn.addEventListener('click', () => this.cb.onPauseToggle());
+
+    const muteBtn = this.root.querySelector('[data-mute]') as HTMLButtonElement;
+    const syncMute = () => {
+      muteBtn.textContent = isMuted() ? '🔇' : '🔊';
+      muteBtn.classList.toggle('active', isMuted());
+    };
+    syncMute();
+    muteBtn.addEventListener('click', () => {
+      const m = toggleMute();
+      syncMute();
+      if (!m) Sfx.click();
+    });
   }
 
   setStats(lives: number, gold: number, wave: number, total: number) {
     this.lives.textContent = String(lives);
     this.gold.textContent = String(gold);
-    this.waveLabel.textContent = `${wave}/${total}`;
+    // total < 0 表示无尽模式
+    this.waveLabel.textContent = total < 0 ? `${wave} · 无尽` : `${wave}/${total}`;
   }
 
   setWaveButton(text: string, enabled: boolean) {
