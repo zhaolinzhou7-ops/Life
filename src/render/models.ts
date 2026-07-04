@@ -1,15 +1,26 @@
 import * as THREE from 'three';
 import { cellKey, cellToWorld, type MapLayout } from '../maps/maps';
 
-/** 共享材质缓存，避免重复创建 */
-const matCache = new Map<number, THREE.MeshLambertMaterial>();
-export function mat(color: number): THREE.MeshLambertMaterial {
+/** 共享材质缓存，避免重复创建（PBR 标准材质，配合实时阴影更有真实感） */
+const matCache = new Map<number, THREE.MeshStandardMaterial>();
+export function mat(color: number): THREE.MeshStandardMaterial {
   let m = matCache.get(color);
   if (!m) {
-    m = new THREE.MeshLambertMaterial({ color });
+    m = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.04 });
     matCache.set(color, m);
   }
   return m;
+}
+
+/** 递归开启投影/受影 */
+export function enableShadows(obj: THREE.Object3D, cast = true, receive = true) {
+  obj.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh) {
+      m.castShadow = cast;
+      m.receiveShadow = receive;
+    }
+  });
 }
 
 const COLORS = {
@@ -75,6 +86,7 @@ export function buildTerrain(layout: MapLayout): THREE.Group {
   base.position.set(layout.end.x, 0, layout.end.z);
   g.add(base);
 
+  enableShadows(g);
   return g;
 }
 
@@ -277,6 +289,7 @@ export function makeTowerMesh(kind: TowerKind, level: number): THREE.Group {
     ring.position.y = 0.13 + i * 0.1;
     g.add(ring);
   }
+  enableShadows(g);
   return g;
 }
 
@@ -445,6 +458,7 @@ export function makeEnemyMesh(kind: EnemyKind): THREE.Group {
       break;
     }
   }
+  enableShadows(g);
   return g;
 }
 
