@@ -102,21 +102,43 @@ export class Battle {
     this.lives = d.lives;
     this.maxLives = d.lives;
 
-    // 渲染器
+    // 渲染器（PBR 色调映射 + 实时阴影）
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setClearColor(0x0f1720);
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);
 
     // 灯光与天空
     this.scene.background = makeSkyTexture();
-    this.scene.fog = new THREE.Fog(0x1b3145, 26, 52);
-    const hemi = new THREE.HemisphereLight(0xbcd6ff, 0x24303a, 0.9);
+    this.scene.fog = new THREE.Fog(0x1b3145, 30, 60);
+    const hemi = new THREE.HemisphereLight(0xcfe4ff, 0x2b3a2a, 0.75);
     this.scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.0);
-    sun.position.set(6, 14, 8);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.15);
+    this.scene.add(ambient);
+    // 主光（太阳）：暖白 + 柔和阴影
+    const sun = new THREE.DirectionalLight(0xfff2df, 2.0);
+    sun.position.set(10, 20, 8);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.radius = 4;
+    sun.shadow.bias = -0.0006;
+    sun.shadow.normalBias = 0.02;
+    const sc = sun.shadow.camera;
+    const span = Math.max(this.layout.def.cols, this.layout.def.rows) * 0.72 + 6;
+    sc.left = -span;
+    sc.right = span;
+    sc.top = span;
+    sc.bottom = -span;
+    sc.near = 1;
+    sc.far = 80;
     this.scene.add(sun);
+    this.scene.add(sun.target);
 
     // 地形
     this.scene.add(buildTerrain(this.layout));
