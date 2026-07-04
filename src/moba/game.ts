@@ -49,6 +49,8 @@ interface Minion extends Unit {
   atkCd: number;
   slowTimer: number;
   slowAmt: number;
+  swing: number; // 攻击动画 0..1
+  seed: number; // 用于个体差异（走路相位等）
 }
 
 interface Structure extends Unit {
@@ -77,6 +79,8 @@ interface Hero extends Unit {
   kills: number;
   deaths: number;
   up: { atk: number; hp: number; as: number; ms: number };
+  swing: number; // 攻击挥砍动画 0..1
+  walk: number; // 走路相位累积
 }
 
 interface Projectile {
@@ -229,6 +233,8 @@ export class MobaGame {
       kills: 0,
       deaths: 0,
       up: { atk: 0, hp: 0, as: 0, ms: 0 },
+      swing: 0,
+      walk: 0,
     };
     return h;
   }
@@ -318,6 +324,8 @@ export class MobaGame {
       atkCd: 0,
       slowTimer: 0,
       slowAmt: 0,
+      swing: 0,
+      seed: Math.random() * Math.PI * 2,
     };
     this.minions.push(m);
   }
@@ -419,6 +427,7 @@ export class MobaGame {
   private updateHeroes(dt: number) {
     for (const h of [this.player, this.enemy]) {
       if (h.slowTimer > 0) h.slowTimer -= dt;
+      if (h.swing > 0) h.swing = Math.max(0, h.swing - dt * 3.2);
       for (const k of Object.keys(h.cd)) if (h.cd[k] > 0) h.cd[k] -= dt;
 
       if (h.dead) {
@@ -441,6 +450,7 @@ export class MobaGame {
         h.y += ny * sp * dt;
         h.faceX = nx;
         h.faceY = ny;
+        h.walk += dt * 9;
       } else {
         // 静止时朝向最近敌人
         const t = this.basicTarget(h);
@@ -459,6 +469,10 @@ export class MobaGame {
         if (t) {
           this.fireHoming(h.x, h.y, t, this.heroDmg(h), h, COLORS[h.team].light, HERO.projSpeed);
           h.atkCd = this.heroInterval(h);
+          h.swing = 1;
+          const d = len(t.x - h.x, t.y - h.y) || 1;
+          h.faceX = (t.x - h.x) / d;
+          h.faceY = (t.y - h.y) / d;
         }
       }
     }
@@ -518,6 +532,7 @@ export class MobaGame {
     for (const m of this.minions) {
       if (m.dead) continue;
       if (m.slowTimer > 0) m.slowTimer -= dt;
+      if (m.swing > 0) m.swing = Math.max(0, m.swing - dt * 3.2);
       if (m.atkCd > 0) m.atkCd -= dt;
 
       const foeTeam = other(m.team);
@@ -535,6 +550,7 @@ export class MobaGame {
           if (m.atkCd <= 0) {
             this.dealDamage(target, MINION.dmg, null);
             m.atkCd = MINION.attackInterval;
+            m.swing = 1;
             this.spark(target.x, target.y, COLORS[m.team].light);
           }
         } else {
@@ -926,7 +942,7 @@ export class MobaGame {
 
   // ================= 渲染 =================
   render(ctx: CanvasRenderingContext2D, cssW: number, cssH: number) {
-    const scale = Math.max(0.32, Math.min(0.8, cssW / 660));
+    const scale = Math.max(0.42, Math.min(1.0, cssW / 560));
     const halfW = cssW / 2 / scale;
     const halfH = cssH / 2 / scale;
     const camX = Math.max(halfW, Math.min(WORLD.w - halfW, this.cam.x));
@@ -935,9 +951,9 @@ export class MobaGame {
     const toY = (wy: number) => (wy - camY) * scale + cssH / 2;
 
     ctx.clearRect(0, 0, cssW, cssH);
-    this.drawTerrain(ctx, toX, toY, scale);
+    this.drawTerrain(ctx, toX, toY, scale, camX, camY, halfW, halfH);
 
-    // 结构范围环
+    // 结构攻击范围环（淡）
     for (const s of this.structures) {
       if (s.dead) continue;
       const range = s.kind === 'base' ? BASE.range : TOWER.range;
@@ -945,32 +961,57 @@ export class MobaGame {
       ctx.arc(toX(s.x), toY(s.y), range * scale, 0, Math.PI * 2);
       ctx.fillStyle = s.team === 'ally' ? 'rgba(64,196,255,0.05)' : 'rgba(255,90,106,0.05)';
       ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = s.team === 'ally' ? 'rgba(64,196,255,0.16)' : 'rgba(255,90,106,0.16)';
+      ctx.stroke();
     }
 
-    // 结构
-    for (const s of this.structures) this.drawStructure(ctx, s, toX, toY, scale);
-    // 小兵
-    for (const m of this.minions) this.drawMinion(ctx, m, toX, toY, scale);
-    // 英雄
-    for (const h of [this.enemy, this.player]) if (!h.dead) this.drawHero(ctx, h, toX, toY, scale);
-
-    // 弹体
-    for (const p of this.projectiles) {
-      ctx.beginPath();
-      ctx.arc(toX(p.x), toY(p.y), Math.max(2.5, p.radius * scale), 0, Math.PI * 2);
-      ctx.fillStyle = p.color;
-      ctx.fill();
-    }
-    // 光环
+    // 地面光环（技能，画在单位下方）
     for (const r of this.rings) {
       const k = r.life / r.max;
+      ctx.save();
+      ctx.translate(toX(r.x), toY(r.y));
+      ctx.scale(1, 0.52);
       ctx.beginPath();
-      ctx.arc(toX(r.x), toY(r.y), r.r * scale * (1.05 - k * 0.35), 0, Math.PI * 2);
+      ctx.arc(0, 0, r.r * scale * (1.05 - k * 0.3), 0, Math.PI * 2);
       ctx.strokeStyle = r.color;
       ctx.globalAlpha = k;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 4;
       ctx.stroke();
+      ctx.restore();
       ctx.globalAlpha = 1;
+    }
+
+    // 深度排序绘制（含地面阴影）
+    const list: (Structure | Minion | Hero)[] = [...this.structures, ...this.minions];
+    if (!this.enemy.dead) list.push(this.enemy);
+    if (!this.player.dead) list.push(this.player);
+    list.sort((a, b) => a.y - b.y);
+    for (const u of list) {
+      if (u.kind === 'minion') this.drawMinion(ctx, u as Minion, toX, toY, scale);
+      else if (u.kind === 'hero') this.drawHero(ctx, u as Hero, toX, toY, scale);
+      else this.drawStructure(ctx, u as Structure, toX, toY, scale);
+    }
+
+    // 弹体（带辉光）
+    for (const p of this.projectiles) {
+      const px = toX(p.x);
+      const py = toY(p.y);
+      const rr = Math.max(3, p.radius * scale);
+      ctx.globalAlpha = 0.3;
+      ctx.beginPath();
+      ctx.arc(px, py, rr * 2.1, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(px, py, rr, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(px, py, rr * 0.62, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.fill();
     }
     // 粒子
     for (const p of this.particles) {
@@ -985,34 +1026,146 @@ export class MobaGame {
     ctx.textAlign = 'center';
     for (const f of this.floats) {
       ctx.globalAlpha = Math.max(0, Math.min(1, f.life / 0.5));
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
       ctx.fillStyle = f.color;
       ctx.font = `bold ${Math.round(f.size * scale + 4)}px sans-serif`;
+      ctx.strokeText(f.text, toX(f.x), toY(f.y));
       ctx.fillText(f.text, toX(f.x), toY(f.y));
     }
     ctx.globalAlpha = 1;
 
-    // 死亡遮罩
     if (this.player.dead) this.drawRespawn(ctx, cssW, cssH);
-
     this.drawMinimap(ctx, cssW);
   }
 
-  private drawTerrain(ctx: CanvasRenderingContext2D, toX: (n: number) => number, toY: (n: number) => number, scale: number) {
-    ctx.fillStyle = '#12331f';
-    ctx.fillRect(0, 0, 5000, 5000);
-    // 河道分界（中路）
+  private drawTerrain(
+    ctx: CanvasRenderingContext2D,
+    toX: (n: number) => number,
+    toY: (n: number) => number,
+    scale: number,
+    camX: number,
+    camY: number,
+    halfW: number,
+    halfH: number,
+  ) {
+    const w = halfW * 2 * scale + 4;
+    // 草地底色渐变
+    const grad = ctx.createLinearGradient(0, toY(0), 0, toY(WORLD.h));
+    grad.addColorStop(0, '#2a5a34');
+    grad.addColorStop(0.5, '#245029');
+    grad.addColorStop(1, '#2a5a34');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w + 8, halfH * 2 * scale + 8);
+
+    const hash = (i: number, j: number) => {
+      const n = Math.sin(i * 127.1 + j * 311.7) * 43758.5453;
+      return n - Math.floor(n);
+    };
+    // 草地纹理（网格散点，随视野裁剪）
+    const step = 46;
+    const x0 = Math.floor((camX - halfW) / step) * step;
+    const x1 = camX + halfW;
+    const y0 = Math.floor((camY - halfH) / step) * step;
+    const y1 = camY + halfH;
+    for (let gx = x0; gx <= x1; gx += step) {
+      for (let gy = y0; gy <= y1; gy += step) {
+        const h1 = hash(gx, gy);
+        const jx = gx + (hash(gx + 1, gy) - 0.5) * step * 0.8;
+        const jy = gy + (hash(gx, gy + 1) - 0.5) * step * 0.8;
+        const sx = toX(jx);
+        const sy = toY(jy);
+        const light = h1 > 0.5;
+        ctx.fillStyle = light ? 'rgba(120,190,110,0.18)' : 'rgba(20,55,25,0.22)';
+        ctx.beginPath();
+        ctx.ellipse(sx, sy, 4 * scale, 2.4 * scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // 兵线：石板路
+    const laneW = 150 * scale;
+    const lx = toX(LANEcenter);
+    ctx.fillStyle = '#7c6a4d';
+    ctx.fillRect(lx - laneW / 2, 0, laneW, halfH * 2 * scale + 8);
+    ctx.fillStyle = '#8a7757';
+    ctx.fillRect(lx - laneW / 2 + 3, 0, laneW - 6, halfH * 2 * scale + 8);
+    // 石板横缝
+    ctx.strokeStyle = 'rgba(60,50,35,0.4)';
+    ctx.lineWidth = 1;
+    const brick = 46 * scale;
+    for (let sy = toY(0) % brick; sy < halfH * 2 * scale + 8; sy += brick) {
+      ctx.beginPath();
+      ctx.moveTo(lx - laneW / 2, sy);
+      ctx.lineTo(lx + laneW / 2, sy);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(40,32,20,0.5)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(lx - laneW / 2, toY(LAYOUT.enemyBase.y), laneW, toY(LAYOUT.allyBase.y) - toY(LAYOUT.enemyBase.y));
+
+    // 河道（中路，带流动高光）
     const midY = (LAYOUT.enemyT1.y + LAYOUT.allyT1.y) / 2;
-    ctx.fillStyle = '#123a4a';
-    ctx.fillRect(0, toY(midY - 70), 5000, 140 * scale);
-    // 兵线道路
-    ctx.strokeStyle = '#caa14e';
-    ctx.lineWidth = 150 * scale;
-    ctx.globalAlpha = 0.28;
-    ctx.beginPath();
-    ctx.moveTo(toX(LANEcenter), toY(LAYOUT.enemyBase.y));
-    ctx.lineTo(toX(LANEcenter), toY(LAYOUT.allyBase.y));
-    ctx.stroke();
+    const riverTop = toY(midY - 95);
+    const riverH = 190 * scale;
+    ctx.fillStyle = '#1f5f74';
+    ctx.fillRect(0, riverTop, w + 8, riverH);
+    ctx.fillStyle = '#2a7590';
+    ctx.fillRect(0, riverTop + riverH * 0.18, w + 8, riverH * 0.64);
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = '#bfe9f5';
+    ctx.lineWidth = 2;
+    for (let k = 0; k < 4; k++) {
+      const yy = riverTop + riverH * (0.28 + k * 0.16);
+      ctx.beginPath();
+      for (let sx = 0; sx <= w; sx += 14) {
+        const yoff = Math.sin(sx * 0.05 + this.time * 1.6 + k) * 3 * scale;
+        if (sx === 0) ctx.moveTo(sx, yy + yoff);
+        else ctx.lineTo(sx, yy + yoff);
+      }
+      ctx.stroke();
+    }
     ctx.globalAlpha = 1;
+
+    // 基地区域彩色光晕
+    for (const team of ['ally', 'enemy'] as Team[]) {
+      const b = this.baseOf(team);
+      const g = ctx.createRadialGradient(toX(b.x), toY(b.y), 0, toX(b.x), toY(b.y), 360 * scale);
+      g.addColorStop(0, team === 'ally' ? 'rgba(64,196,255,0.16)' : 'rgba(255,90,106,0.16)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w + 8, halfH * 2 * scale + 8);
+    }
+
+    // 草丛（两侧，固定散布）
+    for (let i = 0; i < 46; i++) {
+      const side = i % 2 === 0 ? 1 : -1;
+      const bx = LANEcenter + side * (150 + hash(i, 3) * 300);
+      const by = 200 + hash(i, 7) * (WORLD.h - 400);
+      if (Math.abs(by - camY) > halfH + 60 || Math.abs(bx - camX) > halfW + 60) continue;
+      const sx = toX(bx);
+      const sy = toY(by);
+      const rad = (16 + hash(i, 9) * 10) * scale;
+      ctx.fillStyle = 'rgba(10,40,18,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(sx, sy + 3, rad, rad * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = i % 3 === 0 ? '#2e6b34' : '#357a3c';
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, rad, rad * 0.72, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(150,210,140,0.25)';
+      ctx.beginPath();
+      ctx.ellipse(sx - rad * 0.3, sy - rad * 0.3, rad * 0.4, rad * 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  private shadow(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number) {
+    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, rx * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   private drawStructure(
@@ -1024,28 +1177,119 @@ export class MobaGame {
   ) {
     const c = COLORS[s.team];
     const x = toX(s.x);
-    const y = toY(s.y);
+    const gy = toY(s.y);
     const r = s.radius * scale;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = s.dead ? '#3a3f45' : c.dark;
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = s.dead ? '#555' : c.main;
-    ctx.stroke();
-    if (!s.dead) {
-      ctx.beginPath();
-      ctx.arc(x, y, r * 0.5, 0, Math.PI * 2);
-      ctx.fillStyle = c.light;
-      ctx.fill();
-      this.hpBar(ctx, x, y - r - 8, r * 2, s.hp / s.maxHp, c.main);
-      if (this.isFront(s)) {
-        ctx.strokeStyle = '#ffca28';
-        ctx.lineWidth = 2;
+    this.shadow(ctx, x, gy + 2, r * 1.05);
+
+    if (s.dead) {
+      // 废墟
+      ctx.fillStyle = '#4a4038';
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
         ctx.beginPath();
-        ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+        ctx.ellipse(x + Math.cos(a) * r * 0.5, gy + Math.sin(a) * r * 0.25, r * 0.32, r * 0.22, a, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(60,60,60,0.6)';
+      ctx.beginPath();
+      ctx.ellipse(x, gy, r * 0.7, r * 0.35, 0, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+
+    const front = this.isFront(s);
+    if (s.kind === 'base') {
+      // 水晶基地：底座平台 + 悬浮旋转水晶
+      ctx.fillStyle = '#5c5142';
+      ctx.beginPath();
+      ctx.ellipse(x, gy, r * 1.1, r * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#6f634f';
+      ctx.beginPath();
+      ctx.ellipse(x, gy - 3 * scale, r * 0.9, r * 0.42, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // 台柱
+      ctx.fillStyle = c.dark;
+      ctx.fillRect(x - r * 0.5, gy - r * 0.9, r, r * 0.9);
+      // 悬浮水晶
+      const cy = gy - r * 1.3 + Math.sin(this.time * 2) * 4 * scale;
+      const cs = r * 0.7;
+      ctx.save();
+      ctx.translate(x, cy);
+      ctx.rotate(this.time * 0.8);
+      const gg = ctx.createLinearGradient(0, -cs, 0, cs);
+      gg.addColorStop(0, c.light);
+      gg.addColorStop(1, c.main);
+      ctx.fillStyle = gg;
+      ctx.beginPath();
+      ctx.moveTo(0, -cs);
+      ctx.lineTo(cs * 0.6, 0);
+      ctx.lineTo(0, cs);
+      ctx.lineTo(-cs * 0.6, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      // 辉光
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = c.light;
+      ctx.beginPath();
+      ctx.arc(x, cy, cs * 1.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      this.hpBar(ctx, x, gy - r * 2.1, r * 2, s.hp / s.maxHp, c.main);
+    } else {
+      // 防御塔：石身 + 团队顶冠 + 能量球
+      const h = r * 2.6;
+      // 塔身梯形
+      ctx.fillStyle = '#6a6258';
+      ctx.beginPath();
+      ctx.moveTo(x - r * 0.7, gy);
+      ctx.lineTo(x - r * 0.5, gy - h);
+      ctx.lineTo(x + r * 0.5, gy - h);
+      ctx.lineTo(x + r * 0.7, gy);
+      ctx.closePath();
+      ctx.fill();
+      // 亮面
+      ctx.fillStyle = '#7c746a';
+      ctx.beginPath();
+      ctx.moveTo(x - r * 0.5, gy - h);
+      ctx.lineTo(x, gy - h);
+      ctx.lineTo(x + r * 0.1, gy);
+      ctx.lineTo(x - r * 0.7, gy);
+      ctx.closePath();
+      ctx.fill();
+      // 砖缝
+      ctx.strokeStyle = 'rgba(40,36,30,0.4)';
+      ctx.lineWidth = 1;
+      for (let k = 1; k < 4; k++) {
+        const yy = gy - (h * k) / 4;
+        ctx.beginPath();
+        ctx.moveTo(x - r * (0.7 - 0.05 * k), yy);
+        ctx.lineTo(x + r * (0.7 - 0.05 * k), yy);
         ctx.stroke();
       }
+      // 顶冠（团队色）
+      ctx.fillStyle = c.dark;
+      ctx.fillRect(x - r * 0.62, gy - h - r * 0.34, r * 1.24, r * 0.4);
+      ctx.fillStyle = c.main;
+      for (let k = 0; k < 3; k++) {
+        ctx.fillRect(x - r * 0.62 + k * r * 0.46, gy - h - r * 0.6, r * 0.3, r * 0.3);
+      }
+      // 能量球
+      const oy = gy - h - r * 0.05;
+      ctx.fillStyle = c.light;
+      ctx.beginPath();
+      ctx.arc(x, oy, r * 0.26 + Math.sin(this.time * 3) * scale, 0, Math.PI * 2);
+      ctx.fill();
+      this.hpBar(ctx, x, gy - h - r * 0.9, r * 1.7, s.hp / s.maxHp, c.main);
+    }
+
+    if (front) {
+      ctx.strokeStyle = 'rgba(255,202,40,0.9)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.ellipse(x, gy, r * 1.15, r * 0.55, 0, 0, Math.PI * 2);
+      ctx.stroke();
     }
   }
 
@@ -1058,16 +1302,67 @@ export class MobaGame {
   ) {
     const c = COLORS[m.team];
     const x = toX(m.x);
-    const y = toY(m.y);
-    const r = Math.max(4, m.radius * scale);
+    const gy = toY(m.y);
+    const u = Math.max(3.2, 9 * scale); // 基本单位
+    const phase = this.time * 7 + m.seed;
+    const bob = Math.abs(Math.sin(phase)) * u * 0.28;
+    const fwd = m.team === 'ally' ? -1 : 1; // 前进方向（屏幕 y）
+    this.shadow(ctx, x, gy + 1, u * 1.15);
+
+    const bodyTop = gy - bob;
+    // 腿
+    ctx.strokeStyle = '#3a3027';
+    ctx.lineWidth = Math.max(1.5, u * 0.34);
+    const legSwing = Math.sin(phase) * u * 0.4;
     ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = c.main;
-    ctx.fill();
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = c.dark;
+    ctx.moveTo(x - u * 0.25, bodyTop - u * 0.7);
+    ctx.lineTo(x - u * 0.25 + legSwing, gy);
+    ctx.moveTo(x + u * 0.25, bodyTop - u * 0.7);
+    ctx.lineTo(x + u * 0.25 - legSwing, gy);
     ctx.stroke();
-    if (m.hp < m.maxHp) this.hpBar(ctx, x, y - r - 5, r * 2.2, m.hp / m.maxHp, c.light);
+    // 躯干（团队战袍）
+    ctx.fillStyle = c.main;
+    this.roundRectPath(ctx, x - u * 0.55, bodyTop - u * 1.9, u * 1.1, u * 1.35, u * 0.3);
+    ctx.fill();
+    ctx.fillStyle = c.dark;
+    ctx.fillRect(x - u * 0.55, bodyTop - u * 0.9, u * 1.1, u * 0.35); // 腰带
+    // 手臂 + 武器（长矛）
+    const sw = m.swing > 0 ? m.swing : 0;
+    const armY = bodyTop - u * 1.5;
+    const tip = fwd * (u * 1.6 + sw * u * 1.2);
+    ctx.strokeStyle = '#caa14e';
+    ctx.lineWidth = Math.max(1, u * 0.22);
+    ctx.beginPath();
+    ctx.moveTo(x + u * 0.4, armY);
+    ctx.lineTo(x + u * 0.4, armY + tip);
+    ctx.stroke();
+    ctx.fillStyle = '#d8dde3';
+    ctx.beginPath();
+    ctx.arc(x + u * 0.4, armY + tip, u * 0.22, 0, Math.PI * 2);
+    ctx.fill();
+    // 头 + 头盔
+    ctx.fillStyle = '#e8b98f';
+    ctx.beginPath();
+    ctx.arc(x, bodyTop - u * 2.25, u * 0.52, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = c.dark;
+    ctx.beginPath();
+    ctx.arc(x, bodyTop - u * 2.42, u * 0.55, Math.PI, Math.PI * 2);
+    ctx.fill();
+
+    if (m.hp < m.maxHp) this.hpBar(ctx, x, bodyTop - u * 3.1, u * 1.8, m.hp / m.maxHp, c.light);
+  }
+
+  private roundRectPath(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    r: number,
+  ) {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
   }
 
   private drawHero(
@@ -1079,35 +1374,147 @@ export class MobaGame {
   ) {
     const c = COLORS[h.team];
     const x = toX(h.x);
-    const y = toY(h.y);
-    const r = h.radius * scale;
-    // 朝向
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + h.faceX * r * 1.7, y + h.faceY * r * 1.7);
-    ctx.strokeStyle = c.light;
-    ctx.lineWidth = 4;
-    ctx.stroke();
-    // 身体
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = c.main;
-    ctx.fill();
+    const gy = toY(h.y);
+    const u = h.radius * scale * 0.95;
+
+    this.shadow(ctx, x, gy + 2, u * 1.35);
+
+    // 脚下标记环
+    ctx.save();
+    ctx.translate(x, gy);
+    ctx.scale(1, 0.45);
+    ctx.rotate(this.time * (h.isPlayer ? 1.3 : -1.0));
+    ctx.strokeStyle = h.isPlayer ? '#ffd54f' : c.main;
     ctx.lineWidth = 3;
-    ctx.strokeStyle = h.isPlayer ? '#fff' : c.dark;
-    ctx.stroke();
-    // 等级
-    ctx.fillStyle = '#0b1b12';
     ctx.beginPath();
-    ctx.arc(x - r, y - r, 9, 0, Math.PI * 2);
+    for (let k = 0; k < 3; k++) {
+      const a = (k / 3) * Math.PI * 2;
+      ctx.moveTo(Math.cos(a) * u * 1.3, Math.sin(a) * u * 1.3);
+      ctx.arc(0, 0, u * 1.3, a, a + 0.9);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    const bob = Math.abs(Math.sin(h.walk)) * u * 0.22;
+    const top = gy - bob;
+    const side = h.faceX >= 0 ? 1 : -1;
+
+    // 披风
+    ctx.fillStyle = c.dark;
+    ctx.beginPath();
+    ctx.moveTo(x - u * 0.55, top - u * 2.5);
+    ctx.quadraticCurveTo(x - u * (1.1 + Math.sin(this.time * 4) * 0.15), top - u * 0.6, x - u * 0.3, top);
+    ctx.lineTo(x + u * 0.3, top);
+    ctx.quadraticCurveTo(x + u * (1.1 + Math.sin(this.time * 4 + 1) * 0.15), top - u * 0.6, x + u * 0.55, top - u * 2.5);
+    ctx.closePath();
     ctx.fill();
+
+    // 腿
+    ctx.strokeStyle = '#2c2a33';
+    ctx.lineWidth = u * 0.4;
+    const legSwing = Math.sin(h.walk) * u * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x - u * 0.3, top - u * 0.9);
+    ctx.lineTo(x - u * 0.3 + legSwing, gy);
+    ctx.moveTo(x + u * 0.3, top - u * 0.9);
+    ctx.lineTo(x + u * 0.3 - legSwing, gy);
+    ctx.stroke();
+
+    // 躯干护甲
+    const g = ctx.createLinearGradient(x - u, 0, x + u, 0);
+    g.addColorStop(0, c.dark);
+    g.addColorStop(0.5, c.main);
+    g.addColorStop(1, c.dark);
+    ctx.fillStyle = g;
+    this.roundRectPath(ctx, x - u * 0.7, top - u * 2.5, u * 1.4, u * 1.75, u * 0.4);
+    ctx.fill();
+    // 胸甲高光
+    ctx.fillStyle = h.isPlayer ? '#ffe9a8' : c.light;
+    ctx.beginPath();
+    ctx.moveTo(x, top - u * 2.2);
+    ctx.lineTo(x + u * 0.28, top - u * 1.7);
+    ctx.lineTo(x, top - u * 1.2);
+    ctx.lineTo(x - u * 0.28, top - u * 1.7);
+    ctx.closePath();
+    ctx.fill();
+    // 肩甲
+    ctx.fillStyle = c.light;
+    ctx.beginPath();
+    ctx.arc(x - u * 0.72, top - u * 2.3, u * 0.42, 0, Math.PI * 2);
+    ctx.arc(x + u * 0.72, top - u * 2.3, u * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 武器（大剑）+ 挥砍
+    const chestY = top - u * 1.9;
+    const sw = h.swing;
+    ctx.save();
+    ctx.translate(x + side * u * 0.75, chestY);
+    const rest = side * 0.4;
+    const raise = side * (-1.9);
+    const ang = rest + (raise - rest) * sw;
+    ctx.rotate(ang);
+    // 剑
+    ctx.fillStyle = '#e6ebf2';
+    this.roundRectPath(ctx, -u * 0.12, -u * 2.4, u * 0.24, u * 2.4, u * 0.1);
+    ctx.fill();
+    ctx.fillStyle = '#b8c0cc';
+    ctx.fillRect(-u * 0.05, -u * 2.4, u * 0.05, u * 2.4);
+    ctx.fillStyle = '#8a6d3b'; // 护手
+    ctx.fillRect(-u * 0.4, -u * 0.15, u * 0.8, u * 0.18);
+    ctx.restore();
+    // 挥砍弧光
+    if (sw > 0.35) {
+      ctx.globalAlpha = (sw - 0.35) * 1.2;
+      ctx.strokeStyle = c.light;
+      ctx.lineWidth = u * 0.5;
+      ctx.beginPath();
+      ctx.arc(x, chestY, u * 2.1, side > 0 ? -1.2 : Math.PI + 0.0, side > 0 ? 0.6 : Math.PI + 1.2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // 头 + 头盔 + 面甲
+    const headY = top - u * 3.1;
+    ctx.fillStyle = '#e8b98f';
+    ctx.beginPath();
+    ctx.arc(x, headY, u * 0.62, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = c.main;
+    ctx.beginPath();
+    ctx.arc(x, headY - u * 0.12, u * 0.66, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.fill();
+    ctx.fillRect(x - u * 0.66, headY - u * 0.18, u * 1.32, u * 0.16);
+    // 头冠/羽饰
+    ctx.fillStyle = h.isPlayer ? '#ffd54f' : '#7a1f24';
+    ctx.beginPath();
+    ctx.moveTo(x, headY - u * 1.35);
+    ctx.lineTo(x + u * 0.18, headY - u * 0.7);
+    ctx.lineTo(x - u * 0.18, headY - u * 0.7);
+    ctx.closePath();
+    ctx.fill();
+
+    // 等级徽章
+    const bx = x - u * 1.1;
+    const by = headY - u * 0.2;
+    ctx.fillStyle = '#12100a';
+    ctx.beginPath();
+    ctx.arc(bx, by, u * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#ffca28';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
     ctx.fillStyle = '#ffe082';
-    ctx.font = 'bold 11px sans-serif';
+    ctx.font = `bold ${Math.round(u * 0.7)}px sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText(h.level.toString(), x - r, y - r + 4);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(h.level.toString(), bx, by + 0.5);
+    ctx.textBaseline = 'alphabetic';
+
     // 血/蓝条
-    this.hpBar(ctx, x, y - r - 12, r * 2.4, h.hp / h.maxHp, c.main);
-    this.hpBar(ctx, x, y - r - 6, r * 2.4, h.mana / h.maxMana, '#5c6bc0', true);
+    const barY = headY - u * 1.7;
+    const bw = Math.max(u * 3, 42 * scale);
+    this.hpBar(ctx, x, barY, bw, h.hp / h.maxHp, h.isPlayer ? '#66bb6a' : c.main);
+    this.hpBar(ctx, x, barY + bw * 0.11, bw, h.mana / h.maxMana, '#5c6bc0', true);
   }
 
   private hpBar(
