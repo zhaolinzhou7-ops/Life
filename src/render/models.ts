@@ -2,14 +2,49 @@ import * as THREE from 'three';
 import { cellKey, cellToWorld, type MapLayout } from '../maps/maps';
 
 /** 共享材质缓存，避免重复创建 */
-const matCache = new Map<number, THREE.MeshLambertMaterial>();
-export function mat(color: number): THREE.MeshLambertMaterial {
+const matCache = new Map<number, THREE.MeshStandardMaterial>();
+export function mat(color: number): THREE.MeshStandardMaterial {
   let m = matCache.get(color);
   if (!m) {
-    m = new THREE.MeshLambertMaterial({ color });
+    // 用 Standard 材质：在阴影 + 色调映射下有更自然的明暗与高光，观感优于 Lambert
+    m = new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0.05 });
     matCache.set(color, m);
   }
   return m;
+}
+
+/** 程序化草地贴图：给大地面加入细微斑驳，避免一整块死板的纯色 */
+let grassTex: THREE.CanvasTexture | null = null;
+function groundTexture(): THREE.CanvasTexture {
+  if (grassTex) return grassTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#5da24a';
+  ctx.fillRect(0, 0, 128, 128);
+  const tints = ['rgba(84,146,63,0.55)', 'rgba(110,180,82,0.45)', 'rgba(72,124,56,0.45)'];
+  for (let i = 0; i < 1100; i++) {
+    ctx.fillStyle = tints[Math.floor(Math.random() * tints.length)];
+    ctx.beginPath();
+    ctx.arc(Math.random() * 128, Math.random() * 128, 1 + Math.random() * 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  grassTex = tex;
+  return tex;
+}
+
+/** 递归设置一组网格的投影/受影标记 */
+function setShadow(obj: THREE.Object3D, cast: boolean, receive: boolean) {
+  obj.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if ((m as unknown as { isMesh?: boolean }).isMesh) {
+      m.castShadow = cast;
+      m.receiveShadow = receive;
+    }
+  });
 }
 
 const COLORS = {
@@ -30,12 +65,15 @@ export function buildTerrain(layout: MapLayout): THREE.Group {
   const g = new THREE.Group();
   const { def, road, build } = layout;
 
-  // 大地面
+  // 大地面（带程序化草地贴图）
+  const gTex = groundTexture();
+  gTex.repeat.set((def.cols + 6) / 3, (def.rows + 6) / 3);
   const ground = new THREE.Mesh(
     new THREE.BoxGeometry(def.cols + 6, 0.5, def.rows + 6),
-    mat(COLORS.grass),
+    new THREE.MeshStandardMaterial({ map: gTex, roughness: 0.95, metalness: 0 }),
   );
   ground.position.y = -0.25;
+  ground.name = 'ground';
   g.add(ground);
 
   const roadGeo = new THREE.BoxGeometry(1, 0.24, 1);
@@ -75,6 +113,10 @@ export function buildTerrain(layout: MapLayout): THREE.Group {
   base.position.set(layout.end.x, 0, layout.end.z);
   g.add(base);
 
+  // 地形整体投/受阴影；大地面只接收、不投射（避免自阴影瑕疵）
+  setShadow(g, true, true);
+  ground.castShadow = false;
+
   return g;
 }
 
@@ -102,17 +144,28 @@ function makeRock(): THREE.Group {
   return g;
 }
 
-/** 敌人出生口：暗色传送门拱环 */
+/** 敌人出生口：发光传送门拱环 */
 function makePortal(): THREE.Group {
   const g = new THREE.Group();
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.09, 8, 16), mat(0x7b1fa2));
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.5, 0.09, 10, 20),
+    new THREE.MeshStandardMaterial({
+      color: 0x9c27b0,
+      emissive: 0xab47bc,
+      emissiveIntensity: 1.1,
+      roughness: 0.4,
+      metalness: 0.3,
+    }),
+  );
   ring.position.y = 0.6;
+  ring.castShadow = true;
   g.add(ring);
   const core = new THREE.Mesh(
-    new THREE.CircleGeometry(0.42, 16),
-    new THREE.MeshBasicMaterial({ color: 0x4a148c, side: THREE.DoubleSide }),
+    new THREE.CircleGeometry(0.42, 20),
+    new THREE.MeshBasicMaterial({ color: 0x7e3ff2, side: THREE.DoubleSide, transparent: true, opacity: 0.85 }),
   );
   core.position.y = 0.6;
+  core.name = 'portalCore';
   g.add(core);
   return g;
 }
@@ -125,10 +178,17 @@ function makeBase(): THREE.Group {
   g.add(pedestal);
   const crystal = new THREE.Mesh(
     new THREE.OctahedronGeometry(0.42, 0),
-    new THREE.MeshLambertMaterial({ color: 0x40c4ff, emissive: 0x0288d1 }),
+    new THREE.MeshStandardMaterial({
+      color: 0x40c4ff,
+      emissive: 0x29b6f6,
+      emissiveIntensity: 1.4,
+      roughness: 0.25,
+      metalness: 0.1,
+    }),
   );
   crystal.position.y = 0.95;
   crystal.name = 'crystal';
+  crystal.castShadow = false;
   g.add(crystal);
   return g;
 }
@@ -225,7 +285,13 @@ export function makeTowerMesh(kind: TowerKind, level: number): THREE.Group {
       const coreY = 0.48 + 0.5 * h + 0.14;
       const core = new THREE.Mesh(
         new THREE.OctahedronGeometry(0.2 + level * 0.04, 0),
-        new THREE.MeshLambertMaterial({ color: 0xb3e5fc, emissive: 0x29b6f6, emissiveIntensity: 0.7 }),
+        new THREE.MeshStandardMaterial({
+          color: 0xb3e5fc,
+          emissive: 0x29b6f6,
+          emissiveIntensity: 1.3,
+          roughness: 0.3,
+          metalness: 0.1,
+        }),
       );
       core.position.y = coreY;
       core.name = 'spin';
@@ -257,7 +323,13 @@ export function makeTowerMesh(kind: TowerKind, level: number): THREE.Group {
       }
       const orb = new THREE.Mesh(
         new THREE.SphereGeometry(0.15 + level * 0.03, 12, 10),
-        new THREE.MeshLambertMaterial({ color: 0xfff59d, emissive: 0xfbc02d, emissiveIntensity: 0.85 }),
+        new THREE.MeshStandardMaterial({
+          color: 0xfff59d,
+          emissive: 0xfbc02d,
+          emissiveIntensity: 1.5,
+          roughness: 0.35,
+          metalness: 0.2,
+        }),
       );
       orb.position.y = topY + 0.05 + 3 * 0.09 + 0.16;
       orb.name = 'spin';
@@ -277,6 +349,7 @@ export function makeTowerMesh(kind: TowerKind, level: number): THREE.Group {
     ring.position.y = 0.13 + i * 0.1;
     g.add(ring);
   }
+  setShadow(g, true, true);
   return g;
 }
 
@@ -445,6 +518,7 @@ export function makeEnemyMesh(kind: EnemyKind): THREE.Group {
       break;
     }
   }
+  setShadow(g, true, false);
   return g;
 }
 

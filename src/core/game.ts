@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { CameraRig } from '../render/camera';
 import { buildTerrain, mat } from '../render/models';
 import { cellKey, cellToWorld, computeLayout, worldToCell, type MapDef, type MapLayout } from '../maps/maps';
@@ -54,6 +58,8 @@ export interface GameResult {
 export class Battle {
   private scene = new THREE.Scene();
   private renderer: THREE.WebGLRenderer;
+  private composer!: EffectComposer;
+  private bloom!: UnrealBloomPass;
   private rig: CameraRig;
   private hud: Hud;
   private layout: MapLayout;
@@ -108,21 +114,46 @@ export class Battle {
     this.lives = d.lives;
     this.maxLives = d.lives;
 
-    // 渲染器
+    // 渲染器：开启阴影 + ACES 电影级色调映射，画面更通透、明暗更有层次
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setClearColor(0x0f1720);
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
 
     // 灯光与天空
     this.scene.background = makeSkyTexture();
-    this.scene.fog = new THREE.Fog(0x1b3145, 26, 52);
-    const hemi = new THREE.HemisphereLight(0xbcd6ff, 0x24303a, 0.9);
+    this.scene.fog = new THREE.Fog(0x16283a, 30, 60);
+
+    // 天空/地面环境光，奠定冷暖基调
+    const hemi = new THREE.HemisphereLight(0xdcecff, 0x2b3a2c, 0.85);
     this.scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.0);
-    sun.position.set(6, 14, 8);
+
+    // 暖色主光（太阳），投射柔和阴影
+    const sun = new THREE.DirectionalLight(0xfff0d0, 2.4);
+    sun.position.set(9, 17, 10);
+    sun.castShadow = true;
+    const ext = Math.max(def.cols, def.rows) / 2 + 4.5;
+    const sc = sun.shadow.camera;
+    sc.left = -ext;
+    sc.right = ext;
+    sc.top = ext;
+    sc.bottom = -ext;
+    sc.near = 1;
+    sc.far = 64;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.025;
     this.scene.add(sun);
+
+    // 冷色补光，从反侧打亮暗部，增强体积感
+    const fill = new THREE.DirectionalLight(0x8fb8ff, 0.55);
+    fill.position.set(-8, 6, -7);
+    this.scene.add(fill);
 
     // 地形
     this.scene.add(buildTerrain(this.layout));
@@ -140,6 +171,19 @@ export class Battle {
     this.rig = new CameraRig(window.innerWidth / window.innerHeight, this.renderer.domElement, def.cols, def.rows);
     this.rig.focus(new THREE.Vector3(0, 0, 0));
     this.rig.onTap = (x, y) => this.handleTap(x, y);
+
+    // 后期处理：Bloom 让水晶基地、法术核心、发光眼睛等自发光元素真正“亮”起来
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.addPass(new RenderPass(this.scene, this.rig.camera));
+    this.bloom = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      0.6, // 强度
+      0.55, // 扩散半径
+      0.82, // 阈值：只有较亮的自发光才会溢光
+    );
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
 
     // HUD
     this.hud = new Hud({
@@ -161,6 +205,8 @@ export class Battle {
 
   private onResize = () => {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+    this.bloom.setSize(window.innerWidth, window.innerHeight);
     this.rig.resize(window.innerWidth / window.innerHeight);
   };
 
@@ -314,7 +360,7 @@ export class Battle {
       const steps = this.speed;
       for (let i = 0; i < steps; i++) this.step(dt);
     }
-    this.renderer.render(this.scene, this.rig.camera);
+    this.composer.render();
   };
 
   private step(dt: number) {
@@ -504,6 +550,7 @@ export class Battle {
     window.removeEventListener('resize', this.onResize);
     this.rig.dispose();
     this.hud.dispose();
+    this.composer.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.scene.traverse((o) => {
