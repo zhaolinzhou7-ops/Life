@@ -26,6 +26,12 @@ async function launchMoba() {
   });
 }
 
+async function launchSing() {
+  clear();
+  const { bootSing } = await import('./sing/index');
+  dispose = bootSing(app, showHome);
+}
+
 function showHome() {
   clear();
   const screen = document.createElement('div');
@@ -39,10 +45,16 @@ function showHome() {
 
   const games = [
     {
+      title: '🎤 唱吧减压 · 学唱歌',
+      desc: '上班压力大就唱出来：引导呼吸开嗓、音准训练、声控小鸟，还有跟唱打分卡拉 OK。',
+      go: launchSing,
+      tag: 'NEW',
+    },
+    {
       title: '⚔️ 手机 MOBA · 一路推塔',
       desc: '虚拟摇杆走位，四个技能连招，带兵推塔，摧毁敌方水晶取胜。1v1 单人对战 AI。',
       go: launchMoba,
-      tag: 'NEW',
+      tag: '',
     },
     {
       title: '🏹 塔防远征 · 3D 塔防',
