@@ -41,6 +41,15 @@ async function launchXiangqi() {
   });
 }
 
+async function launchMahjong() {
+  clear();
+  const { bootMahjong } = await import('./mahjong/index');
+  dispose = bootMahjong(app, (restart) => {
+    if (restart) launchMahjong();
+    else showHome();
+  });
+}
+
 function showHome() {
   clear();
   const screen = document.createElement('div');
@@ -53,6 +62,12 @@ function showHome() {
   list.className = 'card-list';
 
   const games = [
+    {
+      title: '🀄 四川麻将 · 血战到底',
+      desc: '3D 麻将桌实景，定缺、碰杠、自摸血战到底，和 3 个 AI 打一圈。',
+      go: launchMahjong,
+      tag: 'NEW',
+    },
     {
       title: '♟️ 中国象棋 · 3D 对弈',
       desc: '3D 木纹棋盘、立体棋子与走子动画，楚河汉界排兵布阵，单人对战 AI。',
