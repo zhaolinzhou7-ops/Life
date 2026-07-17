@@ -1,5 +1,5 @@
-/** 麻将 AI：定缺、出牌与碰杠决策（启发式） */
-import { suitOf, rankOf, type Counts, type TileId } from './rules';
+/** 麻将 AI：定缺、出牌与碰杠决策（听牌优先 + 搭子启发式） */
+import { suitOf, rankOf, waitingTiles, type Counts, type TileId } from './rules';
 
 /** 定缺：选牌最少的一门 */
 export function chooseLack(c: Counts): number {
@@ -29,26 +29,41 @@ function tileValue(c: Counts, t: TileId): number {
   return v;
 }
 
-/** 选择要打的牌：先清缺门，再打价值最低的 */
-export function chooseDiscard(c: Counts, lack: number): TileId {
+/** 选择要打的牌：先清缺门；否则优先打出后能听牌（听口越宽越好）的牌，再退回搭子价值 */
+export function chooseDiscard(c: Counts, lack: number, noMelds = true): TileId {
+  // 有缺门必须先打缺门（打价值最低的那张）
   let lackBest = -1;
   let lackVal = Infinity;
-  let best = -1;
-  let bestVal = Infinity;
   for (let t = 0; t < 27; t++) {
-    if (c[t] === 0) continue;
-    const v = tileValue(c, t);
-    if (suitOf(t) === lack) {
+    if (c[t] > 0 && suitOf(t) === lack) {
+      const v = tileValue(c, t);
       if (v < lackVal) {
         lackVal = v;
         lackBest = t;
       }
-    } else if (v < bestVal) {
+    }
+  }
+  if (lackBest >= 0) return lackBest;
+
+  // 尝试每种打法：能听牌的打法绝对优先，听的张数（含剩余枚数权重）越多越好
+  let best = -1;
+  let bestWaits = -1;
+  let bestVal = Infinity;
+  for (let t = 0; t < 27; t++) {
+    if (c[t] === 0) continue;
+    c[t]--;
+    const waits = waitingTiles(c, noMelds, lack);
+    let w = 0;
+    for (const wt of waits) w += 4 - c[wt]; // 剩余可摸/可点的枚数
+    c[t]++;
+    const v = tileValue(c, t);
+    if (w > bestWaits || (w === bestWaits && v < bestVal)) {
+      bestWaits = w;
       bestVal = v;
       best = t;
     }
   }
-  return lackBest >= 0 ? lackBest : best;
+  return best;
 }
 
 /** 是否碰：缺门牌不碰；对对倾向或边张更愿意碰 */

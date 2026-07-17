@@ -11,6 +11,20 @@ import {
 } from './rules';
 import { bestMove } from './ai';
 import { XiangqiScene } from './scene3d';
+import {
+  isMuted,
+  setMuted,
+  sfxAlert,
+  sfxCapture,
+  sfxKnock,
+  sfxLose,
+  sfxTap,
+  sfxWin,
+  speak,
+  startBgm,
+  stopBgm,
+  unlockAudio,
+} from '../gamesfx';
 
 export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void): () => void {
   const wrap = document.createElement('div');
@@ -35,6 +49,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     <button class="moba-back xq-back">← 退出</button>
     <div class="xq-turn"><span id="xq-turn-dot"></span><span id="xq-turn-text">红方走棋</span></div>
     <div class="xq-actions">
+      <button class="xq-btn" id="xq-mute">${isMuted() ? '🔇' : '🔊'}</button>
       <button class="xq-btn" id="xq-undo">悔棋</button>
       <button class="xq-btn" id="xq-restart">重开</button>
     </div>`;
@@ -42,6 +57,18 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   (hud.querySelector('.xq-back') as HTMLButtonElement).onclick = () => onExit(false);
   (hud.querySelector('#xq-undo') as HTMLButtonElement).onclick = () => undo();
   (hud.querySelector('#xq-restart') as HTMLButtonElement).onclick = () => restart();
+  const muteBtn = hud.querySelector('#xq-mute') as HTMLButtonElement;
+  muteBtn.onclick = () => {
+    setMuted(!isMuted());
+    muteBtn.textContent = isMuted() ? '🔇' : '🔊';
+  };
+
+  // 首次手势解锁音频 + 古琴背景乐
+  const unlock = () => {
+    unlockAudio();
+    startBgm('guqin');
+  };
+  window.addEventListener('pointerdown', unlock, { once: true });
 
   const toast = document.createElement('div');
   toast.className = 'moba-toast xq-toast';
@@ -76,6 +103,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     }
     if (p && p.c === 'r') {
       selected = { x, y };
+      sfxTap();
       const moves = legalMoves(board, 'r').filter((m) => m.fx === x && m.fy === y);
       scene.select(selected, moves.map((m) => ({ x: m.tx, y: m.ty, capture: !!board[m.ty][m.tx] })));
     } else {
@@ -87,11 +115,14 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   function doMove(m: Move) {
     busy = true;
     selected = null;
+    const captured = !!board[m.ty][m.tx];
     history.push(board);
     board = applyMove(board, m);
     turn = turn === 'r' ? 'b' : 'r';
     scene.hideCheck();
     scene.animateMove(m, () => {
+      if (captured) sfxCapture();
+      else sfxKnock();
       busy = false;
       afterMove();
     });
@@ -110,6 +141,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       const k = findKing(board, turn);
       if (k) scene.flashCheck(k[0], k[1]);
       showToast('将军！');
+      sfxAlert();
+      speak('将军');
     }
     if (turn === 'b') {
       setTurnUI(true);
@@ -153,6 +186,12 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
   let resultEl: HTMLElement | null = null;
   function showResult(playerWon: boolean) {
+    if (playerWon) {
+      sfxWin();
+      speak('绝杀，红方胜');
+    } else {
+      sfxLose();
+    }
     const s = document.createElement('div');
     s.className = 'screen moba-result';
     s.innerHTML = `
@@ -177,6 +216,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   return () => {
     clearTimeout(aiTimer);
     clearTimeout(toastTimer);
+    window.removeEventListener('pointerdown', unlock);
+    stopBgm();
     scene.dispose();
     wrap.remove();
   };

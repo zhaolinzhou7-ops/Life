@@ -123,6 +123,28 @@ function faceTex(t: TileId): THREE.CanvasTexture {
   return tex;
 }
 
+/** 绿呢桌布纹理：中心亮四周暗 + 细噪点 */
+function makeFeltTexture(): THREE.CanvasTexture {
+  const S = 512;
+  const cv = document.createElement('canvas');
+  cv.width = S;
+  cv.height = S;
+  const g = cv.getContext('2d')!;
+  const rad = g.createRadialGradient(S / 2, S / 2, S * 0.1, S / 2, S / 2, S * 0.72);
+  rad.addColorStop(0, '#2c8a58');
+  rad.addColorStop(0.6, '#1e6b45');
+  rad.addColorStop(1, '#14492f');
+  g.fillStyle = rad;
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 2600; i++) {
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.04)';
+    g.fillRect(Math.random() * S, Math.random() * S, 1.4, 1.4);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 let ivoryMat: THREE.MeshStandardMaterial | null = null;
 let backMat: THREE.MeshStandardMaterial | null = null;
 function sharedMats() {
@@ -164,6 +186,10 @@ export class MahjongScene {
   private clock = new THREE.Clock();
 
   private handRoot = new THREE.Group(); // 玩家手牌
+  private handScene = new THREE.Scene(); // 手牌独立正交层
+  private handCam!: THREE.OrthographicCamera;
+  private handHalfW = 6.1;
+  private handHalfH = 13;
   private handMeshes: THREE.Mesh[] = [];
   private selectedIdx = -1;
   private oppRoots: THREE.Group[] = []; // 三家牌背
@@ -171,6 +197,7 @@ export class MahjongScene {
   private discardCounts = [0, 0, 0, 0];
   private meldRoots: THREE.Group[] = [];
   private winRoots: THREE.Group[] = [];
+  private flashRing!: THREE.Mesh;
 
   constructor(
     container: HTMLElement,
@@ -204,10 +231,10 @@ export class MahjongScene {
     sc.far = 50;
     this.scene.add(sun);
 
-    // 桌面：绿呢 + 木边
+    // 桌面：带光照感的绿呢纹理 + 木边
     const felt = new THREE.Mesh(
       new THREE.BoxGeometry(15.4, 0.3, 15.4),
-      new THREE.MeshStandardMaterial({ color: 0x1e6b45, roughness: 0.95 }),
+      new THREE.MeshStandardMaterial({ map: makeFeltTexture(), roughness: 0.95 }),
     );
     felt.position.y = -0.15;
     felt.receiveShadow = true;
@@ -222,11 +249,40 @@ export class MahjongScene {
     // 中央装饰圈
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(1.5, 1.62, 48),
-      new THREE.MeshBasicMaterial({ color: 0x2f8f5f, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0x3aa06b, side: THREE.DoubleSide }),
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.005;
     this.scene.add(ring);
+    // 头顶暖色吊灯感
+    const lamp = new THREE.PointLight(0xffd9a0, 30, 26, 1.8);
+    lamp.position.set(0, 7.5, 0);
+    this.scene.add(lamp);
+    // 装饰牌墙：四边各两层码好的牌背
+    const { ivoryMat, backMat } = sharedMats();
+    const wallGeo = new THREE.BoxGeometry(TW, TH, TD);
+    for (let s = 0; s < 4; s++) {
+      const g = new THREE.Group();
+      g.rotation.y = (s * Math.PI) / 2;
+      for (let i = 0; i < 15; i++) {
+        for (let lv = 0; lv < 2; lv++) {
+          const m = new THREE.Mesh(wallGeo, [ivoryMat, ivoryMat, ivoryMat, ivoryMat, backMat, ivoryMat]);
+          m.position.set(-((14 * (TW + 0.02)) / 2) + i * (TW + 0.02), TD / 2 + lv * (TD + 0.01), 6.9);
+          m.rotation.x = -Math.PI / 2;
+          m.castShadow = lv === 1;
+          g.add(m);
+        }
+      }
+      this.scene.add(g);
+    }
+    // 碰杠冲击环（复用，触发时展开）
+    this.flashRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.8, 1.05, 40),
+      new THREE.MeshBasicMaterial({ color: 0xffca28, transparent: true, opacity: 0, side: THREE.DoubleSide }),
+    );
+    this.flashRing.rotation.x = -Math.PI / 2;
+    this.flashRing.position.y = 0.02;
+    this.scene.add(this.flashRing);
 
     for (let s = 0; s < 4; s++) {
       const opp = new THREE.Group();
@@ -239,7 +295,14 @@ export class MahjongScene {
       this.meldRoots.push(meld);
       this.winRoots.push(win);
     }
-    this.scene.add(this.handRoot);
+    // 手牌正交层：自带灯光，叠加渲染在桌面之上
+    this.handScene.add(this.handRoot);
+    this.handScene.add(new THREE.AmbientLight(0xffffff, 1.1));
+    const handDir = new THREE.DirectionalLight(0xfff3e0, 1.6);
+    handDir.position.set(2, 6, 8);
+    this.handScene.add(handDir);
+    this.handCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 50);
+    this.handCam.position.set(0, 0, 12);
 
     this.camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 100);
     this.fitCamera();
@@ -248,15 +311,18 @@ export class MahjongScene {
     this.loop();
   }
 
-  // ---------- 玩家手牌 ----------
-  /** 手牌行的世界坐标 */
+  // ---------- 玩家手牌（独立正交层：永远正面朝你、贴屏幕底部） ----------
+  private handBaseY() {
+    return -this.handHalfH + TH * 0.72;
+  }
+  /** 手牌行在正交层的坐标 */
   private handSlot(i: number, n: number, drawnSeparate: boolean): THREE.Vector3 {
     const isDrawn = drawnSeparate && i === n - 1;
     const baseN = drawnSeparate ? n - 1 : n;
     const w = TW + GAP;
     const x0 = -((baseN - 1) * w) / 2;
     const x = isDrawn ? x0 + baseN * w + 0.3 : x0 + i * w;
-    return new THREE.Vector3(x, TH / 2 + 0.02, 5.4);
+    return new THREE.Vector3(x, this.handBaseY(), 0);
   }
 
   setPlayerHand(tiles: TileId[], drawnSeparate: boolean) {
@@ -267,7 +333,7 @@ export class MahjongScene {
       const m = makeTile(t);
       const p = this.handSlot(i, tiles.length, drawnSeparate);
       m.position.copy(p);
-      m.rotation.x = -0.42; // 向后仰对着相机
+      m.rotation.x = -0.08; // 微微后仰，保留立体感
       m.userData.handIndex = i;
       this.handRoot.add(m);
       this.handMeshes.push(m);
@@ -276,11 +342,14 @@ export class MahjongScene {
 
   selectTile(idx: number) {
     this.handMeshes.forEach((m, i) => {
-      const from = m.position.y;
-      const to = TH / 2 + 0.02 + (i === idx ? 0.34 : 0);
-      if (Math.abs(from - to) < 0.01) return;
+      const fromY = m.position.y;
+      const toY = this.handBaseY() + (i === idx ? 0.42 : 0);
+      const fromS = m.scale.x;
+      const toS = i === idx ? 1.14 : 1;
+      if (Math.abs(fromY - toY) < 0.01 && Math.abs(fromS - toS) < 0.01) return;
       this.addTween(0.12, (k) => {
-        m.position.y = THREE.MathUtils.lerp(from, to, k);
+        m.position.y = THREE.MathUtils.lerp(fromY, toY, k);
+        m.scale.setScalar(THREE.MathUtils.lerp(fromS, toS, k));
       });
     });
     this.selectedIdx = idx;
@@ -371,6 +440,23 @@ export class MahjongScene {
     });
   }
 
+  /** 碰/杠冲击特效：该家副露区金色冲击环 + 缩放脉冲 */
+  flashMeld(seat: number) {
+    const p = new THREE.Vector3(2.6, 0.03, 4.1).applyAxisAngle(new THREE.Vector3(0, 1, 0), seatAngle(seat));
+    this.flashRing.position.set(p.x, 0.03, p.z);
+    const mat = this.flashRing.material as THREE.MeshBasicMaterial;
+    this.addTween(0.55, (k) => {
+      this.flashRing.scale.setScalar(0.6 + k * 2.6);
+      mat.opacity = (1 - k) * 0.9;
+    });
+    // 副露牌组弹跳
+    const root = this.meldRoots[seat];
+    this.addTween(0.3, (k) => {
+      const s = 1 + Math.sin(k * Math.PI) * 0.18;
+      root.scale.setScalar(s);
+    });
+  }
+
   /** 摸牌小动画：一张背牌飞向该家 */
   drawAnim(seat: number): number {
     const { ivoryMat, backMat } = sharedMats();
@@ -408,13 +494,21 @@ export class MahjongScene {
   // ---------- 内部 ----------
   private fitCamera() {
     const aspect = window.innerWidth / window.innerHeight;
-    const need = 6.6; // 需要容纳的半宽（手牌行）
+    const need = 6.6; // 桌面可视半宽
     const tanV = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     const dist = Math.max(need / (tanV * aspect), 9.5);
     this.camera.aspect = aspect;
     this.camera.position.set(0, dist * 0.86, 5.2 + dist * 0.52);
     this.camera.lookAt(0, 0, 1.1);
     this.camera.updateProjectionMatrix();
+    // 手牌正交层：宽度固定容纳 14 张 + 摸牌位，高度按屏幕比例
+    this.handHalfW = 6.1;
+    this.handHalfH = this.handHalfW / aspect;
+    this.handCam.left = -this.handHalfW;
+    this.handCam.right = this.handHalfW;
+    this.handCam.top = this.handHalfH;
+    this.handCam.bottom = -this.handHalfH;
+    this.handCam.updateProjectionMatrix();
   }
 
   private onResize = () => {
@@ -426,7 +520,7 @@ export class MahjongScene {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    this.raycaster.setFromCamera(new THREE.Vector2(nx, ny), this.camera);
+    this.raycaster.setFromCamera(new THREE.Vector2(nx, ny), this.handCam);
     const hits = this.raycaster.intersectObjects(this.handMeshes, false);
     if (hits.length > 0) {
       const idx = hits[0].object.userData.handIndex as number;
@@ -449,6 +543,11 @@ export class MahjongScene {
     const done = this.tweens.filter((t) => t.t >= t.dur);
     this.tweens = this.tweens.filter((t) => t.t < t.dur);
     for (const t of done) t.onDone?.();
+    // 双层渲染：先桌面，再手牌层（清深度叠加）
+    this.renderer.autoClear = false;
+    this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
+    this.renderer.clearDepth();
+    this.renderer.render(this.handScene, this.handCam);
   };
 }

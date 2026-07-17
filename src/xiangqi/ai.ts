@@ -84,7 +84,7 @@ export function bestMove(b: Board, color: Color, depth = 4): Move | null {
   const beta = Infinity;
   for (const m of moves) {
     const nb = applyMove(b, m);
-    const val = -negamax(nb, other(color), depth - 1, -beta, -alpha) + (Math.random() * 6 - 3);
+    const val = -negamax(nb, other(color), depth - 1, -beta, -alpha) + (Math.random() * 2 - 1);
     if (val > bestVal) {
       bestVal = val;
       best = m;
