@@ -32,6 +32,15 @@ async function launchSing() {
   dispose = bootSing(app, showHome);
 }
 
+async function launchXiangqi() {
+  clear();
+  const { bootXiangqi } = await import('./xiangqi/index');
+  dispose = bootXiangqi(app, (restart) => {
+    if (restart) launchXiangqi();
+    else showHome();
+  });
+}
+
 function showHome() {
   clear();
   const screen = document.createElement('div');
@@ -44,6 +53,12 @@ function showHome() {
   list.className = 'card-list';
 
   const games = [
+    {
+      title: '♟️ 中国象棋 · 3D 对弈',
+      desc: '3D 木纹棋盘、立体棋子与走子动画，楚河汉界排兵布阵，单人对战 AI。',
+      go: launchXiangqi,
+      tag: 'NEW',
+    },
     {
       title: '🎤 唱吧减压 · 学唱歌',
       desc: '上班压力大就唱出来：引导呼吸开嗓、音准训练、声控小鸟，还有跟唱打分卡拉 OK。',
