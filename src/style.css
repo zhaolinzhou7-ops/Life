@@ -1003,3 +1003,71 @@ canvas {
   max-width: 420px;
   margin-top: 16px;
 }
+
+/* ===================== 象棋 ===================== */
+.xq-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #1a2530;
+}
+.xq-hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  padding: calc(env(safe-area-inset-top) + 4px) 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.xq-hud > * {
+  pointer-events: auto;
+}
+.xq-back {
+  position: static;
+}
+.xq-turn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(8, 14, 20, 0.75);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 5px 12px;
+  font-size: 13px;
+}
+.xq-turn #xq-turn-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.xq-turn #xq-turn-dot.red {
+  background: #ef5350;
+  box-shadow: 0 0 6px #ef5350;
+}
+.xq-turn #xq-turn-dot.black {
+  background: #90a4ae;
+  box-shadow: 0 0 6px #90a4ae;
+}
+.xq-actions {
+  display: flex;
+  gap: 6px;
+}
+.xq-btn {
+  background: rgba(8, 14, 20, 0.75);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 5px 11px;
+  font-size: 12px;
+}
+.xq-btn:active {
+  transform: scale(0.95);
+}
+.xq-toast {
+  top: 90px;
+}
