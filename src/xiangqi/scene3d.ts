@@ -170,6 +170,68 @@ function makeFaceTexture(char: string, color: string): THREE.CanvasTexture {
   return tex;
 }
 
+/** 山水画卷背景：宣纸底色、层叠远山、雾霭与淡日 */
+function makeShanshuiTexture(): THREE.CanvasTexture {
+  const W = 1024;
+  const H = 1024;
+  const cv = document.createElement('canvas');
+  cv.width = W;
+  cv.height = H;
+  const g = cv.getContext('2d')!;
+  // 宣纸渐变天空（构图集中在上部 1/3，桌沿以上可见区域）
+  const sky = g.createLinearGradient(0, 0, 0, H * 0.4);
+  sky.addColorStop(0, '#ece5d2');
+  sky.addColorStop(0.55, '#cfd4c8');
+  sky.addColorStop(1, '#8fa096');
+  g.fillStyle = sky;
+  g.fillRect(0, 0, W, H * 0.4);
+  g.fillStyle = '#8fa096';
+  g.fillRect(0, H * 0.4, W, H);
+  // 淡日
+  g.globalAlpha = 0.55;
+  const sun = g.createRadialGradient(W * 0.72, H * 0.09, 6, W * 0.72, H * 0.09, 70);
+  sun.addColorStop(0, '#f6d8a8');
+  sun.addColorStop(1, 'rgba(246,216,168,0)');
+  g.fillStyle = sun;
+  g.fillRect(0, 0, W, H * 0.3);
+  g.globalAlpha = 1;
+  // 层叠远山（水墨浓淡）
+  const layers = [
+    { y: H * 0.15, amp: 42, col: 'rgba(90,110,105,0.4)' },
+    { y: H * 0.19, amp: 58, col: 'rgba(70,92,88,0.55)' },
+    { y: H * 0.24, amp: 74, col: 'rgba(52,72,68,0.7)' },
+    { y: H * 0.3, amp: 88, col: 'rgba(38,54,50,0.85)' },
+  ];
+  layers.forEach((L, li) => {
+    g.fillStyle = L.col;
+    g.beginPath();
+    g.moveTo(0, H);
+    for (let x = 0; x <= W; x += 8) {
+      const y =
+        L.y -
+        Math.abs(Math.sin(x * 0.004 + li * 2.1)) * L.amp -
+        Math.sin(x * 0.013 + li * 5) * L.amp * 0.3;
+      g.lineTo(x, y);
+    }
+    g.lineTo(W, H);
+    g.closePath();
+    g.fill();
+  });
+  // 雾霭横带
+  for (let i = 0; i < 3; i++) {
+    const y = H * (0.17 + i * 0.055);
+    const mist = g.createLinearGradient(0, y - 24, 0, y + 24);
+    mist.addColorStop(0, 'rgba(232,228,210,0)');
+    mist.addColorStop(0.5, 'rgba(232,228,210,0.4)');
+    mist.addColorStop(1, 'rgba(232,228,210,0)');
+    g.fillStyle = mist;
+    g.fillRect(0, y - 24, W, 48);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 const faceCache = new Map<string, THREE.CanvasTexture>();
 
 export class XiangqiScene {
@@ -185,6 +247,8 @@ export class XiangqiScene {
   private disposed = false;
   private selected: PieceMesh | null = null;
   private checkRing: THREE.Mesh;
+  private lastFrom!: THREE.Mesh;
+  private lastTo!: THREE.Mesh;
   private checkT = -1;
   private boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TOP_Y);
   private clock = new THREE.Clock();
@@ -202,8 +266,8 @@ export class XiangqiScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);
 
-    // 背景
-    this.scene.background = new THREE.Color(0x1a2530);
+    // 背景：程序化山水画卷（远山 + 雾霭 + 宣纸色天空）
+    this.scene.background = makeShanshuiTexture();
 
     // 灯光
     const hemi = new THREE.HemisphereLight(0xdfeaff, 0x3a3226, 0.8);
@@ -223,10 +287,10 @@ export class XiangqiScene {
     sc.far = 40;
     this.scene.add(sun);
 
-    // 桌面
+    // 桌面（深色石案，衬山水背景）
     const table = new THREE.Mesh(
       new THREE.CylinderGeometry(16, 16, 0.4, 48),
-      new THREE.MeshStandardMaterial({ color: 0x27503a, roughness: 0.95 }),
+      new THREE.MeshStandardMaterial({ color: 0x3c4038, roughness: 0.92 }),
     );
     table.position.y = -0.45;
     table.receiveShadow = true;
@@ -269,6 +333,20 @@ export class XiangqiScene {
     this.checkRing.visible = false;
     this.scene.add(this.checkRing);
 
+    // 最后一步标记（起点小环 + 终点角框）
+    const mkMark = (color: number, inner: number, outer: number) => {
+      const m = new THREE.Mesh(
+        new THREE.RingGeometry(inner, outer, 28),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+      );
+      m.rotation.x = -Math.PI / 2;
+      m.visible = false;
+      this.scene.add(m);
+      return m;
+    };
+    this.lastFrom = mkMark(0x8bc34a, 0.12, 0.2);
+    this.lastTo = mkMark(0xffc107, PIECE_R + 0.05, PIECE_R + 0.15);
+
     // 相机（红方视角，按屏幕比例自适应拉远保证全盘可见）+ 入场动画
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
     const camEnd = this.fitCameraPos();
@@ -302,6 +380,8 @@ export class XiangqiScene {
       }
     this.select(null);
     this.checkRing.visible = false;
+    this.lastFrom.visible = false;
+    this.lastTo.visible = false;
   }
 
   /** 选中棋子（浮起）并显示可走点 */
@@ -374,6 +454,11 @@ export class XiangqiScene {
       },
       () => {
         mover.mesh.position.copy(to);
+        // 落点标记
+        this.lastFrom.position.set(from.x, TOP_Y + 0.02, from.z);
+        this.lastTo.position.set(to.x, TOP_Y + 0.02, to.z);
+        this.lastFrom.visible = true;
+        this.lastTo.visible = true;
         onDone();
       },
     );

@@ -1134,10 +1134,13 @@ canvas {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(env(safe-area-inset-bottom) + 190px);
+  bottom: 30%;
   z-index: 18;
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 96vw;
 }
 .mj-act {
   min-width: 76px;
@@ -1207,4 +1210,35 @@ canvas {
 .mj-result-row .score {
   font-weight: 800;
   color: var(--accent2);
+}
+
+.mj-ting {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 24%;
+  z-index: 16;
+  background: rgba(8, 20, 14, 0.85);
+  border: 1px solid rgba(255, 202, 40, 0.5);
+  border-radius: 18px;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: #ffe082;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.mj-ting b {
+  color: #fff;
+  margin-right: 4px;
+}
+
+.mj-handbg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 96px;
+  background: linear-gradient(rgba(6, 14, 10, 0), rgba(6, 14, 10, 0.82));
+  pointer-events: none;
+  z-index: 5;
 }
