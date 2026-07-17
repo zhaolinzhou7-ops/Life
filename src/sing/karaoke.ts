@@ -34,7 +34,9 @@ export function runKaraoke(root: HTMLElement, mic: Mic | null, onExit: () => voi
     }</div>`;
     const list = document.createElement('div');
     list.className = 'card-list';
-    for (const song of SONGS) {
+    const levelOrder = ['入门', '简单', '进阶'];
+    const sorted = [...SONGS].sort((a, b) => levelOrder.indexOf(a.level) - levelOrder.indexOf(b.level));
+    for (const song of sorted) {
       const best = getBest(song.id);
       const stars = best ? '⭐'.repeat(best.stars) || '—' : '';
       const card = document.createElement('div');
