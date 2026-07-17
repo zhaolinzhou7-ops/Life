@@ -73,7 +73,7 @@ export function bootSing(app: HTMLElement, onExit: () => void): () => void {
       },
       {
         t: '🎤 跟唱打分',
-        d: '六首经典旋律，钢琴卷帘 + 歌词滚动，实时画出你的音高曲线，唱完打分评星。',
+        d: '十二首经典旋律，钢琴卷帘 + 歌词滚动，实时画出你的音高曲线，唱完打分评星。',
         go: () => enterMode(runKaraoke),
       },
     ];
