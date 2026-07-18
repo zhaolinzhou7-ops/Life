@@ -1242,3 +1242,84 @@ canvas {
   pointer-events: none;
   z-index: 5;
 }
+
+/* ===================== 网游质感 UI ===================== */
+/* 碰/杠/胡横幅：爆开 + 金光脉冲 */
+.mj-banner:not(.hidden) {
+  animation: mj-banner-pop 0.9s cubic-bezier(0.18, 1.4, 0.4, 1) both;
+}
+@keyframes mj-banner-pop {
+  0% {
+    transform: translate(-50%, -50%) scale(0.2);
+    opacity: 0;
+    filter: brightness(2.4);
+  }
+  35% {
+    transform: translate(-50%, -50%) scale(1.22);
+    opacity: 1;
+    filter: brightness(1.6);
+  }
+  55% {
+    transform: translate(-50%, -50%) scale(0.98);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+    filter: brightness(1);
+  }
+}
+/* 操作按钮：金边高光 */
+.mj-act {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.mj-act.hu {
+  animation: mj-hu-glow 1.1s ease-in-out infinite;
+}
+@keyframes mj-hu-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(255, 190, 60, 0.55), 0 4px 16px rgba(0, 0, 0, 0.45); }
+  50% { box-shadow: 0 0 26px rgba(255, 210, 90, 0.95), 0 4px 16px rgba(0, 0, 0, 0.45); }
+}
+/* 首页：门面级观感 */
+.home-screen {
+  background:
+    radial-gradient(ellipse at 50% -10%, rgba(64, 196, 255, 0.16), transparent 55%),
+    radial-gradient(ellipse at 85% 105%, rgba(255, 170, 60, 0.1), transparent 50%),
+    radial-gradient(circle at 50% 20%, #1b3a52 0%, #0c141d 70%);
+}
+.home-screen h1 {
+  font-size: 34px;
+  background: linear-gradient(90deg, #ffd76e, #ffb347, #ffd76e);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: none;
+  animation: home-shimmer 3.5s linear infinite;
+  background-size: 200% 100%;
+}
+@keyframes home-shimmer {
+  to { background-position: 200% 0; }
+}
+.home-card {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(255, 215, 110, 0.16);
+}
+.home-card::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -80%;
+  width: 50%;
+  height: 220%;
+  transform: rotate(22deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.09), transparent);
+  animation: card-shine 4.2s ease-in-out infinite;
+}
+@keyframes card-shine {
+  0%, 60% { left: -80%; }
+  100% { left: 140%; }
+}
+.home-card:nth-child(2)::after { animation-delay: 0.7s; }
+.home-card:nth-child(3)::after { animation-delay: 1.4s; }
+.home-card:nth-child(4)::after { animation-delay: 2.1s; }
+.home-card:nth-child(5)::after { animation-delay: 2.8s; }

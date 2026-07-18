@@ -189,44 +189,202 @@ export function speak(text: string) {
 // ---------------- 背景音乐 ----------------
 
 export type BgmStyle = 'guqin' | 'majiang';
-let bgmTimer = 0;
-let bgmBeat = 0;
 
-/** 宫商角徵羽五声音阶（C 宫） */
-const PENTA = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 784.0, 880.0];
+// ======= 作曲式 BGM：多轨 8 小节循环 + 音频时钟精确调度 =======
+
+/** 音名→频率（A4=440） */
+function nf(semiFromA4: number): number {
+  return 440 * 2 ** (semiFromA4 / 12);
+}
+// 记谱辅助：A 小调五声 A C D E G。数字为相对 A4 的半音
+const N = {
+  A2: nf(-24), C3: nf(-21), D3: nf(-19), E3: nf(-17), G3: nf(-14),
+  A3: nf(-12), C4: nf(-9), D4: nf(-7), E4: nf(-5), G4: nf(-2),
+  A4: nf(0), C5: nf(3), D5: nf(5), E5: nf(7), G5: nf(10), A5: nf(12),
+  D2: nf(-31), F2: nf(-28), G2: nf(-26), C2: nf(-33),
+  F4: nf(-4), F5: nf(8),
+};
+
+/** 箫/笛类吹管音色：双正弦微失谐 + 颤音 + 低通，柔起音 */
+function flute(freq: number, when: number, dur: number, vol = 0.12) {
+  const c = ctx!;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(vol, when + 0.06);
+  g.gain.setValueAtTime(vol, when + dur - 0.1);
+  g.gain.linearRampToValueAtTime(0, when + dur);
+  const lp = c.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = freq * 3.2;
+  const vib = c.createOscillator();
+  vib.frequency.value = 5.2;
+  const vibG = c.createGain();
+  vibG.gain.value = freq * 0.006;
+  vib.connect(vibG);
+  for (const det of [0, 3]) {
+    const o = c.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    o.detune.value = det;
+    vibG.connect(o.frequency);
+    o.connect(lp);
+    o.start(when);
+    o.stop(when + dur + 0.05);
+  }
+  vib.start(when);
+  vib.stop(when + dur + 0.05);
+  lp.connect(g).connect(out());
+}
+
+/** 定时打击乐 */
+function kickAt(when: number, vol = 0.3) {
+  const c = ctx!;
+  const o = c.createOscillator();
+  o.frequency.setValueAtTime(120, when);
+  o.frequency.exponentialRampToValueAtTime(42, when + 0.12);
+  const g = c.createGain();
+  g.gain.setValueAtTime(vol, when);
+  g.gain.exponentialRampToValueAtTime(0.001, when + 0.16);
+  o.connect(g).connect(out());
+  o.start(when);
+  o.stop(when + 0.2);
+}
+function noiseAt(when: number, dur: number, vol: number, hp = 0, bp = 0) {
+  const c = ctx!;
+  const len = Math.max(1, Math.floor(c.sampleRate * dur));
+  const buf = c.createBuffer(1, len, c.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len) ** 2;
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  let node: AudioNode = src;
+  if (hp) { const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp; node.connect(f); node = f; }
+  if (bp) { const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = bp; f.Q.value = 1.2; node.connect(f); node = f; }
+  const g = c.createGain();
+  g.gain.value = vol;
+  node.connect(g).connect(out());
+  src.start(when);
+}
+/** 定时拨弦（用于旋律轨） */
+function pluckAt(freq: number, when: number, dur = 1.2, vol = 0.14) {
+  pluck(freq, dur, vol, Math.max(0, when - ctx!.currentTime));
+}
+/** 古筝滑音：快速上行五声音阶跑动 */
+function glissAt(when: number, base: number[], vol = 0.1) {
+  base.forEach((f, i) => pluckAt(f, when + i * 0.045, 0.8, vol * (0.7 + i * 0.06)));
+}
+
+interface Song {
+  stepDur: number; // 八分音符时长（秒）
+  steps: number; // 循环步数
+  play: (step: number, when: number) => void;
+}
+
+/** 象棋《溪山对弈》：66bpm，箫主旋律 + 古筝分解 + 低音持续 */
+function songXiqi(): Song {
+  const stepDur = 60 / 66 / 2;
+  // 8 小节主旋律（每步一个八分音符；0 = 休止；负 = 延音略过）
+  const mel = [
+    N.A4, 0, N.C5, N.D5, N.E5, 0, N.D5, N.C5,
+    N.A4, 0, 0, 0, N.G4, N.A4, 0, 0,
+    N.C5, 0, N.D5, N.C5, N.A4, 0, N.G4, N.E4,
+    N.G4, 0, N.A4, 0, 0, 0, 0, 0,
+    N.E4, 0, N.G4, N.A4, N.C5, 0, N.D5, N.E5,
+    N.D5, 0, N.C5, N.D5, N.C5, 0, N.A4, N.G4,
+    N.A4, 0, N.C5, N.A4, N.G4, 0, N.E4, N.G4,
+    N.A4, 0, 0, 0, 0, 0, 0, 0,
+  ];
+  // 每小节根音（古筝低音 + 分解）
+  const roots = [N.A3, N.A3, N.G3, N.A3, N.C4, N.D4, N.G3, N.A3];
+  return {
+    stepDur,
+    steps: 64,
+    play(step, when) {
+      const bar = Math.floor(step / 8);
+      const inBar = step % 8;
+      // 古筝：每小节 1、4、6 步分解和弦
+      const r = roots[bar];
+      if (inBar === 0) pluckAt(r / 2, when, 2.4, 0.12);
+      if (inBar === 3) pluckAt(r * 1.5, when, 1.6, 0.08);
+      if (inBar === 5) pluckAt(r * 2, when, 1.6, 0.07);
+      // 箫主旋律
+      const m = mel[step];
+      if (m > 0) {
+        // 计算延音：数到下一个非 0
+        let len = 1;
+        for (let k = step + 1; k < 64 && mel[k] === 0 && len < 6; k++) len++;
+        flute(m, when, stepDur * len * 0.92, 0.1);
+      }
+      // 尾小节古筝滑音收束
+      if (step === 60) glissAt(when, [N.A3, N.C4, N.D4, N.E4, N.G4, N.A4], 0.07);
+    },
+  };
+}
+
+/** 麻将《锦官夜宴》：104bpm，鼓组 + 弹拨低音 + 笛子主旋律 + 古筝滑音过门 */
+function songJinguan(): Song {
+  const stepDur = 60 / 104 / 2;
+  const mel = [
+    N.D5, 0, N.F5, N.G5, N.A5, 0, N.G5, N.F5,
+    N.D5, 0, N.C5, N.D5, 0, 0, 0, 0,
+    N.D5, 0, N.F5, N.G5, N.F5, 0, N.D5, N.C5,
+    N.D5, 0, 0, 0, N.A4, N.C5, N.D5, 0,
+    N.F5, 0, N.G5, N.A5, N.G5, 0, N.F5, N.D5,
+    N.C5, 0, N.D5, N.F5, N.D5, 0, 0, 0,
+    N.A4, 0, N.C5, N.D5, N.F5, 0, N.D5, N.C5,
+    N.D5, 0, 0, 0, 0, 0, 0, 0,
+  ];
+  const bass = [N.D3, N.D3, N.F2 * 2, N.F2 * 2, N.C3, N.C3, N.G2 * 2, N.D3];
+  return {
+    stepDur,
+    steps: 64,
+    play(step, when) {
+      const bar = Math.floor(step / 8);
+      const inBar = step % 8;
+      // 鼓组
+      if (inBar === 0 || inBar === 5) kickAt(when, 0.26);
+      if (inBar === 2 || inBar === 6) noiseAt(when, 0.08, 0.12, 0, 1800); // 小军鼓
+      noiseAt(when, 0.03, inBar % 2 === 0 ? 0.05 : 0.028, 6500); // 踩镲
+      // 弹拨低音
+      if (inBar === 0 || inBar === 3 || inBar === 6) pluckAt(bass[bar], when, 0.6, 0.15);
+      // 笛子主旋律
+      const m = mel[step];
+      if (m > 0) {
+        let len = 1;
+        for (let k = step + 1; k < 64 && mel[k] === 0 && len < 4; k++) len++;
+        flute(m, when, stepDur * len * 0.9, 0.085);
+      }
+      // 过门：第 8 小节古筝上行滑音
+      if (step === 57) glissAt(when, [N.D4, N.F4, N.G4, N.A4, N.C5, N.D5, N.F5], 0.08);
+    },
+  };
+}
+
+let schedTimer = 0;
+let songStep = 0;
+let nextTime = 0;
+let curSong: Song | null = null;
 
 export function startBgm(style: BgmStyle) {
   stopBgm();
   const c = ac();
   if (!c) return;
-  bgmBeat = 0;
-  if (style === 'guqin') {
-    // 古琴慢板：每 1.7s 一到两声拨弦，空灵
-    bgmTimer = window.setInterval(() => {
-      if (muted) return;
-      const n = PENTA[Math.floor(Math.random() * PENTA.length)];
-      pluck(n / 2, 2.2, 0.1);
-      if (Math.random() < 0.4) pluck(n, 1.8, 0.07, 0.35);
-    }, 1700);
-  } else {
-    // 麻将馆节奏：96bpm，底鼓 + 木鱼 + 偶发拨弦
-    const beatDur = 60 / 96 / 2; // 八分音符
-    bgmTimer = window.setInterval(() => {
-      if (muted) return;
-      const b = bgmBeat++ % 8;
-      if (b === 0 || b === 4) tone(70, 0.18, { type: 'sine', vol: 0.24, slide: 0.5 }); // 底鼓
-      if (b === 2 || b === 6) { noise(0.03, { vol: 0.1, hp: 4000 }); tone(1200, 0.04, { type: 'square', vol: 0.05 }); } // 木鱼/镲
-      else noise(0.02, { vol: 0.04, hp: 6000 });
-      if (b === 0 && Math.random() < 0.5) {
-        const base = Math.floor(Math.random() * 5);
-        pluck(PENTA[base], 0.8, 0.09, beatDur);
-        pluck(PENTA[(base + 2) % PENTA.length], 0.8, 0.07, beatDur * 3);
-      }
-    }, beatDur * 1000);
-  }
+  curSong = style === 'guqin' ? songXiqi() : songJinguan();
+  songStep = 0;
+  nextTime = c.currentTime + 0.1;
+  // 音频时钟 lookahead 调度：不受主线程卡顿影响，节奏严丝合缝
+  schedTimer = window.setInterval(() => {
+    if (!curSong || !ctx) return;
+    while (nextTime < ctx.currentTime + 0.3) {
+      if (!muted) curSong.play(songStep % curSong.steps, nextTime);
+      nextTime += curSong.stepDur;
+      songStep++;
+    }
+  }, 90);
 }
 
 export function stopBgm() {
-  clearInterval(bgmTimer);
-  bgmTimer = 0;
+  clearInterval(schedTimer);
+  schedTimer = 0;
+  curSong = null;
 }

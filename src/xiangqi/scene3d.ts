@@ -1,5 +1,10 @@
 /** 象棋 3D 场景：木纹棋盘、刻字棋子、走子/吃子动画与触摸拾取（不含规则） */
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { COLS, ROWS, PTYPE_NAME, type Board, type Move } from './rules';
 
 const CELL = 1;
@@ -249,6 +254,8 @@ export class XiangqiScene {
   private checkRing: THREE.Mesh;
   private lastFrom!: THREE.Mesh;
   private lastTo!: THREE.Mesh;
+  private composer!: EffectComposer;
+  private bloom!: UnrealBloomPass;
   private checkT = -1;
   private boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TOP_Y);
   private clock = new THREE.Clock();
@@ -268,11 +275,15 @@ export class XiangqiScene {
 
     // 背景：程序化山水画卷（远山 + 雾霭 + 宣纸色天空）
     this.scene.background = makeShanshuiTexture();
+    // IBL 环境反射：漆面棋子的真实高光
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.35;
 
     // 灯光
     const hemi = new THREE.HemisphereLight(0xdfeaff, 0x3a3226, 0.8);
     this.scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xfff1dc, 2.2);
+    const sun = new THREE.DirectionalLight(0xfff1dc, 1.6);
     sun.position.set(5, 12, 6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -327,7 +338,7 @@ export class XiangqiScene {
     // 将军提示环
     this.checkRing = new THREE.Mesh(
       new THREE.RingGeometry(PIECE_R + 0.08, PIECE_R + 0.22, 32),
-      new THREE.MeshBasicMaterial({ color: 0xff5252, transparent: true, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 0.5, 0.5), transparent: true, side: THREE.DoubleSide, toneMapped: false }),
     );
     this.checkRing.rotation.x = -Math.PI / 2;
     this.checkRing.visible = false;
@@ -357,6 +368,13 @@ export class XiangqiScene {
       this.camera.position.lerpVectors(camStart, this.fitCameraPos(), 1 - (1 - k) ** 3);
       this.camera.lookAt(0, 0, -0.3);
     });
+
+    // Bloom 辉光后处理
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.5, 0.4, 1.15);
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
 
     window.addEventListener('resize', this.onResize);
     this.renderer.domElement.addEventListener('pointerdown', this.onPointer);
@@ -498,9 +516,9 @@ export class XiangqiScene {
       face = makeFaceTexture(char, color);
       faceCache.set(key, face);
     }
-    const side = new THREE.MeshStandardMaterial({ color: 0xc99a5b, roughness: 0.6 });
-    const top = new THREE.MeshStandardMaterial({ map: face, roughness: 0.55 });
-    const bottom = new THREE.MeshStandardMaterial({ color: 0xa87c42, roughness: 0.7 });
+    const side = new THREE.MeshPhysicalMaterial({ color: 0xc99a5b, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.15 });
+    const top = new THREE.MeshPhysicalMaterial({ map: face, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.12 });
+    const bottom = new THREE.MeshPhysicalMaterial({ color: 0xa87c42, roughness: 0.5, clearcoat: 0.5, clearcoatRoughness: 0.3 });
     const body = new THREE.Mesh(new THREE.CylinderGeometry(PIECE_R, PIECE_R * 1.02, PIECE_H, 36), [side, top, bottom]);
     body.position.y = PIECE_H / 2;
     body.castShadow = true;
@@ -530,6 +548,7 @@ export class XiangqiScene {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
     this.camera.position.copy(this.fitCameraPos());
     this.camera.lookAt(0, 0, -0.3);
   };
@@ -568,6 +587,6 @@ export class XiangqiScene {
     if (this.selected) {
       this.selected.mesh.position.y = TOP_Y + 0.35 + Math.sin(performance.now() / 260) * 0.04;
     }
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   };
 }
