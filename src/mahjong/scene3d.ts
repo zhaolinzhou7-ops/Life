@@ -1,5 +1,10 @@
 /** 麻将 3D 场景：绿呢桌、立体麻将牌、四家布局与动画（不含规则） */
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { rankOf, suitOf, type Meld, type TileId } from './rules';
 
 const TW = 0.72; // 牌宽
@@ -145,18 +150,42 @@ function makeFeltTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-let ivoryMat: THREE.MeshStandardMaterial | null = null;
-let backMat: THREE.MeshStandardMaterial | null = null;
+let ivoryMat: THREE.MeshPhysicalMaterial | null = null;
+let backMat: THREE.MeshPhysicalMaterial | null = null;
 function sharedMats() {
-  if (!ivoryMat) ivoryMat = new THREE.MeshStandardMaterial({ color: 0xf5ecd7, roughness: 0.42 });
-  if (!backMat) backMat = new THREE.MeshStandardMaterial({ color: 0x2e7d5b, roughness: 0.5 });
+  // 清漆材质：象牙牌身/翡翠牌背都有真实反光
+  if (!ivoryMat)
+    ivoryMat = new THREE.MeshPhysicalMaterial({
+      color: 0xf5ecd7,
+      roughness: 0.32,
+      clearcoat: 0.8,
+      clearcoatRoughness: 0.18,
+    });
+  if (!backMat)
+    backMat = new THREE.MeshPhysicalMaterial({
+      color: 0x27825c,
+      roughness: 0.3,
+      clearcoat: 1,
+      clearcoatRoughness: 0.12,
+    });
   return { ivoryMat: ivoryMat!, backMat: backMat! };
 }
+
+const faceMatCache = new Map<number, THREE.MeshPhysicalMaterial>();
 
 /** 创建一张牌。face 朝 +Z */
 export function makeTile(t: TileId): THREE.Mesh {
   const { ivoryMat, backMat } = sharedMats();
-  const faceMat = new THREE.MeshStandardMaterial({ map: faceTex(t), roughness: 0.42 });
+  let faceMat = faceMatCache.get(t);
+  if (!faceMat) {
+    faceMat = new THREE.MeshPhysicalMaterial({
+      map: faceTex(t),
+      roughness: 0.3,
+      clearcoat: 0.9,
+      clearcoatRoughness: 0.15,
+    });
+    faceMatCache.set(t, faceMat);
+  }
   const geo = new THREE.BoxGeometry(TW, TH, TD);
   // 材质顺序：+x -x +y -y +z(face) -z(back)
   const mesh = new THREE.Mesh(geo, [ivoryMat, ivoryMat, ivoryMat, ivoryMat, faceMat, backMat]);
@@ -198,6 +227,8 @@ export class MahjongScene {
   private meldRoots: THREE.Group[] = [];
   private winRoots: THREE.Group[] = [];
   private flashRing!: THREE.Mesh;
+  private composer!: EffectComposer;
+  private bloom!: UnrealBloomPass;
 
   constructor(
     container: HTMLElement,
@@ -214,9 +245,17 @@ export class MahjongScene {
 
     this.scene.background = new THREE.Color(0x14231c);
 
-    const hemi = new THREE.HemisphereLight(0xe8f2ff, 0x2c3a26, 0.85);
+    // IBL 环境反射：让清漆材质有真实高光
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environment = envTex;
+    this.scene.environmentIntensity = 0.3;
+    this.handScene.environment = envTex;
+    this.handScene.environmentIntensity = 0.45;
+
+    const hemi = new THREE.HemisphereLight(0xe8f2ff, 0x2c3a26, 0.55);
     this.scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xfff3e0, 2.0);
+    const sun = new THREE.DirectionalLight(0xfff3e0, 1.45);
     sun.position.set(4, 14, 6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -255,7 +294,7 @@ export class MahjongScene {
     ring.position.y = 0.005;
     this.scene.add(ring);
     // 头顶暖色吊灯感
-    const lamp = new THREE.PointLight(0xffd9a0, 30, 26, 1.8);
+    const lamp = new THREE.PointLight(0xffd9a0, 6, 26, 1.8);
     lamp.position.set(0, 7.5, 0);
     this.scene.add(lamp);
     // 装饰牌墙：四边各两层码好的牌背
@@ -278,7 +317,7 @@ export class MahjongScene {
     // 碰杠冲击环（复用，触发时展开）
     this.flashRing = new THREE.Mesh(
       new THREE.RingGeometry(0.8, 1.05, 40),
-      new THREE.MeshBasicMaterial({ color: 0xffca28, transparent: true, opacity: 0, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 1.8, 0.5), transparent: true, opacity: 0, side: THREE.DoubleSide, toneMapped: false }),
     );
     this.flashRing.rotation.x = -Math.PI / 2;
     this.flashRing.position.y = 0.02;
@@ -306,6 +345,19 @@ export class MahjongScene {
 
     this.camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 100);
     this.fitCamera();
+
+    // Bloom 辉光后处理（灯光/特效发光）
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloom = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      0.5,
+      0.4,
+      1.15,
+    );
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
+
     window.addEventListener('resize', this.onResize);
     this.renderer.domElement.addEventListener('pointerdown', this.onPointer);
     this.loop();
@@ -513,6 +565,8 @@ export class MahjongScene {
 
   private onResize = () => {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+    this.bloom.resolution.set(window.innerWidth, window.innerHeight);
     this.fitCamera();
   };
 
@@ -543,10 +597,9 @@ export class MahjongScene {
     const done = this.tweens.filter((t) => t.t >= t.dur);
     this.tweens = this.tweens.filter((t) => t.t < t.dur);
     for (const t of done) t.onDone?.();
-    // 双层渲染：先桌面，再手牌层（清深度叠加）
+    // 双层渲染：composer（主场景 + Bloom）→ 清深度 → 手牌正交层
     this.renderer.autoClear = false;
-    this.renderer.clear();
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
     this.renderer.clearDepth();
     this.renderer.render(this.handScene, this.handCam);
   };
