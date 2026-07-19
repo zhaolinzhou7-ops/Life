@@ -3,8 +3,9 @@
 import { Mic, midiToName } from './pitch';
 import { MelodyPlayer } from './synth';
 import { SONGS, flattenSong, songRange, type Song, type SongNote } from './songs';
-import { getRange, getBest, setBest } from './save';
+import { getRange, getBest, setBest, getSongKey, setSongKey } from './save';
 import { makeCanvas, rafLoop, foldOctave, btn } from './view';
+import { Particles, haptic, acquireWakeLock, easeOut } from './fx';
 
 const LEAD = 4; // 前奏空拍
 
@@ -76,19 +77,25 @@ export function runKaraoke(root: HTMLElement, mic: Mic | null, onExit: () => voi
     const lineText = song.lines.map((ln) => ln.map((nt) => nt.ly ?? '').join(''));
     const sr = songRange(song);
 
-    let transpose = suggestTranspose(song);
+    let transpose = getSongKey(song.id) ?? suggestTranspose(song);
     const player = new MelodyPlayer();
     let playing = false;
     // 每个音符的评分累计
     let frames = new Float32Array(notes.length);
     let hits = new Float32Array(notes.length);
+    let celebrated = new Uint8Array(notes.length); // 唱准后的火花只放一次
     let trail: { beat: number; midi: number }[] = [];
     let noteIdx = 0;
+    const fx = new Particles();
+    let wakeRelease: (() => void) | null = null; // 唱歌时保持屏幕常亮
+    let micLevel = 0;
 
     // ---- 顶部栏 ----
     const top = document.createElement('div');
     top.className = 'sing-topbar';
-    top.innerHTML = `<span class="sing-song-name">${song.emoji} ${song.name}</span><span class="sing-live" id="sing-live"></span>`;
+    top.innerHTML = `<span class="sing-song-name">${song.emoji} ${song.name}</span><span class="sing-live" id="sing-live"></span>${
+      mic ? '<span class="sing-mic-dot" id="sing-micdot"></span>' : ''
+    }`;
     wrap.appendChild(top);
 
     const view = makeCanvas(wrap, 'sing-canvas sing-roll');
@@ -106,12 +113,14 @@ export function runKaraoke(root: HTMLElement, mic: Mic | null, onExit: () => voi
       if (!playing && transpose > -6) {
         transpose--;
         updateKey();
+        setSongKey(song.id, transpose);
       }
     });
     const up = btn('♯', 'sing-btn small', () => {
       if (!playing && transpose < 6) {
         transpose++;
         updateKey();
+        setSongKey(song.id, transpose);
       }
     });
     const playBtn = btn('▶ 开始', 'sing-btn primary', () => (playing ? stopSong() : startSong()));
@@ -131,28 +140,36 @@ export function runKaraoke(root: HTMLElement, mic: Mic | null, onExit: () => voi
     function startSong() {
       frames = new Float32Array(notes.length);
       hits = new Float32Array(notes.length);
+      celebrated = new Uint8Array(notes.length);
       trail = [];
       noteIdx = 0;
       playing = true;
       playBtn.textContent = '■ 停止';
+      wakeRelease = acquireWakeLock();
       player.play(notes, song.bpm, transpose, LEAD, 0.26, () => finish());
     }
     function stopSong() {
       player.stop();
       playing = false;
       playBtn.textContent = '▶ 开始';
+      wakeRelease?.();
+      wakeRelease = null;
     }
 
     const live = top.querySelector('#sing-live') as HTMLElement;
+    const micDot = top.querySelector('#sing-micdot') as HTMLElement | null;
 
-    const stop = rafLoop(() => {
+    const stop = rafLoop((dt) => {
       const { g, w, h } = view;
       const beat = playing ? player.beatNow() - LEAD : -LEAD;
+      fx.update(dt);
 
       // ---- 采样与评分 ----
       let sungMidi: number | null = null;
       if (mic) {
         const p = mic.read();
+        micLevel += ((p ? Math.min(1, p.rms * 8) : 0) - micLevel) * Math.min(1, dt * 12);
+        if (micDot) micDot.style.transform = `scale(${1 + micLevel * 1.6})`;
         if (p && playing && beat > -LEAD * 0.5) {
           while (noteIdx < notes.length - 1 && beat >= notes[noteIdx].start + notes[noteIdx].d) noteIdx++;
           const cur = notes[noteIdx];
@@ -213,42 +230,89 @@ export function runKaraoke(root: HTMLElement, mic: Mic | null, onExit: () => voi
         if (nt.m <= 0) continue;
         const x0 = bx(nt.start);
         const x1 = bx(nt.start + nt.d);
-        if (x1 < -20 || x0 > w + 20) continue;
         const active = beat >= nt.start && beat < nt.start + nt.d;
         const past = beat >= nt.start + nt.d;
         const quality = frames[i] > 0 ? hits[i] / frames[i] : 0;
-        g.fillStyle = active
-          ? '#40c4ff'
-          : past
-            ? mic && frames[i] > 2
-              ? quality > 0.6
-                ? 'rgba(102,187,106,0.8)'
-                : 'rgba(239,83,80,0.55)'
-              : 'rgba(255,255,255,0.18)'
-            : 'rgba(255,255,255,0.3)';
+        const good = mic !== null && frames[i] > 2 && quality > 0.6;
+        // 唱准的音符划过时间线时迸发火花（每个音只放一次）
+        if (past && !celebrated[i] && playing && good && x1 > nowX - 40) {
+          celebrated[i] = 1;
+          fx.burst(nowX, my(nt.m + transpose), '#8ef29a', 9, 110);
+        }
+        if (x1 < -20 || x0 > w + 20) continue;
         const y = my(nt.m + transpose);
+        const bw2 = Math.max(6, x1 - x0 - 3);
+        g.save();
+        if (active) {
+          g.shadowColor = 'rgba(64,196,255,0.95)';
+          g.shadowBlur = 18;
+          const ng = g.createLinearGradient(x0, y - 7, x0, y + 7);
+          ng.addColorStop(0, '#7fdcff');
+          ng.addColorStop(1, '#2196f3');
+          g.fillStyle = ng;
+        } else if (past) {
+          if (mic && frames[i] > 2) {
+            if (good) {
+              g.shadowColor = 'rgba(102,187,106,0.6)';
+              g.shadowBlur = 8;
+              g.fillStyle = 'rgba(129,222,138,0.85)';
+            } else {
+              g.fillStyle = 'rgba(239,83,80,0.5)';
+            }
+          } else {
+            g.fillStyle = 'rgba(255,255,255,0.16)';
+          }
+        } else {
+          const ng = g.createLinearGradient(x0, y - 7, x0, y + 7);
+          ng.addColorStop(0, 'rgba(230,215,255,0.4)');
+          ng.addColorStop(1, 'rgba(160,140,210,0.28)');
+          g.fillStyle = ng;
+        }
         g.beginPath();
-        g.roundRect(x0 + 1.5, y - 7, Math.max(6, x1 - x0 - 3), 14, 7);
+        g.roundRect(x0 + 1.5, y - 7, bw2, 14, 7);
         g.fill();
+        g.restore();
         if (nt.ly) {
-          g.fillStyle = active ? '#ffca28' : 'rgba(232,238,244,0.75)';
-          g.font = `${active ? '700 15px' : '13px'} sans-serif`;
+          g.save();
+          if (active) {
+            g.shadowColor = 'rgba(255,213,79,0.8)';
+            g.shadowBlur = 10;
+          }
+          g.fillStyle = active ? '#ffd54f' : 'rgba(232,238,244,0.7)';
+          g.font = `${active ? '800 16px' : '13px'} sans-serif`;
           g.fillText(nt.ly, (x0 + x1) / 2, y - 13);
+          g.restore();
         }
       }
 
-      // 当前时间线
-      g.strokeStyle = 'rgba(255,202,40,0.6)';
+      // 当前时间线（辉光）
+      const tl = g.createLinearGradient(0, rollTop, 0, rollBottom);
+      tl.addColorStop(0, 'rgba(255,213,79,0.05)');
+      tl.addColorStop(0.5, 'rgba(255,213,79,0.8)');
+      tl.addColorStop(1, 'rgba(255,213,79,0.05)');
+      g.save();
+      g.shadowColor = 'rgba(255,213,79,0.6)';
+      g.shadowBlur = 8;
+      g.strokeStyle = tl;
       g.lineWidth = 2;
       g.beginPath();
       g.moveTo(nowX, rollTop - 8);
       g.lineTo(nowX, rollBottom + 8);
       g.stroke();
+      g.restore();
 
-      // 用户音高曲线
+      // 用户音高曲线（发光丝带）
       if (trail.length > 1) {
-        g.strokeStyle = '#7ce7c8';
+        g.save();
+        g.shadowColor = 'rgba(124,231,200,0.75)';
+        g.shadowBlur = 10;
+        const trailGrad = g.createLinearGradient(0, 0, nowX, 0);
+        trailGrad.addColorStop(0, 'rgba(124,231,200,0)');
+        trailGrad.addColorStop(0.6, 'rgba(124,231,200,0.55)');
+        trailGrad.addColorStop(1, '#7ce7c8');
+        g.strokeStyle = trailGrad;
         g.lineWidth = 2.5;
+        g.lineJoin = 'round';
         g.beginPath();
         let pen = false;
         let prevBeat = -999;
@@ -262,20 +326,37 @@ export function runKaraoke(root: HTMLElement, mic: Mic | null, onExit: () => voi
           prevBeat = pt.beat;
         }
         g.stroke();
+        g.restore();
       }
+      // 播放头光球
       if (sungMidi !== null) {
-        g.fillStyle = '#7ce7c8';
+        const oy = my(sungMidi);
+        const orb = g.createRadialGradient(nowX, oy, 1, nowX, oy, 12);
+        orb.addColorStop(0, '#ffffff');
+        orb.addColorStop(0.35, '#7ce7c8');
+        orb.addColorStop(1, 'rgba(124,231,200,0)');
+        g.fillStyle = orb;
         g.beginPath();
-        g.arc(nowX, my(sungMidi), 5, 0, Math.PI * 2);
+        g.arc(nowX, oy, 12, 0, Math.PI * 2);
         g.fill();
       }
+      fx.draw(g);
 
-      // 倒计时
+      // 倒计时（弹跳缩放）
       if (playing && beat < 0) {
-        g.fillStyle = '#ffca28';
-        g.font = '700 44px sans-serif';
+        const frac = -beat % 1;
+        const scale = 0.7 + easeOut(1 - frac) * 0.5;
+        g.save();
+        g.translate(w / 2, h * 0.4);
+        g.scale(scale, scale);
+        g.globalAlpha = 0.3 + frac * 0.7;
+        g.shadowColor = 'rgba(255,213,79,0.8)';
+        g.shadowBlur = 26;
+        g.fillStyle = '#ffd54f';
+        g.font = '800 60px sans-serif';
         g.textAlign = 'center';
-        g.fillText(String(Math.ceil(-beat)), w / 2, h * 0.4);
+        g.fillText(String(Math.ceil(-beat)), 0, 20);
+        g.restore();
       }
 
       // ---- 歌词区（当前句 + 下一句）----
@@ -329,6 +410,8 @@ export function runKaraoke(root: HTMLElement, mic: Mic | null, onExit: () => voi
     function finish() {
       playing = false;
       playBtn.textContent = '▶ 开始';
+      wakeRelease?.();
+      wakeRelease = null;
       if (!mic) return; // 欣赏模式无结算
       let sw = 0;
       let sd = 0;
@@ -342,11 +425,13 @@ export function runKaraoke(root: HTMLElement, mic: Mic | null, onExit: () => voi
       const stars = score >= 85 ? 3 : score >= 65 ? 2 : score >= 40 ? 1 : 0;
       const isBest = setBest(song.id, score, stars);
 
+      haptic(stars >= 2 ? [30, 60, 30, 60, 60] : 30);
       const overlay = document.createElement('div');
       overlay.className = 'sing-panel sing-result sing-overlay';
+      const starSpans = stars > 0 ? Array.from({ length: stars }, () => '<span>⭐</span>').join('') : '<span>🌱</span>';
       overlay.innerHTML = `<h2>${song.emoji} ${song.name}</h2>
-        <div class="sing-stars">${'⭐'.repeat(stars) || '🌱'}</div>
-        <div class="sing-big">${score} 分${isBest ? ' <span class="tag">新纪录</span>' : ''}</div>
+        <div class="sing-stars">${starSpans}</div>
+        <div class="sing-big"><span id="sing-score-num">0</span> 分${isBest ? ' <span class="tag">新纪录</span>' : ''}</div>
         <div class="sing-sub">${
           score >= 85
             ? '太棒了，几乎每个音都在线上！'
@@ -367,12 +452,49 @@ export function runKaraoke(root: HTMLElement, mic: Mic | null, onExit: () => voi
       row.appendChild(btn('换一首', 'sing-btn ghost', songList));
       overlay.appendChild(row);
       wrap.appendChild(overlay);
+
+      // 分数滚动动画
+      const numEl = overlay.querySelector('#sing-score-num') as HTMLElement;
+      const t0 = performance.now();
+      const countUp = () => {
+        if (!numEl.isConnected) return;
+        const k = Math.min(1, (performance.now() - t0) / 1200);
+        numEl.textContent = String(Math.round(score * easeOut(k)));
+        if (k < 1) requestAnimationFrame(countUp);
+      };
+      requestAnimationFrame(countUp);
+
+      // 两星以上撒五彩纸屑
+      if (stars >= 2) {
+        const cf = document.createElement('canvas');
+        cf.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none';
+        overlay.prepend(cf);
+        const cg = cf.getContext('2d')!;
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        const confetti = new Particles();
+        confetti.confetti(overlay.clientWidth, stars >= 3 ? 130 : 80);
+        let last = performance.now();
+        const tick = (t: number) => {
+          if (!cf.isConnected) return;
+          cf.width = Math.round(overlay.clientWidth * dpr);
+          cf.height = Math.round(overlay.clientHeight * dpr);
+          cg.setTransform(dpr, 0, 0, dpr, 0, 0);
+          const cdt = Math.min(0.05, (t - last) / 1000);
+          last = t;
+          confetti.update(cdt);
+          confetti.draw(cg);
+          if (confetti.list.length) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }
     }
 
     disposeStage = () => {
       stop();
       player.stop();
       view.dispose();
+      wakeRelease?.();
+      wakeRelease = null;
     };
   }
 

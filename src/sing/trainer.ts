@@ -4,6 +4,7 @@ import { Mic, midiToName, midiToSolfege } from './pitch';
 import { playTone, playCue } from './synth';
 import { getRange, getBirdBest, setBirdBest } from './save';
 import { makeCanvas, rafLoop, foldOctave, btn } from './view';
+import { Ambient, Particles, haptic } from './fx';
 
 export function runTrainer(root: HTMLElement, mic: Mic | null, onExit: () => void): () => void {
   const wrap = document.createElement('div');
@@ -78,6 +79,10 @@ export function runTrainer(root: HTMLElement, mic: Mic | null, onExit: () => voi
     let state: 'listen' | 'sing' | 'hit' | 'done' = 'listen';
     let stateT = 0;
     let lastCents: number | null = null;
+    const amb = new Ambient();
+    const fx = new Particles();
+    // 得分飘字
+    const floats: { x: number; y: number; text: string; life: number }[] = [];
 
     const newTarget = () => {
       let t = target;
@@ -119,10 +124,14 @@ export function runTrainer(root: HTMLElement, mic: Mic | null, onExit: () => voi
             if (hold >= HOLD_NEED) {
               combo++;
               maxCombo = Math.max(maxCombo, combo);
-              score += 100 + (combo - 1) * 20;
+              const gain = 100 + (combo - 1) * 20;
+              score += gain;
               state = 'hit';
               stateT = 0;
               playCue(true);
+              haptic(combo > 2 ? [20, 30, 20] : 25);
+              fx.burst(view.w / 2, view.h * 0.62, '#ffd54f', 18 + combo * 3, 150);
+              floats.push({ x: view.w / 2, y: view.h * 0.5, text: `+${gain}`, life: 1 });
             }
           } else {
             hold = Math.max(0, hold - dt * 2);
@@ -131,67 +140,142 @@ export function runTrainer(root: HTMLElement, mic: Mic | null, onExit: () => voi
       }
 
       // ---- 绘制 ----
+      amb.update(dt, w, h);
+      amb.draw(g);
+      fx.update(dt);
       const cx = w / 2;
       g.textAlign = 'center';
-      g.fillStyle = '#e8eef4';
+      g.fillStyle = '#f4eefc';
       g.font = '700 18px sans-serif';
       g.fillText(`第 ${round + 1} / ${ROUNDS} 题`, cx, h * 0.09);
-      g.fillStyle = '#ffca28';
-      g.fillText(`得分 ${score}${combo > 1 ? ` · 连击 x${combo}` : ''}`, cx, h * 0.15);
+      // 连击时得分带脉冲
+      const comboPulse = state === 'hit' && stateT < 0.4 ? 1 + (0.4 - stateT) * 0.8 : 1;
+      g.save();
+      g.translate(cx, h * 0.15);
+      g.scale(comboPulse, comboPulse);
+      g.fillStyle = '#ffd54f';
+      g.shadowColor = 'rgba(255,213,79,0.6)';
+      g.shadowBlur = combo > 1 ? 14 : 0;
+      g.fillText(`得分 ${score}${combo > 1 ? ` · 连击 x${combo}` : ''}`, 0, 0);
+      g.restore();
 
-      // 目标音
-      g.fillStyle = state === 'hit' ? '#66bb6a' : '#40c4ff';
-      g.font = '700 44px sans-serif';
+      // 目标音（渐变大字）
+      g.font = '800 48px sans-serif';
+      const tg = g.createLinearGradient(cx, h * 0.24, cx, h * 0.31);
+      if (state === 'hit') {
+        tg.addColorStop(0, '#d5ffd9');
+        tg.addColorStop(1, '#66bb6a');
+      } else {
+        tg.addColorStop(0, '#e3f6ff');
+        tg.addColorStop(1, '#40c4ff');
+      }
+      g.save();
+      g.shadowColor = state === 'hit' ? 'rgba(102,187,106,0.7)' : 'rgba(64,196,255,0.55)';
+      g.shadowBlur = 22;
+      g.fillStyle = tg;
       g.fillText(midiToName(target), cx, h * 0.3);
+      g.restore();
       g.font = '14px sans-serif';
-      g.fillStyle = '#91a4b5';
+      g.fillStyle = '#a596c2';
       g.fillText(
         state === 'listen' ? '听…' : state === 'hit' ? '漂亮！唱准了 🎉' : `唱出这个音（${midiToSolfege(target)}），稳住半秒多`,
         cx,
         h * 0.36,
       );
 
-      // 音准表：半圆表盘，指针指向偏差（±100 音分）
+      // 音准表：渐变半圆表盘 + 刻度 + 辉光指针（±100 音分）
       const gy = h * 0.62;
       const gr = Math.min(w * 0.36, h * 0.22);
-      g.strokeStyle = 'rgba(255,255,255,0.14)';
-      g.lineWidth = 12;
+      g.lineCap = 'round';
+      // 底环：左红-中绿-右红 渐变
+      const arcGrad = g.createLinearGradient(cx - gr, gy, cx + gr, gy);
+      arcGrad.addColorStop(0, 'rgba(239,83,80,0.45)');
+      arcGrad.addColorStop(0.3, 'rgba(255,213,79,0.4)');
+      arcGrad.addColorStop(0.5, 'rgba(102,187,106,0.75)');
+      arcGrad.addColorStop(0.7, 'rgba(255,213,79,0.4)');
+      arcGrad.addColorStop(1, 'rgba(239,83,80,0.45)');
+      g.strokeStyle = arcGrad;
+      g.lineWidth = 13;
       g.beginPath();
       g.arc(cx, gy, gr, Math.PI, Math.PI * 2);
       g.stroke();
-      // 中央绿色安全区（±50 音分）
-      g.strokeStyle = 'rgba(102,187,106,0.5)';
-      g.beginPath();
-      g.arc(cx, gy, gr, Math.PI * 1.25, Math.PI * 1.75);
-      g.stroke();
+      // 刻度
+      g.strokeStyle = 'rgba(255,255,255,0.35)';
+      g.lineWidth = 1.5;
+      for (let k = -4; k <= 4; k++) {
+        const a = Math.PI * 1.5 + (k / 8) * Math.PI;
+        const r0 = gr - 12;
+        const r1 = gr - (k === 0 ? 22 : 17);
+        g.beginPath();
+        g.moveTo(cx + Math.cos(a) * r0, gy + Math.sin(a) * r0);
+        g.lineTo(cx + Math.cos(a) * r1, gy + Math.sin(a) * r1);
+        g.stroke();
+      }
       if (lastCents !== null) {
         const cl = Math.max(-100, Math.min(100, lastCents));
         const ang = Math.PI * 1.5 + (cl / 100) * Math.PI * 0.5;
-        g.strokeStyle = Math.abs(cl) < 50 ? '#66bb6a' : '#ef5350';
+        const ok = Math.abs(cl) < 50;
+        g.save();
+        g.shadowColor = ok ? 'rgba(102,187,106,0.9)' : 'rgba(239,83,80,0.8)';
+        g.shadowBlur = 14;
+        g.strokeStyle = ok ? '#8ef29a' : '#ff8a80';
         g.lineWidth = 4;
         g.beginPath();
         g.moveTo(cx, gy);
-        g.lineTo(cx + Math.cos(ang) * gr * 0.92, gy + Math.sin(ang) * gr * 0.92);
+        g.lineTo(cx + Math.cos(ang) * gr * 0.9, gy + Math.sin(ang) * gr * 0.9);
         g.stroke();
-        g.fillStyle = '#91a4b5';
+        // 指针轴心
+        g.fillStyle = '#fff';
+        g.beginPath();
+        g.arc(cx, gy, 5, 0, Math.PI * 2);
+        g.fill();
+        g.restore();
+        g.fillStyle = '#a596c2';
         g.font = '12px sans-serif';
         g.fillText(cl > 0 ? `偏高 ${Math.round(cl)} 音分` : cl < 0 ? `偏低 ${Math.round(-cl)} 音分` : '正中', cx, gy + 24);
       }
-      g.fillStyle = '#91a4b5';
+      g.fillStyle = '#a596c2';
       g.font = '12px sans-serif';
       g.fillText('低', cx - gr, gy + 18);
       g.fillText('高', cx + gr, gy + 18);
 
-      // 保持进度条
+      // 保持进度条（辉光）
       const bw = w * 0.5;
-      g.fillStyle = 'rgba(255,255,255,0.12)';
+      g.fillStyle = 'rgba(255,255,255,0.1)';
       g.beginPath();
       g.roundRect(cx - bw / 2, h * 0.74, bw, 10, 5);
       g.fill();
-      g.fillStyle = '#7ce7c8';
-      g.beginPath();
-      g.roundRect(cx - bw / 2, h * 0.74, (bw * Math.min(1, hold / HOLD_NEED)), 10, 5);
-      g.fill();
+      const prog = Math.min(1, hold / HOLD_NEED);
+      if (prog > 0.01) {
+        const pg = g.createLinearGradient(cx - bw / 2, 0, cx - bw / 2 + bw * prog, 0);
+        pg.addColorStop(0, '#40c4ff');
+        pg.addColorStop(1, '#7ce7c8');
+        g.save();
+        g.shadowColor = 'rgba(124,231,200,0.8)';
+        g.shadowBlur = 12;
+        g.fillStyle = pg;
+        g.beginPath();
+        g.roundRect(cx - bw / 2, h * 0.74, bw * prog, 10, 5);
+        g.fill();
+        g.restore();
+      }
+
+      // 命中粒子与飘字
+      fx.draw(g);
+      for (let i = floats.length - 1; i >= 0; i--) {
+        const f = floats[i];
+        f.life -= dt;
+        f.y -= dt * 46;
+        if (f.life <= 0) {
+          floats.splice(i, 1);
+          continue;
+        }
+        g.globalAlpha = Math.min(1, f.life * 2);
+        g.fillStyle = '#ffd54f';
+        g.font = '800 26px sans-serif';
+        g.fillText(f.text, f.x, f.y);
+        g.globalAlpha = 1;
+      }
     });
 
     const replay = btn('🔁 再听一遍', 'sing-btn small sing-bottom-left', () => playTone(target, 1.1, 0, 0.32));
@@ -250,10 +334,19 @@ export function runTrainer(root: HTMLElement, mic: Mic | null, onExit: () => voi
     let alive = true;
     let started = false;
     let wingT = 0;
+    let shake = 0;
+    const fx = new Particles();
+    // 三层视差星空
+    const stars: { x: number; y: number; z: number; tw: number }[] = [];
+    for (let i = 0; i < 70; i++) {
+      stars.push({ x: Math.random(), y: Math.random(), z: 0.3 + Math.random() * 0.7, tw: Math.random() * 6 });
+    }
 
     const stop = rafLoop((dt) => {
       const { g, w, h } = view;
       wingT += dt;
+      shake = Math.max(0, shake - dt * 2);
+      fx.update(dt);
       const p = mic!.read();
       if (p && alive) {
         started = true;
@@ -261,6 +354,20 @@ export function runTrainer(root: HTMLElement, mic: Mic | null, onExit: () => voi
         const rel = Math.max(0, Math.min(1, (p.midi - lo) / span));
         const targetY = 0.9 - rel * 0.8;
         vy = (targetY - y) * 8;
+        // 发声时的尾迹光点
+        if (Math.random() < 0.5) {
+          fx.spawn({
+            x: w * 0.24 - 14,
+            y: y * h + (Math.random() - 0.5) * 10,
+            vx: -60 - Math.random() * 40,
+            vy: (Math.random() - 0.5) * 20,
+            life: 0.5,
+            ttl: 0.5,
+            size: 1.5 + Math.random() * 1.5,
+            color: 'rgba(255,213,79,0.8)',
+            shape: 'dot',
+          });
+        }
       } else {
         vy += dt * 1.1; // 没声音就慢慢下坠
         vy = Math.min(vy, 0.55);
@@ -296,11 +403,17 @@ export function runTrainer(root: HTMLElement, mic: Mic | null, onExit: () => voi
             pipe.passed = true;
             score++;
             playTone(88, 0.1, 0, 0.15);
+            haptic(12);
+            fx.burst(birdX, birdY, '#ffd54f', 10, 90);
           }
           if (birdX + birdR > px && birdX - birdR < px + pw) {
             if (y < pipe.gapY - gapHalf || y > pipe.gapY + gapHalf) {
               alive = false;
               playCue(false);
+              haptic([60, 40, 80]);
+              shake = 0.6;
+              fx.burst(birdX, birdY, '#ff8a65', 26, 200);
+              fx.burst(birdX, birdY, '#ffd54f', 14, 130);
               const isBest = setBirdBest(score);
               window.setTimeout(() => gameOver(isBest), 700);
             }
@@ -310,30 +423,54 @@ export function runTrainer(root: HTMLElement, mic: Mic | null, onExit: () => voi
 
       // ---- 绘制 ----
       g.clearRect(0, 0, w, h);
-      // 云
-      g.fillStyle = 'rgba(255,255,255,0.05)';
+      g.save();
+      if (shake > 0) g.translate((Math.random() - 0.5) * shake * 14, (Math.random() - 0.5) * shake * 14);
+      // 三层视差星空 + 缓移云
+      for (const s of stars) {
+        const sx = ((s.x - wingT * 0.008 * s.z) % 1 + 1) % 1;
+        const tw = 0.35 + 0.65 * Math.abs(Math.sin(wingT * 1.4 + s.tw));
+        g.globalAlpha = tw * s.z * 0.8;
+        g.fillStyle = s.z > 0.75 ? '#e3d7ff' : '#9bb8d8';
+        g.fillRect(sx * w, s.y * h, s.z > 0.75 ? 2 : 1.4, s.z > 0.75 ? 2 : 1.4);
+      }
+      g.globalAlpha = 1;
+      g.fillStyle = 'rgba(206,147,216,0.06)';
       for (let i = 0; i < 4; i++) {
         const cxx = ((i * 0.3 + wingT * 0.015) % 1.2) * w;
         g.beginPath();
-        g.ellipse(cxx, h * (0.15 + i * 0.2), 46, 14, 0, 0, Math.PI * 2);
+        g.ellipse(cxx, h * (0.15 + i * 0.2), 52, 15, 0, 0, Math.PI * 2);
         g.fill();
       }
-      // 管道
+      // 霓虹渐变管道
       for (const pipe of pipes) {
         const px = pipe.x * w;
         const pw = w * 0.09;
         const gy0 = (pipe.gapY - gapHalf) * h;
         const gy1 = (pipe.gapY + gapHalf) * h;
-        g.fillStyle = '#2e7d55';
+        const pg = g.createLinearGradient(px, 0, px + pw, 0);
+        pg.addColorStop(0, '#1d5a42');
+        pg.addColorStop(0.35, '#3aa06c');
+        pg.addColorStop(0.6, '#2e7d55');
+        pg.addColorStop(1, '#174534');
+        g.fillStyle = pg;
         g.beginPath();
         g.roundRect(px, -8, pw, gy0 + 8, 6);
         g.fill();
         g.beginPath();
         g.roundRect(px, gy1, pw, h - gy1 + 8, 6);
         g.fill();
-        g.fillStyle = '#3aa06c';
-        g.fillRect(px - 3, gy0 - 10, pw + 6, 10);
-        g.fillRect(px - 3, gy1, pw + 6, 10);
+        // 管口沿 + 缺口辉光
+        g.save();
+        g.shadowColor = 'rgba(124,231,200,0.65)';
+        g.shadowBlur = 12;
+        g.fillStyle = '#4cc389';
+        g.beginPath();
+        g.roundRect(px - 3, gy0 - 10, pw + 6, 10, 4);
+        g.fill();
+        g.beginPath();
+        g.roundRect(px - 3, gy1, pw + 6, 10, 4);
+        g.fill();
+        g.restore();
       }
       // 小鸟
       g.save();
@@ -365,6 +502,8 @@ export function runTrainer(root: HTMLElement, mic: Mic | null, onExit: () => voi
       g.lineTo(birdR * 1.05, birdR * 0.3);
       g.fill();
       g.restore();
+      fx.draw(g);
+      g.restore(); // 震屏结束
 
       // 音高刻度提示（左侧）
       g.fillStyle = 'rgba(255,255,255,0.35)';
@@ -374,9 +513,13 @@ export function runTrainer(root: HTMLElement, mic: Mic | null, onExit: () => voi
       g.fillText(midiToName(lo) + ' 低', 8, h * 0.92);
 
       g.textAlign = 'center';
-      g.fillStyle = '#e8eef4';
-      g.font = '700 26px sans-serif';
+      g.save();
+      g.shadowColor = 'rgba(255,213,79,0.55)';
+      g.shadowBlur = 14;
+      g.fillStyle = '#ffe9a8';
+      g.font = '800 28px sans-serif';
       g.fillText(String(score), w / 2, h * 0.1);
+      g.restore();
       if (!started) {
         g.font = '700 17px sans-serif';
         g.fillText('出个声，小鸟就起飞！', w / 2, h * 0.45);

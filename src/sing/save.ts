@@ -16,6 +16,7 @@ interface SaveData {
   range?: VoiceRange;
   best: Record<string, BestScore>;
   birdBest: number;
+  keys: Record<string, number>; // 每首歌记住的移调
 }
 
 function load(): SaveData {
@@ -23,12 +24,12 @@ function load(): SaveData {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const d = JSON.parse(raw) as Partial<SaveData>;
-      return { range: d.range, best: d.best ?? {}, birdBest: d.birdBest ?? 0 };
+      return { range: d.range, best: d.best ?? {}, birdBest: d.birdBest ?? 0, keys: d.keys ?? {} };
     }
   } catch {
     // 隐私模式或数据损坏时忽略
   }
-  return { best: {}, birdBest: 0 };
+  return { best: {}, birdBest: 0, keys: {} };
 }
 
 function store(d: SaveData) {
@@ -61,6 +62,29 @@ export function setBest(songId: string, score: number, stars: number): boolean {
   d.best[songId] = { score, stars };
   store(d);
   return true;
+}
+
+/** 全部歌曲的累计成绩（主页成就展示用） */
+export function getTotals(): { stars: number; sung: number } {
+  const d = load();
+  let stars = 0;
+  let sung = 0;
+  for (const id in d.best) {
+    sung++;
+    stars += d.best[id].stars;
+  }
+  return { stars, sung };
+}
+
+/** 上次为这首歌选的调（没记录返回 null） */
+export function getSongKey(songId: string): number | null {
+  return load().keys[songId] ?? null;
+}
+
+export function setSongKey(songId: string, key: number) {
+  const d = load();
+  d.keys[songId] = key;
+  store(d);
 }
 
 export function getBirdBest(): number {
