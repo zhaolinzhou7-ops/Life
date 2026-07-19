@@ -2,7 +2,7 @@
 
 import { Mic, midiToName } from './pitch';
 import { audioCtx, resumeAudio } from './synth';
-import { getRange } from './save';
+import { getRange, getTotals, getBirdBest } from './save';
 import { runWarmup } from './warmup';
 import { runTrainer } from './trainer';
 import { runKaraoke } from './karaoke';
@@ -52,11 +52,17 @@ export function bootSing(app: HTMLElement, onExit: () => void): () => void {
     const scr = document.createElement('div');
     scr.className = 'screen sing-home';
     const range = getRange();
+    const totals = getTotals();
+    const birdBest = getBirdBest();
+    const chips: string[] = [];
+    if (totals.stars > 0) chips.push(`⭐ 累计 <b>${totals.stars}</b> 星`);
+    if (totals.sung > 0) chips.push(`🎵 唱过 <b>${totals.sung}</b> 首`);
+    if (birdBest > 0) chips.push(`🐦 小鸟 <b>${birdBest}</b> 分`);
+    if (range) chips.push(`🎙️ 音域 <b>${midiToName(range.lo)}~${midiToName(range.hi)}</b>`);
     scr.innerHTML = `
-      <h1>🎤 唱吧减压</h1>
-      <div class="sub">上班压力大？唱出来。开嗓 → 练音准 → 跟唱打分${
-        range ? ` · 你的音域 ${midiToName(range.lo)}~${midiToName(range.hi)}` : ''
-      }</div>`;
+      <h1><span class="sing-eq"><i></i><i></i><i></i><i></i><i></i></span>唱吧减压</h1>
+      <div class="sub">上班压力大？唱出来。开嗓 → 练音准 → 跟唱打分</div>
+      ${chips.length ? `<div class="sing-stats">${chips.map((c) => `<span class="sing-chip">${c}</span>`).join('')}</div>` : ''}`;
     const list = document.createElement('div');
     list.className = 'card-list';
 
