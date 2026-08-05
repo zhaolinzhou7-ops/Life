@@ -229,6 +229,9 @@ export class MahjongScene {
   private flashRing!: THREE.Mesh;
   private composer!: EffectComposer;
   private bloom!: UnrealBloomPass;
+  private shakeT = 0;
+  private shakeAmp = 0;
+  private camBase = new THREE.Vector3();
 
   constructor(
     container: HTMLElement,
@@ -509,6 +512,85 @@ export class MahjongScene {
     });
   }
 
+  /** 碰/杠/胡 大特效：金色冲击波 + 粒子爆发 + 震屏（杠/胡更猛） */
+  bigFlash(seat: number, kind: 'peng' | 'gang' | 'win') {
+    const dir = seatAngle(seat);
+    const center = new THREE.Vector3(0, 0.6, 3.4).applyAxisAngle(new THREE.Vector3(0, 1, 0), dir);
+    const power = kind === 'win' ? 1.9 : kind === 'gang' ? 1.5 : 0.95;
+    const color =
+      kind === 'win' ? new THREE.Color(4, 2.6, 0.8) : kind === 'gang' ? new THREE.Color(3.4, 1.6, 0.5) : new THREE.Color(2.2, 1.8, 3.2);
+
+    // 地面冲击波（多重）
+    const rings = kind === 'peng' ? 1 : kind === 'gang' ? 2 : 3;
+    for (let i = 0; i < rings; i++) {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.6, 0.9, 48),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, side: THREE.DoubleSide, toneMapped: false }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(center.x, 0.04, center.z);
+      this.scene.add(ring);
+      const mat = ring.material as THREE.MeshBasicMaterial;
+      const delay = i * 0.13;
+      this.addTween(
+        0.62 + delay,
+        (k) => {
+          const kk = Math.max(0, (k * (0.62 + delay) - delay) / 0.62);
+          ring.scale.setScalar(0.4 + kk * 4.2 * power);
+          mat.opacity = (1 - kk) * 0.95;
+        },
+        () => this.scene.remove(ring),
+      );
+    }
+
+    // 粒子爆发（金色碎片）
+    const n = Math.round(18 * power);
+    const pmat = new THREE.MeshBasicMaterial({ color, toneMapped: false, transparent: true });
+    for (let i = 0; i < n; i++) {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), pmat.clone());
+      p.position.copy(center);
+      this.scene.add(p);
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2.4 + Math.random() * 3.2 * power;
+      const vx = Math.cos(a) * sp;
+      const vz = Math.sin(a) * sp;
+      const vy = 3.2 + Math.random() * 3.4 * power;
+      const rot = new THREE.Vector3(Math.random() * 8, Math.random() * 8, Math.random() * 8);
+      const life = 0.85;
+      this.addTween(
+        life,
+        (k) => {
+          const t = k * life;
+          p.position.set(center.x + vx * t, center.y + vy * t - 9.4 * t * t, center.z + vz * t);
+          p.rotation.set(rot.x * t, rot.y * t, rot.z * t);
+          (p.material as THREE.MeshBasicMaterial).opacity = 1 - k;
+          p.scale.setScalar(1 - k * 0.5);
+        },
+        () => this.scene.remove(p),
+      );
+    }
+
+    // 强光闪 + 震屏
+    const flashLight = new THREE.PointLight(kind === 'peng' ? 0x9fb8ff : 0xffd08a, 0, 22);
+    flashLight.position.set(center.x, 3.2, center.z);
+    this.scene.add(flashLight);
+    this.addTween(
+      0.45,
+      (k) => {
+        flashLight.intensity = (1 - k) * 42 * power;
+      },
+      () => this.scene.remove(flashLight),
+    );
+    this.shake(0.06 * power);
+  }
+
+  /** 相机震屏 */
+  private shake(amp: number) {
+    this.camBase.copy(this.camera.position);
+    this.shakeAmp = amp;
+    this.shakeT = 0;
+  }
+
   /** 摸牌小动画：一张背牌飞向该家 */
   drawAnim(seat: number): number {
     const { ivoryMat, backMat } = sharedMats();
@@ -546,11 +628,11 @@ export class MahjongScene {
   // ---------- 内部 ----------
   private fitCamera() {
     const aspect = window.innerWidth / window.innerHeight;
-    const need = 6.6; // 桌面可视半宽
+    const need = 5.5; // 桌面可视半宽（越小桌子越占满屏幕，越沉浸）
     const tanV = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     const dist = Math.max(need / (tanV * aspect), 9.5);
     this.camera.aspect = aspect;
-    this.camera.position.set(0, dist * 0.86, 5.2 + dist * 0.52);
+    this.camera.position.set(0, dist * 0.62, 5.0 + dist * 0.78);
     this.camera.lookAt(0, 0, 1.1);
     this.camera.updateProjectionMatrix();
     // 手牌正交层：宽度固定容纳 14 张 + 摸牌位，高度按屏幕比例
@@ -593,6 +675,23 @@ export class MahjongScene {
     for (const tw of this.tweens) {
       tw.t += dt;
       tw.update(Math.min(1, tw.t / tw.dur));
+    }
+    // 震屏（衰减）
+    if (this.shakeAmp > 0.0005) {
+      this.shakeT += dt;
+      const decay = Math.exp(-this.shakeT * 6.5);
+      const a = this.shakeAmp * decay;
+      this.camera.position.set(
+        this.camBase.x + Math.sin(this.shakeT * 58) * a,
+        this.camBase.y + Math.cos(this.shakeT * 47) * a,
+        this.camBase.z + Math.sin(this.shakeT * 41) * a * 0.6,
+      );
+      this.camera.lookAt(0, 0, 1.1);
+      if (decay < 0.02) {
+        this.shakeAmp = 0;
+        this.camera.position.copy(this.camBase);
+        this.camera.lookAt(0, 0, 1.1);
+      }
     }
     const done = this.tweens.filter((t) => t.t >= t.dur);
     this.tweens = this.tweens.filter((t) => t.t < t.dur);
