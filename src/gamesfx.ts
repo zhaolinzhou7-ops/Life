@@ -170,20 +170,51 @@ export function sfxLose() {
   [392, 330, 262, 196].forEach((f, i) => tone(f, 0.3, { type: 'triangle', vol: 0.18, delay: i * 0.16 }));
 }
 
-/** 中文语音报牌（碰/杠/胡/将军…），不可用时静默跳过 */
-export function speak(text: string) {
+/** 中文语音报牌（碰/杠/胡/将军…），不可用时静默跳过。
+ *  voice 可指定角色音色（pitch/rate），实现不同人物不同嗓音。 */
+export function speak(text: string, voice?: { pitch: number; rate: number }) {
   if (muted) return;
   try {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'zh-CN';
-    u.rate = 1.15;
-    u.pitch = 1.15;
-    u.volume = 0.9;
+    u.rate = voice?.rate ?? 1.15;
+    u.pitch = voice?.pitch ?? 1.15;
+    u.volume = 0.95;
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
   } catch {
     /* 无 TTS 环境 */
   }
+}
+
+/** 杠：重型三连击 + 低频轰鸣 + 金属泛音（强打击感） */
+export function sfxGangHeavy() {
+  sfxKnock(true);
+  // 低频冲击
+  tone(58, 0.5, { type: 'sine', vol: 0.42, slide: 0.55 });
+  noise(0.25, { vol: 0.3, lp: 1200 });
+  // 三连金属敲击
+  [0, 0.09, 0.18].forEach((d, i) => {
+    tone(330 + i * 110, 0.22, { type: 'triangle', vol: 0.3, delay: 0.04 + d });
+    noise(0.06, { vol: 0.16, hp: 2600, delay: 0.04 + d });
+  });
+  // 收尾镲片
+  noise(0.55, { vol: 0.16, hp: 5200, delay: 0.22 });
+}
+
+/** 胡牌大奖：锣 + 上行琶音 + 掌声式白噪 */
+export function sfxWinBig() {
+  tone(165, 1.8, { type: 'sine', vol: 0.45, slide: 0.62 });
+  noise(0.7, { vol: 0.2, lp: 1000 });
+  [523, 659, 784, 1047, 1319].forEach((f, i) => pluck(f, 1.2, 0.22, 0.1 + i * 0.085));
+  noise(0.9, { vol: 0.12, hp: 3800, delay: 0.35 });
+}
+
+/** 吃子/绝杀：破空斩击 */
+export function sfxSlash() {
+  noise(0.22, { vol: 0.3, hp: 1800 });
+  tone(880, 0.18, { type: 'sawtooth', vol: 0.16, slide: 0.35 });
+  tone(140, 0.3, { type: 'sine', vol: 0.34, slide: 0.5, delay: 0.05 });
 }
 
 // ---------------- 背景音乐 ----------------

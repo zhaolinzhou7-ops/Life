@@ -18,17 +18,18 @@ import {
   isMuted,
   setMuted,
   sfxDraw,
-  sfxGang,
+  sfxGangHeavy,
   sfxKnock,
   sfxLose,
   sfxPeng,
   sfxTap,
-  sfxWin,
+  sfxWinBig,
   speak,
   startBgm,
   stopBgm,
   unlockAudio,
 } from '../gamesfx';
+import { CHARACTERS, QUICK_CHAT, avatarCanvas, pickLine } from '../characters';
 
 interface Player {
   hand: Counts;
@@ -40,7 +41,9 @@ interface Player {
   score: number;
 }
 
-const NAMES = ['你', '右家', '对家', '左家'];
+/** 座位 1/2/3 分别坐三位 CG 角色 */
+const SEAT_CHARS = [null, CHARACTERS[0], CHARACTERS[1], CHARACTERS[2]] as const;
+const NAMES = ['你', CHARACTERS[0].name, CHARACTERS[1].name, CHARACTERS[2].name];
 
 const sortedTiles = (c: Counts): TileId[] => {
   const out: TileId[] = [];
@@ -111,6 +114,96 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     tingBar.classList.remove('hidden');
   }
 
+  // ---------- 三位对手：CG 头像座位框 + 对话气泡 ----------
+  const seatBoxes: HTMLElement[] = [];
+  const bubbles: HTMLElement[] = [];
+  const bubbleTimers: number[] = [0, 0, 0, 0];
+  for (let seat = 1; seat <= 3; seat++) {
+    const ch = SEAT_CHARS[seat]!;
+    const box = document.createElement('div');
+    box.className = `mj-player seat${seat}`;
+    box.style.setProperty('--c', ch.color);
+    box.appendChild(avatarCanvas(ch, 58));
+    const nm = document.createElement('div');
+    nm.className = 'nm';
+    nm.textContent = ch.name;
+    box.appendChild(nm);
+    const tag = document.createElement('div');
+    tag.className = 'lackTag';
+    tag.id = `mj-lack-${seat}`;
+    box.appendChild(tag);
+    wrap.appendChild(box);
+    seatBoxes[seat] = box;
+
+    const bb = document.createElement('div');
+    bb.className = `mj-bubble seat${seat} hidden`;
+    wrap.appendChild(bb);
+    bubbles[seat] = bb;
+  }
+
+  /** 角色说话：气泡 + 该角色音色语音 + 头像高亮 */
+  function charSay(seat: number, text: string) {
+    if (seat === 0) {
+      // 玩家自己：气泡显示在下方
+      playerBubble.textContent = text;
+      playerBubble.classList.remove('hidden', 'pop');
+      void playerBubble.offsetWidth;
+      playerBubble.classList.add('pop');
+      speak(text, { pitch: 1.0, rate: 1.1 });
+      clearTimeout(bubbleTimers[0]);
+      bubbleTimers[0] = window.setTimeout(() => playerBubble.classList.add('hidden'), 2400);
+      return;
+    }
+    const ch = SEAT_CHARS[seat]!;
+    const bb = bubbles[seat];
+    const box = seatBoxes[seat];
+    bb.textContent = text;
+    bb.classList.remove('hidden', 'pop');
+    void bb.offsetWidth;
+    bb.classList.add('pop');
+    box.classList.add('talking');
+    speak(text, ch.voice);
+    clearTimeout(bubbleTimers[seat]);
+    bubbleTimers[seat] = window.setTimeout(() => {
+      bb.classList.add('hidden');
+      box.classList.remove('talking');
+    }, 2500);
+  }
+
+  /** 高亮某座位（轮到他行动） */
+  function setActiveSeat(seat: number) {
+    for (let i = 1; i <= 3; i++) seatBoxes[i]?.classList.toggle('active', i === seat);
+  }
+
+  // 玩家气泡 + 快捷聊天
+  const playerBubble = document.createElement('div');
+  playerBubble.className = 'mj-bubble seat0 hidden';
+  wrap.appendChild(playerBubble);
+
+  const chatBtn = document.createElement('button');
+  chatBtn.className = 'mj-chat-btn';
+  chatBtn.textContent = '💬';
+  wrap.appendChild(chatBtn);
+  const chatPanel = document.createElement('div');
+  chatPanel.className = 'mj-chat hidden';
+  QUICK_CHAT.forEach((line) => {
+    const b = document.createElement('button');
+    b.className = 'mj-chat-item';
+    b.textContent = line;
+    b.onclick = () => {
+      chatPanel.classList.add('hidden');
+      charSay(0, line);
+      // 对手随机回一句
+      const seat = 1 + Math.floor(Math.random() * 3);
+      setTimeout(() => {
+        if (alive()) charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.taunt));
+      }, 1400);
+    };
+    chatPanel.appendChild(b);
+  });
+  wrap.appendChild(chatPanel);
+  chatBtn.onclick = () => chatPanel.classList.toggle('hidden');
+
   // 首次手势解锁音频 + 麻将馆节奏 BGM
   const unlock = () => {
     unlockAudio();
@@ -148,13 +241,19 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     if (wallEl) wallEl.textContent = `剩 ${wall.length} 张`;
     const seats = document.getElementById('mj-seats');
     if (seats) {
-      seats.innerHTML = players
-        .map((p, i) => {
-          const lack = p.lack >= 0 ? `缺${SUITS[p.lack]}` : '';
-          const st = p.won ? `<b class="win">胡</b>` : '';
-          return `<span class="mj-seat ${p.won ? 'won' : ''}">${NAMES[i]} ${lack} ${st} <em>${p.score}</em></span>`;
-        })
-        .join('');
+      const me = players[0];
+      seats.innerHTML = `<span class="mj-seat ${me.won ? 'won' : ''}">你 ${
+        me.lack >= 0 ? '缺' + SUITS[me.lack] : ''
+      } ${me.won ? '<b class="win">胡</b>' : ''} <em>${me.score}</em></span>`;
+      // 角色框上的缺门/得分/胡标记
+      for (let i = 1; i <= 3; i++) {
+        const tag = document.getElementById(`mj-lack-${i}`);
+        const p = players[i];
+        if (tag && p) {
+          tag.textContent = `${p.lack >= 0 ? '缺' + SUITS[p.lack] : ''} ${p.score > 0 ? '+' : ''}${p.score}`;
+          seatBoxes[i].classList.toggle('won', p.won);
+        }
+      }
     }
   }
 
@@ -220,6 +319,13 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
   let resultEl: HTMLElement | null = null;
   function showResult() {
     if (!players[0].won) sfxLose();
+    for (let i = 1; i <= 3; i++) {
+      const p = players[i];
+      if (!p) continue;
+      setTimeout(() => {
+        if (alive()) charSay(i, pickLine(p.won ? SEAT_CHARS[i]!.lines.win : SEAT_CHARS[i]!.lines.lose));
+      }, 400 + i * 900);
+    }
     const s = document.createElement('div');
     s.className = 'screen moba-result';
     const anyWin = players[0].won;
@@ -314,6 +420,10 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     for (let s = 1; s < 4; s++) players[s].lack = chooseLack(players[s].hand);
     updateHud();
     showToast(`你定缺：${SUITS[players[0].lack]}`);
+    // 三家依次寒暄
+    for (let i = 1; i <= 3; i++) {
+      setTimeout(() => { if (alive()) charSay(i, pickLine(SEAT_CHARS[i]!.lines.greet)); }, i * 1500);
+    }
 
     // 行牌循环
     let turn = 0;
@@ -328,6 +438,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
       const drawn = wall.pop()!;
       p.hand[drawn]++;
       scene.drawAnim(turn);
+      setActiveSeat(turn);
       if (turn === 0) sfxDraw();
       updateHud();
       let gangFlower = false;
@@ -350,8 +461,9 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
             const act = await askPlayer(ops);
             if (!alive()) return;
             if (act === '胡') {
-              sfxWin();
+              sfxWinBig();
               speak('自摸');
+              scene.bigFlash(0, 'win');
               await flashBanner('自摸！');
               settleWin(0, current, { zimo: true, gangFlower, payer: -1 });
               drawnTile = null;
@@ -360,9 +472,10 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
             }
             if (act === '杠') {
               doAngang(turn, angangTile);
-              sfxGang();
+              sfxGangHeavy();
               speak('杠');
               scene.flashMeld(0);
+              scene.bigFlash(0, 'gang');
               await flashBanner('暗杠');
               if (wall.length === 0) break;
               current = wall.pop()!;
@@ -375,17 +488,19 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         } else {
           await sleep(0.45);
           if (canZimo) {
-            sfxWin();
-            speak('自摸');
+            sfxWinBig();
+            scene.bigFlash(turn, 'win');
+            charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.win));
             await flashBanner(`${NAMES[turn]} 自摸！`);
             settleWin(turn, current, { zimo: true, gangFlower, payer: -1 });
             break;
           }
           if (angangTile >= 0 && suitOf(angangTile) !== p.lack) {
             doAngang(turn, angangTile);
-            sfxGang();
-            speak('杠');
+            sfxGangHeavy();
             scene.flashMeld(turn);
+            scene.bigFlash(turn, 'gang');
+            charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.gang));
             await flashBanner(`${NAMES[turn]} 暗杠`);
             if (wall.length === 0) break;
             current = wall.pop()!;
@@ -418,6 +533,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         out = chooseDiscard(p.hand, p.lack, p.melds.length === 0);
         p.hand[out]--;
         scene.setOpponentCount(turn, p.hand.reduce((a, b) => a + b, 0));
+        if (Math.random() < 0.22) charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.discard));
       }
       scene.discard(turn, out);
       sfxKnock();
@@ -475,8 +591,10 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         if (!alive()) return -1;
         if (act !== '胡') continue;
       }
-      sfxWin();
-      speak('胡');
+      sfxWinBig();
+      scene.bigFlash(seat, 'win');
+      if (seat === 0) speak('胡');
+      else charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.win));
       await flashBanner(seat === 0 ? '胡！' : `${NAMES[seat]} 胡！`);
       settleWin(seat, tile, { zimo: false, gangFlower: false, payer: from });
       anyHu = true;
@@ -515,9 +633,11 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         p.hand[tile] -= 3;
         p.melds.push({ kind: 'gang', tile });
         scene.setMelds(seat, p.melds);
-        sfxGang();
-        speak('杠');
+        sfxGangHeavy();
         scene.flashMeld(seat);
+        scene.bigFlash(seat, 'gang');
+        if (seat === 0) speak('杠');
+        else charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.gang));
         await flashBanner(seat === 0 ? '杠！' : `${NAMES[seat]} 杠`);
         // 杠后补摸
         if (wall.length > 0) {
@@ -532,8 +652,10 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         p.melds.push({ kind: 'peng', tile });
         scene.setMelds(seat, p.melds);
         sfxPeng();
-        speak('碰');
         scene.flashMeld(seat);
+        scene.bigFlash(seat, 'peng');
+        if (seat === 0) speak('碰');
+        else charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.peng));
         await flashBanner(seat === 0 ? '碰！' : `${NAMES[seat]} 碰`);
       }
       if (seat === 0) refreshPlayerHand();
@@ -570,6 +692,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
   return () => {
     disposed = true;
     clearTimeout(toastTimer);
+    for (const t of bubbleTimers) clearTimeout(t);
     window.removeEventListener('pointerdown', unlock);
     stopBgm();
     resultEl?.remove();

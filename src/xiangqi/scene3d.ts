@@ -144,34 +144,110 @@ function makeBoardTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** 棋子顶面：木底 + 刻环 + 字 */
-function makeFaceTexture(char: string, color: string): THREE.CanvasTexture {
+/** 棋子材质主题 */
+export type PieceTheme = 'jade' | 'wood' | 'porcelain';
+
+interface ThemeDef {
+  /** 棋子底色（面纹理） */
+  faceInner: string;
+  faceOuter: string;
+  /** 侧面/底面颜色 */
+  side: number;
+  bottom: number;
+  /** 物理材质参数 */
+  roughness: number;
+  clearcoat: number;
+  transmission: number;
+  /** 红黑两方的刻字与描边色 */
+  redInk: string;
+  blackInk: string;
+  ringRed: string;
+  ringBlack: string;
+}
+
+export const PIECE_THEMES: Record<PieceTheme, ThemeDef> = {
+  jade: {
+    faceInner: '#eafaf0',
+    faceOuter: '#a8dcc0',
+    side: 0x7fc9a8,
+    bottom: 0x5fa98a,
+    roughness: 0.12,
+    clearcoat: 1,
+    transmission: 0.18,
+    redInk: '#b3123a',
+    blackInk: '#123b2e',
+    ringRed: '#d4af37',
+    ringBlack: '#2f6b52',
+  },
+  wood: {
+    faceInner: '#f4dcae',
+    faceOuter: '#e0b877',
+    side: 0xc99a5b,
+    bottom: 0xa87c42,
+    roughness: 0.32,
+    clearcoat: 0.9,
+    transmission: 0,
+    redInk: '#c62828',
+    blackInk: '#22303a',
+    ringRed: '#c62828',
+    ringBlack: '#22303a',
+  },
+  porcelain: {
+    faceInner: '#ffffff',
+    faceOuter: '#dfe9f5',
+    side: 0xf2f6fb,
+    bottom: 0xcfd9e6,
+    roughness: 0.08,
+    clearcoat: 1,
+    transmission: 0,
+    redInk: '#e02020',
+    blackInk: '#1a2a6b',
+    ringRed: '#e0a020',
+    ringBlack: '#3a5fc0',
+  },
+};
+
+/** 棋子顶面：底色 + 金/彩刻环 + 字。flip=true 时字倒转（供对面玩家正读） */
+function makeFaceTexture(char: string, ink: string, ring: string, theme: ThemeDef, flip: boolean): THREE.CanvasTexture {
   const S = 256;
   const cv = document.createElement('canvas');
   cv.width = S;
   cv.height = S;
   const g = cv.getContext('2d')!;
-  const grad = g.createRadialGradient(S * 0.4, S * 0.35, S * 0.1, S / 2, S / 2, S * 0.55);
-  grad.addColorStop(0, '#f4dcae');
-  grad.addColorStop(1, '#e0b877');
+  const grad = g.createRadialGradient(S * 0.4, S * 0.35, S * 0.1, S / 2, S / 2, S * 0.58);
+  grad.addColorStop(0, theme.faceInner);
+  grad.addColorStop(1, theme.faceOuter);
   g.fillStyle = grad;
   g.fillRect(0, 0, S, S);
-  g.strokeStyle = color;
-  g.lineWidth = 7;
+
+  g.save();
+  g.translate(S / 2, S / 2);
+  if (flip) g.rotate(Math.PI);
+  // 双刻环（外细内粗，金属感）
+  g.strokeStyle = ring;
+  g.lineWidth = 8;
   g.beginPath();
-  g.arc(S / 2, S / 2, S * 0.42, 0, Math.PI * 2);
+  g.arc(0, 0, S * 0.42, 0, Math.PI * 2);
   g.stroke();
-  g.fillStyle = color;
+  g.strokeStyle = 'rgba(255,255,255,0.55)';
+  g.lineWidth = 2;
+  g.beginPath();
+  g.arc(0, 0, S * 0.37, 0, Math.PI * 2);
+  g.stroke();
+  // 字
+  g.fillStyle = ink;
   g.font = `bold ${S * 0.52}px "KaiTi","STKaiti",serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  // 轻微阴影模拟刻痕
-  g.shadowColor = 'rgba(0,0,0,0.45)';
-  g.shadowBlur = 3;
+  g.shadowColor = 'rgba(0,0,0,0.5)';
+  g.shadowBlur = 4;
   g.shadowOffsetY = 2;
-  g.fillText(char, S / 2, S / 2 + S * 0.02);
+  g.fillText(char, 0, S * 0.02);
+  g.restore();
+
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
   return tex;
 }
 
@@ -256,6 +332,10 @@ export class XiangqiScene {
   private lastTo!: THREE.Mesh;
   private composer!: EffectComposer;
   private bloom!: UnrealBloomPass;
+  private impactRing!: THREE.Mesh;
+  private shakeT = 0;
+  private shakeAmp = 0;
+  private camBase = new THREE.Vector3();
   private checkT = -1;
   private boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TOP_Y);
   private clock = new THREE.Clock();
@@ -263,6 +343,7 @@ export class XiangqiScene {
   constructor(
     container: HTMLElement,
     private onTap: (x: number, y: number) => void,
+    private theme: PieceTheme = 'jade',
   ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -323,14 +404,66 @@ export class XiangqiScene {
     board.receiveShadow = true;
     board.castShadow = true;
     this.scene.add(board);
-    // 底座
+    // 底座（深色漆木）
     const basePad = new THREE.Mesh(
       new THREE.BoxGeometry(bw + 0.5, 0.24, bh + 0.5),
-      new THREE.MeshStandardMaterial({ color: 0x5d3a16, roughness: 0.85 }),
+      new THREE.MeshStandardMaterial({ color: 0x3a2410, roughness: 0.7 }),
     );
     basePad.position.y = -BOARD_T / 2 - 0.12;
     basePad.receiveShadow = true;
     this.scene.add(basePad);
+
+    // ===== 镶金边框：四条鎏金包边 + 四角兽首铆钉 =====
+    const goldMat = new THREE.MeshPhysicalMaterial({
+      color: 0xd4a72c,
+      metalness: 1,
+      roughness: 0.22,
+      clearcoat: 1,
+      clearcoatRoughness: 0.1,
+    });
+    const frameW = 0.42;
+    const frameH = BOARD_T + 0.18;
+    const mkBar = (w: number, d: number, x: number, z: number) => {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(w, frameH, d), goldMat);
+      bar.position.set(x, 0.02, z);
+      bar.castShadow = true;
+      bar.receiveShadow = true;
+      this.scene.add(bar);
+    };
+    mkBar(bw + frameW * 2, frameW, 0, -bh / 2 - frameW / 2);
+    mkBar(bw + frameW * 2, frameW, 0, bh / 2 + frameW / 2);
+    mkBar(frameW, bh, -bw / 2 - frameW / 2, 0);
+    mkBar(frameW, bh, bw / 2 + frameW / 2, 0);
+    // 四角铆钉（球）
+    for (const sx of [-1, 1])
+      for (const sz of [-1, 1]) {
+        const stud = new THREE.Mesh(new THREE.SphereGeometry(frameW * 0.42, 20, 14), goldMat);
+        stud.position.set(sx * (bw / 2 + frameW / 2), frameH / 2 - 0.02, sz * (bh / 2 + frameW / 2));
+        stud.castShadow = true;
+        this.scene.add(stud);
+      }
+    // 边框内侧刻线（细金环）
+    const inlay = new THREE.Mesh(
+      new THREE.RingGeometry(0.001, 0.002, 4),
+      new THREE.MeshBasicMaterial({ color: 0xffd76e, toneMapped: false }),
+    );
+    inlay.visible = false;
+    this.scene.add(inlay);
+
+    // 绝杀/吃子 冲击特效环（复用）
+    this.impactRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.5, 0.72, 44),
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color(3.2, 2.2, 0.6),
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      }),
+    );
+    this.impactRing.rotation.x = -Math.PI / 2;
+    this.impactRing.position.y = TOP_Y + 0.03;
+    this.scene.add(this.impactRing);
 
     this.scene.add(this.pieceRoot);
     this.scene.add(this.markerRoot);
@@ -391,7 +524,8 @@ export class XiangqiScene {
       for (let x = 0; x < COLS; x++) {
         const p = b[y][x];
         if (!p) continue;
-        const mesh = this.makePiece(PTYPE_NAME[p.t][p.c === 'r' ? 0 : 1], p.c === 'r' ? '#c62828' : '#22303a');
+        // 黑方棋子文字倒转，双方各自正读（真实对坐摆放）
+        const mesh = this.makePiece(PTYPE_NAME[p.t][p.c === 'r' ? 0 : 1], p.c === 'b');
         mesh.position.copy(cellToWorld(x, y));
         this.pieceRoot.add(mesh);
         this.pieces.push({ mesh, x, y });
@@ -463,23 +597,82 @@ export class XiangqiScene {
     const to = cellToWorld(m.tx, m.ty);
     mover.x = m.tx;
     mover.y = m.ty;
+    const mesh = mover.mesh;
+    const LIFT = 1.15; // 抬起高度（模拟手拿起棋子）
+    // 第一段：抓起（快速抬高 + 轻微倾斜）
     this.addTween(
-      0.42,
+      0.16,
       (k) => {
-        const e = 1 - (1 - k) ** 2;
-        mover.mesh.position.lerpVectors(from, to, e);
-        mover.mesh.position.y = TOP_Y + Math.sin(k * Math.PI) * 0.55;
+        mesh.position.y = TOP_Y + LIFT * (1 - (1 - k) ** 2);
+        mesh.rotation.z = k * 0.12;
+        mesh.scale.setScalar(1 + k * 0.08);
       },
       () => {
-        mover.mesh.position.copy(to);
-        // 落点标记
-        this.lastFrom.position.set(from.x, TOP_Y + 0.02, from.z);
-        this.lastTo.position.set(to.x, TOP_Y + 0.02, to.z);
-        this.lastFrom.visible = true;
-        this.lastTo.visible = true;
-        onDone();
+        // 第二段：空中平移
+        this.addTween(
+          0.26,
+          (k) => {
+            const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+            mesh.position.x = from.x + (to.x - from.x) * e;
+            mesh.position.z = from.z + (to.z - from.z) * e;
+            mesh.position.y = TOP_Y + LIFT + Math.sin(k * Math.PI) * 0.18;
+          },
+          () => {
+            // 第三段：拍下（加速落地 + 压扁回弹）
+            this.addTween(
+              0.14,
+              (k) => {
+                mesh.position.y = TOP_Y + LIFT * (1 - k * k);
+                mesh.rotation.z = 0.12 * (1 - k);
+              },
+              () => {
+                mesh.position.copy(to);
+                mesh.rotation.z = 0;
+                // 落地弹性
+                this.addTween(0.22, (k) => {
+                  const s = 1 + Math.sin(k * Math.PI) * 0.16 * (1 - k);
+                  mesh.scale.set(s, 1 / s, s);
+                });
+                this.impact(to.x, to.z, victim ? 1 : 0.55);
+                this.shake(victim ? 0.09 : 0.03);
+                // 落点标记
+                this.lastFrom.position.set(from.x, TOP_Y + 0.02, from.z);
+                this.lastTo.position.set(to.x, TOP_Y + 0.02, to.z);
+                this.lastFrom.visible = true;
+                this.lastTo.visible = true;
+                onDone();
+              },
+            );
+          },
+        );
       },
     );
+  }
+
+  /** 落子/吃子冲击波 */
+  private impact(x: number, z: number, power = 1) {
+    this.impactRing.position.set(x, TOP_Y + 0.03, z);
+    const mat = this.impactRing.material as THREE.MeshBasicMaterial;
+    this.addTween(0.5, (k) => {
+      this.impactRing.scale.setScalar(0.5 + k * 3.2 * power);
+      mat.opacity = (1 - k) * 0.95 * power;
+    });
+  }
+
+  /** 相机震屏 */
+  private shake(amp: number) {
+    this.camBase.copy(this.camera.position);
+    this.shakeAmp = amp;
+    this.shakeT = 0;
+  }
+
+  /** 绝杀大特效：金色冲击波连爆 + 强震屏 */
+  finishBlast(x: number, y: number) {
+    const p = cellToWorld(x, y);
+    for (let i = 0; i < 3; i++) {
+      setTimeout(() => this.impact(p.x, p.z, 1.6), i * 160);
+    }
+    this.shake(0.22);
   }
 
   /** 高亮某格上的将（将军提示） */
@@ -508,17 +701,36 @@ export class XiangqiScene {
     return this.pieces.find((p) => p.x === x && p.y === y) ?? null;
   }
 
-  private makePiece(char: string, color: string): THREE.Group {
+  /** 造一枚棋子。isBlack 决定刻字配色与是否倒转（对坐正读） */
+  private makePiece(char: string, isBlack: boolean): THREE.Group {
+    const t = PIECE_THEMES[this.theme];
     const g = new THREE.Group();
-    const key = char + color;
+    const key = `${this.theme}-${char}-${isBlack}`;
     let face = faceCache.get(key);
     if (!face) {
-      face = makeFaceTexture(char, color);
+      face = makeFaceTexture(char, isBlack ? t.blackInk : t.redInk, isBlack ? t.ringBlack : t.ringRed, t, isBlack);
       faceCache.set(key, face);
     }
-    const side = new THREE.MeshPhysicalMaterial({ color: 0xc99a5b, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.15 });
-    const top = new THREE.MeshPhysicalMaterial({ map: face, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.12 });
-    const bottom = new THREE.MeshPhysicalMaterial({ color: 0xa87c42, roughness: 0.5, clearcoat: 0.5, clearcoatRoughness: 0.3 });
+    const side = new THREE.MeshPhysicalMaterial({
+      color: t.side,
+      roughness: t.roughness,
+      clearcoat: t.clearcoat,
+      clearcoatRoughness: 0.12,
+      transmission: t.transmission,
+      thickness: t.transmission > 0 ? 0.5 : 0,
+    });
+    const top = new THREE.MeshPhysicalMaterial({
+      map: face,
+      roughness: t.roughness,
+      clearcoat: t.clearcoat,
+      clearcoatRoughness: 0.1,
+    });
+    const bottom = new THREE.MeshPhysicalMaterial({
+      color: t.bottom,
+      roughness: t.roughness + 0.2,
+      clearcoat: t.clearcoat * 0.5,
+      clearcoatRoughness: 0.3,
+    });
     const body = new THREE.Mesh(new THREE.CylinderGeometry(PIECE_R, PIECE_R * 1.02, PIECE_H, 36), [side, top, bottom]);
     body.position.y = PIECE_H / 2;
     body.castShadow = true;
@@ -570,6 +782,23 @@ export class XiangqiScene {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.loop);
     const dt = Math.min(this.clock.getDelta(), 0.05);
+    // 震屏（衰减正弦）
+    if (this.shakeAmp > 0.0005) {
+      this.shakeT += dt;
+      const decay = Math.exp(-this.shakeT * 7);
+      const a = this.shakeAmp * decay;
+      this.camera.position.set(
+        this.camBase.x + Math.sin(this.shakeT * 62) * a,
+        this.camBase.y + Math.cos(this.shakeT * 51) * a,
+        this.camBase.z + Math.sin(this.shakeT * 44) * a * 0.6,
+      );
+      this.camera.lookAt(0, 0, -0.3);
+      if (decay < 0.02) {
+        this.shakeAmp = 0;
+        this.camera.position.copy(this.camBase);
+        this.camera.lookAt(0, 0, -0.3);
+      }
+    }
     for (const tw of this.tweens) {
       tw.t += dt;
       tw.update(Math.min(1, tw.t / tw.dur));

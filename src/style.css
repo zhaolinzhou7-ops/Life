@@ -1298,3 +1298,244 @@ canvas {
 .home-card:nth-child(3)::after { animation-delay: 1.4s; }
 .home-card:nth-child(4)::after { animation-delay: 2.1s; }
 .home-card:nth-child(5)::after { animation-delay: 2.8s; }
+
+/* ===================== 角色 / 对手 UI ===================== */
+/* 象棋开局设置 */
+.xq-setup .xq-sec {
+  width: 100%;
+  max-width: 460px;
+  color: var(--muted);
+  font-size: 13px;
+  margin: 16px 0 6px;
+}
+.xq-rivals {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  max-width: 460px;
+}
+.xq-rival {
+  flex: 1;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 6px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s;
+}
+.xq-rival canvas {
+  display: block;
+  margin: 0 auto 6px;
+}
+.xq-rival .nm {
+  font-weight: 700;
+  font-size: 14px;
+}
+.xq-rival .st {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.xq-rival.on {
+  border-color: var(--c);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--c) 45%, transparent);
+  transform: translateY(-2px);
+}
+.xq-rival:active {
+  transform: scale(0.97);
+}
+
+/* 象棋对局中的对手框 */
+.xq-rivalbox {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 52px);
+  left: 10px;
+  z-index: 14;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: rgba(8, 14, 20, 0.78);
+  border: 1px solid var(--c);
+  border-radius: 40px;
+  padding: 5px 14px 5px 5px;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.xq-rivalbox canvas {
+  display: block;
+  border-radius: 50%;
+}
+.xq-rivalbox .info b {
+  display: block;
+  font-size: 14px;
+}
+.xq-rivalbox .info span {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.xq-rivalbox.talking {
+  box-shadow: 0 0 20px color-mix(in srgb, var(--c) 65%, transparent);
+  transform: scale(1.04);
+}
+.xq-bubble {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 124px);
+  left: 14px;
+  z-index: 15;
+  max-width: 62vw;
+  background: linear-gradient(160deg, rgba(30, 40, 52, 0.96), rgba(16, 22, 30, 0.96));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  border-top-left-radius: 3px;
+  padding: 9px 13px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+.xq-bubble.pop {
+  animation: bubble-pop 0.32s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+@keyframes bubble-pop {
+  0% { transform: scale(0.5) translateY(-8px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+/* 象棋结算徽章 */
+.xq-result-badge {
+  font-size: 62px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  margin-bottom: 4px;
+  animation: badge-slam 0.5s cubic-bezier(0.2, 1.6, 0.35, 1) both;
+}
+.xq-result-badge.win {
+  color: #ffd76e;
+  text-shadow: 0 0 30px rgba(255, 200, 80, 0.9), 0 4px 10px rgba(0, 0, 0, 0.6);
+}
+.xq-result-badge.lose {
+  color: #8792a3;
+  text-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
+}
+@keyframes badge-slam {
+  0% { transform: scale(2.6) rotate(-8deg); opacity: 0; filter: blur(6px); }
+  100% { transform: scale(1) rotate(0); opacity: 1; filter: blur(0); }
+}
+
+/* ===================== 麻将：对手座位 ===================== */
+.mj-player {
+  position: absolute;
+  z-index: 13;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: 14px;
+  background: rgba(6, 16, 12, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: box-shadow 0.2s, transform 0.2s, border-color 0.2s;
+}
+.mj-player canvas {
+  display: block;
+  border-radius: 50%;
+}
+.mj-player .nm {
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.mj-player .lackTag {
+  font-size: 10px;
+  color: var(--accent2);
+}
+.mj-player.active {
+  border-color: var(--c);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--c) 55%, transparent);
+}
+.mj-player.talking {
+  transform: scale(1.08);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--c) 80%, transparent);
+}
+.mj-player.won {
+  border-color: #66bb6a;
+}
+/* 座位定位：1 右 / 2 对家 / 3 左 */
+.mj-player.seat1 { right: 6px; top: 30%; }
+.mj-player.seat2 { left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top) + 150px); }
+.mj-player.seat2.talking { transform: translateX(-50%) scale(1.08); }
+.mj-player.seat3 { left: 6px; top: 30%; }
+
+.mj-bubble {
+  position: absolute;
+  z-index: 16;
+  max-width: 44vw;
+  background: linear-gradient(160deg, rgba(28, 42, 34, 0.97), rgba(14, 22, 18, 0.97));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 13px;
+  padding: 7px 11px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+}
+.mj-bubble.pop {
+  animation: bubble-pop 0.3s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+.mj-bubble.seat1 { right: 74px; top: 31%; border-bottom-right-radius: 3px; }
+.mj-bubble.seat2 { left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top) + 240px); }
+.mj-bubble.seat3 { left: 74px; top: 31%; border-bottom-left-radius: 3px; }
+.mj-bubble.seat0 {
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 21%;
+  border-color: var(--accent);
+  max-width: 76vw;
+}
+.mj-bubble.seat0.pop { animation: bubble-pop-c 0.3s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
+.mj-bubble.seat2.pop { animation: bubble-pop-c 0.3s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
+@keyframes bubble-pop-c {
+  0% { transform: translateX(-50%) scale(0.5); opacity: 0; }
+  100% { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+
+/* 快捷聊天 */
+.mj-chat-btn {
+  position: absolute;
+  right: 10px;
+  bottom: calc(env(safe-area-inset-bottom) + 108px);
+  z-index: 17;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: rgba(8, 20, 14, 0.85);
+  font-size: 20px;
+}
+.mj-chat-btn:active { transform: scale(0.93); }
+.mj-chat {
+  position: absolute;
+  right: 10px;
+  bottom: calc(env(safe-area-inset-bottom) + 158px);
+  z-index: 18;
+  width: min(280px, 82vw);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  backdrop-filter: blur(6px);
+}
+.mj-chat-item {
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 9px;
+  padding: 9px 11px;
+  font-size: 13px;
+  text-align: left;
+}
+.mj-chat-item:active {
+  transform: scale(0.98);
+  border-color: var(--accent);
+}

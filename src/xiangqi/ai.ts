@@ -74,8 +74,8 @@ function negamax(b: Board, color: Color, depth: number, alpha: number, beta: num
   return best;
 }
 
-/** 为 color 选出最佳走子 */
-export function bestMove(b: Board, color: Color, depth = 4): Move | null {
+/** 为 color 选出最佳走子。jitter 越大越"手软"（初级难度会看走眼） */
+export function bestMove(b: Board, color: Color, depth = 4, jitter = 1): Move | null {
   const moves = ordered(b, legalMoves(b, color));
   if (moves.length === 0) return null;
   let best: Move | null = null;
@@ -84,7 +84,7 @@ export function bestMove(b: Board, color: Color, depth = 4): Move | null {
   const beta = Infinity;
   for (const m of moves) {
     const nb = applyMove(b, m);
-    const val = -negamax(nb, other(color), depth - 1, -beta, -alpha) + (Math.random() * 2 - 1);
+    const val = -negamax(nb, other(color), depth - 1, -beta, -alpha) + (Math.random() * 2 - 1) * jitter;
     if (val > bestVal) {
       bestVal = val;
       best = m;
