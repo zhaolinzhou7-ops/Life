@@ -1539,3 +1539,219 @@ canvas {
   transform: scale(0.98);
   border-color: var(--accent);
 }
+
+/* ===================== 麻将（核心布局：此前误删，此处补全） ===================== */
+.mj-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #14231c;
+}
+.mj-hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  padding: calc(env(safe-area-inset-top) + 4px) 8px 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  pointer-events: none;
+}
+.mj-hud > * {
+  pointer-events: auto;
+}
+.mj-back {
+  position: static;
+}
+.mj-info {
+  background: rgba(8, 14, 20, 0.75);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.mj-seats {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 11px;
+}
+.mj-seat {
+  background: rgba(8, 14, 20, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+.mj-seat.won { border-color: #66bb6a; }
+.mj-seat .win { color: #66bb6a; }
+.mj-seat em { font-style: normal; color: var(--accent2); }
+
+/* 操作按钮条：胡/碰/杠/过、定缺 —— 固定在牌桌中下部，绝不出屏 */
+.mj-actions {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 28%;
+  z-index: 22;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 94vw;
+}
+.mj-act {
+  min-width: 82px;
+  padding: 14px 20px;
+  border-radius: 30px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  background: rgba(20, 40, 30, 0.94);
+  color: #fff;
+  font-size: 19px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.mj-act.pass {
+  background: rgba(40, 50, 60, 0.9);
+  color: var(--muted);
+}
+.mj-act:active { transform: scale(0.94); }
+
+.mj-toast {
+  top: 96px;
+}
+.mj-ting {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 21%;
+  z-index: 16;
+  background: rgba(8, 20, 14, 0.88);
+  border: 1px solid rgba(255, 202, 40, 0.55);
+  border-radius: 18px;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: #ffe082;
+  pointer-events: none;
+  white-space: nowrap;
+  max-width: 92vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mj-ting b { color: #fff; margin-right: 4px; }
+.mj-handbg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 118px;
+  background: linear-gradient(rgba(6, 14, 10, 0), rgba(6, 14, 10, 0.85));
+  pointer-events: none;
+  z-index: 5;
+}
+.mj-result {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 16px;
+}
+.mj-result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+}
+.mj-result-row.won { border-color: #66bb6a; }
+.mj-result-row .names {
+  color: var(--muted);
+  font-size: 12px;
+  flex: 1;
+  text-align: center;
+}
+.mj-result-row .score {
+  font-weight: 800;
+  color: var(--accent2);
+}
+
+/* ===================== 象棋（核心布局：此前误删，此处补全） ===================== */
+.xq-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #1a2530;
+}
+.xq-hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  padding: calc(env(safe-area-inset-top) + 4px) 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  pointer-events: none;
+}
+.xq-hud > * {
+  pointer-events: auto;
+}
+.xq-back {
+  position: static;
+}
+.xq-turn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(8, 14, 20, 0.8);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 6px 13px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.xq-turn #xq-turn-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.xq-turn #xq-turn-dot.red {
+  background: #ef5350;
+  box-shadow: 0 0 8px #ef5350;
+}
+.xq-turn #xq-turn-dot.black {
+  background: #90a4ae;
+  box-shadow: 0 0 8px #90a4ae;
+}
+.xq-actions {
+  display: flex;
+  gap: 6px;
+}
+.xq-btn {
+  background: rgba(8, 14, 20, 0.8);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 6px 11px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.xq-btn:active {
+  transform: scale(0.95);
+}
+.xq-toast {
+  top: 96px;
+}

@@ -10,7 +10,7 @@ import { rankOf, suitOf, type Meld, type TileId } from './rules';
 const TW = 0.72; // 牌宽
 const TH = 1.0; // 牌高
 const TD = 0.42; // 牌厚
-const GAP = 0.06;
+const GAP = 0.02;
 
 /** 牌面纹理（万/条/筒图案，程序化绘制） */
 function drawFace(t: TileId): HTMLCanvasElement {
@@ -197,6 +197,8 @@ export function makeTile(t: TileId): THREE.Mesh {
 interface Tween {
   t: number;
   dur: number;
+  /** 真实起始时刻（ms）：按墙钟推进，低帧率设备也能准时播完 */
+  start: number;
   update: (k: number) => void;
   onDone?: () => void;
 }
@@ -217,9 +219,10 @@ export class MahjongScene {
   private handRoot = new THREE.Group(); // 玩家手牌
   private handScene = new THREE.Scene(); // 手牌独立正交层
   private handCam!: THREE.OrthographicCamera;
-  private handHalfW = 6.1;
+  private handHalfW = 5.45;
   private handHalfH = 13;
   private handMeshes: THREE.Mesh[] = [];
+  private hitBoxes: THREE.Mesh[] = [];
   private selectedIdx = -1;
   private oppRoots: THREE.Group[] = []; // 三家牌背
   private discardRoots: THREE.Group[] = [];
@@ -366,9 +369,10 @@ export class MahjongScene {
     this.loop();
   }
 
-  // ---------- 玩家手牌（独立正交层：永远正面朝你、贴屏幕底部） ----------
+  // ---------- 玩家手牌（独立正交层：永远正面朝你，抬离屏幕底部手势条） ----------
   private handBaseY() {
-    return -this.handHalfH + TH * 0.72;
+    // 上抬约 1.1 单位，避开手机底部 home indicator / 手势条，避免点击被系统拦截
+    return -this.handHalfH + TH * 0.72 + 1.15;
   }
   /** 手牌行在正交层的坐标 */
   private handSlot(i: number, n: number, drawnSeparate: boolean): THREE.Vector3 {
@@ -383,6 +387,7 @@ export class MahjongScene {
   setPlayerHand(tiles: TileId[], drawnSeparate: boolean) {
     this.handRoot.clear();
     this.handMeshes = [];
+    this.hitBoxes = [];
     this.selectedIdx = -1;
     tiles.forEach((t, i) => {
       const m = makeTile(t);
@@ -392,6 +397,16 @@ export class MahjongScene {
       m.userData.handIndex = i;
       this.handRoot.add(m);
       this.handMeshes.push(m);
+
+      // 不可见的大点击判定区（手指容错）：比牌宽 1.6 倍、向上延伸 2.4 倍
+      const hit = new THREE.Mesh(
+        new THREE.PlaneGeometry(TW * 1.6, TH * 2.4),
+        new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+      );
+      hit.position.set(p.x, p.y + TH * 0.5, p.z + TD);
+      hit.userData.handIndex = i;
+      this.handRoot.add(hit);
+      this.hitBoxes.push(hit);
     });
   }
 
@@ -636,7 +651,7 @@ export class MahjongScene {
     this.camera.lookAt(0, 0, 1.1);
     this.camera.updateProjectionMatrix();
     // 手牌正交层：宽度固定容纳 14 张 + 摸牌位，高度按屏幕比例
-    this.handHalfW = 6.1;
+    this.handHalfW = 5.45; // 更小 = 牌更大更好点
     this.handHalfH = this.handHalfW / aspect;
     this.handCam.left = -this.handHalfW;
     this.handCam.right = this.handHalfW;
@@ -657,7 +672,7 @@ export class MahjongScene {
     const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     this.raycaster.setFromCamera(new THREE.Vector2(nx, ny), this.handCam);
-    const hits = this.raycaster.intersectObjects(this.handMeshes, false);
+    const hits = this.raycaster.intersectObjects(this.hitBoxes, false);
     if (hits.length > 0) {
       const idx = hits[0].object.userData.handIndex as number;
       this.onTileTap(idx);
@@ -665,15 +680,16 @@ export class MahjongScene {
   };
 
   private addTween(dur: number, update: (k: number) => void, onDone?: () => void) {
-    this.tweens.push({ t: 0, dur, update, onDone });
+    this.tweens.push({ t: 0, dur, start: performance.now(), update, onDone });
   }
 
   private loop = () => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.loop);
     const dt = Math.min(this.clock.getDelta(), 0.05);
+    const nowMs = performance.now();
     for (const tw of this.tweens) {
-      tw.t += dt;
+      tw.t = (nowMs - tw.start) / 1000;
       tw.update(Math.min(1, tw.t / tw.dur));
     }
     // 震屏（衰减）
