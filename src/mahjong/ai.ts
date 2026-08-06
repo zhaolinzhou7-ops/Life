@@ -29,8 +29,21 @@ function tileValue(c: Counts, t: TileId): number {
   return v;
 }
 
-/** 选择要打的牌：先清缺门；否则优先打出后能听牌（听口越宽越好）的牌，再退回搭子价值 */
-export function chooseDiscard(c: Counts, lack: number, noMelds = true): TileId {
+/**
+ * 选择要打的牌：先清缺门；否则优先打出后能听牌（听口越宽越好）的牌，再退回搭子价值。
+ * `sloppy` 为失误率（新手场的电脑会偶尔打错，高手场为 0）。
+ */
+export function chooseDiscard(c: Counts, lack: number, noMelds = true, sloppy = 0): TileId {
+  if (sloppy > 0 && Math.random() < sloppy) {
+    // 随机打一张非缺门的牌（模拟新手手滑），没有非缺门牌则走正常逻辑
+    const cand: TileId[] = [];
+    for (let t = 0; t < 27; t++) if (c[t] > 0 && suitOf(t) !== lack) cand.push(t);
+    if (cand.length) return cand[Math.floor(Math.random() * cand.length)];
+  }
+  return bestDiscard(c, lack, noMelds);
+}
+
+function bestDiscard(c: Counts, lack: number, noMelds: boolean): TileId {
   // 有缺门必须先打缺门（打价值最低的那张）
   let lackBest = -1;
   let lackVal = Infinity;

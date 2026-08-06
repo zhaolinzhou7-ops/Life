@@ -1765,3 +1765,128 @@ canvas {
 .xq-toast {
   top: 96px;
 }
+
+/* ===================== 麻将：场次选择 / 段位 / 结算 ===================== */
+.mj-setup { overflow-y: auto; padding-top: 26px; padding-bottom: 26px; }
+.mj-setup .xq-rival .st { line-height: 1.5; }
+.mj-room .nm { font-size: 15px; }
+
+/* 段位卡片 */
+.mj-rank {
+  width: 100%;
+  max-width: 460px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-top: 6px;
+}
+.mj-rank-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.mj-rank-top b {
+  font-size: 17px;
+  background: linear-gradient(180deg, #fff3b0, #ffb545);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.mj-rank-top span { font-size: 11px; color: var(--muted); }
+.mj-rank-bar {
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  margin: 9px 0 8px;
+}
+.mj-rank-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #ffca28, #ff8a3d);
+  box-shadow: 0 0 10px rgba(255, 180, 60, 0.6);
+  transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mj-rank-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.mj-gain { color: #ffca28 !important; font-weight: 700; }
+.mj-rank-result { margin: 14px 0 4px; }
+
+/* 结算 */
+.mj-result-screen { overflow-y: auto; }
+.mj-result-title {
+  animation: mjTitlePop 0.5s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+.mj-result-title.win {
+  background: linear-gradient(180deg, #fffbe0, #ffc93c 45%, #ff7a29);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 26px rgba(255, 180, 60, 0.5);
+}
+@keyframes mjTitlePop {
+  0% { transform: scale(0.4) rotate(-6deg); opacity: 0; }
+  60% { transform: scale(1.16) rotate(1deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+.mj-result-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin: -4px 0 10px;
+}
+.mj-result-tags span {
+  font-size: 11.5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(255, 200, 60, 0.16);
+  border: 1px solid rgba(255, 200, 60, 0.45);
+  color: #ffd76e;
+  animation: mjTagIn 0.45s ease both 0.5s;
+}
+@keyframes mjTagIn {
+  from { transform: translateY(8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.mj-result-row {
+  animation: mjRowIn 0.42s cubic-bezier(0.2, 1.2, 0.4, 1) both;
+}
+@keyframes mjRowIn {
+  from { transform: translateX(-26px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.mj-levelup {
+  position: fixed;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  padding: 14px 26px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(60, 30, 0, 0.92), rgba(20, 10, 0, 0.92));
+  border: 2px solid #ffca28;
+  color: #ffe9b0;
+  text-shadow: 0 0 18px rgba(255, 190, 60, 0.9);
+  box-shadow: 0 0 40px rgba(255, 180, 60, 0.55);
+  z-index: 60;
+  pointer-events: none;
+  animation: mjLevelUp 2.4s ease-out forwards;
+}
+@keyframes mjLevelUp {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+  14% { transform: translate(-50%, -50%) scale(1.14); opacity: 1; }
+  24% { transform: translate(-50%, -50%) scale(1); }
+  76% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -90%) scale(0.95); opacity: 0; }
+}

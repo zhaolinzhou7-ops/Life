@@ -20,12 +20,21 @@ import { MahjongView, type SeatView } from './view2d';
 import {
   isMuted,
   setMuted,
+  setBgmIntensity,
+  sfxCoin,
+  sfxDeal,
+  sfxDice,
   sfxDraw,
+  sfxFanfare,
   sfxGangHeavy,
+  sfxHeartbeat,
   sfxKnock,
+  sfxLevelUp,
   sfxLose,
   sfxPeng,
   sfxTap,
+  sfxThrow,
+  sfxTick,
   sfxWinBig,
   speak,
   startBgm,
@@ -33,6 +42,28 @@ import {
   unlockAudio,
 } from '../gamesfx';
 import { CHARACTERS, QUICK_CHAT, pickLine } from '../characters';
+import { RANK_NAMES, commit, load as loadProgress, rankOf, type ProgressDelta } from './progress';
+
+/** 场次：难度、底分倍率与出牌时限 */
+interface Room {
+  id: number;
+  name: string;
+  desc: string;
+  /** 电脑失误率 */
+  sloppy: number;
+  /** 段位积分倍率 */
+  stake: number;
+  /** 出牌时限（秒） */
+  clock: number;
+}
+const ROOMS: Room[] = [
+  { id: 0, name: '新手场', desc: '电脑会失误 · 时限 25 秒 · 积分 ×1', sloppy: 0.3, stake: 1, clock: 25 },
+  { id: 1, name: '高手场', desc: '电脑打得稳 · 时限 18 秒 · 积分 ×2', sloppy: 0.07, stake: 2, clock: 18 },
+  { id: 2, name: '大师场', desc: '电脑不失误 · 时限 12 秒 · 积分 ×3', sloppy: 0, stake: 3, clock: 12 },
+];
+
+/** 玩法：血战到底（胡了下桌）/ 血流成河（胡了继续打，可以反复胡） */
+type Mode = 'xuezhan' | 'xueliu';
 
 const SEAT_CHARS = [null, CHARACTERS[0], CHARACTERS[1], CHARACTERS[2]] as const;
 const NAMES = ['你', CHARACTERS[0].name, CHARACTERS[1].name, CHARACTERS[2].name];
@@ -45,6 +76,8 @@ interface Player {
   won: boolean;
   winNames: string[];
   fan: number;
+  /** 血流成河里可以胡多次 */
+  huCount: number;
   score: number;
   /** 本局杠得的分（用于呼叫转移：被人胡后要退还） */
   gangGains: { from: number; amount: number }[];
@@ -74,6 +107,10 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
   let auto = false; // 托管
   /** 开启托管时立刻替玩家做完当前这一步（否则会一直卡在等待点击上） */
   let takeOver: (() => void) | null = null;
+  let room: Room = ROOMS[1];
+  let mode: Mode = 'xuezhan';
+  /** 血战到底下胡了就不再行牌；血流成河则继续 */
+  const outOfPlay = (p: Player) => mode === 'xuezhan' && p.won;
 
   const view = new MahjongView(wrap, (idx) => tapHandler?.(idx));
 
@@ -154,7 +191,6 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
   function charSay(seat: number, text: string) {
     const ch = SEAT_CHARS[seat];
     if (ch) speak(text, ch.voice);
-    view.burst(seat, '', ch?.color ?? '#ffd76e');
     view.state.centerHint = `${NAMES[seat]}：${text}`;
     setTimeout(() => {
       if (alive() && view.state.centerHint.startsWith(NAMES[seat])) view.state.centerHint = '';
@@ -166,7 +202,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     const seats: SeatView[] = players.map((p, i) => {
       const total = p.hand.reduce((a, b) => a + b, 0);
       const ting =
-        !p.won && total % 3 === 1 && waitingTiles(p.hand, p.melds.length === 0, p.lack).length > 0;
+        !outOfPlay(p) && total % 3 === 1 && waitingTiles(p.hand, p.melds.length === 0, p.lack).length > 0;
       return {
         name: NAMES[i],
         char: SEAT_CHARS[i],
@@ -198,7 +234,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
   function updateTing() {
     const p = players[0];
     const total = p.hand.reduce((a, b) => a + b, 0);
-    if (p.won || total % 3 !== 1) {
+    if (outOfPlay(p) || total % 3 !== 1) {
       view.state.tingTiles = [];
       return;
     }
@@ -233,9 +269,12 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
   /** 玩家出牌：点一次选中，再点打出（托管时自动） */
   function waitPlayerDiscard(): Promise<TileId> {
     return new Promise((resolve) => {
+      let clockTimer = 0;
       const finish = (t: TileId) => {
         takeOver = null;
         tapHandler = null;
+        clearInterval(clockTimer);
+        view.state.timer = null;
         view.state.selected = -1;
         resolve(t);
       };
@@ -247,6 +286,22 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         setTimeout(() => takeOver?.(), 420);
         return;
       }
+      // 出牌读秒：最后 5 秒开始滴答，超时自动打（真人桌上就是会被催）
+      let left = room.clock;
+      view.state.timer = { seat: 0, left, total: room.clock };
+      clockTimer = window.setInterval(() => {
+        if (!alive()) {
+          clearInterval(clockTimer);
+          return;
+        }
+        left -= 0.25;
+        view.state.timer = { seat: 0, left: Math.max(0, left), total: room.clock };
+        if (left <= 5 && Math.abs(left % 1) < 0.13) sfxTick(left <= 3);
+        if (left <= 0) {
+          showToast('超时，自动出牌');
+          takeOver?.();
+        }
+      }, 250);
       let sel = -1;
       view.state.selected = -1;
       tapHandler = (idx) => {
@@ -328,40 +383,236 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     });
   }
 
+  /** 打出一张牌：甩牌动画 → 落进牌河 → 若点到我要胡的牌则拉警报 */
+  async function playDiscard(seat: number, tile: TileId) {
+    const p = players[seat];
+    for (const q of players) q.justDiscarded = false;
+    sfxThrow();
+    await view.flyDiscard(seat, tile, p.discards.length);
+    if (!alive()) return;
+    p.discards.push(tile);
+    p.justDiscarded = true;
+    sync();
+    // 别人打出我能胡的牌 → 全屏红光 + 心跳
+    if (seat !== 0 && !outOfPlay(players[0])) {
+      const me = players[0];
+      const c = me.hand.slice();
+      c[tile]++;
+      if (!hasSuit(me.hand, me.lack) && suitOf(tile) !== me.lack && canWin(c, me.melds.length === 0)) {
+        view.state.huAlert = true;
+        sfxHeartbeat();
+      }
+    }
+  }
+
+  /** 摸牌：从牌墙飞到手上 */
+  async function drawFromWall(seat: number): Promise<TileId> {
+    const t = wall.pop()!;
+    players[seat].hand[t]++;
+    if (seat === 0) sfxDraw();
+    else sfxKnock();
+    await view.flyDraw(seat);
+    return t;
+  }
+
+  /** 局势紧张时把 BGM 切到加密鼓点 */
+  function updateTension() {
+    const tingCount = players.filter(
+      (p) => !p.won && p.hand.reduce((a, b) => a + b, 0) % 3 === 1 && waitingTiles(p.hand, p.melds.length === 0, p.lack).length > 0,
+    ).length;
+    setBgmIntensity(wall.length <= 22 || tingCount >= 2 ? 1 : 0);
+  }
+
+  // ---------- 开局：选场次与玩法 ----------
+  let setupEl: HTMLElement | null = null;
+  function showSetup() {
+    const s = document.createElement('div');
+    s.className = 'screen xq-setup mj-setup';
+    setupEl = s;
+    const render = () => {
+      const pr = loadProgress();
+      const rk = rankOf(pr.points);
+      const winRate = pr.games ? Math.round((pr.wins / pr.games) * 100) : 0;
+      s.innerHTML = `
+        <h1>四川麻将</h1>
+        <div class="sub">选场次 · 挑玩法 · 上桌</div>
+        <div class="mj-rank">
+          <div class="mj-rank-top"><b>${rk.name}</b><span>${rk.max ? '已满段' : `距「${RANK_NAMES[rk.index + 1]}」还差 ${rk.toNext} 分`}</span></div>
+          <div class="mj-rank-bar"><i style="width:${Math.round(rk.ratio * 100)}%"></i></div>
+          <div class="mj-rank-stats">
+            <span>${pr.games} 局</span><span>胜率 ${winRate}%</span>
+            <span>最高 ${pr.bestFan} 番</span><span>最佳连胡 ${pr.bestStreak}</span>
+            <span>总分 ${pr.total > 0 ? '+' : ''}${pr.total}</span>
+          </div>
+        </div>`;
+
+      const secRoom = document.createElement('div');
+      secRoom.className = 'xq-sec';
+      secRoom.textContent = '选择场次';
+      s.appendChild(secRoom);
+      const roomRow = document.createElement('div');
+      roomRow.className = 'xq-rivals';
+      ROOMS.forEach((r) => {
+        const card = document.createElement('div');
+        card.className = 'xq-rival mj-room' + (r.id === room.id ? ' on' : '');
+        card.style.setProperty('--c', ['#4fc3f7', '#ffca28', '#ef5350'][r.id]);
+        card.innerHTML = `<div class="nm">${r.name}</div><div class="st">${r.desc.replace(/ · /g, '<br>')}</div>`;
+        card.onclick = () => {
+          room = r;
+          sfxTap();
+          render();
+        };
+        roomRow.appendChild(card);
+      });
+      s.appendChild(roomRow);
+
+      const secMode = document.createElement('div');
+      secMode.className = 'xq-sec';
+      secMode.textContent = '玩法';
+      s.appendChild(secMode);
+      const modeRow = document.createElement('div');
+      modeRow.className = 'xq-rivals';
+      (
+        [
+          ['xuezhan', '血战到底', '胡了下桌<br>三家胡完结束'],
+          ['xueliu', '血流成河', '胡了继续打<br>可以反复胡'],
+        ] as const
+      ).forEach(([m, nm, st]) => {
+        const card = document.createElement('div');
+        card.className = 'xq-rival' + (mode === m ? ' on' : '');
+        card.style.setProperty('--c', '#66bb6a');
+        card.innerHTML = `<div class="nm">${nm}</div><div class="st">${st}</div>`;
+        card.onclick = () => {
+          mode = m;
+          sfxTap();
+          render();
+        };
+        modeRow.appendChild(card);
+      });
+      s.appendChild(modeRow);
+
+      const go = document.createElement('button');
+      go.className = 'btn';
+      go.textContent = '上桌开打';
+      go.onclick = () => {
+        sfxTap();
+        unlock();
+        s.remove();
+        setupEl = null;
+        (hud.querySelector('#mj-round') as HTMLElement).textContent =
+          `${room.name} · ${mode === 'xuezhan' ? '血战到底' : '血流成河'}`;
+        run();
+      };
+      s.appendChild(go);
+      const back = document.createElement('button');
+      back.className = 'btn ghost';
+      back.textContent = '返回首页';
+      back.onclick = () => onExit(false);
+      s.appendChild(back);
+    };
+    render();
+    wrap.appendChild(s);
+  }
+
   // ---------- 结算 ----------
   let resultEl: HTMLElement | null = null;
   function showResult(extraRows: { seat: number; delta: number; reasons: string[] }[]) {
-    if (!players[0].won) sfxLose();
+    const me = players[0];
+    const won = me.won;
+    won ? sfxFanfare() : sfxLose();
+    view.state.timer = null;
+    view.state.huAlert = false;
+    setBgmIntensity(0);
+
+    // 写入长期战绩，拿到段位变化用于动画
+    const pd: ProgressDelta = commit({
+      delta: me.score,
+      won,
+      fan: me.fan,
+      names: won ? me.winNames : [],
+      stake: room.stake,
+    });
+
     const s = document.createElement('div');
-    s.className = 'screen moba-result';
-    const anyWin = players[0].won;
+    s.className = 'screen moba-result mj-result-screen';
+    const title = won
+      ? me.huCount > 1
+        ? `连胡 ${me.huCount} 把！`
+        : '胡 了 ！'
+      : winnersCount() > 0
+        ? '这把没上'
+        : '流局';
+
     const rows = players
       .map((p, i) => {
         const extra = extraRows.find((r) => r.seat === i);
-        const tags = [
-          ...(p.won ? p.winNames : []),
-          ...(extra?.reasons ?? []),
-        ].join('·');
+        const tags = [...(p.won ? p.winNames : []), ...(extra?.reasons ?? [])].join('·');
         return `
-      <div class="mj-result-row ${p.won ? 'won' : ''}">
-        <span>${NAMES[i]}${p.won ? ' 🏆' : ''}</span>
+      <div class="mj-result-row ${p.won ? 'won' : ''}" style="animation-delay:${0.12 + i * 0.09}s">
+        <span>${NAMES[i]}${p.won ? (p.huCount > 1 ? ` 🏆×${p.huCount}` : ' 🏆') : ''}</span>
         <span class="names">${tags || '—'}${p.won ? ` ${p.fan}番` : ''}</span>
         <span class="score">${p.score > 0 ? '+' : ''}${p.score}</span>
       </div>`;
       })
       .join('');
+
+    const rk = pd.rankAfter;
+    const extraTags: string[] = [];
+    if (pd.after.streak >= 2) extraTags.push(`连胡 ${pd.after.streak} 局`);
+    if (me.fan >= 16) extraTags.push('大牌！');
+    if (pd.newNames.length) extraTags.push(`首次达成：${pd.newNames.join('、')}`);
+
     s.innerHTML = `
-      <h1 style="color:${anyWin ? '#66bb6a' : '#ef5350'}">${anyWin ? '胡了！' : '本局结束'}</h1>
-      <div class="mj-result">${rows}</div>`;
+      <h1 class="mj-result-title ${won ? 'win' : ''}">${title}</h1>
+      ${extraTags.length ? `<div class="mj-result-tags">${extraTags.map((t) => `<span>${t}</span>`).join('')}</div>` : ''}
+      <div class="mj-result">${rows}</div>
+      <div class="mj-rank mj-rank-result">
+        <div class="mj-rank-top"><b>${rk.name}</b><span class="mj-gain">段位分 +${pd.gainedPoints}</span></div>
+        <div class="mj-rank-bar"><i style="width:${Math.round(pd.rankBefore.ratio * 100)}%"></i></div>
+        <div class="mj-rank-stats"><span>累计 ${pd.after.total > 0 ? '+' : ''}${pd.after.total}</span><span>${pd.after.games} 局</span><span>最高 ${pd.after.bestFan} 番</span></div>
+      </div>`;
+
+    // 段位条从旧进度滑到新进度；升段再补一记音效与横幅
+    setTimeout(() => {
+      const bar = s.querySelector('.mj-rank-bar i') as HTMLElement | null;
+      if (bar) bar.style.width = `${Math.round((pd.levelUp ? 1 : rk.ratio) * 100)}%`;
+      if (pd.levelUp) {
+        setTimeout(() => {
+          if (!alive()) return;
+          sfxLevelUp();
+          const up = document.createElement('div');
+          up.className = 'mj-levelup';
+          up.textContent = `晋升 ${rk.name}`;
+          s.appendChild(up);
+          if (bar) bar.style.width = `${Math.round(rk.ratio * 100)}%`;
+        }, 700);
+      }
+    }, 420);
+
     const again = document.createElement('button');
     again.className = 'btn';
     again.textContent = '再来一局';
-    again.onclick = () => onExit(true);
+    again.onclick = () => {
+      sfxTap();
+      s.remove();
+      resultEl = null;
+      run();
+    };
+    const change = document.createElement('button');
+    change.className = 'btn ghost';
+    change.textContent = '换场次 / 换玩法';
+    change.onclick = () => {
+      sfxTap();
+      s.remove();
+      resultEl = null;
+      showSetup();
+    };
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '返回首页';
     back.onclick = () => onExit(false);
     s.appendChild(again);
+    s.appendChild(change);
     s.appendChild(back);
     wrap.appendChild(s);
     resultEl = s;
@@ -379,18 +630,23 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
       qiangGang: false,
     });
     p.won = true;
-    p.fan = fan;
-    p.winNames = names;
+    p.fan = Math.max(p.fan, fan);
+    p.huCount += 1;
+    p.winNames = Array.from(new Set([...p.winNames, ...names]));
     if (opts.zimo) {
       for (let i = 0; i < 4; i++) {
-        if (i !== seat && !players[i].won) {
+        if (i !== seat && !outOfPlay(players[i])) {
           players[i].score -= fan;
           p.score += fan;
+          view.coinFly(i, seat, Math.min(10, 3 + fan));
         }
       }
+      sfxCoin(3);
     } else {
       players[opts.payer].score -= fan;
       p.score += fan;
+      view.coinFly(opts.payer, seat, Math.min(14, 4 + fan * 2));
+      sfxCoin(3);
       // 呼叫转移：胡牌者此前收的杠分，由点炮者承担
       for (const gg of p.gangGains) {
         if (gg.from === opts.payer) continue;
@@ -399,13 +655,15 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
       }
       if (p.gangGains.length) showToast('呼叫转移：杠分由点炮者承担');
     }
-    // 胡牌后亮出手牌
-    p.hand = c;
+    // 血战到底：胡了就亮牌下桌；血流成河：手牌不变，继续摸打
+    if (mode === 'xuezhan') p.hand = c;
+    if (seat === 0) refreshPlayerHand();
     sync();
   }
 
   const winnersCount = () => players.filter((p) => p.won).length;
-  const gameOver = () => winnersCount() >= 3 || wall.length === 0;
+  // 血战到底：三家胡完即散场；血流成河：一直打到牌墙摸完
+  const gameOver = () => (mode === 'xuezhan' && winnersCount() >= 3) || wall.length === 0;
 
   // ---------- 主流程 ----------
   async function run() {
@@ -418,14 +676,21 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
       won: false,
       winNames: [] as string[],
       fan: 0,
+      huCount: 0,
       score: 0,
       gangGains: [] as { from: number; amount: number }[],
       justDiscarded: false,
     }));
+    view.state.centerHint = '掷骰子…';
+    sfxDice();
+    await sleep(0.9);
+    if (!alive()) return;
     for (let i = 0; i < 13; i++) for (let s = 0; s < 4; s++) players[s].hand[wall.pop()!]++;
+    sfxDeal();
     refreshPlayerHand();
     view.state.centerHint = '发牌完毕';
-    await sleep(0.6);
+    view.shake(0.4);
+    await sleep(0.7);
     if (!alive()) return;
 
     // ===== 换三张 =====
@@ -474,16 +739,16 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     let turn = 0;
     while (alive() && !gameOver()) {
       const p = players[turn];
-      if (p.won) {
+      if (outOfPlay(p)) {
         turn = (turn + 1) % 4;
         continue;
       }
       if (wall.length === 0) break;
-      const drawn = wall.pop()!;
-      p.hand[drawn]++;
       view.state.activeSeat = turn;
-      for (const q of players) q.justDiscarded = false;
-      if (turn === 0) sfxDraw();
+      view.state.huAlert = false;
+      updateTension();
+      const drawn = await drawFromWall(turn);
+      if (!alive()) return;
       sync();
 
       let current = drawn;
@@ -496,7 +761,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
           drawnTile = current;
           refreshPlayerHand();
           updateTing();
-          await sleep(0.25);
+          await sleep(0.18);
           if ((canZimo || angangTile >= 0) && !auto) {
             const ops: string[] = [];
             if (canZimo) ops.push('胡');
@@ -506,8 +771,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
             if (!alive()) return;
             if (act === '胡') {
               sfxWinBig();
-              speak('自摸');
-              view.burst(0, '自摸', '#ffd76e');
+              view.impact(0, '自 摸', gangFlower ? '杠上开花' : '', '#ffd76e', 1.5);
               settleWin(0, current, { zimo: true, gangFlower, payer: -1 });
               drawnTile = null;
               refreshPlayerHand();
@@ -517,8 +781,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
             if (act === '杠') {
               doAngang(0, angangTile);
               sfxGangHeavy();
-              speak('杠');
-              view.burst(0, '杠', '#ff9c40');
+              view.impact(0, '杠', '暗杠', '#ff9c40', 1.3);
               if (wall.length === 0) break;
               current = wall.pop()!;
               p.hand[current]++;
@@ -527,7 +790,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
             }
           } else if (auto && canZimo) {
             sfxWinBig();
-            view.burst(0, '自摸', '#ffd76e');
+            view.impact(0, '自 摸', gangFlower ? '杠上开花' : '', '#ffd76e', 1.5);
             settleWin(0, current, { zimo: true, gangFlower, payer: -1 });
             drawnTile = null;
             refreshPlayerHand();
@@ -535,10 +798,10 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
             break;
           }
         } else {
-          await sleep(0.5);
+          await sleep(0.34);
           if (canZimo) {
             sfxWinBig();
-            view.burst(turn, '自摸', '#ffd76e');
+            view.impact(turn, '自 摸', gangFlower ? '杠上开花' : '', '#ffd76e', 1.2);
             charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.win));
             settleWin(turn, current, { zimo: true, gangFlower, payer: -1 });
             await sleep(1.1);
@@ -547,7 +810,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
           if (angangTile >= 0 && suitOf(angangTile) !== p.lack) {
             doAngang(turn, angangTile);
             sfxGangHeavy();
-            view.burst(turn, '杠', '#ff9c40');
+            view.impact(turn, '杠', '暗杠', '#ff9c40', 1.1);
             charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.gang));
             if (wall.length === 0) break;
             current = wall.pop()!;
@@ -575,15 +838,13 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         refreshPlayerHand();
         updateTing();
       } else {
-        out = chooseDiscard(p.hand, p.lack, p.melds.length === 0);
+        out = chooseDiscard(p.hand, p.lack, p.melds.length === 0, room.sloppy);
         p.hand[out]--;
         if (Math.random() < 0.18) charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.discard));
       }
-      p.discards.push(out);
-      p.justDiscarded = true;
-      sfxKnock();
-      sync();
-      await sleep(0.42);
+      await playDiscard(turn, out);
+      if (!alive()) return;
+      await sleep(0.14);
       if (!alive()) return;
 
       const last = await handleReactions(turn, out);
@@ -632,7 +893,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     p.melds.push({ kind: 'angang', tile: t });
     // 暗杠：每家赔 2
     for (let i = 0; i < 4; i++) {
-      if (i === seat || players[i].won) continue;
+      if (i === seat || outOfPlay(players[i])) continue;
       players[i].score -= 2;
       p.score += 2;
       p.gangGains.push({ from: i, amount: 2 });
@@ -650,7 +911,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     for (let d = 1; d < 4; d++) {
       const seat = (from + d) % 4;
       const p = players[seat];
-      if (p.won) continue;
+      if (outOfPlay(p)) continue;
       if (hasSuit(p.hand, p.lack) || suitOf(tile) === p.lack) continue;
       const c = p.hand.slice();
       c[tile]++;
@@ -663,9 +924,8 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         }
       }
       sfxWinBig();
-      view.burst(seat, '胡', '#ffd76e');
-      if (seat === 0) speak('胡');
-      else charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.win));
+      view.impact(seat, '胡', anyHu ? '一炮多响' : '', '#ffd76e', seat === 0 ? 1.6 : 1.2);
+      if (seat !== 0) charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.win));
       settleWin(seat, tile, { zimo: false, gangFlower: false, payer: from });
       anyHu = true;
       await sleep(0.9);
@@ -679,7 +939,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     for (let d = 1; d < 4; d++) {
       const seat = (from + d) % 4;
       const p = players[seat];
-      if (p.won || suitOf(tile) === p.lack) continue;
+      if (outOfPlay(p) || suitOf(tile) === p.lack) continue;
       const canGang = p.hand[tile] === 3 && wall.length > 0;
       const canPeng = p.hand[tile] >= 2;
       if (!canPeng && !canGang) continue;
@@ -712,9 +972,9 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         p.score += 2;
         p.gangGains.push({ from, amount: 2 });
         sfxGangHeavy();
-        view.burst(seat, '杠', '#ff9c40');
-        if (seat === 0) speak('杠');
-        else charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.gang));
+        view.impact(seat, '杠', '明杠', '#ff9c40', 1.3);
+        view.coinFly(from, seat, 4);
+        if (seat !== 0) charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.gang));
         if (wall.length > 0) {
           const t2 = wall.pop()!;
           p.hand[t2]++;
@@ -724,14 +984,13 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         p.hand[tile] -= 2;
         p.melds.push({ kind: 'peng', tile });
         sfxPeng();
-        view.burst(seat, '碰', '#9ec6ff');
-        if (seat === 0) speak('碰');
-        else charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.peng));
+        view.impact(seat, '碰', '', '#9ec6ff', 0.9);
+        if (seat !== 0) charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.peng));
       }
       view.state.activeSeat = seat;
       if (seat === 0) refreshPlayerHand();
       sync();
-      await sleep(0.7);
+      await sleep(0.5);
       if (!alive()) return -1;
 
       // 碰/杠后由该家出牌
@@ -745,16 +1004,13 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         refreshPlayerHand();
         updateTing();
       } else {
-        await sleep(0.4);
-        out = chooseDiscard(p.hand, p.lack, p.melds.length === 0);
+        await sleep(0.28);
+        out = chooseDiscard(p.hand, p.lack, p.melds.length === 0, room.sloppy);
         p.hand[out]--;
       }
-      for (const q of players) q.justDiscarded = false;
-      p.discards.push(out);
-      p.justDiscarded = true;
-      sfxKnock();
-      sync();
-      await sleep(0.42);
+      await playDiscard(seat, out);
+      if (!alive()) return -1;
+      await sleep(0.14);
       if (!alive()) return -1;
       const next = await handleReactions(seat, out);
       return next >= 0 ? next : seat;
@@ -762,13 +1018,15 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     return -1;
   }
 
-  run();
+  showSetup();
 
   return () => {
     disposed = true;
     clearTimeout(toastTimer);
     window.removeEventListener('pointerdown', unlock);
     stopBgm();
+    setBgmIntensity(0);
+    setupEl?.remove();
     resultEl?.remove();
     view.dispose();
     wrap.remove();
