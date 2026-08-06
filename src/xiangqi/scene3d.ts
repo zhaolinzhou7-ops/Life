@@ -19,6 +19,8 @@ const cellToWorld = (x: number, y: number) =>
 interface Tween {
   t: number;
   dur: number;
+  /** 真实起始时刻（ms）：按墙钟推进，低帧率设备也能准时播完 */
+  start: number;
   update: (k: number) => void;
   onDone?: () => void;
 }
@@ -165,47 +167,82 @@ interface ThemeDef {
   ringBlack: string;
 }
 
-export const PIECE_THEMES: Record<PieceTheme, ThemeDef> = {
+/** 三套材质：红黑两方各有独立的棋身配色（真实象棋红黑两副子） */
+export const PIECE_THEMES: Record<PieceTheme, ThemeDef & { sideBlack: number; bottomBlack: number; faceInnerBlack: string; faceOuterBlack: string }> = {
   jade: {
-    faceInner: '#eafaf0',
-    faceOuter: '#a8dcc0',
-    side: 0x7fc9a8,
-    bottom: 0x5fa98a,
-    roughness: 0.12,
+    // 红方＝暖白玉，黑方＝墨玉（青碧），两副明显不同
+    faceInner: '#fdf6e6',
+    faceOuter: '#e8d5a8',
+    faceInnerBlack: '#dff0e6',
+    faceOuterBlack: '#8fbfa8',
+    side: 0xe6d3a4,
+    bottom: 0xc8b184,
+    sideBlack: 0x6fae94,
+    bottomBlack: 0x4d8770,
+    roughness: 0.14,
     clearcoat: 1,
-    transmission: 0.18,
-    redInk: '#b3123a',
-    blackInk: '#123b2e',
-    ringRed: '#d4af37',
-    ringBlack: '#2f6b52',
+    transmission: 0.12,
+    redInk: '#c1121f',
+    blackInk: '#0f3b2c',
+    ringRed: '#c8a02c',
+    ringBlack: '#1f5c46',
   },
   wood: {
-    faceInner: '#f4dcae',
-    faceOuter: '#e0b877',
-    side: 0xc99a5b,
+    // 红方＝浅黄杨木，黑方＝深紫檀
+    faceInner: '#f7e3b8',
+    faceOuter: '#dfbc81',
+    faceInnerBlack: '#a87f52',
+    faceOuterBlack: '#7c5533',
+    side: 0xd0a468,
     bottom: 0xa87c42,
-    roughness: 0.32,
-    clearcoat: 0.9,
+    sideBlack: 0x6f4a2c,
+    bottomBlack: 0x53341d,
+    roughness: 0.36,
+    clearcoat: 0.85,
     transmission: 0,
-    redInk: '#c62828',
-    blackInk: '#22303a',
-    ringRed: '#c62828',
-    ringBlack: '#22303a',
+    redInk: '#b81d24',
+    blackInk: '#241309',
+    ringRed: '#a3161c',
+    ringBlack: '#2b1a0e',
   },
   porcelain: {
+    // 红方＝白釉描红，黑方＝青花靛蓝
     faceInner: '#ffffff',
-    faceOuter: '#dfe9f5',
-    side: 0xf2f6fb,
-    bottom: 0xcfd9e6,
-    roughness: 0.08,
+    faceOuter: '#f0e8e2',
+    faceInnerBlack: '#f4f8ff',
+    faceOuterBlack: '#c3d6ee',
+    side: 0xf6f2ee,
+    bottom: 0xd8cfc7,
+    sideBlack: 0xdae7f7,
+    bottomBlack: 0xa9bdd6,
+    roughness: 0.07,
     clearcoat: 1,
     transmission: 0,
-    redInk: '#e02020',
-    blackInk: '#1a2a6b',
-    ringRed: '#e0a020',
-    ringBlack: '#3a5fc0',
+    redInk: '#cf1020',
+    blackInk: '#12357e',
+    ringRed: '#cf1020',
+    ringBlack: '#12357e',
   },
 };
+
+/** 车削出真实棋子轮廓：底盘略收、腰身微鼓、顶面边缘凸起形成刻字凹槽 */
+function pieceProfile(): THREE.Vector2[] {
+  const R = PIECE_R;
+  const H = PIECE_H;
+  return [
+    new THREE.Vector2(0, 0),
+    new THREE.Vector2(R * 0.9, 0),
+    new THREE.Vector2(R * 0.97, H * 0.08),
+    new THREE.Vector2(R * 1.0, H * 0.3),
+    new THREE.Vector2(R * 1.0, H * 0.62),
+    new THREE.Vector2(R * 0.97, H * 0.82),
+    new THREE.Vector2(R * 0.93, H * 0.93),
+    new THREE.Vector2(R * 0.88, H * 0.985),
+    new THREE.Vector2(R * 0.8, H), // 顶面外圈（凸边）
+    new THREE.Vector2(R * 0.76, H * 0.965), // 内凹一点点 → 刻字凹槽
+    new THREE.Vector2(0, H * 0.96),
+  ];
+}
 
 /** 棋子顶面：底色 + 金/彩刻环 + 字。flip=true 时字倒转（供对面玩家正读） */
 function makeFaceTexture(char: string, ink: string, ring: string, theme: ThemeDef, flip: boolean): THREE.CanvasTexture {
@@ -344,6 +381,8 @@ export class XiangqiScene {
     container: HTMLElement,
     private onTap: (x: number, y: number) => void,
     private theme: PieceTheme = 'jade',
+    /** true=黑方棋子倒转（双方对坐各自正读）；false=全部朝向玩家 */
+    private flipBlack = true,
   ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -516,6 +555,39 @@ export class XiangqiScene {
 
   // ---------- 公共接口 ----------
 
+  /** 开局入场：棋子从高空逐个砸落（带弹跳），配相机推近 */
+  dealIn() {
+    this.pieces.forEach((p, i) => {
+      const target = cellToWorld(p.x, p.y);
+      const mesh = p.mesh;
+      const delay = i * 0.012;
+      mesh.position.set(target.x, TOP_Y + 2.6 + Math.random() * 1.2, target.z);
+      mesh.scale.setScalar(0.6);
+      mesh.visible = false;
+      this.addTween(
+        delay + 0.26,
+        (k) => {
+          const kk = Math.max(0, (k * (delay + 0.26) - delay) / 0.26);
+          if (kk <= 0) return;
+          mesh.visible = true;
+          const e = kk * kk; // 加速下落
+          mesh.position.y = THREE.MathUtils.lerp(TOP_Y + 2.6, TOP_Y, e);
+          mesh.scale.setScalar(0.6 + kk * 0.4);
+        },
+        () => {
+          mesh.position.copy(target);
+          mesh.visible = true;
+          // 落地压扁回弹
+          this.addTween(0.24, (k) => {
+            const s = 1 + Math.sin(k * Math.PI) * 0.22 * (1 - k);
+            mesh.scale.set(s, 1 / s, s);
+          });
+          if (i === this.pieces.length - 1) this.shake(0.05);
+        },
+      );
+    });
+  }
+
   /** 重建全部棋子（初始化 / 悔棋 / 重开） */
   syncBoard(b: Board) {
     for (const p of this.pieces) this.pieceRoot.remove(p.mesh);
@@ -525,7 +597,7 @@ export class XiangqiScene {
         const p = b[y][x];
         if (!p) continue;
         // 黑方棋子文字倒转，双方各自正读（真实对坐摆放）
-        const mesh = this.makePiece(PTYPE_NAME[p.t][p.c === 'r' ? 0 : 1], p.c === 'b');
+        const mesh = this.makePiece(PTYPE_NAME[p.t][p.c === 'r' ? 0 : 1], p.c === 'b', this.flipBlack);
         mesh.position.copy(cellToWorld(x, y));
         this.pieceRoot.add(mesh);
         this.pieces.push({ mesh, x, y });
@@ -701,46 +773,67 @@ export class XiangqiScene {
     return this.pieces.find((p) => p.x === x && p.y === y) ?? null;
   }
 
-  /** 造一枚棋子。isBlack 决定刻字配色与是否倒转（对坐正读） */
-  private makePiece(char: string, isBlack: boolean): THREE.Group {
+  /** 造一枚棋子：车削棋身 + 凹槽内的刻字面。isBlack 决定配色与倒转（对坐正读） */
+  private makePiece(char: string, isBlack: boolean, flip: boolean): THREE.Group {
     const t = PIECE_THEMES[this.theme];
     const g = new THREE.Group();
-    const key = `${this.theme}-${char}-${isBlack}`;
+    const key = `${this.theme}-${char}-${isBlack}-${flip}`;
     let face = faceCache.get(key);
     if (!face) {
-      face = makeFaceTexture(char, isBlack ? t.blackInk : t.redInk, isBlack ? t.ringBlack : t.ringRed, t, isBlack);
+      const themeForSide = isBlack
+        ? { ...t, faceInner: t.faceInnerBlack, faceOuter: t.faceOuterBlack }
+        : t;
+      face = makeFaceTexture(
+        char,
+        isBlack ? t.blackInk : t.redInk,
+        isBlack ? t.ringBlack : t.ringRed,
+        themeForSide,
+        isBlack && flip,
+      );
       faceCache.set(key, face);
     }
-    const side = new THREE.MeshPhysicalMaterial({
-      color: t.side,
-      roughness: t.roughness,
-      clearcoat: t.clearcoat,
-      clearcoatRoughness: 0.12,
-      transmission: t.transmission,
-      thickness: t.transmission > 0 ? 0.5 : 0,
-    });
-    const top = new THREE.MeshPhysicalMaterial({
-      map: face,
+
+    // 棋身（车削轮廓，360° 旋转）
+    const bodyMat = new THREE.MeshPhysicalMaterial({
+      color: isBlack ? t.sideBlack : t.side,
       roughness: t.roughness,
       clearcoat: t.clearcoat,
       clearcoatRoughness: 0.1,
+      transmission: t.transmission,
+      thickness: t.transmission > 0 ? 0.55 : 0,
+      ior: 1.5,
     });
-    const bottom = new THREE.MeshPhysicalMaterial({
-      color: t.bottom,
-      roughness: t.roughness + 0.2,
-      clearcoat: t.clearcoat * 0.5,
-      clearcoatRoughness: 0.3,
-    });
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(PIECE_R, PIECE_R * 1.02, PIECE_H, 36), [side, top, bottom]);
-    body.position.y = PIECE_H / 2;
+    const body = new THREE.Mesh(new THREE.LatheGeometry(pieceProfile(), 48), bodyMat);
     body.castShadow = true;
     body.receiveShadow = true;
     g.add(body);
+
+    // 刻字面（嵌在顶部凹槽里，略低于凸边）
+    const faceMat = new THREE.MeshPhysicalMaterial({
+      map: face,
+      roughness: Math.max(0.08, t.roughness - 0.04),
+      clearcoat: t.clearcoat,
+      clearcoatRoughness: 0.08,
+    });
+    const topFace = new THREE.Mesh(new THREE.CircleGeometry(PIECE_R * 0.78, 48), faceMat);
+    topFace.rotation.x = -Math.PI / 2;
+    topFace.position.y = PIECE_H * 0.968;
+    topFace.receiveShadow = true;
+    g.add(topFace);
+
+    // 底盘阴影垫（增强落桌立体感）
+    const shadowPad = new THREE.Mesh(
+      new THREE.CircleGeometry(PIECE_R * 1.02, 24),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }),
+    );
+    shadowPad.rotation.x = -Math.PI / 2;
+    shadowPad.position.y = 0.004;
+    g.add(shadowPad);
     return g;
   }
 
   private addTween(dur: number, update: (k: number) => void, onDone?: () => void) {
-    this.tweens.push({ t: 0, dur, update, onDone });
+    this.tweens.push({ t: 0, dur, start: performance.now(), update, onDone });
   }
 
   /** 计算能容纳整个棋盘的相机位置（约 55° 俯角） */
@@ -799,8 +892,9 @@ export class XiangqiScene {
         this.camera.lookAt(0, 0, -0.3);
       }
     }
+    const nowMs = performance.now();
     for (const tw of this.tweens) {
-      tw.t += dt;
+      tw.t = (nowMs - tw.start) / 1000;
       tw.update(Math.min(1, tw.t / tw.dur));
     }
     const done = this.tweens.filter((t) => t.t >= t.dur);

@@ -28,9 +28,10 @@ import {
 import { CHARACTERS, avatarCanvas, pickLine, type Character } from '../characters';
 
 const LEVELS = [
-  { id: 0, name: '初级', desc: '让你三分，适合新手', depth: 2, jitter: 26 },
-  { id: 1, name: '中级', desc: '正常对弈，有来有回', depth: 3, jitter: 6 },
-  { id: 2, name: '高级', desc: '算得深，下手狠', depth: 4, jitter: 1.5 },
+  { id: 0, name: '初级', desc: '让你三分，适合新手', depth: 2, jitter: 60, timeMs: 180 },
+  { id: 1, name: '中级', desc: '正常对弈，有来有回', depth: 6, jitter: 8, timeMs: 600 },
+  { id: 2, name: '高级', desc: '深算杀招，专业水准', depth: 12, jitter: 0, timeMs: 1500 },
+  { id: 3, name: '大师', desc: '全力计算，不留情面', depth: 16, jitter: 0, timeMs: 3000 },
 ];
 
 const THEMES: { id: PieceTheme; name: string; emoji: string; desc: string }[] = [
@@ -59,6 +60,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let level = Number(localStorage.getItem('xq-level') ?? 1);
     let theme = (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme;
     let rival = Number(localStorage.getItem('xq-rival') ?? 2);
+    let facing = (localStorage.getItem('xq-facing') ?? 'duel') as 'duel' | 'me';
 
     const s = document.createElement('div');
     s.className = 'screen xq-setup';
@@ -138,6 +140,23 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       });
       s.appendChild(thRow);
 
+      // 棋子朝向
+      const fLabel = document.createElement('div');
+      fLabel.className = 'xq-sec';
+      fLabel.textContent = '棋子朝向';
+      s.appendChild(fLabel);
+      const fRow = document.createElement('div');
+      fRow.className = 'diff-row';
+      ([['duel', '对坐摆放', '黑方字朝对面，像真人对弈'], ['me', '全部朝我', '双方字都朝你，方便识读']] as const).forEach(([id, nm, ds]) => {
+        const card = document.createElement('div');
+        card.className = 'card' + (facing === id ? ' selected' : '');
+        card.innerHTML = `<div class="title" style="justify-content:center">${nm}</div>
+          <div class="desc" style="text-align:center">${ds}</div>`;
+        card.onclick = () => { facing = id; sfxTap(); render(); };
+        fRow.appendChild(card);
+      });
+      s.appendChild(fRow);
+
       const go = document.createElement('button');
       go.className = 'btn';
       go.textContent = '⚔️ 开始对弈';
@@ -145,9 +164,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         localStorage.setItem('xq-level', String(level));
         localStorage.setItem('xq-theme', theme);
         localStorage.setItem('xq-rival', String(rival));
+        localStorage.setItem('xq-facing', facing);
         s.remove();
         setupEl = null;
-        startGame(level, theme, CHARACTERS[rival]);
+        startGame(level, theme, CHARACTERS[rival], facing === 'duel');
       };
       s.appendChild(go);
 
@@ -162,7 +182,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   }
 
   // ============ 对局 ============
-  function startGame(level: number, theme: PieceTheme, rival: Character) {
+  function startGame(level: number, theme: PieceTheme, rival: Character, flipBlack: boolean) {
     const L = LEVELS[level];
     let board: Board = initialBoard();
     let history: Board[] = [];
@@ -174,8 +194,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let toastTimer = 0;
     let bubbleTimer = 0;
 
-    const scene = new XiangqiScene(wrap, (x, y) => onTap(x, y), theme);
+    const scene = new XiangqiScene(wrap, (x, y) => onTap(x, y), theme, flipBlack);
     scene.syncBoard(board);
+    scene.dealIn();
     startBgm('guqin');
 
     // ---- HUD ----
@@ -322,7 +343,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       if (turn === 'b') {
         setTurnUI(true);
         aiTimer = window.setTimeout(() => {
-          const m = bestMove(board, 'b', L.depth, L.jitter);
+          const m = bestMove(board, 'b', L.depth, L.jitter, L.timeMs);
           if (m) doMove(m);
         }, 140);
       } else {
@@ -356,6 +377,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       resultEl?.remove();
       resultEl = null;
       scene.syncBoard(board);
+      scene.dealIn();
       setTurnUI();
       setTimeout(() => say(pickLine(rival.lines.greet)), 500);
     }
