@@ -3,7 +3,7 @@ import { rankOf, suitOf, type TileId } from './rules';
 
 /** 牌面图案（高分辨率离屏缓存，绘制时缩放） */
 const FACE_W = 132;
-const FACE_H = 176;
+const FACE_H = 200; // 贴近立牌 1.5 的高宽比，缩放时不变形
 const faceCache = new Map<number, HTMLCanvasElement>();
 
 function renderFace(t: TileId): HTMLCanvasElement {
@@ -29,15 +29,23 @@ function renderFace(t: TileId): HTMLCanvasElement {
   const CN = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
   if (s === 0) {
-    // 万：上数字下"萬"
+    // 万：上数字下"萬"（放大 + 描边，小尺寸下也看得清）
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillStyle = '#c0392b';
-    g.font = `bold ${W * 0.5}px "KaiTi","STKaiti",serif`;
-    g.fillText(CN[r - 1], W / 2, H * 0.29);
-    g.fillStyle = '#1b3d8f';
-    g.font = `bold ${W * 0.52}px "KaiTi","STKaiti",serif`;
-    g.fillText('萬', W / 2, H * 0.71);
+    g.lineJoin = 'round';
+    const glyph = (ch: string, cy: number, size: number, col: string, bold: number) => {
+      g.font = `bold ${size}px "KaiTi","STKaiti","SimHei",serif`;
+      if (bold > 0) {
+        g.lineWidth = size * bold;
+        g.strokeStyle = col;
+        g.strokeText(ch, W / 2, cy);
+      }
+      g.fillStyle = col;
+      g.fillText(ch, W / 2, cy);
+    };
+    // 数字占主视觉（远看就靠它认牌）；「萬」笔画密，缩小且不描边，否则小尺寸下会糊成一坨
+    glyph(CN[r - 1], H * 0.3, W * 0.66, '#c0392b', 0.05);
+    glyph('萬', H * 0.775, W * 0.42, '#17357d', 0);
   } else if (s === 2) {
     // 筒：同心圆阵列
     const dot = (cx: number, cy: number, rad: number, col: string) => {
@@ -72,8 +80,8 @@ function renderFace(t: TileId): HTMLCanvasElement {
         8: [[-1, -1.5], [1, -1.5], [-1, -0.5], [1, -0.5], [-1, 0.5], [1, 0.5], [-1, 1.5], [1, 1.5]],
         9: [[-1, -1.15], [0, -1.15], [1, -1.15], [-1, 0], [0, 0], [1, 0], [-1, 1.15], [0, 1.15], [1, 1.15]],
       };
-      const rad = r <= 4 ? W * 0.16 : W * 0.115;
-      const sp = r <= 4 ? W * 0.23 : r <= 6 ? W * 0.2 : W * 0.175;
+      const rad = r <= 4 ? W * 0.18 : W * 0.128;
+      const sp = r <= 4 ? W * 0.25 : r <= 6 ? W * 0.215 : W * 0.185;
       layouts[r].forEach(([gx, gy], i) => dot(cx + gx * sp, cy + gy * sp * 1.15, rad, C[i % 3]));
     }
   } else {
@@ -116,16 +124,16 @@ function renderFace(t: TileId): HTMLCanvasElement {
         sg.addColorStop(1, shade(col, -35));
         g.fillStyle = sg;
         g.beginPath();
-        g.roundRect(cx - W * 0.05, cy - len / 2, W * 0.1, len, W * 0.045);
+        g.roundRect(cx - W * 0.062, cy - len / 2, W * 0.124, len, W * 0.05);
         g.fill();
         // 竹节
-        g.strokeStyle = 'rgba(0,0,0,0.28)';
-        g.lineWidth = 1.6;
+        g.strokeStyle = 'rgba(0,0,0,0.3)';
+        g.lineWidth = 2;
         g.beginPath();
-        g.moveTo(cx - W * 0.05, cy - len * 0.18);
-        g.lineTo(cx + W * 0.05, cy - len * 0.18);
-        g.moveTo(cx - W * 0.05, cy + len * 0.18);
-        g.lineTo(cx + W * 0.05, cy + len * 0.18);
+        g.moveTo(cx - W * 0.062, cy - len * 0.18);
+        g.lineTo(cx + W * 0.062, cy - len * 0.18);
+        g.moveTo(cx - W * 0.062, cy + len * 0.18);
+        g.lineTo(cx + W * 0.062, cy + len * 0.18);
         g.stroke();
       };
       const C = ['#1e8449', '#c0392b', '#1b56b8'];
@@ -214,10 +222,10 @@ export function drawTile(
   roundRect(g, x, ty, w, h, r);
   g.fill();
 
-  // 图案
+  // 图案（留白压到最小，牌面尽量占满）
   const img = faceImage(t);
-  const pad = w * 0.08;
-  g.drawImage(img, x + pad, ty + pad * 0.8, w - pad * 2, h - pad * 1.9);
+  const pad = w * 0.04;
+  g.drawImage(img, x + pad, ty + pad, w - pad * 2, h - depth * 0.8 - pad * 2);
 
   // 边框
   g.lineWidth = 1;

@@ -9,7 +9,8 @@ export interface Character {
   /** 口音/性格标签 */
   style: string;
   /** 语音参数 */
-  voice: { pitch: number; rate: number };
+  /** 语音参数；slot 指定用系统中文嗓列表里的第几个，让三个人听起来是三个人 */
+  voice: { pitch: number; rate: number; slot?: number };
   /** 主题色（头像边框/气泡） */
   color: string;
   color2: string;
@@ -47,7 +48,7 @@ export const CHARACTERS: Character[] = [
     name: '小满',
     gender: 'female',
     style: '川妹子 · 泼辣',
-    voice: { pitch: 1.65, rate: 1.18 },
+    voice: { pitch: 1.6, rate: 1.16, slot: 0 },
     color: '#ff6f91',
     color2: '#ffb3c6',
     look: {
@@ -77,7 +78,7 @@ export const CHARACTERS: Character[] = [
     name: '陈伯',
     gender: 'male',
     style: '老茶客 · 沉稳',
-    voice: { pitch: 0.62, rate: 0.9 },
+    voice: { pitch: 0.6, rate: 0.88, slot: 2 },
     color: '#c9a227',
     color2: '#e8cf7a',
     look: {
@@ -107,7 +108,7 @@ export const CHARACTERS: Character[] = [
     name: '阿雷',
     gender: 'male',
     style: '棋摊少侠 · 豪爽',
-    voice: { pitch: 1.05, rate: 1.25 },
+    voice: { pitch: 1.02, rate: 1.24, slot: 1 },
     color: '#3ea6ff',
     color2: '#8fd3ff',
     look: {

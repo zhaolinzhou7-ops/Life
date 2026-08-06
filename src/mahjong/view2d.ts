@@ -14,8 +14,8 @@ const CX = DW / 2;
 const CY = 400;
 
 /** 弃牌堆尺寸 */
-const DTW = 18;
-const DTH = 24;
+const DTW = 19;
+const DTH = 26;
 const DGAP = 1;
 const PER_ROW = 6;
 /** 弃牌堆离中央面板的距离（要大于面板半宽/半高，否则会压住） */
@@ -52,6 +52,10 @@ export interface ViewState {
   centerHint: string;
   /** 听牌提示（打出后听什么） */
   tingTiles: TileId[];
+  /** 出牌倒计时（null=不显示） */
+  timer: TimerState | null;
+  /** 有人打出了我要胡的牌 → 全屏警报 */
+  huAlert: boolean;
 }
 
 interface HitRect {
@@ -60,6 +64,51 @@ interface HitRect {
   w: number;
   h: number;
   idx: number;
+}
+
+/** 飞行中的牌（摸牌 / 打牌），走抛物线并带旋转 */
+interface Flight {
+  tile: TileId;
+  back: boolean;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  w: number;
+  h: number;
+  arc: number;
+  spin: number;
+  born: number;
+  dur: number;
+  done: () => void;
+}
+
+/** 全屏冲击（碰/杠/胡）：速度线 + 巨字 + 粒子 */
+interface Impact {
+  text: string;
+  sub: string;
+  color: string;
+  seat: number;
+  born: number;
+  dur: number;
+  sparks: { a: number; sp: number; r: number }[];
+}
+
+/** 分数金币：从赔家飞向赢家 */
+interface Coin {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  born: number;
+  dur: number;
+}
+
+export interface TimerState {
+  seat: number;
+  /** 剩余秒 */
+  left: number;
+  total: number;
 }
 
 export class MahjongView {
@@ -86,7 +135,16 @@ export class MahjongView {
     picked: [],
     centerHint: '',
     tingTiles: [],
+    timer: null,
+    huAlert: false,
   };
+
+  private flights: Flight[] = [];
+  private impacts: Impact[] = [];
+  private coins: Coin[] = [];
+  /** 震屏：{power, born, dur} */
+  private shakes: { power: number; born: number; dur: number }[] = [];
+  private flashes: { color: string; alpha: number; born: number; dur: number }[] = [];
 
   constructor(
     container: HTMLElement,
@@ -147,6 +205,107 @@ export class MahjongView {
     this.fx.push({ kind: 'text', seat, text, color, born: performance.now(), dur: 1100 });
   }
 
+  // ============ 动画 / 冲击 API ============
+
+  /** 某家手牌区的锚点（飞牌起点、金币起终点） */
+  private seatAnchor(seat: number): [number, number] {
+    if (seat === 0) return [CX, DH - 120];
+    if (seat === 1) return [DW - 30, CY];
+    if (seat === 2) return [CX, 128];
+    return [30, CY];
+  }
+
+  /** 某家第 idx 张弃牌的落点 */
+  private discardSlot(seat: number, idx: number): [number, number] {
+    const rowN = Math.floor(idx / PER_ROW);
+    const col = idx % PER_ROW;
+    const halfRow = (PER_ROW * (DTW + DGAP)) / 2;
+    const halfCol = (PER_ROW * (DTH + DGAP)) / 2;
+    if (seat === 0) return [CX - halfRow + col * (DTW + DGAP), CY + D_OFF_Y + rowN * (DTH + DGAP)];
+    if (seat === 2) return [CX + halfRow - (col + 1) * (DTW + DGAP), CY - D_OFF_Y - (rowN + 1) * (DTH + DGAP)];
+    if (seat === 1) return [CX + D_OFF_X + rowN * (DTW + DGAP), CY - halfCol + col * (DTH + DGAP)];
+    return [CX - D_OFF_X - (rowN + 1) * (DTW + DGAP), CY + halfCol - (col + 1) * (DTH + DGAP)];
+  }
+
+  /** 打牌：从手上甩到牌河，落地后 resolve */
+  flyDiscard(seat: number, tile: TileId, idx: number): Promise<void> {
+    const [x0, y0] = this.seatAnchor(seat);
+    const [x1, y1] = this.discardSlot(seat, idx);
+    return this.fly(tile, false, x0, y0, x1, y1, DTW, DTH, 250, seat === 0 ? -46 : -26);
+  }
+
+  /** 摸牌：从牌墙飞到手上 */
+  flyDraw(seat: number): Promise<void> {
+    const [x1, y1] = this.seatAnchor(seat);
+    const y0 = seat === 2 ? 195 : 556;
+    return this.fly(0, true, CX, y0, x1, y1, 16, 21, 190, -30);
+  }
+
+  private fly(
+    tile: TileId,
+    back: boolean,
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    w: number,
+    h: number,
+    dur: number,
+    arc: number,
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      this.flights.push({
+        tile, back, x0, y0, x1, y1, w, h, arc,
+        spin: (Math.random() - 0.5) * 0.7,
+        born: performance.now(),
+        dur,
+        done: resolve,
+      });
+    });
+  }
+
+  /** 全屏冲击：速度线 + 巨字 + 火星 + 震屏 + 闪白 */
+  impact(seat: number, text: string, sub: string, color: string, power = 1) {
+    const sparks = Array.from({ length: 26 }, () => ({
+      a: Math.random() * Math.PI * 2,
+      sp: 120 + Math.random() * 260,
+      r: 1.5 + Math.random() * 3.5,
+    }));
+    this.impacts.push({ text, sub, color, seat, born: performance.now(), dur: 1150, sparks });
+    this.shake(power);
+    this.flash(color, 0.3 * power, 220);
+  }
+
+  shake(power = 1) {
+    this.shakes.push({ power, born: performance.now(), dur: 380 });
+  }
+
+  flash(color: string, alpha: number, dur = 200) {
+    this.flashes.push({ color, alpha, born: performance.now(), dur });
+  }
+
+  /** 金币从赔家飞向赢家 */
+  coinFly(from: number, to: number, n = 8) {
+    const [x0, y0] = this.seatAnchor(from);
+    const [x1, y1] = this.seatAnchor(to);
+    const now = performance.now();
+    for (let i = 0; i < n; i++) {
+      this.coins.push({
+        x0: x0 + (Math.random() - 0.5) * 40,
+        y0: y0 + (Math.random() - 0.5) * 30,
+        x1: x1 + (Math.random() - 0.5) * 50,
+        y1: y1 + (Math.random() - 0.5) * 24,
+        born: now + i * 55,
+        dur: 620,
+      });
+    }
+  }
+
+  /** 是否还有动画在跑（主流程可据此等待） */
+  get busy() {
+    return this.flights.length > 0 || this.impacts.length > 0;
+  }
+
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
@@ -171,7 +330,19 @@ export class MahjongView {
     g.fillStyle = '#06110c';
     g.fillRect(0, 0, W, H);
 
-    g.translate(this.ox, this.oy);
+    // 震屏（在整体变换之前叠加位移）
+    const now = performance.now();
+    this.shakes = this.shakes.filter((s) => now - s.born < s.dur);
+    let sx = 0;
+    let sy = 0;
+    for (const s of this.shakes) {
+      const k = 1 - (now - s.born) / s.dur;
+      const amp = 9 * s.power * k * k;
+      sx += Math.sin((now - s.born) * 0.075) * amp;
+      sy += Math.cos((now - s.born) * 0.093) * amp;
+    }
+
+    g.translate(this.ox + sx, this.oy + sy);
     g.scale(this.scale, this.scale);
 
     this.hits = [];
@@ -182,10 +353,240 @@ export class MahjongView {
     this.drawMyArea();
     this.drawRail();
     this.drawPlayerCards();
+    this.drawFlights();
+    this.drawCoins();
+    this.drawTimer();
     this.drawCenterHint();
     this.drawFx();
+    this.drawHuAlert();
+    this.drawImpacts();
+    this.drawFlashes();
 
     g.restore();
+  }
+
+  /** 飞行中的牌 */
+  private drawFlights() {
+    const g = this.g;
+    const now = performance.now();
+    for (const f of this.flights) {
+      const k = Math.min(1, (now - f.born) / f.dur);
+      // 缓出，落地那一下更"沉"
+      const e = 1 - (1 - k) * (1 - k);
+      const x = f.x0 + (f.x1 - f.x0) * e;
+      const y = f.y0 + (f.y1 - f.y0) * e + Math.sin(k * Math.PI) * f.arc;
+      const pop = k > 0.86 ? 1 + (1 - (k - 0.86) / 0.14) * 0.12 : 1.18 - k * 0.18;
+      g.save();
+      g.translate(x + f.w / 2, y + f.h / 2);
+      g.rotate(f.spin * (1 - e));
+      g.scale(pop, pop);
+      // 拖影
+      g.globalAlpha = 0.25 * (1 - k);
+      if (!f.back) drawTile(g, f.tile, -f.w / 2 - (f.x1 - f.x0) * 0.05, -f.h / 2, f.w, f.h);
+      g.globalAlpha = 1;
+      if (f.back) drawBack(g, -f.w / 2, -f.h / 2, f.w, f.h);
+      else drawTile(g, f.tile, -f.w / 2, -f.h / 2, f.w, f.h);
+      g.restore();
+    }
+    const landed = this.flights.filter((f) => now - f.born >= f.dur);
+    if (landed.length) {
+      this.flights = this.flights.filter((f) => now - f.born < f.dur);
+      for (const f of landed) f.done();
+    }
+  }
+
+  /** 金币 */
+  private drawCoins() {
+    const g = this.g;
+    const now = performance.now();
+    this.coins = this.coins.filter((c) => now - c.born < c.dur);
+    for (const c of this.coins) {
+      const t = now - c.born;
+      if (t < 0) continue;
+      const k = t / c.dur;
+      const e = k * k * (3 - 2 * k);
+      const x = c.x0 + (c.x1 - c.x0) * e;
+      const y = c.y0 + (c.y1 - c.y0) * e - Math.sin(k * Math.PI) * 70;
+      const r = 7 + Math.sin(k * Math.PI) * 2;
+      // 翻转感：横向压扁
+      const sq = Math.abs(Math.cos(t * 0.014));
+      g.save();
+      g.globalAlpha = k > 0.85 ? 1 - (k - 0.85) / 0.15 : 1;
+      g.translate(x, y);
+      g.scale(Math.max(0.25, sq), 1);
+      const cg = g.createRadialGradient(-r * 0.3, -r * 0.3, 1, 0, 0, r);
+      cg.addColorStop(0, '#fff6c8');
+      cg.addColorStop(0.55, '#ffc93c');
+      cg.addColorStop(1, '#b8770d');
+      g.fillStyle = cg;
+      g.beginPath();
+      g.arc(0, 0, r, 0, Math.PI * 2);
+      g.fill();
+      g.strokeStyle = 'rgba(120,70,0,0.8)';
+      g.lineWidth = 1.2;
+      g.stroke();
+      g.restore();
+    }
+  }
+
+  /** 出牌倒计时：活动座位旁的环形读秒，最后 3 秒变红脉动 */
+  private drawTimer() {
+    const t = this.state.timer;
+    if (!t) return;
+    const g = this.g;
+    const [ax, ay] = this.seatAnchor(t.seat);
+    const cx = t.seat === 0 ? CX : ax;
+    const cy = t.seat === 0 ? BOT - 26 : ay;
+    const r = 17;
+    const k = Math.max(0, Math.min(1, t.left / t.total));
+    const urgent = t.left <= 3;
+    g.save();
+    g.beginPath();
+    g.arc(cx, cy, r, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(4,16,10,0.8)';
+    g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.18)';
+    g.lineWidth = 3.5;
+    g.stroke();
+    const pulse = urgent ? 0.6 + Math.abs(Math.sin(performance.now() * 0.008)) * 0.4 : 1;
+    g.globalAlpha = pulse;
+    g.strokeStyle = urgent ? '#ff5252' : '#7dff9f';
+    g.lineWidth = 3.5;
+    g.beginPath();
+    g.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
+    g.stroke();
+    g.globalAlpha = 1;
+    g.fillStyle = urgent ? '#ff8a80' : '#e8fff0';
+    g.font = 'bold 15px sans-serif';
+    g.textAlign = 'center';
+    g.fillText(String(Math.ceil(t.left)), cx, cy + 5.5);
+    g.restore();
+  }
+
+  /** 听牌警报：有人打出我要胡的牌，边框红光呼吸 */
+  private drawHuAlert() {
+    if (!this.state.huAlert) return;
+    const g = this.g;
+    const p = 0.35 + Math.abs(Math.sin(performance.now() * 0.009)) * 0.65;
+    g.save();
+    const grd = g.createLinearGradient(0, 0, 0, DH);
+    grd.addColorStop(0, `rgba(255,60,60,${0.5 * p})`);
+    grd.addColorStop(0.22, 'rgba(255,60,60,0)');
+    grd.addColorStop(0.78, 'rgba(255,60,60,0)');
+    grd.addColorStop(1, `rgba(255,60,60,${0.5 * p})`);
+    g.fillStyle = grd;
+    g.fillRect(0, 0, DW, DH);
+    g.restore();
+  }
+
+  /** 全屏闪光 */
+  private drawFlashes() {
+    const g = this.g;
+    const now = performance.now();
+    this.flashes = this.flashes.filter((f) => now - f.born < f.dur);
+    for (const f of this.flashes) {
+      const k = (now - f.born) / f.dur;
+      g.save();
+      g.globalAlpha = f.alpha * (1 - k);
+      g.fillStyle = f.color;
+      g.fillRect(-40, -40, DW + 80, DH + 80);
+      g.restore();
+    }
+  }
+
+  /** 碰/杠/胡 全屏冲击 */
+  private drawImpacts() {
+    const g = this.g;
+    const now = performance.now();
+    this.impacts = this.impacts.filter((im) => now - im.born < im.dur);
+    for (const im of this.impacts) {
+      const k = (now - im.born) / im.dur;
+      const [ax, ay] = this.seatAnchor(im.seat);
+      const cx = CX;
+      const cy = CY - 20;
+
+      // 1) 放射速度线（前 45%）
+      if (k < 0.45) {
+        const kk = k / 0.45;
+        g.save();
+        g.globalAlpha = (1 - kk) * 0.75;
+        g.translate(cx, cy);
+        for (let i = 0; i < 34; i++) {
+          const a = (i / 34) * Math.PI * 2 + kk * 0.4;
+          const r0 = 40 + kk * 320;
+          const len = 120 * (1 - kk) + 40;
+          g.strokeStyle = i % 3 === 0 ? '#ffffff' : im.color;
+          g.lineWidth = i % 3 === 0 ? 3 : 1.6;
+          g.beginPath();
+          g.moveTo(Math.cos(a) * r0, Math.sin(a) * r0);
+          g.lineTo(Math.cos(a) * (r0 + len), Math.sin(a) * (r0 + len));
+          g.stroke();
+        }
+        g.restore();
+      }
+
+      // 2) 冲击环
+      if (k < 0.6) {
+        const kk = k / 0.6;
+        g.save();
+        g.globalAlpha = (1 - kk) * 0.9;
+        g.strokeStyle = im.color;
+        g.lineWidth = 8 * (1 - kk) + 1;
+        g.beginPath();
+        g.arc(cx, cy, 20 + kk * 240, 0, Math.PI * 2);
+        g.stroke();
+        g.restore();
+      }
+
+      // 3) 火星
+      g.save();
+      for (const s of im.sparks) {
+        const d = s.sp * k;
+        const alpha = 1 - k;
+        g.globalAlpha = alpha * alpha;
+        g.fillStyle = Math.random() > 0.5 ? '#fff2b8' : im.color;
+        g.beginPath();
+        g.arc(cx + Math.cos(s.a) * d, cy + Math.sin(s.a) * d + k * k * 90, s.r * (1 - k * 0.6), 0, Math.PI * 2);
+        g.fill();
+      }
+      g.restore();
+
+      // 4) 巨字：从座位方向冲进来 → 过冲回弹 → 定住 → 淡出
+      const inK = Math.min(1, k / 0.22);
+      const ease = 1 - (1 - inK) ** 3;
+      const px = ax + (cx - ax) * ease;
+      const py = ay + (cy - ay) * ease;
+      let sc = 0.3 + ease * 1.15;
+      if (k > 0.22 && k < 0.34) sc = 1.45 - ((k - 0.22) / 0.12) * 0.35;
+      else if (k >= 0.34) sc = 1.1;
+      const alpha = k > 0.78 ? 1 - (k - 0.78) / 0.22 : 1;
+      g.save();
+      g.globalAlpha = alpha;
+      g.translate(px, py);
+      g.scale(sc, sc);
+      g.textAlign = 'center';
+      g.font = 'bold 78px "STKaiti","KaiTi","SimHei",sans-serif';
+      g.lineWidth = 12;
+      g.lineJoin = 'round';
+      g.strokeStyle = 'rgba(20,0,0,0.85)';
+      g.strokeText(im.text, 0, 0);
+      const tg = g.createLinearGradient(0, -48, 0, 26);
+      tg.addColorStop(0, '#fffbe0');
+      tg.addColorStop(0.42, '#ffe27a');
+      tg.addColorStop(0.62, im.color);
+      tg.addColorStop(1, '#c2410c');
+      g.fillStyle = tg;
+      g.fillText(im.text, 0, 0);
+      if (im.sub && k > 0.2) {
+        g.font = 'bold 19px sans-serif';
+        g.lineWidth = 5;
+        g.strokeStyle = 'rgba(20,0,0,0.8)';
+        g.strokeText(im.sub, 0, 34);
+        g.fillStyle = '#fff3c4';
+        g.fillText(im.sub, 0, 34);
+      }
+      g.restore();
+    }
   }
 
   /** 斜俯视牌桌：木质外框 + 金线 + 绿呢台面 */
@@ -622,11 +1023,11 @@ export class MahjongView {
     // 精确解出牌宽：baseN 张 + (drawn ? 分开的 1 张 + 间隔)
     const slots = drawn ? baseN + 1 : baseN;
     const fixed = (baseN - 1) * gap + (drawn ? drawnGap : 0);
-    const tw = Math.min(32, (avail - fixed) / slots);
-    const th = tw * 1.42;
+    const tw = Math.min(34, (avail - fixed) / slots);
+    const th = tw * 1.56; // 拉高牌面，小屏下字更大更好认
     const totalW = slots * tw + fixed;
     const x0 = (DW - totalW) / 2;
-    const y = DH - 50 - th;
+    const y = DH - 44 - th;
 
     // 手牌托板
     g.save();
@@ -641,22 +1042,30 @@ export class MahjongView {
       const x = isDrawn ? x0 + baseN * (tw + gap) - gap + drawnGap : x0 + i * (tw + gap);
       const picked = this.state.picked.includes(i);
       const sel = this.state.selected === i;
-      drawTile(g, tiles[i], x, y, tw, th, {
-        lift: sel ? 15 : picked ? 10 : 0,
-        glow: picked ? '#66ff8f' : sel ? '#ffd76e' : undefined,
-      });
+      // 选中的牌整体放大，看得清也确认得清
+      if (sel) {
+        const k = 1.3;
+        const bw = tw * k;
+        const bh = th * k;
+        drawTile(g, tiles[i], x - (bw - tw) / 2, y - (bh - th), bw, bh, { lift: 16, glow: '#ffd76e' });
+      } else {
+        drawTile(g, tiles[i], x, y, tw, th, {
+          lift: picked ? 10 : 0,
+          glow: picked ? '#66ff8f' : undefined,
+        });
+      }
       // 点击判定（比牌大一圈，手指容错）
-      this.hits.push({ x: x - 2, y: y - 24, w: tw + 4, h: th + 34, idx: i });
+      this.hits.push({ x: x - 2, y: y - 26, w: tw + 4, h: th + 36, idx: i });
     }
 
     // 听牌提示条（浮在手牌上方）
     if (this.state.tingTiles.length) {
       const items = this.state.tingTiles.slice(0, 8);
-      const iw = 17;
-      const ih = 23;
+      const iw = 19;
+      const ih = 26;
       const totW = items.length * (iw + 2) + 46;
       const sx = (DW - totW) / 2;
-      const ty = y - 36;
+      const ty = y - 40;
       g.save();
       g.fillStyle = 'rgba(6,28,17,0.92)';
       g.beginPath();

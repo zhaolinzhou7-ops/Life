@@ -170,21 +170,134 @@ export function sfxLose() {
   [392, 330, 262, 196].forEach((f, i) => tone(f, 0.3, { type: 'triangle', vol: 0.18, delay: i * 0.16 }));
 }
 
-/** 中文语音报牌（碰/杠/胡/将军…），不可用时静默跳过。
- *  voice 可指定角色音色（pitch/rate），实现不同人物不同嗓音。 */
-export function speak(text: string, voice?: { pitch: number; rate: number }) {
+// ---------------- 语音 ----------------
+// 浏览器自带 TTS 机械感重，做三件事压一压：挑系统里最好的中文嗓、
+// 每句加轻微的音高/语速抖动（真人不会两句一模一样）、把关键时刻交给音效而不是念字。
+
+let voiceCache: SpeechSynthesisVoice[] | null = null;
+/** 已知音质较好的中文嗓，按优先级排 */
+const GOOD_ZH = ['Tingting', 'Ting-Ting', 'Sinji', 'Yu-shu', 'Li-mu', 'Yu Shu', 'Meijia', 'Google 普通话', 'Microsoft Xiaoxiao', 'Microsoft Yunxi', 'Microsoft Huihui'];
+
+function zhVoices(): SpeechSynthesisVoice[] {
+  if (voiceCache && voiceCache.length) return voiceCache;
+  try {
+    const all = speechSynthesis.getVoices();
+    const zh = all.filter((v) => /^zh/i.test(v.lang));
+    zh.sort((a, b) => {
+      const rank = (v: SpeechSynthesisVoice) => {
+        const i = GOOD_ZH.findIndex((n) => v.name.includes(n));
+        return (i < 0 ? 50 : i) + (v.localService ? 0 : 20) + (/zh-CN|zh_CN/i.test(v.lang) ? 0 : 5);
+      };
+      return rank(a) - rank(b);
+    });
+    voiceCache = zh;
+    return zh;
+  } catch {
+    return [];
+  }
+}
+
+try {
+  speechSynthesis.addEventListener?.('voiceschanged', () => {
+    voiceCache = null;
+  });
+} catch {
+  /* 无 TTS 环境 */
+}
+
+export interface VoiceProfile {
+  pitch: number;
+  rate: number;
+  /** 用中文嗓列表里的第几个（不同角色尽量不同嗓） */
+  slot?: number;
+}
+
+export function speak(text: string, voice?: VoiceProfile) {
   if (muted) return;
   try {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'zh-CN';
-    u.rate = voice?.rate ?? 1.15;
-    u.pitch = voice?.pitch ?? 1.15;
-    u.volume = 0.95;
+    const zh = zhVoices();
+    if (zh.length) u.voice = zh[Math.min(zh.length - 1, voice?.slot ?? 0)];
+    // 抖动：同一个人每次说话也略有不同，能明显减轻"复读机"感
+    const j = () => (Math.random() - 0.5) * 0.12;
+    u.rate = Math.max(0.5, Math.min(2, (voice?.rate ?? 1.05) + j()));
+    u.pitch = Math.max(0, Math.min(2, (voice?.pitch ?? 1.05) + j()));
+    u.volume = 0.9;
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
   } catch {
     /* 无 TTS 环境 */
   }
+}
+
+// ---------------- 对局音效 ----------------
+
+/** 掷骰子：骨头在瓷碗里翻滚 */
+export function sfxDice() {
+  for (let i = 0; i < 9; i++) {
+    const d = i * 0.055 + Math.random() * 0.03;
+    noise(0.05, { vol: 0.15 - i * 0.011, hp: 1400, delay: d });
+    tone(500 + Math.random() * 700, 0.05, { type: 'triangle', vol: 0.08, delay: d });
+  }
+  tone(220, 0.3, { type: 'sine', vol: 0.16, slide: 0.7, delay: 0.55 });
+}
+
+/** 码牌/发牌：一串密集的牌碰撞 */
+export function sfxDeal() {
+  for (let i = 0; i < 14; i++) {
+    const d = i * 0.042;
+    noise(0.045, { vol: 0.11, hp: 1900, delay: d });
+    tone(360 + Math.random() * 240, 0.05, { type: 'square', vol: 0.05, delay: d });
+  }
+}
+
+/** 甩牌：破风 + 落桌 */
+export function sfxThrow() {
+  noise(0.13, { vol: 0.14, hp: 2200 });
+  sfxKnock();
+}
+
+/** 金币入账 */
+export function sfxCoin(n = 1) {
+  for (let i = 0; i < n; i++) {
+    const d = i * 0.07;
+    tone(1180, 0.16, { type: 'triangle', vol: 0.13, delay: d });
+    tone(1760, 0.13, { type: 'sine', vol: 0.09, delay: d + 0.02 });
+  }
+}
+
+/** 心跳：听牌后别人摸打时的紧张感 */
+export function sfxHeartbeat() {
+  tone(62, 0.16, { type: 'sine', vol: 0.34, slide: 0.7 });
+  tone(58, 0.2, { type: 'sine', vol: 0.26, slide: 0.7, delay: 0.19 });
+}
+
+/** 倒计时滴答（最后几秒） */
+export function sfxTick(urgent = false) {
+  tone(urgent ? 1500 : 1050, 0.05, { type: 'square', vol: urgent ? 0.13 : 0.07 });
+}
+
+/** 结算号角：铜管齐奏 + 锣 */
+export function sfxFanfare() {
+  tone(146, 2.2, { type: 'sine', vol: 0.4, slide: 0.6 });
+  noise(0.8, { vol: 0.18, lp: 1200 });
+  const chord = [392, 494, 587, 784];
+  chord.forEach((f, i) => {
+    tone(f, 1.0, { type: 'sawtooth', vol: 0.09, delay: 0.05 + i * 0.03 });
+    tone(f, 1.0, { type: 'triangle', vol: 0.07, delay: 0.05 + i * 0.03 });
+  });
+  [784, 988, 1175, 1568].forEach((f, i) => pluck(f, 1.4, 0.18, 0.5 + i * 0.09));
+  noise(1.1, { vol: 0.11, hp: 4200, delay: 0.5 });
+}
+
+/** 段位提升 */
+export function sfxLevelUp() {
+  [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => {
+    tone(f, 0.5, { type: 'triangle', vol: 0.16, delay: i * 0.075 });
+    pluck(f * 2, 0.7, 0.1, i * 0.075);
+  });
+  noise(1.0, { vol: 0.1, hp: 5000, delay: 0.3 });
 }
 
 /** 杠：重型三连击 + 低频轰鸣 + 金属泛音（强打击感） */
@@ -352,6 +465,55 @@ function songXiqi(): Song {
   };
 }
 
+/** 铺底长音（弦乐/笙式持续音），给曲子撑出厅堂感 */
+function padAt(freq: number, when: number, dur: number, vol = 0.05) {
+  const c = ctx!;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(vol, when + dur * 0.35);
+  g.gain.linearRampToValueAtTime(0, when + dur);
+  const lp = c.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = freq * 4;
+  for (const det of [-7, 0, 7]) {
+    const o = c.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.value = freq;
+    o.detune.value = det;
+    o.connect(lp);
+    o.start(when);
+    o.stop(when + dur + 0.05);
+  }
+  lp.connect(g).connect(out());
+}
+
+/** 琵琶轮指：一个音上的快速反复，长音不空 */
+function tremoloAt(freq: number, when: number, dur: number, vol = 0.07) {
+  const n = Math.max(2, Math.round(dur / 0.075));
+  for (let i = 0; i < n; i++) pluckAt(freq, when + i * 0.075, 0.35, vol * (i === 0 ? 1.4 : 0.75));
+}
+
+/** 大鼓重音 */
+function taikoAt(when: number, vol = 0.34) {
+  const c = ctx!;
+  const o = c.createOscillator();
+  o.frequency.setValueAtTime(150, when);
+  o.frequency.exponentialRampToValueAtTime(48, when + 0.22);
+  const g = c.createGain();
+  g.gain.setValueAtTime(vol, when);
+  g.gain.exponentialRampToValueAtTime(0.001, when + 0.4);
+  o.connect(g).connect(out());
+  o.start(when);
+  o.stop(when + 0.45);
+  noiseAt(when, 0.09, vol * 0.3, 0, 260);
+}
+
+/** BGM 强度：0=平稳 1=紧张（牌墙见底/多家听牌时切） */
+let bgmIntensity = 0;
+export function setBgmIntensity(level: 0 | 1) {
+  bgmIntensity = level;
+}
+
 /** 麻将《锦官夜宴》：104bpm，鼓组 + 弹拨低音 + 笛子主旋律 + 古筝滑音过门 */
 function songJinguan(): Song {
   const stepDur = 60 / 104 / 2;
@@ -372,21 +534,33 @@ function songJinguan(): Song {
     play(step, when) {
       const bar = Math.floor(step / 8);
       const inBar = step % 8;
-      // 鼓组
-      if (inBar === 0 || inBar === 5) kickAt(when, 0.26);
-      if (inBar === 2 || inBar === 6) noiseAt(when, 0.08, 0.12, 0, 1800); // 小军鼓
+      const hot = bgmIntensity === 1;
+
+      // 鼓组：紧张时加密并加重
+      if (inBar === 0) taikoAt(when, hot ? 0.4 : 0.3);
+      if (inBar === 5) kickAt(when, hot ? 0.32 : 0.24);
+      if (hot && inBar === 3) kickAt(when, 0.2);
+      if (inBar === 2 || inBar === 6) noiseAt(when, 0.08, hot ? 0.16 : 0.12, 0, 1800); // 小军鼓
       noiseAt(when, 0.03, inBar % 2 === 0 ? 0.05 : 0.028, 6500); // 踩镲
-      // 弹拨低音
+      if (hot) noiseAt(when + stepDur / 2, 0.025, 0.035, 7200); // 十六分踩镲
+
+      // 弹拨低音 + 铺底
       if (inBar === 0 || inBar === 3 || inBar === 6) pluckAt(bass[bar], when, 0.6, 0.15);
-      // 笛子主旋律
+      if (inBar === 0) padAt(bass[bar] * 2, when, stepDur * 8, hot ? 0.055 : 0.038);
+
+      // 笛子主旋律；长音改用琵琶轮指托住，不再空一拍
       const m = mel[step];
       if (m > 0) {
         let len = 1;
         for (let k = step + 1; k < 64 && mel[k] === 0 && len < 4; k++) len++;
         flute(m, when, stepDur * len * 0.9, 0.085);
+        if (len >= 3) tremoloAt(m * 2, when + stepDur * 0.6, stepDur * (len - 0.6), 0.045);
       }
+
       // 过门：第 8 小节古筝上行滑音
       if (step === 57) glissAt(when, [N.D4, N.F4, N.G4, N.A4, N.C5, N.D5, N.F5], 0.08);
+      // 循环起点敲一记锣，段落感更强
+      if (step === 0) noiseAt(when, 1.2, 0.07, 0, 420);
     },
   };
 }
