@@ -1,19 +1,22 @@
-/** 四川麻将（血战到底）启动入口：对局流程、玩家交互与结算 */
+/** 四川麻将（血战到底）：2.5D 专业界面 + 换三张 / 定缺 / 碰杠 / 呼叫转移 / 查大叔查花猪 / 托管 */
 import {
+  bestTingFan,
   canWin,
   freshWall,
   hasSuit,
+  pickSwapThree,
   scoreFan,
+  settleDraw,
   suitOf,
   tileName,
+  waitingTiles,
   SUITS,
   type Counts,
   type Meld,
   type TileId,
 } from './rules';
 import { chooseDiscard, chooseLack, wantGang, wantPeng } from './ai';
-import { waitingTiles } from './rules';
-import { MahjongScene } from './scene3d';
+import { MahjongView, type SeatView } from './view2d';
 import {
   isMuted,
   setMuted,
@@ -29,21 +32,24 @@ import {
   stopBgm,
   unlockAudio,
 } from '../gamesfx';
-import { CHARACTERS, QUICK_CHAT, avatarCanvas, pickLine } from '../characters';
+import { CHARACTERS, QUICK_CHAT, pickLine } from '../characters';
+
+const SEAT_CHARS = [null, CHARACTERS[0], CHARACTERS[1], CHARACTERS[2]] as const;
+const NAMES = ['你', CHARACTERS[0].name, CHARACTERS[1].name, CHARACTERS[2].name];
 
 interface Player {
   hand: Counts;
   melds: Meld[];
+  discards: TileId[];
   lack: number;
   won: boolean;
   winNames: string[];
   fan: number;
   score: number;
+  /** 本局杠得的分（用于呼叫转移：被人胡后要退还） */
+  gangGains: { from: number; amount: number }[];
+  justDiscarded: boolean;
 }
-
-/** 座位 1/2/3 分别坐三位 CG 角色 */
-const SEAT_CHARS = [null, CHARACTERS[0], CHARACTERS[1], CHARACTERS[2]] as const;
-const NAMES = ['你', CHARACTERS[0].name, CHARACTERS[1].name, CHARACTERS[2].name];
 
 const sortedTiles = (c: Counts): TileId[] => {
   const out: TileId[] = [];
@@ -60,28 +66,25 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
   const sleep = (s: number) => new Promise<void>((r) => setTimeout(r, s * 1000));
   const alive = () => !disposed;
 
-  // ---------- 状态 ----------
   let wall: TileId[] = [];
   let players: Player[] = [];
-  let drawnTile: TileId | null = null; // 玩家刚摸的牌（展示分离）
+  let drawnTile: TileId | null = null;
   let displayTiles: TileId[] = [];
   let tapHandler: ((idx: number) => void) | null = null;
+  let auto = false; // 托管
+  /** 开启托管时立刻替玩家做完当前这一步（否则会一直卡在等待点击上） */
+  let takeOver: (() => void) | null = null;
 
-  const scene = new MahjongScene(wrap, (idx) => tapHandler?.(idx));
+  const view = new MahjongView(wrap, (idx) => tapHandler?.(idx));
 
-  // 手牌托底渐变条（纯装饰，提升手牌对比度）
-  const handBg = document.createElement('div');
-  handBg.className = 'mj-handbg';
-  wrap.appendChild(handBg);
-
-  // ---------- HUD ----------
+  // ---------- HUD（顶栏 + 按钮） ----------
   const hud = document.createElement('div');
   hud.className = 'mj-hud';
   hud.innerHTML = `
     <button class="moba-back mj-back">← 退出</button>
     <button class="xq-btn" id="mj-mute">${isMuted() ? '🔇' : '🔊'}</button>
-    <div class="mj-info"><span id="mj-wall"></span></div>
-    <div class="mj-seats" id="mj-seats"></div>`;
+    <button class="xq-btn" id="mj-auto">托管</button>
+    <div class="mj-info"><span id="mj-round">血战到底</span></div>`;
   wrap.appendChild(hud);
   (hud.querySelector('.mj-back') as HTMLButtonElement).onclick = () => onExit(false);
   const muteBtn = hud.querySelector('#mj-mute') as HTMLButtonElement;
@@ -89,127 +92,14 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     setMuted(!isMuted());
     muteBtn.textContent = isMuted() ? '🔇' : '🔊';
   };
-
-  // 听牌提示条
-  const tingBar = document.createElement('div');
-  tingBar.className = 'mj-ting hidden';
-  wrap.appendChild(tingBar);
-  function updateTing() {
-    const p = players[0];
-    if (!p || p.won) {
-      tingBar.classList.add('hidden');
-      return;
-    }
-    const total = p.hand.reduce((a, b) => a + b, 0);
-    if (total % 3 !== 1) {
-      tingBar.classList.add('hidden');
-      return;
-    }
-    const waits = waitingTiles(p.hand, p.melds.length === 0, p.lack);
-    if (waits.length === 0) {
-      tingBar.classList.add('hidden');
-      return;
-    }
-    tingBar.innerHTML = `<b>听牌</b> ${waits.map((t) => tileName(t)).join('　')}`;
-    tingBar.classList.remove('hidden');
-  }
-
-  // ---------- 三位对手：CG 头像座位框 + 对话气泡 ----------
-  const seatBoxes: HTMLElement[] = [];
-  const bubbles: HTMLElement[] = [];
-  const bubbleTimers: number[] = [0, 0, 0, 0];
-  for (let seat = 1; seat <= 3; seat++) {
-    const ch = SEAT_CHARS[seat]!;
-    const box = document.createElement('div');
-    box.className = `mj-player seat${seat}`;
-    box.style.setProperty('--c', ch.color);
-    box.appendChild(avatarCanvas(ch, 58));
-    const nm = document.createElement('div');
-    nm.className = 'nm';
-    nm.textContent = ch.name;
-    box.appendChild(nm);
-    const tag = document.createElement('div');
-    tag.className = 'lackTag';
-    tag.id = `mj-lack-${seat}`;
-    box.appendChild(tag);
-    wrap.appendChild(box);
-    seatBoxes[seat] = box;
-
-    const bb = document.createElement('div');
-    bb.className = `mj-bubble seat${seat} hidden`;
-    wrap.appendChild(bb);
-    bubbles[seat] = bb;
-  }
-
-  /** 角色说话：气泡 + 该角色音色语音 + 头像高亮 */
-  function charSay(seat: number, text: string) {
-    if (seat === 0) {
-      // 玩家自己：气泡显示在下方
-      playerBubble.textContent = text;
-      playerBubble.classList.remove('hidden', 'pop');
-      void playerBubble.offsetWidth;
-      playerBubble.classList.add('pop');
-      speak(text, { pitch: 1.0, rate: 1.1 });
-      clearTimeout(bubbleTimers[0]);
-      bubbleTimers[0] = window.setTimeout(() => playerBubble.classList.add('hidden'), 2400);
-      return;
-    }
-    const ch = SEAT_CHARS[seat]!;
-    const bb = bubbles[seat];
-    const box = seatBoxes[seat];
-    bb.textContent = text;
-    bb.classList.remove('hidden', 'pop');
-    void bb.offsetWidth;
-    bb.classList.add('pop');
-    box.classList.add('talking');
-    speak(text, ch.voice);
-    clearTimeout(bubbleTimers[seat]);
-    bubbleTimers[seat] = window.setTimeout(() => {
-      bb.classList.add('hidden');
-      box.classList.remove('talking');
-    }, 2500);
-  }
-
-  /** 高亮某座位（轮到他行动） */
-  function setActiveSeat(seat: number) {
-    for (let i = 1; i <= 3; i++) seatBoxes[i]?.classList.toggle('active', i === seat);
-  }
-
-  // 玩家气泡 + 快捷聊天
-  const playerBubble = document.createElement('div');
-  playerBubble.className = 'mj-bubble seat0 hidden';
-  wrap.appendChild(playerBubble);
-
-  const chatBtn = document.createElement('button');
-  chatBtn.className = 'mj-chat-btn';
-  chatBtn.textContent = '💬';
-  wrap.appendChild(chatBtn);
-  const chatPanel = document.createElement('div');
-  chatPanel.className = 'mj-chat hidden';
-  QUICK_CHAT.forEach((line) => {
-    const b = document.createElement('button');
-    b.className = 'mj-chat-item';
-    b.textContent = line;
-    b.onclick = () => {
-      chatPanel.classList.add('hidden');
-      charSay(0, line);
-      // 对手随机回一句
-      const seat = 1 + Math.floor(Math.random() * 3);
-      setTimeout(() => {
-        if (alive()) charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.taunt));
-      }, 1400);
-    };
-    chatPanel.appendChild(b);
-  });
-  wrap.appendChild(chatPanel);
-  chatBtn.onclick = () => chatPanel.classList.toggle('hidden');
-
-  // 首次手势解锁音频 + 麻将馆节奏 BGM
-  const unlock = () => {
-    unlockAudio();
-    startBgm('majiang');
+  const autoBtn = hud.querySelector('#mj-auto') as HTMLButtonElement;
+  autoBtn.onclick = () => {
+    auto = !auto;
+    autoBtn.classList.toggle('on', auto);
+    autoBtn.textContent = auto ? '托管中' : '托管';
+    showToast(auto ? '已开启托管，自动打牌' : '已取消托管');
+    if (auto) takeOver?.();
   };
-  window.addEventListener('pointerdown', unlock, { once: true });
 
   const actionBar = document.createElement('div');
   actionBar.className = 'mj-actions hidden';
@@ -226,49 +116,102 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     toastTimer = window.setTimeout(() => toast.classList.remove('show'), 1600);
   };
 
-  const banner = document.createElement('div');
-  banner.className = 'mj-banner hidden';
-  wrap.appendChild(banner);
-  const flashBanner = async (text: string) => {
-    banner.textContent = text;
-    banner.classList.remove('hidden');
-    await sleep(0.9);
-    banner.classList.add('hidden');
-  };
+  // 快捷聊天
+  const chatBtn = document.createElement('button');
+  chatBtn.className = 'mj-chat-btn';
+  chatBtn.textContent = '💬';
+  wrap.appendChild(chatBtn);
+  const chatPanel = document.createElement('div');
+  chatPanel.className = 'mj-chat hidden';
+  QUICK_CHAT.forEach((line) => {
+    const b = document.createElement('button');
+    b.className = 'mj-chat-item';
+    b.textContent = line;
+    b.onclick = () => {
+      chatPanel.classList.add('hidden');
+      speak(line, { pitch: 1.0, rate: 1.1 });
+      view.state.centerHint = line;
+      setTimeout(() => {
+        if (alive() && view.state.centerHint === line) view.state.centerHint = '';
+      }, 2000);
+      const seat = 1 + Math.floor(Math.random() * 3);
+      setTimeout(() => {
+        if (alive()) charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.taunt));
+      }, 1300);
+    };
+    chatPanel.appendChild(b);
+  });
+  wrap.appendChild(chatPanel);
+  chatBtn.onclick = () => chatPanel.classList.toggle('hidden');
 
-  function updateHud() {
-    const wallEl = document.getElementById('mj-wall');
-    if (wallEl) wallEl.textContent = `剩 ${wall.length} 张`;
-    const seats = document.getElementById('mj-seats');
-    if (seats) {
-      const me = players[0];
-      seats.innerHTML = `<span class="mj-seat ${me.won ? 'won' : ''}">你 ${
-        me.lack >= 0 ? '缺' + SUITS[me.lack] : ''
-      } ${me.won ? '<b class="win">胡</b>' : ''} <em>${me.score}</em></span>`;
-      // 角色框上的缺门/得分/胡标记
-      for (let i = 1; i <= 3; i++) {
-        const tag = document.getElementById(`mj-lack-${i}`);
-        const p = players[i];
-        if (tag && p) {
-          tag.textContent = `${p.lack >= 0 ? '缺' + SUITS[p.lack] : ''} ${p.score > 0 ? '+' : ''}${p.score}`;
-          seatBoxes[i].classList.toggle('won', p.won);
-        }
-      }
-    }
+  const unlock = () => {
+    unlockAudio();
+    startBgm('majiang');
+  };
+  window.addEventListener('pointerdown', unlock, { once: true });
+
+  /** 角色说话：中央提示 + 语音 + 座位特效字 */
+  function charSay(seat: number, text: string) {
+    const ch = SEAT_CHARS[seat];
+    if (ch) speak(text, ch.voice);
+    view.burst(seat, '', ch?.color ?? '#ffd76e');
+    view.state.centerHint = `${NAMES[seat]}：${text}`;
+    setTimeout(() => {
+      if (alive() && view.state.centerHint.startsWith(NAMES[seat])) view.state.centerHint = '';
+    }, 2200);
+  }
+
+  /** 同步渲染状态 */
+  function sync() {
+    const seats: SeatView[] = players.map((p, i) => {
+      const total = p.hand.reduce((a, b) => a + b, 0);
+      const ting =
+        !p.won && total % 3 === 1 && waitingTiles(p.hand, p.melds.length === 0, p.lack).length > 0;
+      return {
+        name: NAMES[i],
+        char: SEAT_CHARS[i],
+        hand: i === 0 ? displayTiles : [],
+        handCount: i === 0 ? displayTiles.length : total,
+        melds: p.melds,
+        discards: p.discards,
+        lack: p.lack,
+        score: p.score,
+        won: p.won,
+        ting,
+        justDiscarded: p.justDiscarded,
+      };
+    });
+    view.state.seats = seats;
+    view.state.wallLeft = wall.length;
+    view.state.drawnSeparate = drawnTile !== null;
   }
 
   function refreshPlayerHand() {
     const c = players[0].hand.slice();
-    let drawn: TileId | null = drawnTile;
-    if (drawn !== null) c[drawn]--;
+    if (drawnTile !== null) c[drawnTile]--;
     displayTiles = sortedTiles(c);
-    if (drawn !== null) displayTiles.push(drawn);
-    scene.setPlayerHand(displayTiles, drawn !== null);
+    if (drawnTile !== null) displayTiles.push(drawnTile);
+    sync();
   }
 
-  /** 弹出操作按钮，等玩家选择 */
-  function askPlayer(options: string[]): Promise<string> {
+  /** 更新听牌提示 */
+  function updateTing() {
+    const p = players[0];
+    const total = p.hand.reduce((a, b) => a + b, 0);
+    if (p.won || total % 3 !== 1) {
+      view.state.tingTiles = [];
+      return;
+    }
+    view.state.tingTiles = waitingTiles(p.hand, p.melds.length === 0, p.lack);
+  }
+
+  function askPlayer(options: string[], autoPick?: () => string): Promise<string> {
     return new Promise((resolve) => {
+      const finish = (op: string) => {
+        takeOver = null;
+        actionBar.classList.add('hidden');
+        resolve(op);
+      };
       actionBar.innerHTML = '';
       actionBar.classList.remove('hidden');
       for (const op of options) {
@@ -276,18 +219,36 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         b.className = 'mj-act' + (op === '胡' ? ' hu' : op === '过' ? ' pass' : '');
         b.textContent = op;
         b.onclick = () => {
-          actionBar.classList.add('hidden');
-          resolve(op);
+          sfxTap();
+          finish(op);
         };
         actionBar.appendChild(b);
       }
+      // 托管：能胡就胡，否则过（碰/杠交给玩家自己回来再决定）
+      takeOver = () => finish(autoPick ? autoPick() : options.includes('胡') ? '胡' : options[options.length - 1]);
+      if (auto) setTimeout(() => takeOver?.(), 380);
     });
   }
 
-  /** 等玩家点两次同一张牌打出（强制先打缺门）；选中时提示打出后听什么 */
+  /** 玩家出牌：点一次选中，再点打出（托管时自动） */
   function waitPlayerDiscard(): Promise<TileId> {
     return new Promise((resolve) => {
+      const finish = (t: TileId) => {
+        takeOver = null;
+        tapHandler = null;
+        view.state.selected = -1;
+        resolve(t);
+      };
+      takeOver = () => {
+        const p = players[0];
+        finish(chooseDiscard(p.hand, p.lack, p.melds.length === 0));
+      };
+      if (auto) {
+        setTimeout(() => takeOver?.(), 420);
+        return;
+      }
       let sel = -1;
+      view.state.selected = -1;
       tapHandler = (idx) => {
         const t = displayTiles[idx];
         const p = players[0];
@@ -296,48 +257,98 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
           return;
         }
         if (sel === idx) {
-          tapHandler = null;
-          scene.selectTile(-1);
-          resolve(t);
+          finish(t);
         } else {
           sel = idx;
+          view.state.selected = idx;
           sfxTap();
-          scene.selectTile(idx);
-          // 听牌预览：打出这张后听什么
+          // 打出这张后听什么
           p.hand[t]--;
           const waits = waitingTiles(p.hand, p.melds.length === 0, p.lack);
           p.hand[t]++;
-          if (waits.length > 0) {
-            showToast(`打出后听：${waits.map((w) => tileName(w)).join(' ')}`);
-          }
+          if (waits.length) showToast(`打出后听：${waits.map(tileName).join(' ')}`);
         }
       };
     });
   }
 
+  /** 换三张：玩家选 3 张同花色 */
+  function waitPlayerSwap(): Promise<TileId[]> {
+    return new Promise((resolve) => {
+      const finish = (ts: TileId[]) => {
+        takeOver = null;
+        tapHandler = null;
+        actionBar.classList.add('hidden');
+        view.state.picked = [];
+        view.state.centerHint = '';
+        resolve(ts);
+      };
+      takeOver = () => finish(pickSwapThree(players[0].hand));
+      if (auto) {
+        setTimeout(() => takeOver?.(), 500);
+        return;
+      }
+      const picked: number[] = [];
+      view.state.picked = [];
+      view.state.centerHint = '换三张：选 3 张同花色的牌';
+      const okBtn = document.createElement('button');
+      okBtn.className = 'mj-act hu';
+      okBtn.textContent = '确定换牌';
+      okBtn.style.display = 'none';
+      actionBar.innerHTML = '';
+      actionBar.appendChild(okBtn);
+      actionBar.classList.remove('hidden');
+
+      const refresh = () => {
+        view.state.picked = picked.slice();
+        okBtn.style.display = picked.length === 3 ? '' : 'none';
+      };
+      tapHandler = (idx) => {
+        const t = displayTiles[idx];
+        const at = picked.indexOf(idx);
+        if (at >= 0) {
+          picked.splice(at, 1);
+          sfxTap();
+          refresh();
+          return;
+        }
+        if (picked.length >= 3) {
+          showToast('最多选 3 张');
+          return;
+        }
+        if (picked.length > 0 && suitOf(displayTiles[picked[0]]) !== suitOf(t)) {
+          showToast('必须是同一种花色');
+          return;
+        }
+        picked.push(idx);
+        sfxTap();
+        refresh();
+      };
+      okBtn.onclick = () => finish(picked.map((i) => displayTiles[i]));
+    });
+  }
+
   // ---------- 结算 ----------
   let resultEl: HTMLElement | null = null;
-  function showResult() {
+  function showResult(extraRows: { seat: number; delta: number; reasons: string[] }[]) {
     if (!players[0].won) sfxLose();
-    for (let i = 1; i <= 3; i++) {
-      const p = players[i];
-      if (!p) continue;
-      setTimeout(() => {
-        if (alive()) charSay(i, pickLine(p.won ? SEAT_CHARS[i]!.lines.win : SEAT_CHARS[i]!.lines.lose));
-      }, 400 + i * 900);
-    }
     const s = document.createElement('div');
     s.className = 'screen moba-result';
     const anyWin = players[0].won;
     const rows = players
-      .map(
-        (p, i) => `
+      .map((p, i) => {
+        const extra = extraRows.find((r) => r.seat === i);
+        const tags = [
+          ...(p.won ? p.winNames : []),
+          ...(extra?.reasons ?? []),
+        ].join('·');
+        return `
       <div class="mj-result-row ${p.won ? 'won' : ''}">
         <span>${NAMES[i]}${p.won ? ' 🏆' : ''}</span>
-        <span class="names">${p.won ? p.winNames.join('·') + ` ${p.fan}番` : '未胡'}</span>
+        <span class="names">${tags || '—'}${p.won ? ` ${p.fan}番` : ''}</span>
         <span class="score">${p.score > 0 ? '+' : ''}${p.score}</span>
-      </div>`,
-      )
+      </div>`;
+      })
       .join('');
     s.innerHTML = `
       <h1 style="color:${anyWin ? '#66bb6a' : '#ef5350'}">${anyWin ? '胡了！' : '本局结束'}</h1>
@@ -356,7 +367,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     resultEl = s;
   }
 
-  // ---------- 胡牌处理 ----------
+  /** 胡牌结算（含呼叫转移：杠分退还给点炮者） */
   function settleWin(seat: number, tile: TileId, opts: { zimo: boolean; gangFlower: boolean; payer: number }) {
     const p = players[seat];
     const c = p.hand.slice();
@@ -380,9 +391,17 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     } else {
       players[opts.payer].score -= fan;
       p.score += fan;
+      // 呼叫转移：胡牌者此前收的杠分，由点炮者承担
+      for (const gg of p.gangGains) {
+        if (gg.from === opts.payer) continue;
+        players[gg.from].score += gg.amount; // 退还
+        players[opts.payer].score -= gg.amount; // 由点炮者赔
+      }
+      if (p.gangGains.length) showToast('呼叫转移：杠分由点炮者承担');
     }
-    scene.showWin(seat, sortedTiles(c));
-    updateHud();
+    // 胡牌后亮出手牌
+    p.hand = c;
+    sync();
   }
 
   const winnersCount = () => players.filter((p) => p.won).length;
@@ -390,42 +409,68 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
 
   // ---------- 主流程 ----------
   async function run() {
-    // 发牌
     wall = freshWall();
     players = Array.from({ length: 4 }, () => ({
       hand: new Array(27).fill(0) as Counts,
-      melds: [],
+      melds: [] as Meld[],
+      discards: [] as TileId[],
       lack: -1,
       won: false,
       winNames: [] as string[],
       fan: 0,
       score: 0,
+      gangGains: [] as { from: number; amount: number }[],
+      justDiscarded: false,
     }));
-    for (let i = 0; i < 13; i++)
-      for (let s = 0; s < 4; s++) players[s].hand[wall.pop()!]++;
-
+    for (let i = 0; i < 13; i++) for (let s = 0; s < 4; s++) players[s].hand[wall.pop()!]++;
     refreshPlayerHand();
-    for (let s = 1; s < 4; s++) scene.setOpponentCount(s, 13);
-    updateHud();
+    view.state.centerHint = '发牌完毕';
+    await sleep(0.6);
+    if (!alive()) return;
 
-    // 定缺
-    const lackNames = SUITS.map((n, i) => {
+    // ===== 换三张 =====
+    view.state.centerHint = '换三张';
+    const mine = await waitPlayerSwap();
+    if (!alive()) return;
+    const swaps: TileId[][] = [mine];
+    for (let s = 1; s < 4; s++) swaps.push(pickSwapThree(players[s].hand));
+    // 随机方向：0 对家 1 下家 2 上家
+    const dir = Math.floor(Math.random() * 3);
+    const dirName = ['对家', '下家(顺时针)', '上家(逆时针)'][dir];
+    const shift = dir === 0 ? 2 : dir === 1 ? 1 : 3;
+    for (let s = 0; s < 4; s++) for (const t of swaps[s]) players[s].hand[t]--;
+    for (let s = 0; s < 4; s++) {
+      const to = (s + shift) % 4;
+      for (const t of swaps[s]) players[to].hand[t]++;
+    }
+    sfxKnock();
+    showToast(`换三张 · ${dirName}`);
+    view.state.centerHint = `换三张 · ${dirName}`;
+    refreshPlayerHand();
+    await sleep(1.2);
+    if (!alive()) return;
+    view.state.centerHint = '';
+
+    // ===== 定缺 =====
+    const lackOpts = SUITS.map((n, i) => {
       let cnt = 0;
       for (let r = 0; r < 9; r++) cnt += players[0].hand[i * 9 + r];
       return `缺${n}(${cnt})`;
     });
-    const pick = await askPlayer(lackNames);
+    view.state.centerHint = '请定缺';
+    const pick = await askPlayer(lackOpts, () => lackOpts[chooseLack(players[0].hand)]);
     if (!alive()) return;
-    players[0].lack = lackNames.indexOf(pick);
+    players[0].lack = lackOpts.indexOf(pick);
     for (let s = 1; s < 4; s++) players[s].lack = chooseLack(players[s].hand);
-    updateHud();
+    view.state.centerHint = '';
     showToast(`你定缺：${SUITS[players[0].lack]}`);
-    // 三家依次寒暄
-    for (let i = 1; i <= 3; i++) {
-      setTimeout(() => { if (alive()) charSay(i, pickLine(SEAT_CHARS[i]!.lines.greet)); }, i * 1500);
-    }
+    sync();
+    for (let i = 1; i <= 3; i++)
+      setTimeout(() => {
+        if (alive()) charSay(i, pickLine(SEAT_CHARS[i]!.lines.greet));
+      }, i * 1200);
 
-    // 行牌循环
+    // ===== 行牌 =====
     let turn = 0;
     while (alive() && !gameOver()) {
       const p = players[turn];
@@ -433,18 +478,16 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         turn = (turn + 1) % 4;
         continue;
       }
-      // 摸牌
       if (wall.length === 0) break;
       const drawn = wall.pop()!;
       p.hand[drawn]++;
-      scene.drawAnim(turn);
-      setActiveSeat(turn);
+      view.state.activeSeat = turn;
+      for (const q of players) q.justDiscarded = false;
       if (turn === 0) sfxDraw();
-      updateHud();
-      let gangFlower = false;
+      sync();
 
-      // 自摸/暗杠循环（杠了要补摸）
       let current = drawn;
+      let gangFlower = false;
       for (;;) {
         if (!alive()) return;
         const canZimo = !hasSuit(p.hand, p.lack) && canWin(p.hand, p.melds.length === 0);
@@ -452,8 +495,9 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         if (turn === 0) {
           drawnTile = current;
           refreshPlayerHand();
+          updateTing();
           await sleep(0.25);
-          if (canZimo || angangTile >= 0) {
+          if ((canZimo || angangTile >= 0) && !auto) {
             const ops: string[] = [];
             if (canZimo) ops.push('胡');
             if (angangTile >= 0) ops.push('杠');
@@ -463,63 +507,63 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
             if (act === '胡') {
               sfxWinBig();
               speak('自摸');
-              scene.bigFlash(0, 'win');
-              await flashBanner('自摸！');
+              view.burst(0, '自摸', '#ffd76e');
               settleWin(0, current, { zimo: true, gangFlower, payer: -1 });
               drawnTile = null;
               refreshPlayerHand();
+              await sleep(1.1);
               break;
             }
             if (act === '杠') {
-              doAngang(turn, angangTile);
+              doAngang(0, angangTile);
               sfxGangHeavy();
               speak('杠');
-              scene.flashMeld(0);
-              scene.bigFlash(0, 'gang');
-              await flashBanner('暗杠');
+              view.burst(0, '杠', '#ff9c40');
               if (wall.length === 0) break;
               current = wall.pop()!;
               p.hand[current]++;
               gangFlower = true;
-              updateHud();
               continue;
             }
+          } else if (auto && canZimo) {
+            sfxWinBig();
+            view.burst(0, '自摸', '#ffd76e');
+            settleWin(0, current, { zimo: true, gangFlower, payer: -1 });
+            drawnTile = null;
+            refreshPlayerHand();
+            await sleep(1.1);
+            break;
           }
         } else {
-          await sleep(0.45);
+          await sleep(0.5);
           if (canZimo) {
             sfxWinBig();
-            scene.bigFlash(turn, 'win');
+            view.burst(turn, '自摸', '#ffd76e');
             charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.win));
-            await flashBanner(`${NAMES[turn]} 自摸！`);
             settleWin(turn, current, { zimo: true, gangFlower, payer: -1 });
+            await sleep(1.1);
             break;
           }
           if (angangTile >= 0 && suitOf(angangTile) !== p.lack) {
             doAngang(turn, angangTile);
             sfxGangHeavy();
-            scene.flashMeld(turn);
-            scene.bigFlash(turn, 'gang');
+            view.burst(turn, '杠', '#ff9c40');
             charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.gang));
-            await flashBanner(`${NAMES[turn]} 暗杠`);
             if (wall.length === 0) break;
             current = wall.pop()!;
             p.hand[current]++;
             gangFlower = true;
-            updateHud();
             continue;
           }
         }
         break;
       }
       if (!alive()) return;
-      if (p.won || gameOver()) {
-        if (p.won) {
-          turn = (turn + 1) % 4;
-          continue;
-        }
-        break;
+      if (p.won) {
+        turn = (turn + 1) % 4;
+        continue;
       }
+      if (gameOver()) break;
 
       // 出牌
       let out: TileId;
@@ -529,29 +573,52 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         players[0].hand[out]--;
         drawnTile = null;
         refreshPlayerHand();
+        updateTing();
       } else {
         out = chooseDiscard(p.hand, p.lack, p.melds.length === 0);
         p.hand[out]--;
-        scene.setOpponentCount(turn, p.hand.reduce((a, b) => a + b, 0));
-        if (Math.random() < 0.22) charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.discard));
+        if (Math.random() < 0.18) charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.discard));
       }
-      scene.discard(turn, out);
+      p.discards.push(out);
+      p.justDiscarded = true;
       sfxKnock();
-      if (turn === 0) updateTing();
+      sync();
       await sleep(0.42);
       if (!alive()) return;
 
-      // 各家响应：先胡（可多响），再碰/杠。
-      // 返回值 = 链条中最后一个完成出牌的座位（碰/杠接管），-1 表示无人响应
-      const lastDiscarder = await handleReactions(turn, out);
+      const last = await handleReactions(turn, out);
       if (!alive()) return;
-      turn = ((lastDiscarder >= 0 ? lastDiscarder : turn) + 1) % 4;
-      updateHud();
+      turn = ((last >= 0 ? last : turn) + 1) % 4;
+      sync();
     }
 
     if (!alive()) return;
-    await sleep(0.6);
-    showResult();
+    // ===== 流局结算：查大叔 / 查花猪 =====
+    view.state.activeSeat = -1;
+    let extraRows: { seat: number; delta: number; reasons: string[] }[] = [];
+    if (winnersCount() < 3) {
+      const tingFan = players.map((p) =>
+        p.won
+          ? 0
+          : bestTingFan(p.hand.slice(), p.melds, p.lack, (h, m) =>
+              scoreFan(h, m, { zimo: false, gangFlower: false, gangPao: false, qiangGang: false }).fan,
+            ),
+      );
+      extraRows = settleDraw(
+        players.map((p) => p.hand),
+        players.map((p) => p.lack),
+        players.map((p) => p.won),
+        tingFan,
+      );
+      for (const r of extraRows) players[r.seat].score += r.delta;
+      const zhu = extraRows.filter((r) => r.reasons.includes('花猪'));
+      if (zhu.length) showToast(`查花猪：${zhu.map((r) => NAMES[r.seat]).join('、')}`);
+      else if (extraRows.some((r) => r.reasons.includes('未听牌'))) showToast('查大叔：未听牌赔听牌家');
+      sync();
+      await sleep(1.2);
+    }
+    if (!alive()) return;
+    showResult(extraRows);
   }
 
   function findAngang(p: Player): TileId {
@@ -563,18 +630,22 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     const p = players[seat];
     p.hand[t] -= 4;
     p.melds.push({ kind: 'angang', tile: t });
-    scene.setMelds(seat, p.melds);
+    // 暗杠：每家赔 2
+    for (let i = 0; i < 4; i++) {
+      if (i === seat || players[i].won) continue;
+      players[i].score -= 2;
+      p.score += 2;
+      p.gangGains.push({ from: i, amount: 2 });
+    }
     if (seat === 0) {
       drawnTile = null;
       refreshPlayerHand();
-    } else {
-      scene.setOpponentCount(seat, p.hand.reduce((a, b) => a + b, 0));
     }
+    sync();
   }
 
-  /** 处理打出一张牌后的响应；返回接管出牌权的座位（碰/杠），-1 表示无 */
+  /** 他家打出后的响应：胡（可多响）→ 碰/杠 */
   async function handleReactions(from: number, tile: TileId): Promise<number> {
-    // 1. 胡（血战可一炮多响）
     let anyHu = false;
     for (let d = 1; d < 4; d++) {
       const seat = (from + d) % 4;
@@ -585,104 +656,108 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
       c[tile]++;
       if (!canWin(c, p.melds.length === 0)) continue;
       if (seat === 0) {
-        drawnTile = null;
-        refreshPlayerHand();
-        const act = await askPlayer(['胡', '过']);
-        if (!alive()) return -1;
-        if (act !== '胡') continue;
+        if (!auto) {
+          const act = await askPlayer(['胡', '过']);
+          if (!alive()) return -1;
+          if (act !== '胡') continue;
+        }
       }
       sfxWinBig();
-      scene.bigFlash(seat, 'win');
+      view.burst(seat, '胡', '#ffd76e');
       if (seat === 0) speak('胡');
       else charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.win));
-      await flashBanner(seat === 0 ? '胡！' : `${NAMES[seat]} 胡！`);
       settleWin(seat, tile, { zimo: false, gangFlower: false, payer: from });
       anyHu = true;
+      await sleep(0.9);
     }
     if (anyHu) {
-      scene.takeLastDiscard(from);
+      players[from].discards.pop();
+      sync();
       return -1;
     }
 
-    // 2. 碰 / 明杠（只可能一家）
     for (let d = 1; d < 4; d++) {
       const seat = (from + d) % 4;
       const p = players[seat];
-      if (p.won) continue;
-      if (suitOf(tile) === p.lack) continue;
+      if (p.won || suitOf(tile) === p.lack) continue;
       const canGang = p.hand[tile] === 3 && wall.length > 0;
       const canPeng = p.hand[tile] >= 2;
       if (!canPeng && !canGang) continue;
 
       let act = '过';
       if (seat === 0) {
-        const ops: string[] = [];
-        if (canGang) ops.push('杠');
-        if (canPeng) ops.push('碰');
-        ops.push('过');
-        act = await askPlayer(ops);
-        if (!alive()) return -1;
+        if (auto) {
+          act = '过';
+        } else {
+          const ops: string[] = [];
+          if (canGang) ops.push('杠');
+          if (canPeng) ops.push('碰');
+          ops.push('过');
+          act = await askPlayer(ops);
+          if (!alive()) return -1;
+        }
       } else {
         if (canGang && wantGang(tile, p.lack)) act = '杠';
-        else if (canPeng && wantPeng(p.hand, tile, p.lack, p.melds.filter((m) => m.kind === 'peng').length)) act = '碰';
+        else if (canPeng && wantPeng(p.hand, tile, p.lack, p.melds.filter((m) => m.kind === 'peng').length))
+          act = '碰';
       }
       if (act === '过') continue;
 
-      scene.takeLastDiscard(from);
+      players[from].discards.pop();
       if (act === '杠') {
         p.hand[tile] -= 3;
         p.melds.push({ kind: 'gang', tile });
-        scene.setMelds(seat, p.melds);
+        // 明杠：点杠者赔 2
+        players[from].score -= 2;
+        p.score += 2;
+        p.gangGains.push({ from, amount: 2 });
         sfxGangHeavy();
-        scene.flashMeld(seat);
-        scene.bigFlash(seat, 'gang');
+        view.burst(seat, '杠', '#ff9c40');
         if (seat === 0) speak('杠');
         else charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.gang));
-        await flashBanner(seat === 0 ? '杠！' : `${NAMES[seat]} 杠`);
-        // 杠后补摸
         if (wall.length > 0) {
           const t2 = wall.pop()!;
           p.hand[t2]++;
-          if (seat === 0) {
-            drawnTile = t2;
-          }
+          if (seat === 0) drawnTile = t2;
         }
       } else {
         p.hand[tile] -= 2;
         p.melds.push({ kind: 'peng', tile });
-        scene.setMelds(seat, p.melds);
         sfxPeng();
-        scene.flashMeld(seat);
-        scene.bigFlash(seat, 'peng');
+        view.burst(seat, '碰', '#9ec6ff');
         if (seat === 0) speak('碰');
         else charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.peng));
-        await flashBanner(seat === 0 ? '碰！' : `${NAMES[seat]} 碰`);
       }
+      view.state.activeSeat = seat;
       if (seat === 0) refreshPlayerHand();
-      else scene.setOpponentCount(seat, p.hand.reduce((a, b) => a + b, 0));
-      updateHud();
+      sync();
+      await sleep(0.7);
+      if (!alive()) return -1;
 
-      // 碰/杠后该家出牌
+      // 碰/杠后由该家出牌
       let out: TileId;
       if (seat === 0) {
+        updateTing();
         out = await waitPlayerDiscard();
         if (!alive()) return -1;
         players[0].hand[out]--;
         drawnTile = null;
         refreshPlayerHand();
+        updateTing();
       } else {
         await sleep(0.4);
         out = chooseDiscard(p.hand, p.lack, p.melds.length === 0);
         p.hand[out]--;
-        scene.setOpponentCount(seat, p.hand.reduce((a, b) => a + b, 0));
       }
-      scene.discard(seat, out);
+      for (const q of players) q.justDiscarded = false;
+      p.discards.push(out);
+      p.justDiscarded = true;
       sfxKnock();
-      if (seat === 0) updateTing();
+      sync();
       await sleep(0.42);
       if (!alive()) return -1;
       const next = await handleReactions(seat, out);
-      return next >= 0 ? next : seat; // 出牌权已经在这里轮转过
+      return next >= 0 ? next : seat;
     }
     return -1;
   }
@@ -692,14 +767,10 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
   return () => {
     disposed = true;
     clearTimeout(toastTimer);
-    for (const t of bubbleTimers) clearTimeout(t);
     window.removeEventListener('pointerdown', unlock);
     stopBgm();
     resultEl?.remove();
-    scene.dispose();
+    view.dispose();
     wrap.remove();
   };
 }
-
-// 供调试
-export { tileName };
