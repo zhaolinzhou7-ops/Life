@@ -1501,7 +1501,7 @@ canvas {
 .mj-chat-btn {
   position: absolute;
   right: 10px;
-  bottom: calc(env(safe-area-inset-bottom) + 108px);
+  top: var(--mj-chat-top, 70%);
   z-index: 17;
   width: 44px;
   height: 44px;
@@ -1514,7 +1514,7 @@ canvas {
 .mj-chat {
   position: absolute;
   right: 10px;
-  bottom: calc(env(safe-area-inset-bottom) + 158px);
+  top: calc(var(--mj-chat-top, 70%) - 176px);
   z-index: 18;
   width: min(280px, 82vw);
   background: var(--panel);
@@ -1545,7 +1545,17 @@ canvas {
   position: fixed;
   inset: 0;
   overflow: hidden;
-  background: #14231c;
+  background: #0d1a14;
+}
+/* 2.5D 牌桌画布：铺满全屏，自身按 390×844 设计分辨率等比缩放 */
+.mj-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: manipulation;
+  z-index: 1;
 }
 .mj-hud {
   position: absolute;
@@ -1596,8 +1606,8 @@ canvas {
 .mj-actions {
   position: absolute;
   left: 50%;
-  transform: translateX(-50%);
-  bottom: 28%;
+  top: var(--mj-act-top, 62%);
+  transform: translate(-50%, -100%);
   z-index: 22;
   display: flex;
   gap: 12px;
