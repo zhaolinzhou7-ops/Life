@@ -12,9 +12,12 @@ permissions:
   pages: write
   id-token: write
 
+# 同一时间只跑一个 Pages 部署，但**不要**取消进行中的那个：Pages 的部署一旦被中途
+# 取消，这次 run 会直接报 "Deployment cancelled." 失败，还可能在 Pages 侧留下一个
+# 结束不了的部署，把后续所有部署一起挡掉。排队等前一个跑完即可（一次不到 1 分钟）。
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:

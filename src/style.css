@@ -1890,3 +1890,113 @@ canvas {
   76% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
   100% { transform: translate(-50%, -90%) scale(0.95); opacity: 0; }
 }
+
+/* ---------- 高音训练营 ---------- */
+.sing-today .desc {
+  margin-top: 7px;
+}
+.sing-ex-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.sing-ex-chip {
+  font-size: 11px;
+  color: #d9c9f2;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(147, 89, 214, 0.16);
+  border: 1px solid rgba(206, 147, 216, 0.22);
+}
+.sing-ex-chip.safe {
+  background: rgba(102, 187, 106, 0.14);
+  border-color: rgba(124, 231, 200, 0.3);
+  color: #a8e6c8;
+}
+.sing-group-head {
+  font-size: 12px;
+  color: #8d7fae;
+  margin: 14px 0 2px 4px;
+  letter-spacing: 0.5px;
+}
+.sing-chart-card {
+  cursor: default;
+}
+.sing-chart {
+  width: 100%;
+  display: block;
+  margin-top: 8px;
+}
+/* 练习说明页 */
+.sing-intro .sing-step {
+  font-size: 12px;
+  color: #8d7fae;
+  letter-spacing: 1px;
+}
+.sing-intro .sing-ex-emoji {
+  font-size: 54px;
+  line-height: 1.2;
+  filter: drop-shadow(0 6px 20px rgba(206, 147, 216, 0.4));
+}
+.sing-intro .sing-sound {
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffd54f;
+  margin: 2px 0 14px;
+}
+.sing-howto {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sing-howto .row {
+  display: flex;
+  gap: 10px;
+  background: linear-gradient(160deg, rgba(64, 40, 105, 0.4), rgba(24, 16, 46, 0.5));
+  border: 1px solid rgba(206, 147, 216, 0.18);
+  border-radius: 14px;
+  padding: 12px 14px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.sing-howto .row.warn {
+  border-color: rgba(255, 138, 101, 0.3);
+  background: linear-gradient(160deg, rgba(105, 60, 40, 0.3), rgba(46, 22, 16, 0.45));
+}
+.sing-howto .k {
+  flex: none;
+  width: 44px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ce93d8;
+  line-height: 1.7;
+}
+.sing-howto .row.warn .k {
+  color: #ff8a65;
+}
+.sing-howto .v {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: #e2d8f5;
+}
+/* 结算评语 */
+.sing-verdict {
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px 20px;
+  border-radius: 999px;
+  margin-top: 10px;
+}
+.sing-verdict.ok {
+  color: #a8e6c8;
+  background: rgba(102, 187, 106, 0.14);
+  border: 1px solid rgba(124, 231, 200, 0.3);
+}
+.sing-verdict.warn {
+  color: #ffb59a;
+  background: rgba(255, 138, 101, 0.12);
+  border: 1px solid rgba(255, 138, 101, 0.32);
+}

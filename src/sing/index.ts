@@ -2,10 +2,11 @@
 
 import { Mic, midiToName } from './pitch';
 import { audioCtx, resumeAudio } from './synth';
-import { getRange, getTotals, getBirdBest } from './save';
+import { getRange, getTotals, getBirdBest, getCoach } from './save';
 import { runWarmup } from './warmup';
 import { runTrainer } from './trainer';
 import { runKaraoke } from './karaoke';
+import { runCoach } from './coach';
 
 export function bootSing(app: HTMLElement, onExit: () => void): () => void {
   const root = document.createElement('div');
@@ -66,7 +67,15 @@ export function bootSing(app: HTMLElement, onExit: () => void): () => void {
     const list = document.createElement('div');
     list.className = 'card-list';
 
+    const coach = getCoach();
     const modes = [
+      {
+        t: '🎯 高音训练营',
+        d: `唱高音费嗓、上不去？按声乐老师的路子，30 天把喊改成唱。21 条专业练声曲 + 实时告诉你什么时候在硬撑。${
+          coach.done.length ? `已练到第 ${Math.min(30, coach.day)} 天。` : ''
+        }`,
+        go: () => enterMode(runCoach),
+      },
       {
         t: '🫁 减压开嗓',
         d: '引导呼吸放松 2 分钟，跟音阶温柔开嗓，再测出你的音域。每次唱歌前的仪式感。',

@@ -62,6 +62,65 @@ export function playTone(midi: number, dur = 0.8, when = 0, vol = 0.3): number {
   return t0 + dur;
 }
 
+/**
+ * 连续滑音示范（警笛练习）：频率平滑地上滑再下滑。
+ * @returns 停止函数
+ */
+export function playGlide(fromMidi: number, toMidi: number, upSec: number, downSec: number, vol = 0.22): () => void {
+  const c = audioCtx();
+  const t0 = c.currentTime + 0.03;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.08);
+  g.gain.setValueAtTime(vol, t0 + upSec + downSec - 0.15);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + upSec + downSec);
+  g.connect(master!);
+
+  const o = c.createOscillator();
+  o.type = 'sine';
+  // 指数插值才符合听感（音高是对数的）
+  o.frequency.setValueAtTime(midiToFreq(fromMidi), t0);
+  o.frequency.exponentialRampToValueAtTime(midiToFreq(toMidi), t0 + upSec);
+  o.frequency.exponentialRampToValueAtTime(midiToFreq(fromMidi), t0 + upSec + downSec);
+  o.connect(g);
+  o.start(t0);
+  o.stop(t0 + upSec + downSec + 0.05);
+  return () => {
+    try {
+      o.stop();
+    } catch {
+      // 已停止
+    }
+    g.disconnect();
+  };
+}
+
+/** 长音示范：一个音持续若干秒 */
+export function playHold(midi: number, sec: number, vol = 0.2): () => void {
+  const c = audioCtx();
+  const t0 = c.currentTime + 0.03;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.1);
+  g.gain.setValueAtTime(vol, t0 + sec - 0.2);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + sec);
+  g.connect(master!);
+  const o = c.createOscillator();
+  o.type = 'sine';
+  o.frequency.value = midiToFreq(midi);
+  o.connect(g);
+  o.start(t0);
+  o.stop(t0 + sec + 0.05);
+  return () => {
+    try {
+      o.stop();
+    } catch {
+      // 已停止
+    }
+    g.disconnect();
+  };
+}
+
 /** 简短的成功/失败提示音 */
 export function playCue(ok: boolean) {
   if (ok) {
