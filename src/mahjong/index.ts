@@ -36,7 +36,15 @@ import {
   sfxThrow,
   sfxTick,
   sfxWinBig,
-  speak,
+  voiceGang,
+  voiceGrunt,
+  voiceHu,
+  voicePeng,
+  voiceZimo,
+  TONE_FEMALE,
+  TONE_MALE,
+  TONE_MALE_OLD,
+  type VoiceTone,
   startBgm,
   stopBgm,
   unlockAudio,
@@ -66,6 +74,8 @@ const ROOMS: Room[] = [
 type Mode = 'xuezhan' | 'xueliu';
 
 const SEAT_CHARS = [null, CHARACTERS[0], CHARACTERS[1], CHARACTERS[2]] as const;
+/** 每家的嗓音：我=中年男，小满=女，陈伯=老男，阿雷=男 */
+const SEAT_TONES: VoiceTone[] = [TONE_MALE, TONE_FEMALE, TONE_MALE_OLD, TONE_MALE];
 const NAMES = ['你', CHARACTERS[0].name, CHARACTERS[1].name, CHARACTERS[2].name];
 
 interface Player {
@@ -166,10 +176,10 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     b.textContent = line;
     b.onclick = () => {
       chatPanel.classList.add('hidden');
-      speak(line, { pitch: 1.0, rate: 1.1 });
-      view.state.centerHint = line;
+      voiceGrunt(SEAT_TONES[0]);
+      view.state.centerHint = `你：${line}`;
       setTimeout(() => {
-        if (alive() && view.state.centerHint === line) view.state.centerHint = '';
+        if (alive() && view.state.centerHint.startsWith('你：')) view.state.centerHint = '';
       }, 2000);
       const seat = 1 + Math.floor(Math.random() * 3);
       setTimeout(() => {
@@ -189,8 +199,8 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
 
   /** 角色说话：中央提示 + 语音 + 座位特效字 */
   function charSay(seat: number, text: string) {
-    const ch = SEAT_CHARS[seat];
-    if (ch) speak(text, ch.voice);
+    // 只发一声人声应答，整句仍以气泡显示——念整句正是机器味最重的地方
+    voiceGrunt(SEAT_TONES[seat]);
     view.state.centerHint = `${NAMES[seat]}：${text}`;
     setTimeout(() => {
       if (alive() && view.state.centerHint.startsWith(NAMES[seat])) view.state.centerHint = '';
@@ -435,7 +445,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
       const winRate = pr.games ? Math.round((pr.wins / pr.games) * 100) : 0;
       s.innerHTML = `
         <h1>四川麻将</h1>
-        <div class="sub">选场次 · 挑玩法 · 上桌</div>
+        <div class="sub">选场次 · 挑玩法 · 上桌<br><b style="color:var(--accent2)">横屏游玩</b>，开打后请把手机横过来</div>
         <div class="mj-rank">
           <div class="mj-rank-top"><b>${rk.name}</b><span>${rk.max ? '已满段' : `距「${RANK_NAMES[rk.index + 1]}」还差 ${rk.toNext} 分`}</span></div>
           <div class="mj-rank-bar"><i style="width:${Math.round(rk.ratio * 100)}%"></i></div>
@@ -771,7 +781,8 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
             if (!alive()) return;
             if (act === '胡') {
               sfxWinBig();
-              view.impact(0, '自 摸', gangFlower ? '杠上开花' : '', '#ffd76e', 1.5);
+              voiceZimo(SEAT_TONES[0]);
+              view.impact(0, '自摸', gangFlower ? '杠上开花' : '', '#ffd76e', 1.4);
               settleWin(0, current, { zimo: true, gangFlower, payer: -1 });
               drawnTile = null;
               refreshPlayerHand();
@@ -781,7 +792,8 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
             if (act === '杠') {
               doAngang(0, angangTile);
               sfxGangHeavy();
-              view.impact(0, '杠', '暗杠', '#ff9c40', 1.3);
+              voiceGang(SEAT_TONES[0]);
+              view.impact(0, '杠', '暗杠', '#ff9c40', 1.2);
               if (wall.length === 0) break;
               current = wall.pop()!;
               p.hand[current]++;
@@ -790,7 +802,8 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
             }
           } else if (auto && canZimo) {
             sfxWinBig();
-            view.impact(0, '自 摸', gangFlower ? '杠上开花' : '', '#ffd76e', 1.5);
+            voiceZimo(SEAT_TONES[0]);
+            view.impact(0, '自摸', gangFlower ? '杠上开花' : '', '#ffd76e', 1.4);
             settleWin(0, current, { zimo: true, gangFlower, payer: -1 });
             drawnTile = null;
             refreshPlayerHand();
@@ -801,7 +814,8 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
           await sleep(0.34);
           if (canZimo) {
             sfxWinBig();
-            view.impact(turn, '自 摸', gangFlower ? '杠上开花' : '', '#ffd76e', 1.2);
+            voiceZimo(SEAT_TONES[turn]);
+            view.impact(turn, '自摸', gangFlower ? '杠上开花' : '', '#ffd76e', 1.1);
             charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.win));
             settleWin(turn, current, { zimo: true, gangFlower, payer: -1 });
             await sleep(1.1);
@@ -810,7 +824,8 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
           if (angangTile >= 0 && suitOf(angangTile) !== p.lack) {
             doAngang(turn, angangTile);
             sfxGangHeavy();
-            view.impact(turn, '杠', '暗杠', '#ff9c40', 1.1);
+            voiceGang(SEAT_TONES[turn]);
+            view.impact(turn, '杠', '暗杠', '#ff9c40', 1);
             charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.gang));
             if (wall.length === 0) break;
             current = wall.pop()!;
@@ -924,8 +939,9 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         }
       }
       sfxWinBig();
-      view.impact(seat, '胡', anyHu ? '一炮多响' : '', '#ffd76e', seat === 0 ? 1.6 : 1.2);
-      if (seat !== 0) charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.win));
+      voiceHu(SEAT_TONES[seat]);
+      view.impact(seat, '胡', anyHu ? '一炮多响' : '', '#ffd76e', seat === 0 ? 1.4 : 1.1);
+      if (seat !== 0) setTimeout(() => alive() && charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.win)), 600);
       settleWin(seat, tile, { zimo: false, gangFlower: false, payer: from });
       anyHu = true;
       await sleep(0.9);
@@ -972,9 +988,9 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         p.score += 2;
         p.gangGains.push({ from, amount: 2 });
         sfxGangHeavy();
-        view.impact(seat, '杠', '明杠', '#ff9c40', 1.3);
+        voiceGang(SEAT_TONES[seat]);
+        view.impact(seat, '杠', '明杠', '#ff9c40', 1.2);
         view.coinFly(from, seat, 4);
-        if (seat !== 0) charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.gang));
         if (wall.length > 0) {
           const t2 = wall.pop()!;
           p.hand[t2]++;
@@ -984,8 +1000,8 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         p.hand[tile] -= 2;
         p.melds.push({ kind: 'peng', tile });
         sfxPeng();
-        view.impact(seat, '碰', '', '#9ec6ff', 0.9);
-        if (seat !== 0) charSay(seat, pickLine(SEAT_CHARS[seat]!.lines.peng));
+        voicePeng(SEAT_TONES[seat]);
+        view.impact(seat, '碰', '', '#9ec6ff', 0.8);
       }
       view.state.activeSeat = seat;
       if (seat === 0) refreshPlayerHand();
