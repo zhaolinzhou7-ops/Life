@@ -231,6 +231,152 @@ export function speak(text: string, voice?: VoiceProfile) {
   }
 }
 
+// ---------------- 人声合成（共振峰） ----------------
+// 浏览器 TTS 念「碰/杠/胡」机械感最重，这里改用源-滤波器模型自己合成：
+// 声门脉冲串（带颤音与随机抖动）过三个共振峰带通，再加辅音噪声起头。
+// 出来的是有肉感的人声元音，不是电子音，也不依赖任何音频文件。
+
+/** 元音共振峰 [F1,F2,F3]（成年男声基准） */
+const VOWELS: Record<string, [number, number, number]> = {
+  a: [730, 1090, 2440],
+  e: [530, 1840, 2480],
+  i: [270, 2290, 3010],
+  o: [570, 840, 2410],
+  u: [300, 870, 2240],
+  // 「碰 pèng」的韵腹偏央
+  eng: [500, 1400, 2400],
+  // 「杠 gàng」
+  ang: [700, 1150, 2500],
+};
+
+export interface VoiceTone {
+  /** 基频（男声 ~110，女声 ~210） */
+  f0: number;
+  /** 声道长度缩放：女声/童声 >1，男声 1 */
+  formantScale: number;
+}
+
+export const TONE_MALE: VoiceTone = { f0: 112, formantScale: 1 };
+export const TONE_MALE_OLD: VoiceTone = { f0: 96, formantScale: 0.96 };
+export const TONE_FEMALE: VoiceTone = { f0: 208, formantScale: 1.16 };
+
+/** 声门脉冲串：比方波更接近真实声带，泛音丰富且能做抖动 */
+function glottal(c: AudioContext, when: number, dur: number, f0: number, bend: number) {
+  const len = Math.max(1, Math.floor(c.sampleRate * dur));
+  const buf = c.createBuffer(1, len, c.sampleRate);
+  const d = buf.getChannelData(0);
+  let phase = 0;
+  for (let i = 0; i < len; i++) {
+    const t = i / c.sampleRate;
+    const k = t / dur;
+    // 声调曲线 + 颤音 + 微抖（真人不会是恒定音高）
+    const f = f0 * (1 + bend * k) * (1 + Math.sin(t * 2 * Math.PI * 5.4) * 0.014 + (Math.random() - 0.5) * 0.008);
+    phase += f / c.sampleRate;
+    if (phase >= 1) phase -= 1;
+    // Rosenberg 型声门波：开相上升、闭相快速回落
+    const op = 0.62;
+    let v: number;
+    if (phase < op) v = 3 * (phase / op) ** 2 - 2 * (phase / op) ** 3;
+    else v = 1 - ((phase - op) / (1 - op)) ** 2;
+    d[i] = (v - 0.5) * 2;
+  }
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  src.start(when);
+  return src;
+}
+
+/**
+ * 合成一个音节。
+ * @param vowel  VOWELS 里的韵母
+ * @param onset  起头辅音：'p' 爆破 / 'g' 软腭 / 'h' 送气 / '' 无
+ * @param bend   声调：阴平 0、去声 -0.18、阳平 +0.14
+ */
+function syllable(vowel: keyof typeof VOWELS, onset: 'p' | 'g' | 'h' | '', tone: VoiceTone, when: number, dur: number, vol: number, bend: number) {
+  const c = ac();
+  if (!c) return;
+  const F = VOWELS[vowel];
+
+  // 辅音起头
+  if (onset) {
+    const hp = onset === 'h' ? 1200 : onset === 'p' ? 900 : 1600;
+    const nd = onset === 'h' ? 0.09 : 0.035;
+    noise(nd, { vol: vol * (onset === 'h' ? 0.5 : 0.75), hp, delay: Math.max(0, when - c.currentTime) });
+  }
+  const t0 = when + (onset ? (onset === 'h' ? 0.06 : 0.03) : 0);
+
+  const src = glottal(c, t0, dur, tone.f0, bend);
+  const env = c.createGain();
+  env.gain.setValueAtTime(0, t0);
+  env.gain.linearRampToValueAtTime(vol, t0 + 0.035);
+  env.gain.setValueAtTime(vol, t0 + dur * 0.6);
+  env.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+
+  // 三个共振峰并联
+  const sum = c.createGain();
+  sum.gain.value = 1;
+  const gains = [1, 0.55, 0.22];
+  const qs = [9, 11, 13];
+  F.forEach((f, i) => {
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = f * tone.formantScale;
+    bp.Q.value = qs[i];
+    const gg = c.createGain();
+    gg.gain.value = gains[i];
+    src.connect(bp).connect(gg).connect(sum);
+  });
+  // 高频衰减，去掉电子味
+  const lp = c.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 3600;
+  sum.connect(lp).connect(env).connect(out());
+  src.stop(t0 + dur + 0.05);
+}
+
+/** 报「碰」（去声） */
+export function voicePeng(tone: VoiceTone = TONE_MALE) {
+  if (muted) return;
+  const c = ac();
+  if (!c) return;
+  syllable('eng', 'p', tone, c.currentTime + 0.01, 0.3, 0.5, -0.16);
+}
+
+/** 报「杠」（去声，更沉更长） */
+export function voiceGang(tone: VoiceTone = TONE_MALE) {
+  if (muted) return;
+  const c = ac();
+  if (!c) return;
+  syllable('ang', 'g', tone, c.currentTime + 0.01, 0.38, 0.55, -0.2);
+}
+
+/** 报「胡」（阳平，上扬） */
+export function voiceHu(tone: VoiceTone = TONE_MALE) {
+  if (muted) return;
+  const c = ac();
+  if (!c) return;
+  syllable('u', 'h', tone, c.currentTime + 0.01, 0.42, 0.55, 0.16);
+}
+
+/** 报「自摸」（去声 + 阴平，两个音节） */
+export function voiceZimo(tone: VoiceTone = TONE_MALE) {
+  if (muted) return;
+  const c = ac();
+  if (!c) return;
+  const t = c.currentTime + 0.01;
+  syllable('i', '', tone, t, 0.2, 0.42, -0.14);
+  syllable('o', '', tone, t + 0.22, 0.34, 0.5, 0.02);
+}
+
+/** 角色的一声短应答（代替念整句台词，台词仍以气泡显示） */
+export function voiceGrunt(tone: VoiceTone = TONE_MALE) {
+  if (muted) return;
+  const c = ac();
+  if (!c) return;
+  const v = (['a', 'e', 'o'] as const)[Math.floor(Math.random() * 3)];
+  syllable(v, '', tone, c.currentTime + 0.01, 0.16 + Math.random() * 0.1, 0.3, (Math.random() - 0.5) * 0.3);
+}
+
 // ---------------- 对局音效 ----------------
 
 /** 掷骰子：骨头在瓷碗里翻滚 */
