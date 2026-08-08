@@ -116,9 +116,18 @@ export class Mic {
     return new Mic(ctx, stream, analyser, new Float32Array(analyser.fftSize));
   }
 
+  /**
+   * 最近一帧的音量（RMS），与音高无关。
+   * 嘶音这类无调练习检测不到基频，只能靠它判断有没有在发声。
+   */
+  lastLevel = 0;
+
   /** 读当前帧音高；没在唱返回 null */
   read(): PitchResult | null {
     this.analyser.getFloatTimeDomainData(this.buf);
+    let s = 0;
+    for (let i = 0; i < this.buf.length; i++) s += this.buf[i] * this.buf[i];
+    this.lastLevel = Math.sqrt(s / this.buf.length);
     return detectPitch(this.buf, this.ctx.sampleRate);
   }
 
