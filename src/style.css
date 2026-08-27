@@ -2081,3 +2081,25 @@ canvas {
     padding: 7px 12px;
   }
 }
+
+/* 歌曲卡上的音高可达性标记 */
+.sing-reach {
+  display: inline-block;
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  margin-left: 2px;
+  vertical-align: 1px;
+}
+.sing-reach.easy {
+  color: #a8e6c8;
+  background: rgba(102, 187, 106, 0.16);
+}
+.sing-reach.edge {
+  color: #ffd54f;
+  background: rgba(255, 213, 79, 0.14);
+}
+.sing-reach.hard {
+  color: #ffb59a;
+  background: rgba(255, 138, 101, 0.16);
+}
