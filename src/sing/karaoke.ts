@@ -31,19 +31,33 @@ export function runKaraoke(root: HTMLElement, mic: Mic | null, onExit: () => voi
     const scr = document.createElement('div');
     scr.className = 'sing-panel';
     scr.innerHTML = `<h2>🎤 跟唱打分</h2><div class="sing-sub">${
-      mic ? '跟着卷帘唱，实时看到自己的音高曲线' : '未开麦克风 · 欣赏模式（只播旋律不打分）'
+      mic
+        ? `${SONGS.length} 首经典 · 跟着卷帘唱，实时看到自己的音高曲线<br><span style="opacity:.7">「最高 X」是原调下的最高音，唱不上去用 ♭ 降调即可</span>`
+        : '未开麦克风 · 欣赏模式（只播旋律不打分）'
     }</div>`;
     const list = document.createElement('div');
     list.className = 'card-list';
     const levelOrder = ['入门', '简单', '进阶'];
     const sorted = [...SONGS].sort((a, b) => levelOrder.indexOf(a.level) - levelOrder.indexOf(b.level));
+    const mine = getRange();
     for (const song of sorted) {
       const best = getBest(song.id);
       const stars = best ? '⭐'.repeat(best.stars) || '—' : '';
+      const sr = songRange(song);
+      const span = sr.hi - sr.lo;
+      // 原调下这首歌的最高音，以及相对你音域的位置——练高音时最想先看到这个
+      let reach = '';
+      if (mine) {
+        const over = sr.hi - mine.hi;
+        if (over > 0) reach = `<span class="sing-reach hard">高 ${over} 个半音</span>`;
+        else if (over > -3) reach = '<span class="sing-reach edge">刚好到顶</span>';
+        else reach = '<span class="sing-reach easy">够得着</span>';
+      }
       const card = document.createElement('div');
       card.className = 'card';
       card.innerHTML = `<div class="title">${song.emoji} ${song.name}<span class="tag">${song.level}</span></div>
-        <div class="desc">${best ? `最佳 ${best.score} 分 ${stars}` : '还没唱过'}</div>`;
+        <div class="desc">${best ? `最佳 ${best.score} 分 ${stars}` : '还没唱过'}
+          · 最高 ${midiToName(sr.hi)}${span >= 14 ? ' · 跨度大' : ''} ${reach}</div>`;
       card.addEventListener('click', () => songScreen(song));
       list.appendChild(card);
     }
