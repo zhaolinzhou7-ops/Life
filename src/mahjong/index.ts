@@ -207,6 +207,22 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
     }, 2200);
   }
 
+
+  /**
+   * 某家视角的「已见牌」：全场弃牌 + 全场副露 + 自己手牌。
+   * AI 用它来算某张牌还剩几张，跟真人数牌是一个意思。
+   */
+  function seenFor(seat: number): Counts {
+    const seen: Counts = new Array(27).fill(0);
+    for (const q of players) {
+      for (const t of q.discards) seen[t]++;
+      for (const m of q.melds) seen[m.tile] += m.kind === 'peng' ? 3 : 4;
+    }
+    const own = players[seat].hand;
+    for (let t = 0; t < 27; t++) seen[t] = Math.min(4, seen[t] + own[t]);
+    return seen;
+  }
+
   /** 同步渲染状态 */
   function sync() {
     const seats: SeatView[] = players.map((p, i) => {
@@ -290,7 +306,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
       };
       takeOver = () => {
         const p = players[0];
-        finish(chooseDiscard(p.hand, p.lack, p.melds.length === 0));
+        finish(chooseDiscard(p.hand, p.lack, p.melds.length === 0, 0, p.melds.length, seenFor(0)));
       };
       if (auto) {
         setTimeout(() => takeOver?.(), 420);
@@ -853,7 +869,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         refreshPlayerHand();
         updateTing();
       } else {
-        out = chooseDiscard(p.hand, p.lack, p.melds.length === 0, room.sloppy);
+        out = chooseDiscard(p.hand, p.lack, p.melds.length === 0, room.sloppy, p.melds.length, seenFor(turn));
         p.hand[out]--;
         if (Math.random() < 0.18) charSay(turn, pickLine(SEAT_CHARS[turn]!.lines.discard));
       }
@@ -973,8 +989,8 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
           if (!alive()) return -1;
         }
       } else {
-        if (canGang && wantGang(tile, p.lack)) act = '杠';
-        else if (canPeng && wantPeng(p.hand, tile, p.lack, p.melds.filter((m) => m.kind === 'peng').length))
+        if (canGang && wantGang(tile, p.lack, p.hand, p.melds.length)) act = '杠';
+        else if (canPeng && wantPeng(p.hand, tile, p.lack, p.melds.filter((m) => m.kind === 'peng').length, p.melds.length))
           act = '碰';
       }
       if (act === '过') continue;
@@ -1021,7 +1037,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         updateTing();
       } else {
         await sleep(0.28);
-        out = chooseDiscard(p.hand, p.lack, p.melds.length === 0, room.sloppy);
+        out = chooseDiscard(p.hand, p.lack, p.melds.length === 0, room.sloppy, p.melds.length, seenFor(seat));
         p.hand[out]--;
       }
       await playDiscard(seat, out);
