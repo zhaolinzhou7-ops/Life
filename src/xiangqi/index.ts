@@ -9,7 +9,7 @@ import {
   type Board,
   type Move,
 } from './rules';
-import { bestMove } from './ai';
+import { disposeAi, requestMove } from './aiclient';
 import { XiangqiScene, type PieceTheme } from './scene3d';
 import {
   isMuted,
@@ -27,11 +27,13 @@ import {
 } from '../gamesfx';
 import { CHARACTERS, avatarCanvas, pickLine, type Character } from '../characters';
 
+// 深度是实测能跑到的层数（引擎约 140 万节点/秒），不是名义上限。
+// jitter 是评估扰动，只给低难度用来模拟"看走眼"，高难度必须为 0。
 const LEVELS = [
-  { id: 0, name: '初级', desc: '让你三分，适合新手', depth: 2, jitter: 60, timeMs: 180 },
-  { id: 1, name: '中级', desc: '正常对弈，有来有回', depth: 6, jitter: 8, timeMs: 600 },
-  { id: 2, name: '高级', desc: '深算杀招，专业水准', depth: 12, jitter: 0, timeMs: 1500 },
-  { id: 3, name: '大师', desc: '全力计算，不留情面', depth: 16, jitter: 0, timeMs: 3000 },
+  { id: 0, name: '新手', desc: '会看走眼，适合练手', depth: 3, jitter: 110, timeMs: 300 },
+  { id: 1, name: '进阶', desc: '算 6 层，有来有回', depth: 6, jitter: 25, timeMs: 800 },
+  { id: 2, name: '高手', desc: '算 10 层，抓子抓杀', depth: 10, jitter: 0, timeMs: 1800 },
+  { id: 3, name: '大师', desc: '算 14 层，不留情面', depth: 14, jitter: 0, timeMs: 3500 },
 ];
 
 const THEMES: { id: PieceTheme; name: string; emoji: string; desc: string }[] = [
@@ -191,6 +193,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let over = false;
     let selected: { x: number; y: number } | null = null;
     let aiTimer = 0;
+    /** 每次轮到 AI 就自增，用于丢弃悔棋/重开后迟到的搜索结果 */
+    let aiSeq = 0;
     let toastTimer = 0;
     let bubbleTimer = 0;
 
@@ -342,9 +346,15 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       }
       if (turn === 'b') {
         setTurnUI(true);
+        // 搜索在 Worker 里跑，主线程继续放动画；思考期间对手头像有呼吸光效
+        const myTurn = ++aiSeq;
+        scene.setThinking(true);
         aiTimer = window.setTimeout(() => {
-          const m = bestMove(board, 'b', L.depth, L.jitter, L.timeMs);
-          if (m) doMove(m);
+          requestMove(board, 'b', { maxDepth: L.depth, jitter: L.jitter, timeMs: L.timeMs }).then((m) => {
+            if (over || myTurn !== aiSeq) return; // 期间悔棋/重开了，丢弃这次结果
+            scene.setThinking(false);
+            if (m) doMove(m);
+          });
         }, 140);
       } else {
         setTurnUI();
@@ -355,6 +365,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     function undo() {
       if (busy || history.length === 0) return;
       clearTimeout(aiTimer);
+      aiSeq++; // 作废正在跑的搜索
+      scene.setThinking(false);
       const steps = turn === 'r' ? 2 : 1;
       for (let i = 0; i < steps && history.length > 0; i++) board = history.pop()!;
       turn = 'r';
@@ -368,6 +380,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
     function restart() {
       clearTimeout(aiTimer);
+      aiSeq++;
+      scene.setThinking(false);
       board = initialBoard();
       history = [];
       turn = 'r';
@@ -424,6 +438,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       clearTimeout(bubbleTimer);
       stopBgm();
       scene.dispose();
+      disposeAi();
       hud.remove();
       rivalBox.remove();
       bubble.remove();

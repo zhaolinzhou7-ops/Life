@@ -5,7 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { COLS, ROWS, PTYPE_NAME, type Board, type Move } from './rules';
+import { COLS, ROWS, PTYPE_NAME, type Board, type Color, type Move, type PType } from './rules';
 
 const CELL = 1;
 const BOARD_T = 0.5; // 棋盘厚度
@@ -29,6 +29,9 @@ interface PieceMesh {
   mesh: THREE.Group;
   x: number;
   y: number;
+  /** 兵种与颜色：思考指示要定位黑将 */
+  t: PType;
+  c: Color;
 }
 
 /** 棋盘面：木纹 + 网格线 + 九宫斜线 + 楚河汉界 */
@@ -362,6 +365,7 @@ export class XiangqiScene {
   private markerRoot = new THREE.Group();
   private tweens: Tween[] = [];
   private raf = 0;
+  private thinking = false;
   private disposed = false;
   private selected: PieceMesh | null = null;
   private checkRing: THREE.Mesh;
@@ -600,7 +604,7 @@ export class XiangqiScene {
         const mesh = this.makePiece(PTYPE_NAME[p.t][p.c === 'r' ? 0 : 1], p.c === 'b', this.flipBlack);
         mesh.position.copy(cellToWorld(x, y));
         this.pieceRoot.add(mesh);
-        this.pieces.push({ mesh, x, y });
+        this.pieces.push({ mesh, x, y, t: p.t, c: p.c });
       }
     this.select(null);
     this.checkRing.visible = false;
@@ -745,6 +749,18 @@ export class XiangqiScene {
       setTimeout(() => this.impact(p.x, p.z, 1.6), i * 160);
     }
     this.shake(0.22);
+  }
+
+  /**
+   * 对手思考指示：黑将轻微起伏 + 呼吸光。
+   * 搜索已经移到 Worker，主线程能持续放这个动画，玩家不会觉得游戏卡死了。
+   */
+  setThinking(on: boolean) {
+    this.thinking = on;
+    if (!on) {
+      const k = this.pieces.find((p) => p.t === 'K' && p.c === 'b');
+      if (k) k.mesh.position.y = TOP_Y;
+    }
   }
 
   /** 高亮某格上的将（将军提示） */
@@ -905,6 +921,11 @@ export class XiangqiScene {
       this.checkT += dt;
       const k = 0.7 + Math.sin(this.checkT * 7) * 0.3;
       (this.checkRing.material as THREE.MeshBasicMaterial).opacity = k;
+    }
+    // 对手思考中：黑将起伏，给"人在想"的观感
+    if (this.thinking) {
+      const k = this.pieces.find((p) => p.t === 'K' && p.c === 'b');
+      if (k) k.mesh.position.y = TOP_Y + 0.16 + Math.sin(nowMs / 230) * 0.1;
     }
     // 选中棋子轻微悬浮
     if (this.selected) {
