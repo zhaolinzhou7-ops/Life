@@ -292,6 +292,38 @@ function makeFaceTexture(char: string, ink: string, ring: string, theme: ThemeDe
 }
 
 /** 山水画卷背景：宣纸底色、层叠远山、雾霭与淡日 */
+/** 桌面木纹：年轮被低频噪声推歪，再叠细纹与污渍 */
+function makeTableTexture(): THREE.CanvasTexture {
+  const W = 512;
+  const H = 512;
+  const cv = document.createElement('canvas');
+  cv.width = W;
+  cv.height = H;
+  const g = cv.getContext('2d')!;
+  const img = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      // 多层不同频率的扭曲叠加，避免年轮变成规则条带（那会像灯芯绒）
+      const warp =
+        Math.sin(x * 0.0075) * 38 + Math.sin(x * 0.019) * 13 + Math.sin(x * 0.041 + y * 0.004) * 5;
+      const ring = Math.sin((y + warp) * 0.115) * 0.5 + 0.5;
+      const fine = Math.sin((y + warp) * 0.9) * 0.1;
+      const v = 152 + (ring - 0.5) * 26 + fine * 20 + (Math.random() - 0.5) * 10;
+      const i = (y * W + x) * 4;
+      img.data[i] = Math.max(0, Math.min(255, v * 1.06));
+      img.data[i + 1] = Math.max(0, Math.min(255, v * 0.92));
+      img.data[i + 2] = Math.max(0, Math.min(255, v * 0.74));
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(1.25, 1.25);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function makeShanshuiTexture(): THREE.CanvasTexture {
   const W = 1024;
   const H = 1024;
@@ -300,28 +332,38 @@ function makeShanshuiTexture(): THREE.CanvasTexture {
   cv.height = H;
   const g = cv.getContext('2d')!;
   // 宣纸渐变天空（构图集中在上部 1/3，桌沿以上可见区域）
+  // 暮色天：原来是宣纸白，在暗色木桌上方会变成一条发白的亮带，
+  // 整幅画面因此割裂。压暗之后远山改用浅色雾霭反衬，山水的意思还在。
   const sky = g.createLinearGradient(0, 0, 0, H * 0.4);
-  sky.addColorStop(0, '#ece5d2');
-  sky.addColorStop(0.55, '#cfd4c8');
-  sky.addColorStop(1, '#8fa096');
+  sky.addColorStop(0, '#3d4a4d');
+  sky.addColorStop(0.55, '#39433f');
+  sky.addColorStop(1, '#38403a');
   g.fillStyle = sky;
   g.fillRect(0, 0, W, H * 0.4);
-  g.fillStyle = '#8fa096';
-  g.fillRect(0, H * 0.4, W, H);
+  // 下半部不再平涂：往下渐暗成室内环境光。
+  // 原来这里是一整块 #8fa096，占了屏幕大半，视觉上就是一片"灰底"，
+  // 棋盘浮在上面没有归属感。压暗之后注意力自然落到受光的棋盘上。
+  const room = g.createLinearGradient(0, H * 0.38, 0, H);
+  room.addColorStop(0, '#38403a');
+  room.addColorStop(0.18, '#5d6a62');
+  room.addColorStop(0.5, '#333c37');
+  room.addColorStop(1, '#171c1a');
+  g.fillStyle = room;
+  g.fillRect(0, H * 0.38, W, H * 0.62);
   // 淡日
   g.globalAlpha = 0.55;
   const sun = g.createRadialGradient(W * 0.72, H * 0.09, 6, W * 0.72, H * 0.09, 70);
-  sun.addColorStop(0, '#f6d8a8');
+  sun.addColorStop(0, 'rgba(246,216,168,0.55)');
   sun.addColorStop(1, 'rgba(246,216,168,0)');
   g.fillStyle = sun;
   g.fillRect(0, 0, W, H * 0.3);
   g.globalAlpha = 1;
   // 层叠远山（水墨浓淡）
   const layers = [
-    { y: H * 0.15, amp: 42, col: 'rgba(90,110,105,0.4)' },
-    { y: H * 0.19, amp: 58, col: 'rgba(70,92,88,0.55)' },
-    { y: H * 0.24, amp: 74, col: 'rgba(52,72,68,0.7)' },
-    { y: H * 0.3, amp: 88, col: 'rgba(38,54,50,0.85)' },
+    { y: H * 0.15, amp: 42, col: 'rgba(150,172,168,0.20)' },
+    { y: H * 0.19, amp: 58, col: 'rgba(122,146,142,0.24)' },
+    { y: H * 0.24, amp: 74, col: 'rgba(92,116,112,0.30)' },
+    { y: H * 0.3, amp: 88, col: 'rgba(64,84,80,0.42)' },
   ];
   layers.forEach((L, li) => {
     g.fillStyle = L.col;
@@ -399,15 +441,20 @@ export class XiangqiScene {
 
     // 背景：程序化山水画卷（远山 + 雾霭 + 宣纸色天空）
     this.scene.background = makeShanshuiTexture();
+    // 雾：远端桌沿融进环境色，没有雾时桌子边缘会像贴纸一样硬切
+    this.scene.fog = new THREE.Fog(0x272e2a, 16, 44);
+
     // IBL 环境反射：漆面棋子的真实高光
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     this.scene.environmentIntensity = 0.35;
 
     // 灯光
-    const hemi = new THREE.HemisphereLight(0xdfeaff, 0x3a3226, 0.8);
+    // 半球光原来 0.8，把阴影全填平了——阴影读不出来，物体就没有体积。
+    // 压到 0.34，让主光的投影真正起作用。
+    const hemi = new THREE.HemisphereLight(0xcfe0ff, 0x2a241a, 0.34);
     this.scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xfff1dc, 1.6);
+    const sun = new THREE.DirectionalLight(0xfff0d6, 2.1);
     sun.position.set(5, 12, 6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -422,10 +469,24 @@ export class XiangqiScene {
     sc.far = 40;
     this.scene.add(sun);
 
-    // 桌面（深色石案，衬山水背景）
+    // 冷色补光从反侧来：只提亮暗部轮廓，不产生第二组阴影
+    const fill = new THREE.DirectionalLight(0x9fc4ff, 0.42);
+    fill.position.set(-7, 5, -5);
+    this.scene.add(fill);
+    // 头顶暖射灯：棋盘中心一圈热点，像棋牌室吊灯
+    const spot = new THREE.PointLight(0xffe0b0, 11, 26, 2);
+    spot.position.set(0, 10.5, 1.5);
+    this.scene.add(spot);
+
+    // 桌面：深色木纹。原来是平涂灰绿（0x3c4038），大面积纯色最没质感。
     const table = new THREE.Mesh(
       new THREE.CylinderGeometry(16, 16, 0.4, 48),
-      new THREE.MeshStandardMaterial({ color: 0x3c4038, roughness: 0.92 }),
+      new THREE.MeshStandardMaterial({
+        map: makeTableTexture(),
+        color: 0x6a5238,
+        roughness: 0.88,
+        metalness: 0.02,
+      }),
     );
     table.position.y = -0.45;
     table.receiveShadow = true;

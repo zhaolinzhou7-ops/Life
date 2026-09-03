@@ -22,6 +22,69 @@ const ROW_LR = 8; // 左右家每列张数
 const D_OFF_X = 104;
 const D_OFF_Y = 30;
 
+
+/**
+ * 台呢绒纤维纹理：一次生成，之后当图案平铺。
+ * 平涂的绿渐变是"没有质感"的主因之一——真实台呢有极细的绒毛方向性，
+ * 加一层各向异性噪声之后，同样的绿色立刻像布而不像色块。
+ */
+let feltPat: CanvasPattern | null = null;
+function feltTexture(g: CanvasRenderingContext2D): CanvasPattern | null {
+  if (feltPat) return feltPat;
+  const n = 128;
+  const cv = document.createElement('canvas');
+  cv.width = n;
+  cv.height = n;
+  const c2 = cv.getContext('2d')!;
+  const img = c2.createImageData(n, n);
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      // 横向拉长的噪声 = 绒毛倒向一个方向
+      const f = Math.random() * 0.55 + Math.random() * 0.45;
+      const streak = Math.sin(y * 1.7 + Math.sin(x * 0.13) * 2) * 0.08;
+      const v = 128 + (f - 0.5) * 40 + streak * 60;
+      const i = (y * n + x) * 4;
+      img.data[i] = v - 3;
+      img.data[i + 1] = v + 3;
+      img.data[i + 2] = v - 5;
+      img.data[i + 3] = 255;
+    }
+  }
+  c2.putImageData(img, 0, 0);
+  feltPat = g.createPattern(cv, 'repeat');
+  return feltPat;
+}
+
+/** 木纹：层叠正弦被噪声扰动，做出年轮走向 */
+let woodPat: CanvasPattern | null = null;
+function woodTexture(g: CanvasRenderingContext2D): CanvasPattern | null {
+  if (woodPat) return woodPat;
+  const w = 256;
+  const h = 96;
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  const c2 = cv.getContext('2d')!;
+  const img = c2.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      // 年轮：沿 y 的正弦，用低频噪声把纹路推歪，再叠细纹
+      const warp = Math.sin(x * 0.021) * 6 + Math.sin(x * 0.007) * 11;
+      const ring = Math.sin((y + warp) * 0.62) * 0.5 + 0.5;
+      const fine = Math.sin((y + warp) * 4.1) * 0.16;
+      const v = 128 + (ring - 0.5) * 44 + fine * 40 + (Math.random() - 0.5) * 12;
+      const i = (y * w + x) * 4;
+      img.data[i] = v + 8;
+      img.data[i + 1] = v;
+      img.data[i + 2] = v - 8;
+      img.data[i + 3] = 255;
+    }
+  }
+  c2.putImageData(img, 0, 0);
+  woodPat = g.createPattern(cv, 'repeat');
+  return woodPat;
+}
+
 export interface SeatView {
   name: string;
   char: Character | null;
@@ -110,10 +173,13 @@ export class MahjongView {
   private disposed = false;
   private hits: HitRect[] = [];
   private avatarImgs = new Map<string, HTMLCanvasElement>();
-  private speckles: [number, number, number][] = [];
   private fx: { kind: 'burst' | 'text'; seat: number; text?: string; color: string; born: number; dur: number }[] = [];
   /** 竖屏时提示旋转 */
   private portrait = false;
+  /** 静态桌面层（木框 + 台呢 + 灯光），只在尺寸变化时重画 */
+  private tableCv: HTMLCanvasElement | null = null;
+  /** 静态收尾层（暗角 + 颗粒） */
+  private postCv: HTMLCanvasElement | null = null;
 
   state: ViewState = {
     seats: [],
@@ -142,9 +208,6 @@ export class MahjongView {
     this.cv.className = 'mj-canvas';
     container.appendChild(this.cv);
     this.g = this.cv.getContext('2d')!;
-    for (let i = 0; i < 90; i++) {
-      this.speckles.push([20 + Math.random() * (DW - 40), TOP + Math.random() * (BOT - TOP), Math.random()]);
-    }
     this.resize();
     window.addEventListener('resize', this.resize);
     window.addEventListener('orientationchange', this.resize);
@@ -165,6 +228,8 @@ export class MahjongView {
     this.ox = (w - DW * this.scale) / 2;
     this.oy = (h - DH * this.scale) / 2;
     this.g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.tableCv = null; // 尺寸变了，静态层重画
+    this.postCv = null;
     const root = this.cv.parentElement;
     if (root) {
       root.style.setProperty('--mj-act-top', `${this.oy + 296 * this.scale}px`);
@@ -347,6 +412,7 @@ export class MahjongView {
     this.drawHuAlert();
     this.drawImpacts();
     this.drawFlashes();
+    this.drawPost();
 
     g.restore();
   }
@@ -378,9 +444,19 @@ export class MahjongView {
     g.restore();
   }
 
-  /** 斜俯视牌桌 */
+  /** 斜俯视牌桌：内容静态，渲染一次后每帧只做一次 drawImage */
   private drawTable() {
-    const g = this.g;
+    if (!this.tableCv) this.tableCv = this.renderTableLayer();
+    this.g.drawImage(this.tableCv, 0, 0, DW, DH);
+  }
+
+  private renderTableLayer(): HTMLCanvasElement {
+    const dpr = 2;
+    const cv = document.createElement('canvas');
+    cv.width = DW * dpr;
+    cv.height = DH * dpr;
+    const g = cv.getContext('2d')!;
+    g.scale(dpr, dpr);
     const tl = 46;
     const tr = DW - 46;
     const bl = -30;
@@ -400,16 +476,24 @@ export class MahjongView {
     g.fill();
     g.save();
     g.clip();
-    g.globalAlpha = 0.12;
-    for (let i = 0; i < 22; i++) {
-      g.strokeStyle = i % 2 ? '#000' : '#e0b070';
-      g.lineWidth = 1;
-      const yy = TOP + (i / 22) * (BOT - TOP);
-      g.beginPath();
-      g.moveTo(bl, yy);
-      g.lineTo(br, yy + 2);
-      g.stroke();
+    // 木纹：叠加在底色上，比原来的等距条纹像木头得多
+    const wp = woodTexture(g);
+    if (wp) {
+      g.globalAlpha = 0.42;
+      g.globalCompositeOperation = 'overlay';
+      g.fillStyle = wp;
+      g.fillRect(bl, TOP, br - bl, BOT - TOP);
+      g.globalCompositeOperation = 'source-over';
     }
+    // 清漆反光：上沿一道窄高光，下沿压暗
+    g.globalAlpha = 1;
+    const varnish = g.createLinearGradient(0, TOP, 0, BOT);
+    varnish.addColorStop(0, 'rgba(255,225,175,0.30)');
+    varnish.addColorStop(0.12, 'rgba(255,225,175,0.05)');
+    varnish.addColorStop(0.8, 'rgba(0,0,0,0.10)');
+    varnish.addColorStop(1, 'rgba(0,0,0,0.34)');
+    g.fillStyle = varnish;
+    g.fillRect(bl, TOP, br - bl, BOT - TOP);
     g.restore();
 
     const inset = 11;
@@ -444,18 +528,31 @@ export class MahjongView {
 
     g.save();
     g.clip();
-    for (const [px, py, k] of this.speckles) {
-      g.globalAlpha = 0.05 + k * 0.05;
-      g.fillStyle = k > 0.5 ? '#ffffff' : '#000000';
-      g.fillRect(px, py, 2, 2);
+    // 绒纤维：把纯色绿变成布
+    const fp = feltTexture(g);
+    if (fp) {
+      g.globalAlpha = 0.5;
+      g.globalCompositeOperation = 'overlay';
+      g.fillStyle = fp;
+      g.fillRect(bl, TOP, br - bl, BOT - TOP);
+      g.globalCompositeOperation = 'source-over';
     }
+    // 头顶灯：光心偏上，符合"吊灯在桌子正上方"
     g.globalAlpha = 1;
-    const lamp = g.createRadialGradient(CX, TOP + 20, 10, CX, TOP + 20, 300);
-    lamp.addColorStop(0, 'rgba(255,255,220,0.13)');
-    lamp.addColorStop(1, 'rgba(255,255,220,0)');
+    const lamp = g.createRadialGradient(CX, CY - 40, 20, CX, CY - 40, 460);
+    lamp.addColorStop(0, 'rgba(255,252,225,0.17)');
+    lamp.addColorStop(0.45, 'rgba(255,250,215,0.05)');
+    lamp.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = lamp;
     g.fillRect(bl, TOP, br - bl, BOT - TOP);
+    // 四周压暗：桌沿离光源远，这一层让台面有"碗形"的体积
+    const edge = g.createRadialGradient(CX, CY, 120, CX, CY, 560);
+    edge.addColorStop(0, 'rgba(0,0,0,0)');
+    edge.addColorStop(1, 'rgba(0,0,0,0.40)');
+    g.fillStyle = edge;
+    g.fillRect(bl, TOP, br - bl, BOT - TOP);
     g.restore();
+    return cv;
   }
 
   /** 台面梯形在某高度上的左右边界 */
@@ -927,6 +1024,41 @@ export class MahjongView {
       g.fillRect(-40, -40, DW + 80, DH + 80);
       g.restore();
     }
+  }
+
+  /**
+   * 收尾后处理：暗角 + 极细颗粒。
+   * 真实镜头拍出来的画面四角总是稍暗、并带一点噪点；缺了这一层，
+   * 再好的材质也仍然"太干净"，读起来像插画。
+   */
+  private drawPost() {
+    if (!this.postCv) this.postCv = this.renderPostLayer();
+    this.g.drawImage(this.postCv, 0, 0, DW, DH);
+  }
+
+  private renderPostLayer(): HTMLCanvasElement {
+    const dpr = 2;
+    const cv = document.createElement('canvas');
+    cv.width = DW * dpr;
+    cv.height = DH * dpr;
+    const g = cv.getContext('2d')!;
+    g.scale(dpr, dpr);
+    // 暗角
+    const vig = g.createRadialGradient(CX, DH * 0.46, DH * 0.34, CX, DH * 0.46, DW * 0.62);
+    vig.addColorStop(0, 'rgba(0,0,0,0)');
+    vig.addColorStop(0.7, 'rgba(0,0,0,0.12)');
+    vig.addColorStop(1, 'rgba(0,0,0,0.40)');
+    g.fillStyle = vig;
+    g.fillRect(0, 0, DW, DH);
+    // 颗粒：烘进同一层，这样每帧只有一次 drawImage
+    const fp = feltTexture(g);
+    if (fp) {
+      g.globalAlpha = 0.05;
+      g.globalCompositeOperation = 'overlay';
+      g.fillStyle = fp;
+      g.fillRect(0, 0, DW, DH);
+    }
+    return cv;
   }
 
   /** 碰/杠/胡：贴着那家弹一下就走，克制 */
