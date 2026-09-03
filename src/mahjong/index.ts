@@ -76,6 +76,8 @@ type Mode = 'xuezhan' | 'xueliu';
 const SEAT_CHARS = [null, CHARACTERS[0], CHARACTERS[1], CHARACTERS[2]] as const;
 /** 每家的嗓音：我=中年男，小满=女，陈伯=老男，阿雷=男 */
 const SEAT_TONES: VoiceTone[] = [TONE_MALE, TONE_FEMALE, TONE_MALE_OLD, TONE_MALE];
+/** 各家的立体声声位：我居中、右家偏右、对家居中稍远、左家偏左 */
+const SEAT_PAN = [0, 0.62, 0, -0.62];
 const NAMES = ['你', CHARACTERS[0].name, CHARACTERS[1].name, CHARACTERS[2].name];
 
 interface Player {
@@ -413,7 +415,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
   async function playDiscard(seat: number, tile: TileId) {
     const p = players[seat];
     for (const q of players) q.justDiscarded = false;
-    sfxThrow();
+    sfxThrow(SEAT_PAN[seat]);
     await view.flyDiscard(seat, tile, p.discards.length);
     if (!alive()) return;
     p.discards.push(tile);
@@ -435,8 +437,8 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
   async function drawFromWall(seat: number): Promise<TileId> {
     const t = wall.pop()!;
     players[seat].hand[t]++;
-    if (seat === 0) sfxDraw();
-    else sfxKnock();
+    if (seat === 0) sfxDraw(SEAT_PAN[seat]);
+    else sfxDraw(SEAT_PAN[seat]);
     await view.flyDraw(seat);
     return t;
   }
@@ -1003,7 +1005,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
         players[from].score -= 2;
         p.score += 2;
         p.gangGains.push({ from, amount: 2 });
-        sfxGangHeavy();
+        sfxGangHeavy(SEAT_PAN[seat]);
         voiceGang(SEAT_TONES[seat]);
         view.impact(seat, '杠', '明杠', '#ff9c40', 1.2);
         view.coinFly(from, seat, 4);
@@ -1015,7 +1017,7 @@ export function bootMahjong(app: HTMLElement, onExit: (restart: boolean) => void
       } else {
         p.hand[tile] -= 2;
         p.melds.push({ kind: 'peng', tile });
-        sfxPeng();
+        sfxPeng(SEAT_PAN[seat]);
         voicePeng(SEAT_TONES[seat]);
         view.impact(seat, '碰', '', '#9ec6ff', 0.8);
       }

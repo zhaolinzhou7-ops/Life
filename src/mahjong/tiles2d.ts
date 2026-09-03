@@ -16,13 +16,8 @@ function renderFace(t: TileId): HTMLCanvasElement {
   const W = FACE_W;
   const H = FACE_H;
 
-  // 象牙底 + 顶部高光
-  const grad = g.createLinearGradient(0, 0, W * 0.4, H);
-  grad.addColorStop(0, '#fffdf6');
-  grad.addColorStop(0.45, '#fbf3e0');
-  grad.addColorStop(1, '#f2e6cc');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, W, H);
+  // 透明底：象牙面由牌体精灵负责。若在这里填底色，刻痕用的偏移拷贝
+  // 会把不透明底一层层叠上来，图案颜色会被洗白。
 
   const s = suitOf(t);
   const r = rankOf(t);
@@ -163,6 +158,25 @@ export function faceImage(t: TileId): HTMLCanvasElement {
   return faceCache.get(t) ?? renderFace(t);
 }
 
+/** 图案的单色剪影（黑/白），用来做刻进牌面的暗影与受光边 */
+const tintCache = new Map<string, HTMLCanvasElement>();
+function faceTinted(t: TileId, color: string): HTMLCanvasElement {
+  const key = t + color;
+  const hit = tintCache.get(key);
+  if (hit) return hit;
+  const src = faceImage(t);
+  const cv = document.createElement('canvas');
+  cv.width = src.width;
+  cv.height = src.height;
+  const g = cv.getContext('2d')!;
+  g.drawImage(src, 0, 0);
+  g.globalCompositeOperation = 'source-in'; // 只保留图案形状，整体换成单色
+  g.fillStyle = color;
+  g.fillRect(0, 0, cv.width, cv.height);
+  tintCache.set(key, cv);
+  return cv;
+}
+
 function shade(hex: string, amt: number) {
   const n = parseInt(hex.slice(1), 16);
   const r = Math.max(0, Math.min(255, ((n >> 16) & 255) + amt));
@@ -185,9 +199,189 @@ export interface TileStyle {
   glow?: string;
 }
 
+// ---------------- 材质纹理 ----------------
+
 /**
- * 画一张正面朝上的立牌（带底部厚度，2.5D 立体感）。
- * x,y 为牌面左上角，w,h 为牌面尺寸。
+ * 质感的三个来源：统一的光照方向、材质本身的细微纹理、以及接触阴影。
+ * 原来的牌是纯色圆角矩形 + 一道线性渐变，所以看着像矢量插画而不是实物。
+ * 全场光都假定来自左上方。
+ */
+
+/** 象牙细纹（一次生成，之后当图案平铺） */
+let grainPat: CanvasPattern | null = null;
+function grain(g: CanvasRenderingContext2D): CanvasPattern | null {
+  if (grainPat) return grainPat;
+  const n = 64;
+  const cv = document.createElement('canvas');
+  cv.width = n;
+  cv.height = n;
+  const c2 = cv.getContext('2d')!;
+  const img = c2.createImageData(n, n);
+  for (let i = 0; i < n * n; i++) {
+    // 偏暖的细颗粒：象牙/胶木表面的微观不均匀
+    const v = 128 + (Math.random() - 0.5) * 46;
+    img.data[i * 4] = v + 6;
+    img.data[i * 4 + 1] = v + 2;
+    img.data[i * 4 + 2] = v - 4;
+    img.data[i * 4 + 3] = 255;
+  }
+  c2.putImageData(img, 0, 0);
+  grainPat = g.createPattern(cv, 'repeat');
+  return grainPat;
+}
+
+/** 已渲染好的牌面精灵：材质计算只做一次，之后逐帧只是一次 drawImage */
+const spriteCache = new Map<number, { cv: HTMLCanvasElement; pad: number }>();
+
+function tileSprite(t: TileId, w: number, h: number) {
+  const wi = Math.round(w);
+  const hi = Math.round(h);
+  const key = t * 1000000 + wi * 1000 + hi;
+  const hit = spriteCache.get(key);
+  if (hit) return hit;
+
+  const dpr = 2;
+  const pad = Math.ceil(Math.max(3, w * 0.22)); // 给阴影留出余量
+  const cv = document.createElement('canvas');
+  cv.width = (wi + pad * 2) * dpr;
+  cv.height = (hi + pad * 2) * dpr;
+  const g = cv.getContext('2d')!;
+  g.scale(dpr, dpr);
+
+  const x = pad;
+  const y = pad;
+  const depth = Math.max(2, hi * 0.12);
+  const r = Math.max(2, wi * 0.15);
+  const bevel = Math.max(1, wi * 0.075);
+
+  // 1) 接触阴影：随高度偏移并模糊，物体因此"落"在桌面上
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,0.42)';
+  g.shadowBlur = Math.max(2.5, wi * 0.16);
+  g.shadowOffsetX = wi * 0.045;
+  g.shadowOffsetY = wi * 0.09;
+  g.fillStyle = '#000';
+  roundRect(g, x, y + depth * 0.4, wi, hi, r);
+  g.fill();
+  g.restore();
+
+  // 2) 牌体侧面（厚度）：底部比顶面暗，才有立体
+  const sg = g.createLinearGradient(x, y + hi - depth, x, y + hi + depth);
+  sg.addColorStop(0, '#d8cdb0');
+  sg.addColorStop(1, '#a2977c');
+  g.fillStyle = sg;
+  roundRect(g, x, y + hi - depth * 0.6, wi, depth * 1.6, r * 0.8);
+  g.fill();
+
+  // 3) 倒角环：左上受光、右下背光，这一圈是"厚度"的关键
+  const bg = g.createLinearGradient(x, y, x + wi * 0.9, y + hi);
+  bg.addColorStop(0, '#fffefb');
+  bg.addColorStop(0.45, '#f4ead1');
+  bg.addColorStop(1, '#c8bda0');
+  g.fillStyle = bg;
+  roundRect(g, x, y, wi, hi, r);
+  g.fill();
+
+  // 4) 顶面（内缩一个倒角宽度）
+  const fg = g.createLinearGradient(x, y, x + wi * 0.4, y + hi);
+  fg.addColorStop(0, '#fffdf6');
+  fg.addColorStop(0.5, '#faf2df');
+  fg.addColorStop(1, '#efe4c9');
+  g.fillStyle = fg;
+  roundRect(g, x + bevel, y + bevel * 0.7, wi - bevel * 2, hi - depth * 0.5 - bevel * 1.4, r * 0.7);
+  g.fill();
+
+  // 4b) 凹槽边缘：真麻将牌的字面是内凹的，凸起的边框会在上/左投下一道暗边，
+  //     下/右则被反射光提亮。这一对明暗是"牌"最容易被认出来的特征。
+  {
+    const pxx = x + bevel;
+    const pyy = y + bevel * 0.7;
+    const pw = wi - bevel * 2;
+    const ph = hi - depth * 0.5 - bevel * 1.4;
+    const lip = Math.max(0.8, wi * 0.06);
+    g.save();
+    roundRect(g, pxx, pyy, pw, ph, r * 0.7);
+    g.clip();
+    const shTop = g.createLinearGradient(0, pyy, 0, pyy + lip);
+    shTop.addColorStop(0, 'rgba(122,100,58,0.34)');
+    shTop.addColorStop(1, 'rgba(122,100,58,0)');
+    g.fillStyle = shTop;
+    g.fillRect(pxx, pyy, pw, lip);
+    const shLeft = g.createLinearGradient(pxx, 0, pxx + lip, 0);
+    shLeft.addColorStop(0, 'rgba(122,100,58,0.26)');
+    shLeft.addColorStop(1, 'rgba(122,100,58,0)');
+    g.fillStyle = shLeft;
+    g.fillRect(pxx, pyy, lip, ph);
+    const hiBot = g.createLinearGradient(0, pyy + ph - lip, 0, pyy + ph);
+    hiBot.addColorStop(0, 'rgba(255,255,255,0)');
+    hiBot.addColorStop(1, 'rgba(255,255,255,0.62)');
+    g.fillStyle = hiBot;
+    g.fillRect(pxx, pyy + ph - lip, pw, lip);
+    const hiRight = g.createLinearGradient(pxx + pw - lip, 0, pxx + pw, 0);
+    hiRight.addColorStop(0, 'rgba(255,255,255,0)');
+    hiRight.addColorStop(1, 'rgba(255,255,255,0.5)');
+    g.fillStyle = hiRight;
+    g.fillRect(pxx + pw - lip, pyy, lip, ph);
+    g.restore();
+  }
+
+  // 5) 象牙细纹：叠一层极淡的颗粒，消掉"纯色塑料"感
+  const pat = grain(g);
+  if (pat) {
+    g.save();
+    roundRect(g, x + bevel, y + bevel * 0.7, wi - bevel * 2, hi - depth * 0.5 - bevel * 1.4, r * 0.7);
+    g.clip();
+    g.globalAlpha = 0.09;
+    g.globalCompositeOperation = 'overlay';
+    g.fillStyle = pat;
+    g.fillRect(x, y, wi, hi);
+    g.restore();
+  }
+
+  // 6) 牌面图案，做成刻进牌里的：
+  //    右下压一道暗影（凹槽底），左上补一道受光边（凹槽上沿），最后盖原色图案
+  const img = faceImage(t);
+  const ipad = wi * 0.055;
+  const iw = wi - ipad * 2;
+  const ih = hi - depth * 0.85 - ipad * 1.9;
+  const ix = x + ipad;
+  const iy = y + ipad * 0.9;
+  const off = Math.max(0.45, wi * 0.02);
+  g.save();
+  g.globalAlpha = 0.3;
+  g.drawImage(faceTinted(t, '#4a3a1e'), ix + off, iy + off, iw, ih);
+  g.globalAlpha = 0.5;
+  g.drawImage(faceTinted(t, '#ffffff'), ix - off * 0.8, iy - off * 0.8, iw, ih);
+  g.restore();
+  g.drawImage(img, ix, iy, iw, ih);
+
+  // 7) 顶面斜向高光：一道很淡的清漆反光
+  g.save();
+  roundRect(g, x + bevel, y + bevel * 0.7, wi - bevel * 2, hi - depth * 0.5 - bevel * 1.4, r * 0.7);
+  g.clip();
+  const sheen = g.createLinearGradient(x, y, x + wi * 1.1, y + hi * 0.8);
+  sheen.addColorStop(0, 'rgba(255,255,255,0.20)');
+  sheen.addColorStop(0.34, 'rgba(255,255,255,0.05)');
+  sheen.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = sheen;
+  g.fillRect(x, y, wi, hi);
+  g.restore();
+
+  // 8) 外轮廓：极细的暗边，把牌从背景上"切"出来
+  g.lineWidth = 0.9;
+  g.strokeStyle = 'rgba(96,76,42,0.5)';
+  roundRect(g, x + 0.45, y + 0.45, wi - 0.9, hi - 0.9, r);
+  g.stroke();
+
+  const rec = { cv, pad };
+  if (spriteCache.size > 900) spriteCache.clear();
+  spriteCache.set(key, rec);
+  return rec;
+}
+
+/**
+ * 画一张正面朝上的立牌。
+ * x,y 为牌面左上角，w,h 为牌面尺寸。材质走离屏精灵缓存，逐帧只 drawImage。
  */
 export function drawTile(
   g: CanvasRenderingContext2D,
@@ -200,54 +394,30 @@ export function drawTile(
 ) {
   const lift = st.lift ?? 0;
   const ty = y - lift;
-  const depth = Math.max(2, h * 0.13); // 底部厚度
-  const r = Math.max(2, w * 0.14);
+  const sp = tileSprite(t, w, h);
+  const wi = Math.round(w);
+  const hi = Math.round(h);
+  const r = Math.max(2, wi * 0.15);
 
-  g.save();
-  // 投影
-  g.fillStyle = 'rgba(0,0,0,0.28)';
-  roundRect(g, x + 1, ty + depth * 0.7, w, h, r);
-  g.fill();
-
-  // 侧面（厚度）
-  g.fillStyle = '#c9bfa4';
-  roundRect(g, x, ty + h - depth, w, depth * 2, r);
-  g.fill();
-
-  // 牌面
-  const fg = g.createLinearGradient(x, ty, x, ty + h);
-  fg.addColorStop(0, '#fffdf7');
-  fg.addColorStop(1, '#f0e6cf');
-  g.fillStyle = fg;
-  roundRect(g, x, ty, w, h, r);
-  g.fill();
-
-  // 图案（留白压到最小，牌面尽量占满）
-  const img = faceImage(t);
-  const pad = w * 0.04;
-  g.drawImage(img, x + pad, ty + pad, w - pad * 2, h - depth * 0.8 - pad * 2);
-
-  // 边框
-  g.lineWidth = 1;
-  g.strokeStyle = 'rgba(120,96,52,0.45)';
-  roundRect(g, x + 0.5, ty + 0.5, w - 1, h - 1, r);
-  g.stroke();
+  g.drawImage(sp.cv, x - sp.pad, ty - sp.pad, wi + sp.pad * 2, hi + sp.pad * 2);
 
   if (st.dim) {
+    g.save();
     g.fillStyle = 'rgba(10,20,14,0.42)';
-    roundRect(g, x, ty, w, h, r);
+    roundRect(g, x, ty, wi, hi, r);
     g.fill();
+    g.restore();
   }
   if (st.glow) {
-    g.lineWidth = 2.4;
+    g.save();
+    g.lineWidth = 2.2;
     g.strokeStyle = st.glow;
     g.shadowColor = st.glow;
     g.shadowBlur = 10;
-    roundRect(g, x + 1, ty + 1, w - 2, h - 2, r);
+    roundRect(g, x + 1, ty + 1, wi - 2, hi - 2, r);
     g.stroke();
-    g.shadowBlur = 0;
+    g.restore();
   }
-  g.restore();
 }
 
 /** 画牌背（立着的，用于对家/左右家手牌） */
