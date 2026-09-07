@@ -2103,3 +2103,241 @@ canvas {
   color: #ffb59a;
   background: rgba(255, 138, 101, 0.16);
 }
+
+/* ===================== 象棋：复盘 ===================== */
+/* 手机上棋盘在上面，复盘做成底部抽屉；宽屏时改成右侧面板，不挡棋盘 */
+.xq-hidden {
+  display: none !important;
+}
+.xq-rv {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 56vh;
+  padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px);
+  background: linear-gradient(180deg, rgba(12, 18, 25, 0.92), rgba(8, 12, 17, 0.98));
+  border-top: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -12px 34px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  animation: xq-rv-in 0.28s ease-out;
+}
+@keyframes xq-rv-in {
+  from {
+    transform: translateY(18px);
+    opacity: 0;
+  }
+}
+.xq-rv-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+.xq-rv-head b {
+  font-size: 15px;
+}
+.xq-rv-progress {
+  flex: 1;
+  font-size: 12px;
+  opacity: 0.65;
+}
+.xq-rv-close {
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-size: 17px;
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+/* 概览：漏着/失误统计 + 决定胜负的一手 */
+.xq-rv-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.xq-rv-chip {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 3px 10px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+.xq-rv-chip b {
+  font-size: 13px;
+}
+.xq-rv-chip.bad b {
+  color: #e0433a;
+}
+.xq-rv-chip.warn b {
+  color: #e8703d;
+}
+.xq-rv-turn {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+  text-align: left;
+  background: rgba(224, 67, 58, 0.13);
+  border: 1px solid rgba(224, 67, 58, 0.4);
+  border-radius: 10px;
+  padding: 7px 10px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.xq-rv-turn b {
+  color: #ffd76e;
+}
+
+/* 着法时间线：横向滚动，颜色就是这一手的评级 */
+.xq-rv-list {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.xq-rv-item {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  border-bottom: 2px solid var(--g);
+  border-radius: 8px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.xq-rv-item .n {
+  opacity: 0.5;
+  font-size: 10px;
+}
+.xq-rv-item .g {
+  color: var(--g);
+  font-size: 10px;
+}
+.xq-rv-item.bad {
+  background: color-mix(in srgb, var(--g) 16%, transparent);
+}
+.xq-rv-item.on {
+  background: color-mix(in srgb, var(--g) 30%, transparent);
+  border-color: var(--g);
+}
+.xq-rv-item.turn {
+  box-shadow: 0 0 0 1px #ffd76e inset;
+}
+
+/* 单手详情 */
+.xq-rv-detail {
+  min-height: 62px;
+}
+.xq-rv-empty {
+  font-size: 12px;
+  opacity: 0.55;
+  padding: 8px 2px;
+}
+.xq-rv-move {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+.xq-rv-grade {
+  background: var(--g);
+  color: #0b1016;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.xq-rv-loss {
+  font-size: 11px;
+  opacity: 0.6;
+}
+.xq-rv-comment {
+  margin-top: 5px;
+  font-size: 13px;
+  line-height: 1.6;
+  opacity: 0.9;
+}
+.xq-rv-pv {
+  margin-top: 5px;
+  font-size: 12px;
+  opacity: 0.72;
+  letter-spacing: 0.4px;
+}
+.xq-rv-pv span {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  padding: 1px 6px;
+  margin-right: 6px;
+  font-size: 10px;
+  opacity: 0.8;
+}
+.xq-rv-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.xq-rv-pos {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* 宽屏（横屏 / 平板 / 桌面）改成右侧面板，棋盘完整可见 */
+@media (min-width: 720px) {
+  .xq-rv {
+    left: auto;
+    top: 56px;
+    right: 10px;
+    bottom: 10px;
+    width: 330px;
+    max-height: none;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+  }
+  .xq-rv-list {
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .xq-rv-item {
+    width: 100%;
+    border-bottom: 1px solid var(--line);
+    border-left: 3px solid var(--g);
+  }
+}
+
+/* 复盘：收起状态只留点评与翻页，把棋盘让出来 */
+.xq-rv.mini .xq-rv-summary,
+.xq-rv.mini .xq-rv-list {
+  display: none;
+}
+.xq-rv-fold {
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-size: 15px;
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.xq-rv-turn.alt {
+  background: rgba(255, 215, 110, 0.1);
+  border-color: rgba(255, 215, 110, 0.35);
+}

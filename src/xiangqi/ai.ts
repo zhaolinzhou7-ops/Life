@@ -728,3 +728,206 @@ function perftInner(depth: number, ply: number): number {
   }
   return total;
 }
+
+// ---------------- 局面分析（复盘 / 出题用） ----------------
+/**
+ * 和 think() 的区别：think 只回答「走哪一步」，分析要回答「每一步各值多少分」。
+ * 复盘要拿「你走的那步」和「最好的那步」比分差，出题要拿「最好」和「次好」比
+ * 差距判唯一解——两件事都需要根节点每一手的**准确分数**，所以根节点用全窗口
+ * 逐个搜，不做 alpha 剪枝（剪出来的是边界值，不是真分数，拿来比大小会骗人）。
+ */
+export interface MoveScore {
+  move: Move;
+  /** 走子方视角，单位与子力价值一致（兵=100，车=1000） */
+  score: number;
+  /** >0 = 走子方 n 回合内可将死对方；<0 = 走子方 n 回合内被将死 */
+  mateIn?: number;
+  /** 主变（这步之后双方的最佳应对） */
+  pv: Move[];
+}
+
+export interface Analysis {
+  /** 按分数从高到低排序的全部合法着法 */
+  moves: MoveScore[];
+  depth: number;
+  nodes: number;
+}
+
+/** 把搜索分转成「n 回合杀」，不是杀棋返回 undefined */
+function mateDistance(score: number): number | undefined {
+  const d = MATE - Math.abs(score);
+  if (d > 200) return undefined; // 不在杀棋区间
+  const moves = Math.ceil(d / 2);
+  return score > 0 ? moves : -moves;
+}
+
+/** 从置换表里顺着最佳着法把主变抠出来；遇到查不到或不合法就停 */
+function extractPv(first: number, maxLen: number): Move[] {
+  const pv: Move[] = [toMove(first)];
+  const made: number[] = [];
+  makeMove(first, 0);
+  made.push(first);
+  for (let i = 1; i < maxLen; i++) {
+    const ti = h1 & TT_MASK;
+    if (ttKey[ti] !== h1 || ttCheck[ti] !== h2) break;
+    const m = ttMove[ti];
+    if (!m) break;
+    // 置换表里的着法可能是被覆盖后的残留，必须验一遍合法性
+    const base = (i + 1) * MOVE_CAP;
+    const n = genMoves(side, base);
+    let ok = false;
+    for (let j = 0; j < n; j++) if (moveBuf[base + j] === m) { ok = true; break; }
+    if (!ok) break;
+    const me = side;
+    makeMove(m, i);
+    if (inCheck(me)) { unmakeMove(m, i); break; }
+    made.push(m);
+    pv.push(toMove(m));
+  }
+  for (let i = made.length - 1; i >= 0; i--) unmakeMove(made[i], i);
+  return pv;
+}
+
+/**
+ * 分析当前局面，返回全部合法着法及其分数（从高到低）。
+ * 没有合法着法（被将死或困毙）时返回空数组。
+ */
+export function analyze(b: Board, color: Color, opts: SearchOpts): Analysis {
+  load(b, color);
+  deadline = Date.now() + opts.timeMs;
+  stopped = false;
+  nodes = 0;
+  reachedDepth = 0;
+  ttGen = (ttGen + 1) & 127;
+  killers.fill(0);
+  for (let i = 0; i < history.length; i++) history[i] = (history[i] / 8) | 0;
+
+  const n = genMoves(side, 0);
+  const me = side;
+  const roots: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const m = moveBuf[i];
+    makeMove(m, 0);
+    if (!inCheck(me)) roots.push(m);
+    unmakeMove(m, 0);
+  }
+  if (roots.length === 0) return { moves: [], depth: 0, nodes: 0 };
+
+  let scored: { m: number; v: number }[] = roots.map((m) => ({ m, v: 0 }));
+
+  for (let d = 1; d <= opts.maxDepth; d++) {
+    const round: { m: number; v: number }[] = [];
+    // 上一轮的好棋先搜，置换表命中率高，深层更快
+    for (const { m } of scored) {
+      makeMove(m, 0);
+      const v = -negamax(d - 1, -Infinity, Infinity, 1, true);
+      unmakeMove(m, 0);
+      if (stopped) break;
+      round.push({ m, v });
+    }
+    if (round.length < scored.length) break; // 这一轮没搜完，丢弃，用上一轮的结果
+    round.sort((a, c) => c.v - a.v);
+    scored = round;
+    reachedDepth = d;
+    if (Date.now() > deadline) break;
+  }
+
+  return {
+    moves: scored.map(({ m, v }) => {
+      const pv = extractPv(m, 12);
+      const mate = mateDistance(v);
+      return mate === undefined ? { move: toMove(m), score: v, pv } : { move: toMove(m), score: v, mateIn: mate, pv };
+    }),
+    depth: reachedDepth,
+    nodes,
+  };
+}
+
+/** 静态估值（不搜索），红方为正。教学里用来讲「现在谁的子力占优」 */
+export function evaluatePosition(b: Board): number {
+  load(b, 'r');
+  return evaluate();
+}
+
+/**
+ * 复盘专用：只算「最好的一手」和「你走的这一手」各值多少分。
+ *
+ * 复盘不需要 44 手棋全部精确打分，只需要这两个数就能算出失误幅度。
+ * analyze() 根节点全窗口逐个搜，开局 6 层要 780ms，一盘 60 手要 47 秒；
+ * 这里根节点照常用 alpha-beta 剪枝拿最佳着（最佳着的分数本来就是精确的），
+ * 再单独给你走的那手补一次全窗口搜索，代价约 1.3 倍 think，快 5 倍以上。
+ */
+export function judgeMove(
+  b: Board,
+  color: Color,
+  played: Move,
+  opts: SearchOpts,
+): { best: MoveScore; played: MoveScore; depth: number } | null {
+  load(b, color);
+  deadline = Date.now() + opts.timeMs;
+  stopped = false;
+  nodes = 0;
+  reachedDepth = 0;
+  ttGen = (ttGen + 1) & 127;
+  killers.fill(0);
+  for (let i = 0; i < history.length; i++) history[i] = (history[i] / 8) | 0;
+
+  const n = genMoves(side, 0);
+  const me = side;
+  const roots: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const m = moveBuf[i];
+    makeMove(m, 0);
+    if (!inCheck(me)) roots.push(m);
+    unmakeMove(m, 0);
+  }
+  if (roots.length === 0) return null;
+
+  const playedRaw = roots.find(
+    (m) => px(mFrom(m)) === played.fx && py(mFrom(m)) === played.fy && px(mTo(m)) === played.tx && py(mTo(m)) === played.ty,
+  );
+  if (playedRaw === undefined) return null; // 传进来的不是合法着法
+
+  let best = roots[0];
+  let bestScore = 0;
+  for (let d = 1; d <= opts.maxDepth; d++) {
+    let alpha = -Infinity;
+    let localBest = 0;
+    const idx = roots.indexOf(best);
+    if (idx > 0) { roots.splice(idx, 1); roots.unshift(best); }
+    for (const m of roots) {
+      makeMove(m, 0);
+      const v = -negamax(d - 1, -Infinity, -alpha, 1, true);
+      unmakeMove(m, 0);
+      if (stopped) break;
+      if (localBest === 0 || v > alpha) { alpha = v; localBest = m; }
+    }
+    if (localBest !== 0 && !stopped) { best = localBest; bestScore = alpha; reachedDepth = d; }
+    if (stopped || Date.now() > deadline) break;
+  }
+
+  const bestPv = extractPv(best, 12);
+  const bestMate = mateDistance(bestScore);
+
+  // 你走的那手单独补一次全窗口，拿到精确分（同分说明你走的就是最佳之一）
+  let playedScore: number;
+  if (playedRaw === best) {
+    playedScore = bestScore;
+  } else {
+    makeMove(playedRaw, 0);
+    playedScore = -negamax(Math.max(1, reachedDepth) - 1, -Infinity, Infinity, 1, true);
+    unmakeMove(playedRaw, 0);
+  }
+  const playedPv = extractPv(playedRaw, 12);
+  const playedMate = mateDistance(playedScore);
+
+  return {
+    best: bestMate === undefined
+      ? { move: toMove(best), score: bestScore, pv: bestPv }
+      : { move: toMove(best), score: bestScore, mateIn: bestMate, pv: bestPv },
+    played: playedMate === undefined
+      ? { move: toMove(playedRaw), score: playedScore, pv: playedPv }
+      : { move: toMove(playedRaw), score: playedScore, mateIn: playedMate, pv: playedPv },
+    depth: reachedDepth,
+  };
+}
