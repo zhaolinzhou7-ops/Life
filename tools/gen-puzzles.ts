@@ -35,6 +35,7 @@ import {
 import { analyze, think } from '../src/xiangqi/ai';
 import { toFen, fromFen, moveToText } from '../src/xiangqi/notation';
 import { checkBoard } from './validate-positions';
+import { rateDifficulty } from './rate-difficulty';
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 const mkey = (m: Move) => `${m.fx},${m.fy},${m.tx},${m.ty}`;
@@ -60,32 +61,6 @@ export interface Puzzle {
 
 // ---------------- 难度评分 ----------------
 
-/**
- * 难度 = 引擎搜到第几层才认出这一手（主指标）+ 选择面宽度 + 是不是安静着法。
- * 一层就能看出来的吃子题，和要算五层的弃子引离，不该是同一个难度。
- */
-function rateDifficulty(b: Board, c: Color, answer: Move, legalCount: number): number {
-  // 最浅需要几层
-  let need = 10;
-  for (let d = 1; d <= 9; d++) {
-    const m = think(b, c, { maxDepth: d, timeMs: 4000, jitter: 0 });
-    if (m && mkey(m) === mkey(answer)) {
-      need = d;
-      break;
-    }
-  }
-  const isCapture = !!b[answer.ty][answer.tx];
-  const after = applyMove(b, answer);
-  const isCheck = isInCheck(after, other(c));
-  // 既不吃子又不将军的"安静着法"最难被看见
-  const quiet = !isCapture && !isCheck;
-
-  let r = 620 + (need - 1) * 115;
-  r += Math.max(0, legalCount - 18) * 7;
-  if (quiet) r += 120;
-  else if (!isCapture) r += 40; // 只将军不吃子，比白吃子难一点
-  return Math.round(Math.max(600, Math.min(2200, r)));
-}
 
 // ---------------- 局面来源 ----------------
 
@@ -228,7 +203,7 @@ function tryMate(b: Board, c: Color, wantMate: number): Puzzle | null {
     ...(also.length ? { also } : {}),
     line: pvToText(b, top.pv, wantMate * 2),
     mateIn: wantMate,
-    rating: rateDifficulty(b, c, top.move, a.moves.length),
+    rating: rateDifficulty(b, c, answer, wantMate),
   };
 }
 
@@ -254,43 +229,133 @@ const PREFILTER_DEPTH = Number(process.env.PREFILTER_DEPTH ?? 3);
 const VERIFY_DEPTH = Number(process.env.VERIFY_DEPTH ?? 6);
 
 /**
- * 难题预筛：**浅看看不出来**（2 层时最佳与次佳几乎没差），才有资格当难题。
+ * 难题模式的预筛门槛。
  *
- * 这是之前题库全是简单题的根因——原来的预筛要求 3 层就能看出差距，
- * 等于在专挑一眼就能看穿的局面。难度的本质是"浅算发现不了"。
+ * 【第一次做错了，记下来】原来 HARD=1 时用的是"2 层搜索里最佳和次佳几乎没差"
+ * 这个条件**代替**普通预筛。跑 4 分钟产出 0 道——因为它和后面的判定互相打架：
+ * 前面要求"2 层看不出差距"，后面又要求"6 层差距 ≥220"，随机局面里同时满足
+ * 这两条的极少，而每个候选都要先付一次 2 层搜索，等于把预算全烧在无用的采样上。
+ *
+ * 正确的做法是**预筛只管找"有决定性一手"的局面**（便宜），难不难留给最后的
+ * 难度分去卡（MIN_RATING）——难度分现在就是"正解在浅层排第几"，
+ * 天然就等于"一眼看不看得出来"，不需要再单独判一次。
+ * 难题模式只是把预筛门槛放松一点，因为难题的浅层差距本来就小。
  */
-function deepOnly(b: Board, c: Color): boolean {
-  const shallow = analyze(b, c, { maxDepth: 2, timeMs: 700, jitter: 0 });
-  if (shallow.moves.length < 8) return false;
-  return shallow.moves[0].score - shallow.moves[1].score < Number(process.env.HARD_GAP ?? 90);
+const hardGap = (normal: number) => (HARD ? Math.round(normal * 0.55) : normal);
+/** 陷阱题的确认深度与"顺手那手要亏多少才算陷阱" */
+const TRAP_DEPTH = Number(process.env.TRAP_DEPTH ?? 8);
+const TRAP_LOSS = Number(process.env.TRAP_LOSS ?? 200);
+
+/**
+ * 难题模式的真正门槛：**正解必须是安静着法**（既不吃子也不将军）。
+ *
+ * 这是量出来的，不是拍脑袋：加了难度下限之后跑 150 秒，21 个候选全部
+ * 落在 680~860 分——因为"6 层里甩开次佳 220 分"基本等同于"能赢子"，
+ * 而吃子序列静态搜索(quiescence)在 2 层就算干净了，正解永远排第一，
+ * 难度分自然上不去。**"深了才决定性"和"浅了看不见"对吃子战术是矛盾的。**
+ *
+ * 真正难的题是另一类：正解不吃子也不将军，好处三四步之后才兑现。
+ * 浅层没有吃子序列可算，就看不见它；人也一样看不见。所以直接按这个筛。
+ */
+function quietAnswer(b: Board, c: Color, mv: Move): boolean {
+  if (b[mv.ty][mv.tx]) return false; // 吃子
+  return !isInCheck(applyMove(b, mv), other(c)); // 将军
+}
+
+/**
+ * 各道关卡各拦下多少——DEBUG=1 时打印。
+ *
+ * 加这个是因为"产出 0 道"这种结果光看是猜不出原因的：可能是采样太慢、
+ * 可能是某一道判定过严、也可能是难度分卡在最后。上一次我就凭感觉改了
+ * 预筛，改完还是 0，白烧了 8 分钟。有数就不用猜。
+ */
+const stat: Record<string, number> = {};
+const bump = (k: string) => { stat[k] = (stat[k] ?? 0) + 1; };
+
+/**
+ * 难题的正确定义：**看起来最顺手的那一手是错的**。
+ *
+ * 前两次都失败了，失败的原因值得写下来：
+ *   一试 "2 层看不出差距" 当预筛 —— 跑 4 分钟 0 产出，因为它和"6 层甩开
+ *        次佳 220 分"互相矛盾，随机局面几乎不可能同时满足。
+ *   二试 "正解必须是安静着法" —— 有产出了，但只有 860~870 分，
+ *        因为安静的好棋 2 层照样能排第一，难度分上不去。
+ *
+ * 两次都错在同一个地方：**我在用"引擎看不看得见"定义难，而不是用
+ * "人会不会走错"定义难。** 真正让人栽跟头的局面是——有一手特别顺眼
+ * （浅算就排第一、通常还是吃子或将军），而它恰恰是错的，正解在别处。
+ *
+ * 所以判定改成：浅层首选 ≠ 深层首选，且**照浅层那手走会亏一大截**。
+ * 顺带白得一个 blunder 字段：那手顺眼的错棋本身就是最好的干扰项，
+ * 做题界面会把它演给你看。
+ */
+function tryTrap(b: Board, c: Color, kind: 'tactic' | 'safety'): Puzzle | null {
+  bump(`${kind}:看过`);
+  if (isInCheck(b, c)) return bump(`${kind}:自己被将`), null;
+  // 1. 顺手的那一手：浅算的首选
+  const shallow = analyze(b, c, { maxDepth: 2, timeMs: 800, jitter: 0 });
+  if (shallow.moves.length < 12) return bump(`${kind}:着法太少`), null;
+  const obvious = shallow.moves[0].move;
+  // 2. 中等深度先看一眼值不值得深查
+  const mid = analyze(b, c, { maxDepth: 5, timeMs: 2500, jitter: 0 });
+  const midTop = mid.moves[0];
+  if (mkey(midTop.move) === mkey(obvious)) return bump(`${kind}:顺手的就是对的`), null;
+  const midObv = mid.moves.find((m) => mkey(m.move) === mkey(obvious));
+  if (!midObv || midTop.score - midObv.score < 150) return bump(`${kind}:顺手那手亏得不够多`), null;
+  // 3. 深查确认
+  const a = analyze(b, c, { maxDepth: TRAP_DEPTH, timeMs: 6000, jitter: 0 });
+  const top = a.moves[0];
+  if (top.mateIn !== undefined) return bump(`${kind}:是杀法题`), null;
+  if (mkey(top.move) === mkey(obvious)) return bump(`${kind}:深查后顺手的又对了`), null;
+  const obv = a.moves.find((m) => mkey(m.move) === mkey(obvious));
+  if (!obv || top.score - obv.score < TRAP_LOSS) return bump(`${kind}:顺手那手亏得不够多(深)`), null;
+  const second = a.moves[1];
+  if (second && top.score - second.score < 120) return bump(`${kind}:正解不唯一`), null;
+  if (top.pv.length < 2) return bump(`${kind}:主变太短`), null;
+  bump(`${kind}:成题`);
+  const ties = a.moves.filter((m) => top.score - m.score <= 25).map((m) => moveToText(b, m.move));
+  const answer = moveToText(b, top.move);
+  return {
+    id: '',
+    kind,
+    fen: toFen(b, c),
+    answer,
+    ...(ties.length > 1 ? { also: ties.filter((t) => t !== answer) } : {}),
+    line: pvToText(b, top.pv, 6),
+    blunder: moveToText(b, obvious),
+    rating: rateDifficulty(b, c, answer, undefined, top.score - obv.score),
+  };
 }
 
 /** 战术题：能赢子，而且只有这一手能赢，次佳差一大截 */
 function tryTactic(b: Board, c: Color): Puzzle | null {
-  if (isInCheck(b, c)) return null; // 自己正被将，那是"应将"不是战术题
-  if (HARD ? !deepOnly(b, c) : !promising(b, c, 150)) return null;
+  bump('tactic:看过');
+  if (isInCheck(b, c)) return bump('tactic:自己被将'), null; // 那是"应将"不是战术题
+  if (!promising(b, c, hardGap(150))) return bump('tactic:预筛没过'), null;
   const a = analyze(b, c, { maxDepth: 6, timeMs: 5000, jitter: 0 });
-  if (a.moves.length < 6) return null;
+  if (a.moves.length < 6) return bump('tactic:着法太少'), null;
   const top = a.moves[0];
   const second = a.moves[1];
-  if (top.mateIn !== undefined) return null; // 那是杀法题
-  if (top.score < 250) return null; // 走完得真的占优
-  if (top.score - second.score < 220) return null; // 次佳太接近 -> 答案不唯一
-  if (Math.abs(second.score) > 900) return null; // 局面本来就一边倒，做这种题学不到东西
-  if (top.pv.length < 2) return null; // 讲解至少要能演一个回合
+  if (top.mateIn !== undefined) return bump('tactic:是杀法题'), null;
+  if (top.score < 250) return bump('tactic:走完不够优'), null;
+  if (top.score - second.score < 220) return bump('tactic:次佳太接近'), null;
+  if (Math.abs(second.score) > 900) return bump('tactic:局面已一边倒'), null;
+  if (top.pv.length < 2) return bump('tactic:主变太短'), null;
+  if (HARD && !quietAnswer(b, c, top.move)) return bump('tactic:吃子/将军，不够难'), null;
+  bump('tactic:成题');
   return {
     id: '',
     kind: 'tactic',
     fen: toFen(b, c),
     answer: moveToText(b, top.move),
     line: pvToText(b, top.pv, 6),
-    rating: rateDifficulty(b, c, top.move, a.moves.length),
+    rating: rateDifficulty(b, c, moveToText(b, top.move)),
   };
 }
 
 /** 眼力题：绝大多数着法都要亏子，只有一两手安全——正是"漏着"的反面 */
 function trySafety(b: Board, c: Color): Puzzle | null {
-  if (HARD ? !deepOnly(b, c) : !promising(b, c, 200)) return null;
+  if (!promising(b, c, hardGap(200))) return null;
   const a = analyze(b, c, { maxDepth: VERIFY_DEPTH, timeMs: 6000, jitter: 0 });
   if (a.moves.length < 8) return null;
   const top = a.moves[0];
@@ -307,7 +372,7 @@ function trySafety(b: Board, c: Color): Puzzle | null {
     fen: toFen(b, c),
     answer: moveToText(b, top.move),
     line: pvToText(b, top.pv, 4),
-    rating: rateDifficulty(b, c, top.move, a.moves.length),
+    rating: rateDifficulty(b, c, moveToText(b, top.move)),
   };
 }
 
@@ -332,7 +397,7 @@ function tryEndgame(b: Board, c: Color): Puzzle | null {
     fen: toFen(b, c),
     answer: moveToText(b, top.move),
     line: pvToText(b, top.pv, 6),
-    rating: rateDifficulty(b, c, top.move, a.moves.length),
+    rating: rateDifficulty(b, c, moveToText(b, top.move)),
   };
 }
 
@@ -344,7 +409,7 @@ function tryEndgame(b: Board, c: Color): Puzzle | null {
  */
 function tryOpening(b: Board, c: Color): Puzzle | null {
   if (isInCheck(b, c)) return null;
-  if (HARD ? !deepOnly(b, c) : !promising(b, c, 120)) return null;
+  if (!promising(b, c, hardGap(120))) return null;
   const a = analyze(b, c, { maxDepth: 6, timeMs: 5000, jitter: 0 });
   if (a.moves.length < 20) return null; // 开局着法多，少了说明不是开局
   const top = a.moves[0];
@@ -359,7 +424,7 @@ function tryOpening(b: Board, c: Color): Puzzle | null {
     fen: toFen(b, c),
     answer: moveToText(b, top.move),
     line: pvToText(b, top.pv, 6),
-    rating: rateDifficulty(b, c, top.move, a.moves.length),
+    rating: rateDifficulty(b, c, moveToText(b, top.move)),
   };
 }
 
@@ -439,7 +504,10 @@ const MIN_RATING = Number(process.env.MIN_RATING ?? 0);
 let rejected = 0;
 const push = (p: Puzzle | null) => {
   if (!p || seen.has(p.fen)) return false;
-  if (p.rating < MIN_RATING) return false;
+  if (p.rating < MIN_RATING) {
+    bump(`${p.kind}:难度不够(${p.rating})`);
+    return false;
+  }
   // 闸门：局面必须是真实对局里能出现的（士象兵的落点、子力数量）
   const parsed = fromFen(p.fen);
   const errs = parsed ? checkBoard(parsed.board) : ['FEN 解析失败'];
@@ -476,8 +544,8 @@ let tac = 0;
 let saf = 0;
 for (const { board, color } of sampleFromGames()) {
   if (left() <= 0 || (tac >= TARGET.tactic && saf >= TARGET.safety)) break;
-  if (tac < TARGET.tactic && push(tryTactic(board, color))) tac++;
-  else if (saf < TARGET.safety && push(trySafety(board, color))) saf++;
+  if (tac < TARGET.tactic && push(HARD ? tryTrap(board, color, 'tactic') : tryTactic(board, color))) tac++;
+  else if (saf < TARGET.safety && push(HARD ? tryTrap(board, color, 'safety') : trySafety(board, color))) saf++;
 }
 process.stderr.write(`战术: ${tac}/${TARGET.tactic}  眼力: ${saf}/${TARGET.safety}\n`);
 
@@ -506,6 +574,10 @@ if (TARGET.opening > 0) {
 }
 
 if (rejected) process.stderr.write(`\n⚠️ 校验拦下 ${rejected} 个非法摆位的局面\n`);
+if (process.env.DEBUG) {
+  process.stderr.write('\n各道关卡拦下的数量：\n');
+  for (const k of Object.keys(stat).sort()) process.stderr.write(`  ${k.padEnd(26)} ${stat[k]}\n`);
+}
 out.sort((a, b) => a.rating - b.rating);
 process.stderr.write(
   `\n合计 ${out.length} 题，难度 ${out[0]?.rating}~${out[out.length - 1]?.rating}，` +

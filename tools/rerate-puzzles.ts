@@ -16,10 +16,8 @@
  *
  * 用法：node rerate.mjs < puzzles.json > puzzles.rated.json
  */
-import { analyze } from '../src/xiangqi/ai';
+import { rankOfSolution, rateByRank, SHALLOW_DEPTH, MID_DEPTH } from './rate-difficulty';
 import { fromFen } from '../src/xiangqi/notation';
-import { isInCheck, applyMove, type Board, type Color, type Move } from '../src/xiangqi/rules';
-import { moveToText } from '../src/xiangqi/notation';
 
 interface Puzzle {
   id: string;
@@ -33,17 +31,8 @@ interface Puzzle {
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 
-/** 正解在某个深度的搜索结果里排第几（1 起；找不到返回一个大数） */
-function rankOfSolution(b: Board, c: Color, answer: string, depth: number): { rank: number; n: number; move: Move | null } {
-  const a = analyze(b, c, { maxDepth: depth, timeMs: 4000, jitter: 0 });
-  for (let i = 0; i < a.moves.length; i++) {
-    if (moveToText(b, a.moves[i].move) === answer) return { rank: i + 1, n: a.moves.length, move: a.moves[i].move };
-  }
-  return { rank: 99, n: a.moves.length, move: null };
-}
-
-const SHALLOW = Number(process.env.SHALLOW ?? 2);
-const MID = Number(process.env.MID ?? 5);
+const SHALLOW = SHALLOW_DEPTH;
+const MID = MID_DEPTH;
 
 const input: Puzzle[] = JSON.parse(await new Promise<string>((res) => {
   let s = '';
@@ -75,21 +64,7 @@ for (let i = 0; i < input.length; i++) {
     continue;
   }
   const mv = m.move ?? s.move!;
-  const isCap = !!board[mv.ty][mv.tx];
-  const isChk = isInCheck(applyMove(board, mv), other(toMove));
-  const quiet = !isCap && !isChk;
-
-  // 浅层排名是主指标：排得越靠后，说明越不容易一眼看出来
-  let r = 620;
-  r += Math.min(9, s.rank - 1) * 78;
-  r += Math.min(5, m.rank - 1) * 85;
-  if (quiet) r += 110; // 安静着法最难被看见
-  else if (!isCap) r += 40;
-  r += Math.max(0, s.n - 18) * 5;
-  // 杀法按步数保底：七步杀再"显眼"也不可能是入门题
-  if (p.mateIn && p.mateIn > 1) r = Math.max(r, 700 + (p.mateIn - 1) * 260);
-
-  out.push({ ...p, rating: Math.round(Math.max(600, Math.min(2200, r))) });
+  out.push({ ...p, rating: rateByRank(board, toMove, mv, s.rank, m.rank, Math.max(s.n, m.n), p.mateIn) });
   done++;
   if (done % 50 === 0) process.stderr.write(`  已重评 ${done}\n`);
 }
