@@ -289,7 +289,7 @@ const bump = (k: string) => { stat[k] = (stat[k] ?? 0) + 1; };
  * 顺带白得一个 blunder 字段：那手顺眼的错棋本身就是最好的干扰项，
  * 做题界面会把它演给你看。
  */
-function tryTrap(b: Board, c: Color, kind: 'tactic' | 'safety'): Puzzle | null {
+function tryTrap(b: Board, c: Color, kind: 'tactic' | 'safety' | 'endgame' | 'opening'): Puzzle | null {
   bump(`${kind}:看过`);
   if (isInCheck(b, c)) return bump(`${kind}:自己被将`), null;
   // 1. 顺手的那一手：浅算的首选
@@ -558,7 +558,7 @@ if (TARGET.endgame > 0) {
     if (!b) continue;
     const c: Color = Math.random() < 0.5 ? 'r' : 'b';
     if (statusAfter(b, 'r') !== 'playing' || statusAfter(b, 'b') !== 'playing') continue;
-    if (push(tryEndgame(b, c))) got++;
+    if (push(HARD ? tryTrap(b, c, 'endgame') : tryEndgame(b, c))) got++;
   }
   process.stderr.write(`残局: ${got}/${TARGET.endgame}\n`);
 }
@@ -568,7 +568,7 @@ if (TARGET.opening > 0) {
   let got = 0;
   for (const { board, color } of sampleFromGames()) {
     if (left() <= 0 || got >= TARGET.opening) break;
-    if (push(tryOpening(board, color))) got++;
+    if (push(HARD ? tryTrap(board, color, 'opening') : tryOpening(board, color))) got++;
   }
   process.stderr.write(`开局: ${got}/${TARGET.opening}\n`);
 }
