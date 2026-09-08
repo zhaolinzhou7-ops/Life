@@ -120,6 +120,21 @@ interface SaveData {
   ownSeq: number;
   /** 自报的天天象棋级别（TT_LEVELS 的 id），只用来给测评定起点 */
   declared?: string;
+  /**
+   * 题目难度的自校准修正值（题号 -> 偏移分）。
+   *
+   * 这是难度问题的**根本解**。题库里的难度是引擎算的——"引擎要搜几层"、
+   * "正解在浅层排第几"，衡量的都是机器的难度。但人和机器卡壳的地方根本不一样：
+   * 一个吃子战术引擎 1 层就看穿，人可能盯半天；一个安静的好棋人一眼看出，
+   * 引擎要搜很深。所以再怎么调引擎指标，都不可能对齐人的感受。
+   *
+   * 正经的谜题平台是靠**真实做题结果**来定难度的。这里照做：你每做一题，
+   * 除了更新你的分，也按 Elo 反过来修正这道题的分——做对了它变简单，
+   * 做错了它变难。做得越多，整个题库就越贴合你真实的难点。
+   *
+   * 单人 App 反而是最理想的场景：不需要"平均人"的难度，只需要对你准。
+   */
+  puzzleAdj: Record<string, number>;
   /** 残局与杀法图形的完成记录 */
   clearedEndgames: string[];
   clearedMates: string[];
@@ -148,6 +163,7 @@ const EMPTY = (): SaveData => ({
   ownSeq: 0,
   clearedEndgames: [],
   clearedMates: [],
+  puzzleAdj: {},
 });
 
 function load(): SaveData {
@@ -212,6 +228,41 @@ export function setRatings(rs: Record<Dim, Rating>) {
   const d = load();
   d.ratings = rs;
   store(d);
+}
+
+/** 题目难度的自校准上限：允许纠偏，但不让单次异常把题的难度带跑 */
+const ADJ_CAP = 320;
+/** 题目一侧的 K 值。比人一侧小得多——一次做对做错的信息量有限 */
+const PUZZLE_K = 40;
+
+/** 这道题对你而言的实际难度（基准分 + 自校准修正） */
+export function effectiveRating(id: string, base: number): number {
+  const adj = load().puzzleAdj[id] ?? 0;
+  return Math.round(base + adj);
+}
+
+export function getAdj(id: string): number {
+  return load().puzzleAdj[id] ?? 0;
+}
+
+/**
+ * 反过来修正题目难度：你做对了说明它比标称简单，做错了说明比标称难。
+ * 和 updateRating 是同一次 Elo 的两边。
+ */
+export function calibratePuzzle(id: string, base: number, userRating: number, correct: boolean) {
+  const d = load();
+  const cur = d.puzzleAdj[id] ?? 0;
+  const pr = base + cur;
+  // 从题目视角看：题"赢"了（你做错）就该加分
+  const expect = 1 / (1 + 10 ** ((userRating - pr) / 400));
+  const next = cur + PUZZLE_K * ((correct ? 0 : 1) - expect);
+  d.puzzleAdj[id] = Math.round(Math.max(-ADJ_CAP, Math.min(ADJ_CAP, next)));
+  store(d);
+}
+
+/** 已经被你的成绩校准过的题目数 */
+export function calibratedCount(): number {
+  return Object.keys(load().puzzleAdj).length;
 }
 
 /** Elo 更新：K 随做题量递减，前几题动得快、后面稳下来 */

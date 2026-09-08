@@ -7,7 +7,7 @@
  * 题库按需加载：首页不该为了显示一个"开始测评"按钮就下几百 KB 题目。
  */
 import type { Dim } from './save';
-import { getOwnPuzzles } from './save';
+import { getOwnPuzzles, effectiveRating } from './save';
 
 export type PuzzleKind = 'mate' | 'tactic' | 'safety' | 'endgame' | 'opening';
 
@@ -19,6 +19,13 @@ export interface Puzzle {
   line: string[];
   mateIn?: number;
   rating: number;
+  /**
+   * 这道题是从真实对局里"有人在这里走错了"提取出来的，这是那手错着。
+   *
+   * 有这个字段的题比随机造的更值得做：错误选项是**真的有人选过**的，
+   * 说明它看起来足够像好棋——那才是做题时真正的障碍。
+   */
+  blunder?: string;
 }
 
 /** 题型就是能力维度，一一对应 */
@@ -90,7 +97,10 @@ export function byId(id: string): Puzzle | undefined {
 export function pickNear(kind: PuzzleKind, rating: number, exclude: Set<string>, pool = 6): Puzzle | null {
   const cand = byKind(kind).filter((p) => !exclude.has(p.id));
   if (!cand.length) return null;
-  cand.sort((a, b) => Math.abs(a.rating - rating) - Math.abs(b.rating - rating));
+  // 按**自校准后**的难度挑题：你做过的题，难度已经按你的实际表现修正过，
+  // 比引擎标称的准。没做过的题就用标称值。
+  const dist = (p: Puzzle) => Math.abs(effectiveRating(p.id, p.rating) - rating);
+  cand.sort((a, b) => dist(a) - dist(b));
   const n = Math.min(pool, cand.length);
   return cand[(Math.random() * n) | 0];
 }
