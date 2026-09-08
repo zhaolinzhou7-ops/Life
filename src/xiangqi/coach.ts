@@ -9,6 +9,7 @@ import {
   DIMS,
   DIM_INFO,
   rankOf,
+  ttNear,
   getRatings,
   recordAssessment,
   isAssessed,
@@ -418,7 +419,10 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       <div class="xq-rank-big">${satCount >= 3 ? '≥ ' : ''}${rank.name} <span>${
         satCount >= 3 ? `${overall} 分以上` : `${overall} 分 ±${res.ci}`
       }</span></div>
-      <div class="sub">${rank.desc}</div>`;
+      <div class="sub">${rank.desc}</div>
+      <div class="sub xq-scale-note">这套分只是这个软件自己的尺子，粗略对照大概是天天象棋的<b>${
+        ttNear(overall).name
+      }</b>——两边的尺子本来就不是一把，别太当真，看它<b>往哪个方向动</b>就够了。</div>`;
     scr.appendChild(radarCard(rs));
 
     const detail = document.createElement('div');
@@ -773,7 +777,7 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     wrap.appendChild(host);
     disposeScreen = runPuzzle(
       host,
-      { id: p.id, kind: 'mate', fen: p.fen, answer: p.answer, line: p.line, mateIn: p.mateIn, rating: p.rating },
+      { id: p.id, kind: 'mate', fen: p.fen, answer: p.answer, also: p.also, line: p.line, mateIn: p.mateIn, rating: p.rating },
       {
         caption: `${g.name} ${i + 1}/${g.items.length}`,
         allowHint: true,

@@ -118,6 +118,19 @@ const ttScore = new Int32Array(TT_SIZE);
 const ttMove = new Int32Array(TT_SIZE);
 const ttDepth = new Int8Array(TT_SIZE);
 const ttFlag = new Int8Array(TT_SIZE); // 0=精确 1=下界 2=上界
+
+/**
+ * 杀棋分进出置换表要换算距离。
+ *
+ * 将死的分是 `-MATE + ply`，也就是**相对当前这一层**的。同一个局面可以从
+ * 不同深度到达，直接把分存进去、再从别的层取出来，"几回合杀"就错了。
+ * 出题时就栽在这上面：398 道杀法题里 14 道步数标错、8 道换个深度结论就变，
+ * 根子在这里——存的时候要先换成"从这个局面还要几步"，取的时候再加回当前层数。
+ */
+const toTT = (sc: number, ply: number): number =>
+  sc > MATE - 200 ? sc + ply : sc < -MATE + 200 ? sc - ply : sc;
+const fromTT = (sc: number, ply: number): number =>
+  sc > MATE - 200 ? sc - ply : sc < -MATE + 200 ? sc + ply : sc;
 let ttGen = 0;
 const ttAge = new Int8Array(TT_SIZE);
 
@@ -527,7 +540,7 @@ function negamax(depth: number, alpha: number, beta: number, ply: number, canNul
   if (ttKey[ti] === h1 && ttCheck[ti] === h2) {
     ttM = ttMove[ti];
     if (ply > 0 && ttDepth[ti] >= depth) {
-      const sc = ttScore[ti];
+      const sc = fromTT(ttScore[ti], ply);
       const fl = ttFlag[ti];
       if (fl === 0) return sc;
       if (fl === 1 && sc >= beta) return sc;
@@ -600,7 +613,7 @@ function negamax(depth: number, alpha: number, beta: number, ply: number, canNul
   if (ttKey[ti] !== h1 || ttDepth[ti] <= depth || ttAge[ti] !== ttGen) {
     ttKey[ti] = h1;
     ttCheck[ti] = h2;
-    ttScore[ti] = best;
+    ttScore[ti] = toTT(best, ply);
     ttMove[ti] = bestM;
     ttDepth[ti] = depth;
     ttFlag[ti] = best <= origAlpha ? 2 : best >= beta ? 1 : 0;

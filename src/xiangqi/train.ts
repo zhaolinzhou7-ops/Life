@@ -102,7 +102,9 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     selected = null;
     view.setMarks([]);
     const text = moveToText(board, mv);
-    const correct = text === puzzle.answer;
+    // 一样好的着法一律算对：杀法题里同样步数的杀棋常常不止一手，
+    // 只认记下来的那一手会把走对的人判错
+    const correct = text === puzzle.answer || !!puzzle.also?.includes(text);
     const after = applyMove(board, mv);
     board = after;
     view.animateMove(mv, after, () => {
@@ -117,7 +119,13 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     elFb.className = 'xq-tr-fb ok';
     elFb.innerHTML = `
       <div class="h">✅ 对了 · ${text}</div>
-      ${puzzle.line.length > 1 ? `<div class="l">完整下法：${puzzle.line.join(' ')}</div>` : ''}
+      ${
+        text !== puzzle.answer
+          ? `<div class="l">这手和 <b>${puzzle.answer}</b> 一样好，都算对。</div>`
+          : puzzle.line.length > 1
+            ? `<div class="l">完整下法：${puzzle.line.join(' ')}</div>`
+            : ''
+      }
       ${puzzle.blunder ? `<div class="r">这个局面是从真实对局里抓的——当时那盘棋走的是 <b>${puzzle.blunder}</b>，亏了子。</div>` : ''}`;
     finishBar(true);
   }
@@ -127,8 +135,8 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     elFb.innerHTML = `
       <div class="h">❌ 不对 · 你走的是 ${text}</div>
       <div class="l">正解：<b>${puzzle.answer}</b>${
-        puzzle.line.length > 1 ? `　完整下法：${puzzle.line.join(' ')}` : ''
-      }</div>
+        puzzle.also?.length ? `（走 ${puzzle.also.join('、')} 也一样）` : ''
+      }${puzzle.line.length > 1 ? `　完整下法：${puzzle.line.join(' ')}` : ''}</div>
       ${
         puzzle.blunder
           ? `<div class="r">别灰心——这个局面是从真实对局里抓的，当时那盘棋也走错了（走的是 ${puzzle.blunder}）。</div>`
@@ -217,7 +225,8 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       },
       /** 随便走一手错的 */
       playWrong: () => {
-        const m = legal().find((mv) => moveToText(board, mv) !== puzzle.answer);
+        const ok = new Set([puzzle.answer, ...(puzzle.also ?? [])]);
+        const m = legal().find((mv) => !ok.has(moveToText(board, mv)));
         if (m) submit(m);
         return !!m;
       },

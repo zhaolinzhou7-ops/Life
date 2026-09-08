@@ -118,7 +118,7 @@ const SHAPES: Shape[] = [
   {
     id: 'ma-hou-pao',
     name: '马后炮',
-    shape: '马贴着将，炮在马的正后方同一条线上，隔着马打将。',
+    shape: '将、马、炮在同一条线上，马夹在中间当炮架，炮隔着马打将。',
     why: '炮借马作炮架将军，而这个马同时管着将左右的落点——将既吃不掉马（炮照着），也无处可躲。象棋里出现频率最高的杀型。',
     // 从将出发：第一个子是马，第二个子是炮
     test: (b, kx, ky) => lineIs(b, kx, ky, 'H', 'C'),
@@ -179,7 +179,7 @@ const SHAPES: Shape[] = [
     id: 'wo-cao-ma',
     name: '卧槽马',
     shape: '马跳到将侧下方那个「槽」位将军（黑方九宫两侧的 4 路或 6 路）。',
-    why: '卧槽位离将最近又最难驱赶，马在这里将军，将只能横move，正好落进车或炮的控制线——马车配合的经典起手。',
+    why: '卧槽位离将最近又最难驱赶，马在这里将军，将只能横着挪，正好落进车或炮的控制线——马车配合的经典起手。',
     test: (b, _kx, _ky, lastTo) => {
       const p = at(b, lastTo.x, lastTo.y);
       if (!p || p.c !== 'r' || p.t !== 'H') return false;
@@ -492,6 +492,8 @@ interface Found {
   why: string;
   fen: string;
   answer: string;
+  /** 和 answer 一样快的其它杀法，判对错时一起算对 */
+  also?: string[];
   line: string[];
   mateIn: number;
   rating: number;
@@ -526,12 +528,16 @@ for (const sh of shapes) {
     if (statusAfter(b, 'r') !== 'playing' || statusAfter(b, 'b') !== 'playing') continue;
     if (isInCheck(b, 'b')) continue; // 起手就将着军，不成题
 
-    const a = analyze(b, 'r', { maxDepth: 7, timeMs: 4000, jitter: 0 });
+    // 深度必须够：7 层报出来的"几回合杀"会飘，实测 9 层起才稳，这里取 13 留余量
+    const a = analyze(b, 'r', { maxDepth: 13, timeMs: 8000, jitter: 0 });
     if (!a.moves.length) continue;
     const top = a.moves[0];
     if (top.mateIn === undefined || top.mateIn <= 0 || top.mateIn > MAX_MATE) continue;
-    const second = a.moves[1];
-    if (second && second.mateIn !== undefined && second.mateIn > 0 && second.mateIn <= top.mateIn) continue; // 解不唯一
+    // 同样快的杀法全收下来一起算对。原来这里是"发现第二手也能杀就丢掉"，
+    // 但浅层的次佳常常还没搜出杀来，所以那个"唯一"是假的——
+    // 真正的后果是学生走出另一手同样快的杀棋会被判错。
+    const alts = a.moves.filter((m) => m.mateIn === top.mateIn).map((m) => moveToText(b, m.move));
+    if (alts.length > 4) continue; // 随便走走都能杀，不成题
 
     // 把主变走完，对最终局面判形状
     let cur: Board = b;
@@ -569,6 +575,7 @@ for (const sh of shapes) {
       why: sh.why,
       fen,
       answer: moveToText(b, top.move),
+      ...(alts.length > 1 ? { also: alts.filter((t) => t !== moveToText(b, top.move)) } : {}),
       line,
       mateIn: top.mateIn,
       rating: 850 + (top.mateIn - 1) * 200,

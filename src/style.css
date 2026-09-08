@@ -2435,6 +2435,16 @@ canvas {
   color: #ffd76e;
   margin: 6px 0 2px;
 }
+/* 分数尺子的说明：写小一点、灰一点，它是免责说明不是结论 */
+.xq-scale-note {
+  margin: 8px auto 0;
+  max-width: 30em;
+  font-size: 12px;
+  line-height: 1.6;
+  opacity: 0.72;
+}
+.xq-scale-note b { opacity: 0.95; }
+
 .xq-rank-big span {
   display: block;
   font-size: 13px;

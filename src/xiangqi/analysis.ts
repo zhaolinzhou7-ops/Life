@@ -178,7 +178,16 @@ function commentOf(b: Board, j: Judged, me: Color, grade: Grade, flip: Flip | un
   }
   if (grade === 'best' || grade === 'good') {
     if (j.best.mateIn !== undefined && j.best.mateIn > 0) return '好棋，已经走进杀局了。';
-    return '这步是引擎的首选，继续保持。';
+    // "分差很小"和"就是首选"是两回事。原来这两种都说成"这步是引擎的首选"，
+    // 而界面同时又在旁边列着另一手更好的着法，自相矛盾——稍微懂棋的人一眼看穿。
+    const same =
+      j.best.move.fx === j.played.move.fx && j.best.move.fy === j.played.move.fy &&
+      j.best.move.tx === j.played.move.tx && j.best.move.ty === j.played.move.ty;
+    if (same) return '这步就是引擎的首选，继续保持。';
+    const alt = moveToText(b, j.best.move);
+    return grade === 'best'
+      ? `这步和引擎的首选 ${alt} 一样好。`
+      : `这步可以，引擎更想走 ${alt}，但差得不多。`;
   }
 
   const lost = firstLoss(b, j.played.pv, me);

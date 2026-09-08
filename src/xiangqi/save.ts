@@ -43,20 +43,41 @@ export const TT_LEVELS: { id: string; name: string; seed: number; desc: string }
 
 export const ttLevelById = (id: string) => TT_LEVELS.find((l) => l.id === id);
 
-/** 段位表：贴中国棋友的说法，比裸分数有体感 */
+/**
+ * 段位表：贴中国棋友的说法，比裸分数有体感。
+ *
+ * 这里**故意不写"业几"**。原来写了，而且和上面的 TT_LEVELS 互相打架——
+ * 段位表说 1500 分约等于"业 2-3"，自报表却说"业 6-7"只值 1350 分，
+ * 等于自己声称业 2-3 比业 6-7 强。各家平台的"业 N"根本不是一把尺子，
+ * 硬写就一定会错。所以段位只描述**你能做到什么**，
+ * 要和天天象棋对照的话走 ttNear()，那边只有一份数据，不会再打架。
+ */
 export const RANKS: { min: number; name: string; desc: string }[] = [
   { min: 0, name: '入门', desc: '会走子，规则清楚' },
   { min: 900, name: '新手', desc: '能下完一盘，但常漏着' },
-  { min: 1100, name: '初级', desc: '棋友级，会简单杀法' },
-  { min: 1300, name: '中级', desc: '公园中上水平' },
-  { min: 1500, name: '高级', desc: '公园高手 / 网络业 2-3' },
-  { min: 1700, name: '准专业', desc: '业 4-5' },
-  { min: 1900, name: '专业级', desc: '——' },
+  { min: 1100, name: '初级', desc: '会简单杀法，不太送子了' },
+  { min: 1300, name: '中级', desc: '有战术意识，残局能走出结果' },
+  { min: 1500, name: '高级', desc: '公园里少有对手，算得清三五步' },
+  { min: 1700, name: '准专业', desc: '布局成体系，中局有计划' },
+  { min: 1900, name: '专业级', desc: '受过系统训练的水平' },
 ];
 
 export function rankOf(r: number) {
   let hit = RANKS[0];
   for (const x of RANKS) if (r >= x.min) hit = x;
+  return hit;
+}
+
+/**
+ * 这个分数大概相当于天天象棋的哪一档。
+ *
+ * 直接拿 TT_LEVELS 的起点分做最近邻，不另抄一份对照表——
+ * 两份对照表迟早会对不上，上一版就是这么错的。
+ * 说明里也要讲清楚这只是个粗对照：两边的尺子本来就不是同一把。
+ */
+export function ttNear(r: number) {
+  let hit = TT_LEVELS[0];
+  for (const l of TT_LEVELS) if (Math.abs(l.seed - r) < Math.abs(hit.seed - r)) hit = l;
   return hit;
 }
 

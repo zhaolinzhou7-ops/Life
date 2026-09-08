@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "data:check": "node_modules/.bin/esbuild tools/audit-data.ts --bundle --platform=node --format=esm --loader:.json=json --outfile=node_modules/.cache/audit.mjs && FAST=1 node node_modules/.cache/audit.mjs",
+    "data:check:full": "node_modules/.bin/esbuild tools/audit-data.ts --bundle --platform=node --format=esm --loader:.json=json --outfile=node_modules/.cache/audit.mjs && node node_modules/.cache/audit.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

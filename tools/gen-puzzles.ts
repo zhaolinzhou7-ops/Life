@@ -3,7 +3,12 @@
  *
  * 象棋 App 最容易烂尾的地方就是题库——手工录几千道题不现实。
  * 这里换个思路：**造局面 + 引擎验证**。局面随便造，但每一道题都必须过引擎的关：
- * 答案唯一、步数准确、初始不将军。验不过的直接丢掉，宁可良率低也不要错题。
+ * 步数准确、初始不将军。验不过的直接丢掉，宁可良率低也不要错题。
+ *
+ * ⚠️ 原来这里还写着"答案唯一"，而那句话不成立：判唯一只看了 `moves[1]`，
+ * 浅层搜索里次佳往往还没搜出杀来，于是"唯一"是假的。全量核对发现 398 道
+ * 杀法题里有 16 道同样步数还有别的杀法——学生走出另一手同样快的杀棋会被判错。
+ * 现在改成把同样好的着法全收进 `also`，一起算对。
  *
  * 三类题各有各的造法：
  *   杀法  随机摆子（杀棋本来就活在子少的局面里），验"N 回合必杀且首着唯一"
@@ -46,6 +51,8 @@ export interface Puzzle {
   /** 正解主变（中文记谱），用来讲解 */
   line: string[];
   /** 杀法题：几回合成杀 */
+  /** 和 answer 一样好的其它着法，判对错时一起算对 */
+  also?: string[];
   mateIn?: number;
   /** 难度分，和测评的 Elo 同一把尺子 */
   rating: number;
@@ -188,24 +195,37 @@ function* sampleFromGames(): Generator<{ board: Board; color: Color }> {
 
 // ---------------- 三类题的判定 ----------------
 
-/** 七步杀要看到 7 层才判得出来，深度必须跟上 */
-const MATE_DEPTH = Number(process.env.MATE_DEPTH ?? 9);
+/**
+ * 杀法题的判定深度。
+ *
+ * 原来是 9 层，栽了两次跟头：
+ *   · 9 层报出来的"几回合杀"会飘（真正的根子是置换表没给杀棋分做层数换算，
+ *     已在 ai.ts 修掉；但即使修完，5/7 层仍然会因为将军延伸报出更远的杀），
+ *     实测 9 层起才稳定，这里取 13 层留足余量。
+ *   · 判"首着唯一"只看 moves[1]，而浅层的次佳往往还没搜出杀来，
+ *     于是"唯一"是假的。现在改成把同样步数的杀法全收进 also 一起算对。
+ */
+const MATE_DEPTH = Number(process.env.MATE_DEPTH ?? 13);
+/** 同样步数的杀法多到这个数以上，这道题就没有"找一手"可言了 */
+const MAX_MATE_ALTS = Number(process.env.MAX_MATE_ALTS ?? 4);
 
-/** 杀法题：N 回合必杀，且只有一个首着能成杀 */
+/** 杀法题：N 回合必杀；同样快的杀法一并记下来，判对错时都算对 */
 function tryMate(b: Board, c: Color, wantMate: number): Puzzle | null {
   if (isInCheck(b, other(c))) return null; // 一上来就将着军的不算题
-  const a = analyze(b, c, { maxDepth: MATE_DEPTH, timeMs: 5000, jitter: 0 });
+  const a = analyze(b, c, { maxDepth: MATE_DEPTH, timeMs: 8000, jitter: 0 });
   if (!a.moves.length) return null;
   const top = a.moves[0];
   if (top.mateIn !== wantMate) return null;
-  // 首着唯一：次佳不能也是同样快的杀
-  const second = a.moves[1];
-  if (second && second.mateIn !== undefined && second.mateIn > 0 && second.mateIn <= wantMate) return null;
+  const alts = a.moves.filter((m) => m.mateIn === wantMate).map((m) => moveToText(b, m.move));
+  if (alts.length > MAX_MATE_ALTS) return null; // 随便走走都能杀，练不到东西
+  const answer = moveToText(b, top.move);
+  const also = alts.filter((t) => t !== answer);
   return {
     id: '',
     kind: 'mate',
     fen: toFen(b, c),
-    answer: moveToText(b, top.move),
+    answer,
+    ...(also.length ? { also } : {}),
     line: pvToText(b, top.pv, wantMate * 2),
     mateIn: wantMate,
     rating: rateDifficulty(b, c, top.move, a.moves.length),
