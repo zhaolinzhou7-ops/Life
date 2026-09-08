@@ -136,7 +136,7 @@ export function graduateStatus(stage: Stage, ratings: Record<Dim, { r: number }>
 
 // ---------------- 每日训练 ----------------
 
-export type BlockKind = 'warmup' | 'srs' | 'focus' | 'game';
+export type BlockKind = 'warmup' | 'srs' | 'focus' | 'mate-shape' | 'endgame' | 'game';
 
 export interface Block {
   kind: BlockKind;
@@ -175,8 +175,25 @@ export function dailyPlan(stage: Stage, focus: Dim, dueCount: number): Block[] {
       kind: 'srs',
       title: `错题重练（${dueCount} 道）`,
       desc: '按 1/3/7/21/60 天的间隔回来找你。同一个坑不该掉第二次。',
-      minutes: 7,
+      minutes: 5,
       count: dueCount,
+    });
+  }
+
+  // 阶段一二练图形识别，阶段三之后重心转到残局——这就是专业课的顺序
+  if (stage.id <= 2) {
+    blocks.push({
+      kind: 'mate-shape',
+      title: '杀法图形：认一个新图形',
+      desc: '马后炮、闷宫、双车错…… 有名字的杀棋一共就那么多。认熟了是条件反射，这比多算两层管用。',
+      minutes: 6,
+    });
+  } else {
+    blocks.push({
+      kind: 'endgame',
+      title: '残局实战：下到底',
+      desc: '摆好局面跟引擎下完——多子必须赢下来，少子必须守和。中局的优势最后都要靠这个兑现。',
+      minutes: 8,
     });
   }
 
@@ -184,9 +201,9 @@ export function dailyPlan(stage: Stage, focus: Dim, dueCount: number): Block[] {
     kind: 'focus',
     title: `今日专项：${DIM_INFO[focus].name}`,
     desc: `${DIM_INFO[focus].desc}。${stage.emoji} 阶段${stage.id}「${stage.name}」主练这一维，也是这一阶段里你最弱的。`,
-    minutes: 8,
+    minutes: 6,
     dim: focus,
-    count: 10,
+    count: 8,
   });
 
   blocks.push({
@@ -198,6 +215,68 @@ export function dailyPlan(stage: Stage, focus: Dim, dueCount: number): Block[] {
 
   return blocks;
 }
+
+// ---------------- 周计划 ----------------
+
+/**
+ * 只有"每天练什么"是不够的。专业训练是按周组织的：
+ * 平日短时高频保持手感，周末安排一次长局——因为**慢棋才练得到深度计算**，
+ * 快棋只练直觉。两者缺一不可，这是职业队最基本的安排方式。
+ */
+export interface WeekDay {
+  label: string;
+  title: string;
+  desc: string;
+  minutes: number;
+}
+
+export const WEEK_PLAN: WeekDay[] = [
+  { label: '周一', title: '常规训练', desc: '热身 + 错题 + 专项 + 实战复盘', minutes: 25 },
+  { label: '周二', title: '常规训练', desc: '同上。重点还是把当前阶段那一维往上推', minutes: 25 },
+  { label: '周三', title: '常规训练', desc: '同上', minutes: 25 },
+  { label: '周四', title: '常规训练', desc: '同上', minutes: 25 },
+  { label: '周五', title: '常规训练', desc: '同上', minutes: 25 },
+  {
+    label: '周六',
+    title: '长局日',
+    desc: '和高难度 AI 下一盘慢棋，每步认真想。下完做<b>逐手复盘</b>，把每一处失误都过一遍。慢棋练的是深度计算，这是平日快棋补不上的。',
+    minutes: 60,
+  },
+  {
+    label: '周日',
+    title: '休息 / 复盘周',
+    desc: '不做新题。翻一遍这周的错题本和对局记录，看看失误是不是集中在同一类——<b>发现规律比多做十道题有用</b>。',
+    minutes: 20,
+  },
+];
+
+/** 专业训练里几条最容易被业余忽略的原则 */
+export const PRO_PRINCIPLES: { title: string; body: string }[] = [
+  {
+    title: '每天练，别攒着周末一次练完',
+    body: '每天 25 分钟远胜过每周一次 3 小时。棋感靠的是高频接触，长间隔之后手感会掉，等于每次都从头找状态。',
+  },
+  {
+    title: '正确率维持在 70~85% 最有效',
+    body: '题太简单没收益，太难只剩挫败。刻意练习的核心就是卡在能力边缘。本 App 会自动把难度调到这个区间，别自己去挑简单的刷。',
+  },
+  {
+    title: '错题一定要回头做',
+    body: '做错的当下看一眼答案，第二天就忘了。间隔重复（1/3/7/21/60 天）是为了卡在"快要忘"的那个点上把题送回来，那时候记得最牢。',
+  },
+  {
+    title: '不复盘的对局等于白下',
+    body: '业余和专业最大的差距不在下棋，在复盘。你输的那盘里一定有一步是转折点，找出来才有价值——这也是本 App 每局都自动帮你标出来的原因。',
+  },
+  {
+    title: '布局放到最后学',
+    body: '前面三样（不漏着、算得清、残局）没练好的时候，布局占的那点便宜守不住。「背了一堆定式还是不涨棋」就是这么来的。',
+  },
+  {
+    title: '慢棋和快棋都要有',
+    body: '快棋练直觉和图形识别，慢棋练深度计算。只下快棋会养成"想都不想就走"的习惯，只下慢棋则形不成条件反射。',
+  },
+];
 
 /** 从当前水平到目标水平大概要多久，按每天 25 分钟、每周 6 天估 */
 export const TIME_TABLE: { from: number; to: number; label: string; time: string }[] = [

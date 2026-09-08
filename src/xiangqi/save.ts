@@ -25,6 +25,24 @@ export const DIM_INFO: Record<Dim, { name: string; emoji: string; desc: string }
   opening: { name: '布局', emoji: '📖', desc: '开局有没有章法，知不知道自己在干什么' },
 };
 
+/**
+ * 天天象棋的业余级别——用来给测评一个起点，也给你一个能对上号的参照。
+ *
+ * 说明白：本 App 的分数是**内部刻度**，由题目难度（引擎要搜几层才找得到）
+ * 定出来的，和天天象棋的等级分不是一回事，两者不能换算。
+ * 这里只用你自报的级别决定"第一题出多难"，测几题之后就完全以实际表现为准。
+ */
+export const TT_LEVELS: { id: string; name: string; seed: number; desc: string }[] = [
+  { id: 'none', name: '没怎么玩过', seed: 900, desc: '规则知道，实战不多' },
+  { id: 'y13', name: '业 1-3', seed: 1050, desc: '能下完整局' },
+  { id: 'y45', name: '业 4-5', seed: 1200, desc: '有基本战术意识' },
+  { id: 'y67', name: '业 6-7', seed: 1350, desc: '公园里能赢大多数人' },
+  { id: 'y89', name: '业 8-9', seed: 1500, desc: '本地强手' },
+  { id: 'pro', name: '专业级以上', seed: 1600, desc: '受过系统训练' },
+];
+
+export const ttLevelById = (id: string) => TT_LEVELS.find((l) => l.id === id);
+
 /** 段位表：贴中国棋友的说法，比裸分数有体感 */
 export const RANKS: { min: number; name: string; desc: string }[] = [
   { min: 0, name: '入门', desc: '会走子，规则清楚' },
@@ -100,6 +118,11 @@ interface SaveData {
    */
   own: Puzzle[];
   ownSeq: number;
+  /** 自报的天天象棋级别（TT_LEVELS 的 id），只用来给测评定起点 */
+  declared?: string;
+  /** 残局与杀法图形的完成记录 */
+  clearedEndgames: string[];
+  clearedMates: string[];
 }
 
 const EMPTY_RATINGS = (): Record<Dim, Rating> => ({
@@ -123,6 +146,8 @@ const EMPTY = (): SaveData => ({
   games: [],
   own: [],
   ownSeq: 0,
+  clearedEndgames: [],
+  clearedMates: [],
 });
 
 function load(): SaveData {
@@ -202,6 +227,42 @@ export function updateRating(dim: Dim, puzzleRating: number, correct: boolean): 
   d.ratings[dim] = next;
   store(d);
   return next;
+}
+
+export function getDeclared(): string | undefined {
+  return load().declared;
+}
+
+export function setDeclared(id: string) {
+  const d = load();
+  d.declared = id;
+  store(d);
+}
+
+/** 测评的起始估计：自报过级别就用它，没报就用中间值 */
+export function seedRating(): number {
+  const id = load().declared;
+  if (!id) return 1200;
+  return ttLevelById(id)?.seed ?? 1200;
+}
+
+// ---------------- 残局 / 杀法图形完成记录 ----------------
+
+export function markEndgameCleared(id: string) {
+  const d = load();
+  if (!d.clearedEndgames.includes(id)) d.clearedEndgames.push(id);
+  store(d);
+}
+
+export function markMateCleared(id: string) {
+  const d = load();
+  if (!d.clearedMates.includes(id)) d.clearedMates.push(id);
+  store(d);
+}
+
+export function getCleared(): { endgames: string[]; mates: string[] } {
+  const d = load();
+  return { endgames: d.clearedEndgames, mates: d.clearedMates };
 }
 
 export function isAssessed(): boolean {
@@ -335,6 +396,45 @@ export function recordGame(g: Omit<GameRecord, 'd'>) {
 
 export function getGames(): GameRecord[] {
   return load().games;
+}
+
+/**
+ * 实战表现：比做题分数更靠谱的水平指标，而且**没有天花板**。
+ *
+ * 做题分数受题库难度上限限制（强手会被低估），但"每盘漏几次、平均亏多少分"
+ * 是从你真实对局里量出来的，多强都能测。国际象棋平台评估水平也主要看这个。
+ *
+ * 注意这个数只跟你自己比才有意义——它是相对本引擎 6 层判断的口径，
+ * 不能拿去和别的软件比。看它随时间往下走，就是在涨棋。
+ */
+export function playStats(recent = 10): {
+  games: number;
+  blundersPerGame: number;
+  mistakesPerGame: number;
+  avgLoss: number;
+  winRate: number;
+  /** 和更早的对局比，平均亏损降了多少（正数=在进步） */
+  trend: number | null;
+} | null {
+  const g = load().games;
+  if (!g.length) return null;
+  const last = g.slice(-recent);
+  const n = last.length;
+  const sum = (f: (x: GameRecord) => number) => last.reduce((a, x) => a + f(x), 0);
+  let trend: number | null = null;
+  if (g.length >= recent * 2) {
+    const prev = g.slice(-recent * 2, -recent);
+    const prevAvg = prev.reduce((a, x) => a + x.avgLoss, 0) / prev.length;
+    trend = Math.round(prevAvg - sum((x) => x.avgLoss) / n);
+  }
+  return {
+    games: n,
+    blundersPerGame: Math.round((sum((x) => x.blunders) / n) * 10) / 10,
+    mistakesPerGame: Math.round((sum((x) => x.mistakes) / n) * 10) / 10,
+    avgLoss: Math.round(sum((x) => x.avgLoss) / n),
+    winRate: Math.round((sum((x) => (x.won ? 1 : 0)) / n) * 100),
+    trend,
+  };
 }
 
 // ---------------- 实战漏着 → 错题本 ----------------
