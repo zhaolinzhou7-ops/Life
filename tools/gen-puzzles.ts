@@ -126,7 +126,8 @@ function* sampleFromGames(): Generator<{ board: Board; color: Color }> {
 
 // ---------------- 三类题的判定 ----------------
 
-const MATE_DEPTH = 7;
+/** 七步杀要看到 7 层才判得出来，深度必须跟上 */
+const MATE_DEPTH = Number(process.env.MATE_DEPTH ?? 9);
 
 /** 杀法题：N 回合必杀，且只有一个首着能成杀 */
 function tryMate(b: Board, c: Color, wantMate: number): Puzzle | null {
@@ -289,6 +290,7 @@ const TARGET = {
   mate1: Number(process.env.N_MATE1 ?? 160),
   mate2: Number(process.env.N_MATE2 ?? 140),
   mate3: Number(process.env.N_MATE3 ?? 70),
+  mate4: Number(process.env.N_MATE4 ?? 0),
   tactic: Number(process.env.N_TACTIC ?? 200),
   safety: Number(process.env.N_SAFETY ?? 120),
   endgame: Number(process.env.N_ENDGAME ?? 0),
@@ -324,6 +326,12 @@ const MATE_SETS: [PType[], PType[]][] = [
   [['H', 'H'], ['A', 'A']],
   [['R', 'R'], ['A', 'A', 'E', 'H']],
   [['C', 'P'], ['A', 'A']],
+  // 守方子力越多，杀法越难被一眼看穿——这是把题库难度上限抬起来最有效的办法
+  [['R', 'C', 'H'], ['A', 'A', 'E', 'E', 'H']],
+  [['R', 'C', 'P'], ['A', 'A', 'E', 'E', 'C']],
+  [['R', 'H', 'H'], ['A', 'A', 'E', 'E', 'R']],
+  [['R', 'C', 'C'], ['A', 'A', 'E', 'E', 'H', 'P']],
+  [['R', 'R', 'C'], ['A', 'A', 'E', 'E', 'R', 'H']],
 ];
 
 const out: Puzzle[] = [];
@@ -342,8 +350,8 @@ const t0 = Date.now();
 const left = () => BUDGET_MS - (Date.now() - t0);
 
 // —— 杀法 ——
-const mateCounts = [TARGET.mate1, TARGET.mate2, TARGET.mate3];
-for (let wantMate = 1; wantMate <= 3; wantMate++) {
+const mateCounts = [TARGET.mate1, TARGET.mate2, TARGET.mate3, TARGET.mate4];
+for (let wantMate = 1; wantMate <= 4; wantMate++) {
   const want = mateCounts[wantMate - 1];
   let got = 0;
   while (got < want && left() > 0) {

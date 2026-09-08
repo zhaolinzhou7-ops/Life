@@ -909,8 +909,24 @@ export class XiangqiScene {
     return g;
   }
 
+  /**
+   * 动画时长倍率。1 = 原速，越小越快，0 = 直接到位。
+   *
+   * 走一步棋原本要 0.56 秒（抓起 0.16 + 平移 0.26 + 落下 0.14），
+   * 一个回合光动画就 1.12 秒。看几盘很带感，天天练就是纯粹的等待。
+   */
+  private animScale = 1;
+
+  setAnimScale(v: number) {
+    this.animScale = Math.max(0, v);
+  }
+
   private addTween(dur: number, update: (k: number) => void, onDone?: () => void) {
-    this.tweens.push({ t: 0, dur, start: performance.now(), update, onDone });
+    // 留一个下限而不是同步执行完。animateMove 是靠 onDone 层层串起来的，
+    // 同步跑完会让 doMove 里的回调抢在 setTurnUI 前面，把"轮到谁"的状态覆盖掉。
+    // 给最小时长，动画在下一帧结束，回调顺序和原来完全一致。
+    const d = Math.max(0.001, dur * this.animScale);
+    this.tweens.push({ t: 0, dur: d, start: performance.now(), update, onDone });
   }
 
   /** 计算能容纳整个棋盘的相机位置（约 55° 俯角） */

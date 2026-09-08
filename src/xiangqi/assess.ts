@@ -8,7 +8,7 @@
  * 答对就往上探，答错就往下探，六七题就能收敛到 ±100 分以内，
  * 和考驾照的适应性测试、Lichess 的 puzzle rating 是一个路子。
  */
-import { DIMS, type Dim } from './save';
+import { DIMS, seedRating, type Dim } from './save';
 import { loadPuzzles, pickNear, type Puzzle, type PuzzleKind } from './puzzles';
 
 /** 每个维度出几题。5 维 × 7 = 35 题，约 20 分钟 */
@@ -53,7 +53,11 @@ export interface AssessResult {
 }
 
 export class Assessment {
-  private est: Record<Dim, number> = { safety: 1200, mate: 1200, tactic: 1200, endgame: 1200, opening: 1200 };
+  // 起点用自报的天天象棋级别换算，能少走好几题弯路；测几题之后就完全按表现走
+  private est: Record<Dim, number> = (() => {
+    const s = seedRating();
+    return { safety: s, mate: s, tactic: s, endgame: s, opening: s };
+  })();
   private done: Record<Dim, number> = { safety: 0, mate: 0, tactic: 0, endgame: 0, opening: 0 };
   private used = new Set<string>();
   private order: Dim[] = [];

@@ -25,12 +25,22 @@ import {
   srsCount,
   totalSolved,
   getHistory,
+  getDeclared,
+  setDeclared,
+  TT_LEVELS,
+  ttLevelById,
+  markEndgameCleared,
+  markMateCleared,
+  getCleared,
+  playStats,
   type Dim,
 } from './save';
 import { Assessment, diagnose, type AssessResult } from './assess';
 import { loadPuzzles, pickNear, byId, type Puzzle, type PuzzleKind } from './puzzles';
 import { runPuzzle } from './train';
-import { STAGES, stageFor, graduateStatus, dailyPlan, focusDim, nextMilestone, type Block } from './curriculum';
+import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
+import { runPlayout } from './playout';
+import { STAGES, stageFor, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, type Block } from './curriculum';
 
 const DIM_KIND: Record<Dim, PuzzleKind> = {
   safety: 'safety',
@@ -52,6 +62,43 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     wrap.innerHTML = '';
   };
 
+  // ---------------- 自报级别 ----------------
+  /**
+   * 先问一句「你在天天象棋大概什么水平」。
+   *
+   * 两个作用：一是给测评一个靠谱的起点（少走好几题弯路），
+   * 二是给你一个能对上号的参照——本 App 的分是内部刻度，
+   * 光报一个"1350 分"你根本不知道是高是低。
+   */
+  function askLevel(then: () => void) {
+    clear();
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-home';
+    scr.innerHTML = `
+      <h1>先对个坐标</h1>
+      <div class="sub">你在天天象棋大概什么水平？没玩过也没关系。</div>
+      <div class="xq-advice" style="margin-top:12px">
+        <b>为什么问这个</b>
+        <p>本 App 的分数是<b>内部刻度</b>——按"引擎要搜几层才找得到这一手"定出来的题目难度，
+        和天天象棋的等级分不是一回事，两边不能换算。</p>
+        <p class="dim">这里只用你报的级别决定第一题出多难，测几题之后就完全按你的实际表现走，报错了也会自动纠正。</p>
+      </div>`;
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    for (const L of TT_LEVELS) {
+      const el = document.createElement('div');
+      el.className = 'card home-card';
+      el.innerHTML = `<div class="title">${L.name}</div><div class="desc">${L.desc}</div>`;
+      el.onclick = () => {
+        setDeclared(L.id);
+        then();
+      };
+      list.appendChild(el);
+    }
+    scr.appendChild(list);
+    wrap.appendChild(scr);
+  }
+
   // ---------------- 首页 ----------------
   function showHome() {
     clear();
@@ -63,6 +110,8 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     const { streak } = getStreak();
     const srs = srsCount();
     const solved = totalSolved();
+    const decl = ttLevelById(getDeclared() ?? '');
+    const cleared = getCleared();
 
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-home';
@@ -70,9 +119,9 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       <h1>♟️ 学棋</h1>
       <div class="sub">${
         assessed
-          ? `当前 <b>${rank.name}</b> · ${overall} 分 <span class="ci">±${ci}</span>`
+          ? `当前 <b>${rank.name}</b> · ${overall} 分 <span class="ci">±${ci}（内部刻度）</span>`
           : '先花 20 分钟测一下，才知道该从哪儿练起'
-      }</div>
+      }${decl ? `<br><span class="ci">你自报：天天象棋 ${decl.name}</span>` : ''}</div>
       <div class="xq-chips">
         ${streak > 0 ? `<span class="xq-chip">🔥 连续 <b>${streak}</b> 天</span>` : ''}
         ${solved > 0 ? `<span class="xq-chip">✅ 做过 <b>${solved}</b> 题</span>` : ''}
@@ -80,6 +129,29 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       </div>`;
 
     if (assessed) scr.appendChild(radarCard(rs));
+
+    // 实战表现——做题分有天花板，这个没有。强手要看的是这一块
+    const ps = playStats();
+    if (ps) {
+      const card = document.createElement('div');
+      card.className = 'xq-play-card';
+      card.innerHTML = `
+        <div class="hd">📊 实战表现 <span>最近 ${ps.games} 盘</span></div>
+        <div class="row">
+          <div><b>${ps.blundersPerGame}</b><span>漏着/盘</span></div>
+          <div><b>${ps.mistakesPerGame}</b><span>失误/盘</span></div>
+          <div><b>${ps.avgLoss}</b><span>平均亏损</span></div>
+          <div><b>${ps.winRate}%</b><span>胜率</span></div>
+        </div>
+        <div class="ft">${
+          ps.trend === null
+            ? '再下几盘就能看出趋势。这几个数没有天花板，比做题分更适合衡量真实水平。'
+            : ps.trend > 0
+              ? `比之前 ${ps.games} 盘平均亏损<b>降了 ${ps.trend} 分</b>——在涨棋。`
+              : `比之前 ${ps.games} 盘平均亏损高了 ${-ps.trend} 分，最近可能下得急了。`
+        }</div>`;
+      scr.appendChild(card);
+    }
 
     const list = document.createElement('div');
     list.className = 'card-list';
@@ -106,6 +178,16 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
           : '还没有错题。做错的题会自动进这里，按遗忘曲线安排重练。',
         go: () => startReview(),
         hide: srs.total === 0,
+      },
+      {
+        t: `⚔️ 杀法图形${cleared.mates.length ? `（已掌握 ${cleared.mates.length}）` : ''}`,
+        d: '马后炮、闷宫、双车错、铁门栓、大刀剜心…… 有名字的杀棋一共就那么多，认熟了就是条件反射。这是涨棋最快的一块。',
+        go: () => showMateList(),
+      },
+      {
+        t: `🏁 实用残局${cleared.endgames.length ? `（已过 ${cleared.endgames.length}）` : ''}`,
+        d: '摆好局面跟引擎下到底——多子必须赢下来，少子必须守和。不到分出结果不算过。',
+        go: () => showEndgameList(),
       },
       {
         t: '🧩 专项练习',
@@ -366,10 +448,14 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
              <b>不漏着 → 算得清 → 残局 → 布局</b>，不要一上来背定式。</p>`
       }
       <p class="dim">题做得越多分数越准。现在的 ±${res.ci} 分是按你答的 ${log.length} 题算出来的。</p>
-      <p class="dim">⚠️ 说清楚题库的边界：现在这批题是引擎自动生成并逐题验证过的，
-      难度最高约 <b>${res.ceiling || 1600}</b> 分，在 <b>900~1300</b> 这一段测得最准
-      （实测偏差 ±60 以内）。如果你已经在这个区间之上，测出来的分会<b>偏低</b>，
-      带 ≥ 号的那几项就是顶到天花板了——那时候看实战复盘的漏着数比看这个分更靠谱。</p>`;
+      <p class="dim">⚠️ 说清楚这套分数的边界。题库是引擎生成并逐题验证的，
+      但<b>各维能测到的上限不一样</b>：杀法有到 1950 分的难题，
+      眼力/战术/残局/布局目前只到 1000~1150 一带。
+      所以在 <b>900~1300</b> 这一段测得准（实测偏差 ±60 内），
+      再往上总分会被那四维拖住而<b>系统性偏低</b>——带 ≥ 号的就是顶到天花板了。</p>
+      <p class="dim">如果你本来就比这个区间强（比如天天象棋业 6 以上），
+      别太当真这个分，看首页的 <b>实战表现</b>（每盘漏着数、平均亏损）更准——
+      那是从你真实对局里量的，没有天花板。</p>`;
     scr.appendChild(advice);
 
     const go = document.createElement('button');
@@ -595,6 +681,212 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     wrap.appendChild(scr);
   }
 
+  // ---------------- 杀法图形 ----------------
+  async function showMateList() {
+    clear();
+    await loadLibrary();
+    if (!wrap.isConnected) return;
+    const groups = matesByName();
+    const cleared = new Set(getCleared().mates);
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-home';
+    scr.innerHTML = `
+      <h1>⚔️ 杀法图形</h1>
+      <div class="sub">有名字的杀棋。先看图形长什么样，再做题把它认熟</div>
+      <div class="xq-advice">
+        <b>为什么先背图形</b>
+        <p>真人高手不是每步现算，是<b>一眼认出来</b>——看到马在卧槽位就想到马后炮。
+        杀法图形是有限的、有名字的，认熟了就变成条件反射，这才是"棋感"的真实来源。</p>
+        <p class="dim">下面每个图形都是引擎生成并验证过的：解唯一、步数准确，且几何上确实是这个形状。</p>
+      </div>`;
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    for (const g of groups) {
+      const done = g.items.filter((i) => cleared.has(i.id)).length;
+      const el = document.createElement('div');
+      el.className = 'card home-card';
+      el.innerHTML = `
+        <div class="title">${g.name}<span class="tag">${g.items.length} 题</span>${
+          done === g.items.length ? '<span class="tag warn">已掌握</span>' : done ? `<span class="tag">${done}/${g.items.length}</span>` : ''
+        }</div>
+        <div class="desc">${g.shape}</div>`;
+      el.onclick = () => showMateLesson(g);
+      list.appendChild(el);
+    }
+    scr.appendChild(list);
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showHome;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  /** 一个图形一课：先讲清楚形状和道理，再连做几题 */
+  function showMateLesson(g: ReturnType<typeof matesByName>[number]) {
+    clear();
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-report';
+    scr.innerHTML = `
+      <h1>${g.name}</h1>
+      <div class="xq-advice">
+        <b>图形</b><p>${g.shape}</p>
+        <b>为什么成立</b><p>${g.why}</p>
+      </div>
+      <div class="sub">一共 ${g.items.length} 题，从一步杀开始，逐步加长</div>`;
+    const go = document.createElement('button');
+    go.className = 'btn';
+    go.textContent = '开始练这个图形 →';
+    go.onclick = () => runMateSeries(g, 0, 0);
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showMateList;
+    scr.appendChild(go);
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  function runMateSeries(g: ReturnType<typeof matesByName>[number], i: number, right: number) {
+    if (i >= g.items.length) {
+      checkIn();
+      finishSession(`${g.name}`, right, g.items.length, () => runMateSeries(g, 0, 0));
+      return;
+    }
+    const p = g.items[i];
+    clear();
+    const host = document.createElement('div');
+    host.className = 'xq-coach-stage';
+    wrap.appendChild(host);
+    disposeScreen = runPuzzle(
+      host,
+      { id: p.id, kind: 'mate', fen: p.fen, answer: p.answer, line: p.line, mateIn: p.mateIn, rating: p.rating },
+      {
+        caption: `${g.name} ${i + 1}/${g.items.length}`,
+        allowHint: true,
+        onDone: (r) => {
+          const ok = r.correct && !r.usedHint;
+          updateRating('mate', p.rating, ok);
+          if (ok) {
+            markRight(p.id);
+            markMateCleared(p.id);
+          } else markWrong(p.id);
+          runMateSeries(g, i + 1, right + (ok ? 1 : 0));
+        },
+      },
+    );
+  }
+
+  // ---------------- 实用残局 ----------------
+  async function showEndgameList() {
+    clear();
+    await loadLibrary();
+    if (!wrap.isConnected) return;
+    const groups = endgamesByName();
+    const cleared = new Set(getCleared().endgames);
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-home';
+    scr.innerHTML = `
+      <h1>🏁 实用残局</h1>
+      <div class="sub">摆好局面跟引擎下到底，不到分出结果不算过</div>
+      <div class="xq-advice">
+        <b>残局为什么排这么前</b>
+        <p>残局是<b>可以算准的</b>——子少、变化收敛，练的是精确不是感觉。
+        而且中局的优势最后都要靠残局兑现：多一个马走成和棋，比中局失误还可惜。</p>
+        <p class="dim">每个局面的"是胜是和"都由引擎在较强设置下实测判定，不是照搬棋书结论。
+        先自己判断这局是赢是和，再下到底验证——<b>判断力才是残局功力的核心</b>。</p>
+      </div>`;
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    for (const g of groups) {
+      const done = g.items.filter((i) => cleared.has(i.id)).length;
+      const wins = g.items.filter((i) => i.target === 'win').length;
+      const el = document.createElement('div');
+      el.className = 'card home-card';
+      el.innerHTML = `
+        <div class="title">${g.name}<span class="tag">${g.category}</span>${
+          done === g.items.length ? '<span class="tag warn">已过</span>' : done ? `<span class="tag">${done}/${g.items.length}</span>` : ''
+        }</div>
+        <div class="desc">${g.material}　·　${g.items.length} 个局面（其中 ${wins} 个是胜局）<br>${g.goal}</div>`;
+      el.onclick = () => showEndgameGroup(g);
+      list.appendChild(el);
+    }
+    scr.appendChild(list);
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showHome;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  function showEndgameGroup(g: ReturnType<typeof endgamesByName>[number]) {
+    clear();
+    const cleared = new Set(getCleared().endgames);
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-report';
+    scr.innerHTML = `
+      <h1>${g.name}</h1>
+      <div class="sub">${g.material}</div>
+      <div class="xq-advice">
+        <b>这一局练什么</b><p>${g.goal}</p>
+        <b>要领</b><ul style="margin:6px 0 0;padding-left:18px;line-height:1.75">${g.tips
+          .map((t) => `<li>${t}</li>`)
+          .join('')}</ul>
+      </div>`;
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    g.items.forEach((e, i) => {
+      const el = document.createElement('div');
+      el.className = 'card home-card';
+      el.innerHTML = `
+        <div class="title">局面 ${i + 1}
+          <span class="tag ${e.target === 'win' ? 'warn' : ''}">${e.target === 'win' ? '你能赢' : '只能和'}</span>
+          ${cleared.has(e.id) ? '<span class="tag">已过</span>' : ''}</div>
+        <div class="desc">${e.target === 'win' ? '把优势下成胜势' : '守住这个和棋'}</div>`;
+      el.onclick = () => runEndgame(g, i);
+      list.appendChild(el);
+    });
+    scr.appendChild(list);
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showEndgameList;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  function runEndgame(g: ReturnType<typeof endgamesByName>[number], i: number) {
+    const e: EndgamePos = g.items[i];
+    clear();
+    const host = document.createElement('div');
+    host.className = 'xq-coach-stage';
+    wrap.appendChild(host);
+    disposeScreen = runPlayout(host, {
+      fen: e.fen,
+      you: e.you,
+      target: e.target,
+      title: e.name,
+      subtitle: `${e.material} · 局面 ${i + 1}`,
+      tips: e.tips,
+      onDone: (r) => {
+        // 达成目标才算过：胜局必须赢，和局守和即可
+        if (r === 'win' || (r === 'draw' && e.target === 'draw')) {
+          markEndgameCleared(e.id);
+          updateRating('endgame', e.rating, true);
+        } else {
+          updateRating('endgame', e.rating, false);
+        }
+        checkIn();
+        runEndgame(g, i); // "再来一次"
+      },
+      onExit: () => {
+        checkIn();
+        showEndgameGroup(g);
+      },
+    });
+  }
+
   // ---------------- 今日训练 ----------------
   function showToday() {
     clear();
@@ -680,6 +972,29 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       startReview(goNext);
       return;
     }
+    if (b.kind === 'mate-shape') {
+      // 挑一个还没掌握的图形来练
+      void loadLibrary().then(() => {
+        if (!wrap.isConnected) return;
+        const cleared = new Set(getCleared().mates);
+        const groups = matesByName();
+        const next = groups.find((g) => g.items.some((i) => !cleared.has(i.id))) ?? groups[0];
+        if (!next) return goNext();
+        showMateLesson(next);
+      });
+      return;
+    }
+    if (b.kind === 'endgame') {
+      void loadLibrary().then(() => {
+        if (!wrap.isConnected) return;
+        const cleared = new Set(getCleared().endgames);
+        const groups = endgamesByName();
+        const next = groups.find((g) => g.items.some((i) => !cleared.has(i.id))) ?? groups[0];
+        if (!next) return goNext();
+        showEndgameGroup(next);
+      });
+      return;
+    }
     startPractice(b.dim ?? weakestDim(getRatings()), b.count ?? 10, goNext, b.ratingBias ?? 40);
   }
 
@@ -724,6 +1039,27 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       list.appendChild(el);
     }
     scr.appendChild(list);
+
+    // 周计划：只有"每天练什么"不够，专业训练是按周组织的
+    const week = document.createElement('div');
+    week.className = 'xq-week';
+    week.innerHTML =
+      `<div class="xq-sec2">一周怎么安排</div>` +
+      WEEK_PLAN.map(
+        (d) => `<div class="xq-week-row${d.minutes > 30 ? ' long' : ''}">
+          <span class="d">${d.label}</span>
+          <span class="t">${d.title}<span class="m">${d.minutes} 分钟</span></span>
+          <span class="s">${d.desc}</span>
+        </div>`,
+      ).join('');
+    scr.appendChild(week);
+
+    const pri = document.createElement('div');
+    pri.className = 'xq-principles';
+    pri.innerHTML =
+      `<div class="xq-sec2">专业训练里最容易被忽略的几条</div>` +
+      PRO_PRINCIPLES.map((p) => `<div class="xq-pri"><b>${p.title}</b><p>${p.body}</p></div>`).join('');
+    scr.appendChild(pri);
 
     const back = document.createElement('button');
     back.className = 'btn ghost';
@@ -776,7 +1112,9 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     wrap.appendChild(scr);
   }
 
-  showHome();
+  // 第一次进学棋先问一句水平——不然报出来的分你没有参照系
+  if (getDeclared()) showHome();
+  else askLevel(showHome);
 
   return () => {
     clear();
