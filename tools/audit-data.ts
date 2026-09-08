@@ -133,11 +133,13 @@ function auditPositions(rows: Row[], label: string, hasAnswer: boolean) {
  * 漏一个，学生走出那一手就会被判错——这比步数标错更伤人。
  */
 function auditMates(rows: Row[], label: string) {
-  const depth = Number(process.env.MATE_DEPTH ?? 13);
   for (const r of rows) {
     if (!r.mateIn) continue;
     const p = fromFen(r.fen);
     if (!p) continue;
+    // 判定深度按步数给，别一律要求 13 层：将军延伸会让杀棋局面的搜索树炸开，
+    // 一步杀要到 13 层反而算不完。实测 9 层起结论就稳了，这里给 mateIn*2+5。
+    const depth = Math.min(Number(process.env.MATE_DEPTH ?? 13), r.mateIn * 2 + 5);
     // 一定要真的搜到 depth 层。时限截断的半截结果会漏掉"同样快的杀法"——
     // 上一版体检就因为这个报出一道假问题，而机器闲的时候又复现不了
     const a = steadyAnalyze(p.board, p.toMove, depth, 8000);
@@ -172,12 +174,18 @@ function auditEndgames(rows: { id: string; name: string; fen: string; you: Color
   for (const e of rows) {
     const p = fromFen(e.fen);
     if (!p) continue;
-    const r = playToEnd(p.board, p.toMove, 12, 3000, 120);
-    const youWin = r === (e.you === 'r' ? 'red-win' : 'black-win');
-    const youLose = r !== 'draw' && !youWin;
-    if (youLose) flag('残局·标的结果反了，你会输', `${e.id}（${e.name}）标${e.target}`);
-    else if (e.target === 'win' && !youWin) flag('残局·标胜但下不出胜果', `${e.id}（${e.name}）`);
-    else if (e.target === 'draw' && youWin) flag('残局·标和但其实能赢', `${e.id}（${e.name}）`);
+    // 必须和生成器用同一套判法：**一次下出来的结果不算数**。
+    // 第一版这里只下一遍 12 层，把生成器用 12/13/14 三个深度确认过的
+    // 局面报成了错——同一个局面不同深度走的是不同路线，单跑一次的结论
+    // 本来就不稳。拿一个更弱的方法去审更强方法定下来的结论，又是同一个毛病。
+    const runs = [12, 13, 14].map((d) => playToEnd(p.board, p.toMove, d, d >= 14 ? 8000 : 3000, 120));
+    const mine = (r: string) => (e.you === 'r' ? 'red-win' : 'black-win') === r;
+    const wins = runs.filter(mine).length;
+    const losses = runs.filter((r) => r !== 'draw' && !mine(r)).length;
+    if (losses) flag('残局·标的结果反了，你会输', `${e.id}（${e.name}）标${e.target}`);
+    else if (e.target === 'win' && wins < runs.length)
+      flag('残局·标胜但下不稳', `${e.id}（${e.name}）${wins}/${runs.length} 次赢下来`);
+    else if (e.target === 'draw' && wins) flag('残局·标和但其实能赢', `${e.id}（${e.name}）`);
   }
 }
 

@@ -327,18 +327,31 @@ const MIN_WIN_PLIES = Number(process.env.MIN_WIN_PLIES ?? 16);
 /**
  * 定这一局到底是胜是和。
  *
- * 要害在于：**「引擎没赢下来」不等于「这局赢不了」**。上一版就是直接把没赢
- * 记成了和，于是单车对双士这种例胜局面被标成「只能和」，软件教了个假结论。
- * 所以这里判和之前一定要换更强的一档再试，赢不了才算和。
+ * 两条要害，都是踩出来的：
+ *
+ * 1. **「引擎没赢下来」不等于「这局赢不了」**。第一版直接把没赢记成了和，
+ *    于是单车对双士这种例胜局面被标成「只能和」，软件教了个假结论。
+ *
+ * 2. **一次下出来的结果不算数**。同一个局面用 12 层和 14 层去下，走的是
+ *    不同的路线，结果可能不一样——体检里就出现过"生成时判胜、复查时下成和"
+ *    和反过来的情况各好几个。这说明那些局面本身处在胜和边界上，
+ *    "这局是胜是和"根本没有稳定答案，那就不该拿来当教材。
+ *    所以现在要求**三个深度下出同一个结果**才收，不一致的直接扔掉。
  */
-function verdict(b: Board): { target: 'win' | 'draw' | 'loss'; plies: number; reason: string } {
-  const o = playOut(b, 'r', DEPTH, TIME, MAX_PLIES);
-  if (o.result === 'red-win') return { target: 'win', plies: o.plies, reason: o.reason };
-  if (o.result === 'black-win') return { target: 'loss', plies: o.plies, reason: o.reason };
-  const d = playOut(b, 'r', DEEP_DEPTH, DEEP_TIME, MAX_PLIES);
-  if (d.result === 'red-win') return { target: 'win', plies: d.plies, reason: d.reason };
-  if (d.result === 'black-win') return { target: 'loss', plies: d.plies, reason: d.reason };
-  return { target: 'draw', plies: d.plies, reason: d.reason };
+const VERDICT_DEPTHS = [DEPTH, DEPTH + 1, DEEP_DEPTH];
+
+function verdict(b: Board): { target: 'win' | 'draw' | 'loss' | 'unstable'; plies: number; reason: string } {
+  const runs = VERDICT_DEPTHS.map((d, i) =>
+    playOut(b, 'r', d, i === VERDICT_DEPTHS.length - 1 ? DEEP_TIME : TIME, MAX_PLIES),
+  );
+  // 只要有一次红方赢下来，就说明这局是能赢的（没赢只能说明那一次没走好）；
+  // 但要标成"胜"，得三次都赢——赢一次赢不了两次的局面在实战里没有教学价值
+  const wins = runs.filter((r) => r.result === 'red-win');
+  const losses = runs.filter((r) => r.result === 'black-win');
+  if (losses.length) return { target: 'loss', plies: losses[0].plies, reason: losses[0].reason };
+  if (wins.length === runs.length) return { target: 'win', plies: wins[0].plies, reason: wins[0].reason };
+  if (wins.length) return { target: 'unstable', plies: wins[0].plies, reason: '有的深度赢得下来有的赢不下来' };
+  return { target: 'draw', plies: runs[runs.length - 1].plies, reason: runs[runs.length - 1].reason };
 }
 const PER = Number(process.env.PER_COMBO ?? 3);
 const BUDGET = Number(process.env.BUDGET_MS ?? 400000);
@@ -378,6 +391,7 @@ for (const combo of combos) {
   const budget = BUDGET / combos.length;
   let tried = 0;
   let rejected = 0;
+  let unstable = 0;
   while (got < PER && Date.now() - t0 < budget) {
     tried++;
     // 强方固定执红，"你"就是强方（守方局里 strong 是士象炮，你还是执红）
@@ -393,6 +407,10 @@ for (const combo of combos) {
 
     const v = verdict(b);
     if (v.target === 'loss') continue; // 你会输的局面不能当练习
+    if (v.target === 'unstable') {
+      unstable++;
+      continue; // 胜和边界上的局面，没有稳定答案，不能当教材
+    }
     // 闸门二：实测结论要和定式对得上。对不上有两种可能——这个摆法不典型，
     // 或者引擎没把胜势走出来——不管哪种，都不该拿去当"结论"教人。
     if (combo.theory !== 'varies' && v.target !== combo.theory) {
@@ -423,7 +441,8 @@ for (const combo of combos) {
   const d = out.filter((x) => x.id.startsWith(combo.id) && x.target === 'draw').length;
   process.stderr.write(
     `${combo.name.padEnd(14)} ${got}/${PER}  胜${w} 和${d}  ` +
-      `(试 ${tried} 次，和定式对不上被扔掉 ${rejected} 个, ${Math.round((Date.now() - t0) / 1000)}s)\n`,
+      `(试 ${tried} 次，定式对不上扔 ${rejected} 个，胜和不稳定扔 ${unstable} 个, ` +
+      `${Math.round((Date.now() - t0) / 1000)}s)\n`,
   );
 }
 
