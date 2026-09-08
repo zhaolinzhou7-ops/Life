@@ -11,6 +11,8 @@ import {
 } from './rules';
 import { disposeAi, requestMove } from './aiclient';
 import { runReview } from './review';
+import { runCoach } from './coach';
+import { isAssessed, getRatings, overallOf, rankOf, srsCount } from './save';
 import { XiangqiScene, type PieceTheme } from './scene3d';
 import {
   isMuted,
@@ -50,15 +52,72 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
   let cleanupGame: (() => void) | null = null;
   let setupEl: HTMLElement | null = null;
+  let disposeCoach: (() => void) | null = null;
 
   const unlock = () => unlockAudio();
   window.addEventListener('pointerdown', unlock, { once: true });
 
-  // ============ 开局设置界面 ============
-  function showSetup() {
+  const clearAll = () => {
     cleanupGame?.();
     cleanupGame = null;
+    disposeCoach?.();
+    disposeCoach = null;
     setupEl?.remove();
+    setupEl = null;
+  };
+
+  // ============ 一级入口：下棋 还是 学棋 ============
+  function showModeMenu() {
+    clearAll();
+    const rs = getRatings();
+    const overall = overallOf(rs);
+    const srs = srsCount();
+    const s = document.createElement('div');
+    s.className = 'screen xq-setup xq-modes';
+    setupEl = s;
+    s.innerHTML = `<h1>楚河汉界</h1><div class="sub">下棋练手，学棋涨分</div>`;
+
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    const modes = [
+      {
+        t: '⚔️ 对弈',
+        d: '和 AI 下一盘完整的棋。下完可以复盘——引擎会逐手标出你哪里走坏了、该走什么。',
+        go: () => showSetup(),
+      },
+      {
+        t: '📚 学棋',
+        d: isAssessed()
+          ? `当前 ${rankOf(overall).name} · ${overall} 分。专项练习按你的水平出题${
+              srs.due ? `，今天还有 ${srs.due} 道错题要复习` : ''
+            }。`
+          : '先测一下水平（约 20 分钟），再按短板安排练什么。测评题会跟着你的表现自动调难度。',
+        go: () => {
+          clearAll();
+          disposeCoach = runCoach(wrap, showModeMenu);
+        },
+      },
+    ];
+    for (const m of modes) {
+      const card = document.createElement('div');
+      card.className = 'card home-card';
+      card.innerHTML = `<div class="title">${m.t}</div><div class="desc">${m.d}</div>`;
+      card.onclick = m.go;
+      list.appendChild(card);
+    }
+    s.appendChild(list);
+
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回合集首页';
+    back.onclick = () => onExit(false);
+    s.appendChild(back);
+    wrap.appendChild(s);
+  }
+
+  // ============ 开局设置界面 ============
+  function showSetup() {
+    clearAll();
 
     let level = Number(localStorage.getItem('xq-level') ?? 1);
     let theme = (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme;
@@ -176,8 +235,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
       const back = document.createElement('button');
       back.className = 'btn ghost';
-      back.textContent = '返回首页';
-      back.onclick = () => onExit(false);
+      back.textContent = '← 返回';
+      back.onclick = () => showModeMenu();
       s.appendChild(back);
     };
     render();
@@ -406,7 +465,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
     let resultEl: HTMLElement | null = null;
     let closeReview: (() => void) | null = null;
+    /** 上一次结算的胜负，复盘要记进对局统计 */
+    let lastWon = false;
     function showResult(playerWon: boolean) {
+      lastWon = playerWon;
       if (playerWon) {
         sfxWinBig();
         setTimeout(() => say(pickLine(rival.lines.lose)), 500);
@@ -460,6 +522,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         startColor: 'r',
         moves: moveLog.slice(),
         playerColor: 'r',
+        playerWon: lastWon,
         onClose: () => {
           closeReview = null;
           resultEl?.classList.remove('xq-hidden');
@@ -499,11 +562,12 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     };
   }
 
-  showSetup();
+  showModeMenu();
 
   return () => {
     window.removeEventListener('pointerdown', unlock);
     cleanupGame?.();
+    disposeCoach?.();
     stopBgm();
     wrap.remove();
   };

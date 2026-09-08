@@ -16,6 +16,8 @@ import {
   type ReviewedMove,
 } from './analysis';
 import type { XiangqiScene } from './scene3d';
+import { toFen } from './notation';
+import { addOwnPuzzle, recordGame } from './save';
 
 /** 复盘搜索深度：和对局难度无关，复盘永远用同一把尺子量 */
 const REVIEW_DEPTH = 6;
@@ -29,11 +31,13 @@ export interface ReviewOpts {
   moves: Move[];
   /** 你执哪一方，用来在文案里称"你" */
   playerColor: Color;
+  /** 这一局你赢了没有；用来记进对局统计 */
+  playerWon?: boolean;
   onClose: () => void;
 }
 
 export function runReview(opts: ReviewOpts): () => void {
-  const { host, scene, startBoard, startColor, moves, playerColor, onClose } = opts;
+  const { host, scene, startBoard, startColor, moves, playerColor, playerWon, onClose } = opts;
 
   // 每一手走之前的局面，导航时直接取用
   const boards: Board[] = [startBoard];
@@ -191,6 +195,7 @@ export function runReview(opts: ReviewOpts): () => void {
     },
     () => {
       report = summarize(reviewed);
+      harvest(report);
       elProgress.textContent = `共 ${moves.length} 手`;
       renderSummary();
       // 分析完直接跳到「你最该改的一手」——学棋要看的是自己的错
@@ -198,6 +203,45 @@ export function runReview(opts: ReviewOpts): () => void {
       goto(jump >= 0 ? jump : reviewed.length - 1);
     },
   );
+
+  /**
+   * 把这一局的成绩记下来，并把**你自己走错的那几手做成题**排进错题本。
+   *
+   * 题库里的题是通用的，这些是你真的走错过的局面——同一个坑掉第二次，
+   * 才说明是真没长进。这是整套系统里最针对个人的一块。
+   */
+  function harvest(rep: GameReview) {
+    const me = rep.stats[playerColor];
+    recordGame({
+      won: !!playerWon,
+      blunders: me.blunders,
+      mistakes: me.mistakes,
+      avgLoss: me.avgLoss,
+    });
+    let saved = 0;
+    rep.moves.forEach((m, i) => {
+      if (m.color !== playerColor) return;
+      if (m.grade !== 'blunder' && m.grade !== 'mistake') return;
+      if (!m.bestMove || !m.bestText) return;
+      const before = boards[i];
+      const ok = addOwnPuzzle({
+        // 走错的是漏着就归"眼力"，其余归"战术"——和五维评分对得上
+        kind: m.grade === 'blunder' ? 'safety' : 'tactic',
+        fen: toFen(before, m.color),
+        answer: m.bestText,
+        line: m.bestPv ?? [m.bestText],
+        // 难度按亏损给：丢得越多说明越该一眼看出来，题反而越"简单"
+        rating: Math.round(Math.max(700, 1500 - m.loss / 3)),
+      });
+      if (ok) saved++;
+    });
+    if (saved > 0) {
+      const tip = document.createElement('div');
+      tip.className = 'xq-rv-harvest';
+      tip.innerHTML = `📌 已把你这局走错的 <b>${saved}</b> 手存进错题本，过几天会回来找你。`;
+      elSummary.appendChild(tip);
+    }
+  }
 
   goto(-1);
 
