@@ -2436,6 +2436,21 @@ canvas {
   margin: 6px 0 2px;
 }
 /* 分数尺子的说明：写小一点、灰一点，它是免责说明不是结论 */
+/* 残局卡片上的小棋盘：让"先判断"这一步真的有东西可判 */
+.xq-eg-thumb {
+  position: relative;
+  width: 100%;
+  max-width: 260px;
+  aspect-ratio: 9 / 10;
+  margin: 8px auto 4px;
+}
+.xq-eg-thumb .xq-b2d {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 /* 残局卡片上的"先判断"：两个按钮并排，别做得像主操作 */
 .xq-eg-guess {
   display: flex;

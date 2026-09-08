@@ -47,6 +47,8 @@ import { loadPuzzles, pickNear, byId, type Puzzle, type PuzzleKind } from './puz
 import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
+import { Board2D } from './board2d';
+import { fromFen } from './notation';
 import { STAGES, stageFor, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, type Block } from './curriculum';
 
 const DIM_KIND: Record<Dim, PuzzleKind> = {
@@ -63,9 +65,13 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
   root.appendChild(wrap);
 
   let disposeScreen: (() => void) | null = null;
+  /** 当前这一屏上的小棋盘（残局卡片的缩略图）。换屏时必须停掉，否则渲染循环会一直跑 */
+  let thumbs: Board2D[] = [];
   const clear = () => {
     disposeScreen?.();
     disposeScreen = null;
+    for (const t of thumbs) t.dispose();
+    thumbs = [];
     wrap.innerHTML = '';
   };
 
@@ -892,11 +898,13 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
         if (!guess) {
           el.innerHTML = `
             <div class="title">局面 ${i + 1}<span class="tag">先判断</span></div>
+            <div class="xq-eg-thumb"></div>
             <div class="desc">看一眼这个局面，你觉得强的一方能赢下来，还是只能和？</div>
             <div class="xq-eg-guess">
               <button class="xq-btn" data-g="win">能赢</button>
               <button class="xq-btn" data-g="draw">只能和</button>
             </div>`;
+          showThumb(el, e);
           el.querySelectorAll<HTMLButtonElement>('[data-g]').forEach((btn) => {
             btn.onclick = (ev) => {
               ev.stopPropagation();
@@ -916,7 +924,9 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
             ${cleared.has(e.id) ? '<span class="tag">已过</span>' : ''}</div>
           <div class="desc">${right ? '✅ 你判断对了' : `❌ 你猜的是「${guess === 'win' ? '能赢' : '只能和'}」`}　·　${
             e.target === 'win' ? '把优势下成胜势' : '守住这个和棋'
-          }${e.reason ? `<br><span class="dim">引擎实测：${drawWhy(e)}</span>` : ''}</div>`;
+          }${e.reason ? `<br><span class="dim">引擎实测：${drawWhy(e)}</span>` : ''}</div>
+          <div class="xq-eg-thumb"></div>`;
+        showThumb(el, e);
         el.onclick = () => runEndgame(g, i);
       };
       render();
@@ -929,6 +939,21 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     back.onclick = showEndgameList;
     scr.appendChild(back);
     wrap.appendChild(scr);
+  }
+
+  /**
+   * 卡片上的小棋盘。
+   *
+   * 少了它这一屏就没意义——问"你觉得这局能不能赢"却不给看局面，
+   * 那不叫判断，叫瞎猜。执黑的局面要翻过来，让"你"永远在下方。
+   */
+  function showThumb(card: HTMLElement, e: EndgamePos) {
+    const host = card.querySelector('.xq-eg-thumb') as HTMLElement | null;
+    const parsed = host && fromFen(e.fen);
+    if (!host || !parsed) return;
+    const bd = new Board2D(host, { flip: e.you === 'b' });
+    bd.setBoard(parsed.board);
+    thumbs.push(bd);
   }
 
   /**
