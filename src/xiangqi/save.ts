@@ -420,6 +420,21 @@ export function allDueSoon(limit = 10): SrsCard[] {
     .slice(0, limit);
 }
 
+/**
+ * 清掉指向已经不存在的题目的复习卡。
+ *
+ * 题库会变——修数据时删掉过错题，自己实战抓的题也会被 200 道上限挤掉。
+ * 卡还留着的话，首页会显示"12 道待复习"而点进去只有 8 道。
+ * save.ts 不能反过来 import 题库（会成环），所以由上层把"这题还在不在"传进来。
+ */
+export function pruneSrs(exists: (id: string) => boolean): number {
+  const d = load();
+  const before = d.srs.length;
+  d.srs = d.srs.filter((c) => exists(c.id));
+  if (d.srs.length !== before) store(d);
+  return before - d.srs.length;
+}
+
 export function srsCount(): { total: number; due: number } {
   const d = load();
   const t = todayNum();
@@ -520,8 +535,12 @@ export function addOwnPuzzle(p: Omit<Puzzle, 'id'>): string | null {
   if (d.own.some((x) => x.fen === p.fen)) return null;
   const id = `own-${d.ownSeq++}`;
   d.own.push({ ...p, id });
-  // 只留最近 200 道，别让存档无限涨
-  if (d.own.length > 200) d.own.shift();
+  // 只留最近 200 道，别让存档无限涨。丢掉题的同时**必须把它的复习卡一起丢掉**，
+  // 否则错题本里会留下一堆指向不存在题目的卡：界面上数字有、点进去是空的。
+  if (d.own.length > 200) {
+    const gone = d.own.shift();
+    if (gone) d.srs = d.srs.filter((c) => c.id !== gone.id);
+  }
   d.srs.push({ id, box: 0, wrong: 1, due: todayNum() + SRS_INTERVALS[0] });
   store(d);
   return id;

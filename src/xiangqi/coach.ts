@@ -24,6 +24,7 @@ import {
   dueCards,
   allDueSoon,
   srsCount,
+  pruneSrs,
   totalSolved,
   getHistory,
   getDeclared,
@@ -103,9 +104,26 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     wrap.appendChild(scr);
   }
 
+  /**
+   * 题库到了之后清一遍错题本：把指向已经不存在的题目的卡删掉。
+   *
+   * 题库会变（修数据时删过错题，实战抓的题也会被 200 道上限挤掉），
+   * 卡不清的话首页会显示"12 道待复习"而点进去只有 8 道。
+   */
+  let pruned = false;
+  function pruneOnce() {
+    if (pruned) return;
+    pruned = true;
+    void loadPuzzles().then(() => {
+      // 真的清掉了才重画首页——没清掉就重画会白闪一下
+      if (pruneSrs((id) => !!byId(id)) > 0 && wrap.querySelector('.xq-coach-home')) showHome();
+    });
+  }
+
   // ---------------- 首页 ----------------
   function showHome() {
     clear();
+    pruneOnce();
     const rs = getRatings();
     const overall = overallOf(rs);
     const rank = rankOf(overall);
@@ -810,8 +828,11 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
         <b>残局为什么排这么前</b>
         <p>残局是<b>可以算准的</b>——子少、变化收敛，练的是精确不是感觉。
         而且中局的优势最后都要靠残局兑现：多一个马走成和棋，比中局失误还可惜。</p>
-        <p class="dim">每个局面的"是胜是和"都由引擎在较强设置下实测判定，不是照搬棋书结论。
-        先自己判断这局是赢是和，再下到底验证——<b>判断力才是残局功力的核心</b>。</p>
+        <p class="dim">每个局面的"是胜是和"都是引擎实测出来的：先下到底，<b>下成和还不算数</b>，
+        要换更强的一档再试一次、还赢不了才记"和"；结论已经确定的组合（单车例胜双士、
+        单车例和士象全……）还要和定式对得上，对不上的局面根本不进库。</p>
+        <p class="dim">所以同一个名目下会有的能赢、有的只能和——<b>摆法不同结果就不同，这正是要练的东西</b>。
+        先自己判断这局是赢是和，再下到底验证。判断力才是残局功力的核心。</p>
       </div>`;
     const list = document.createElement('div');
     list.className = 'card-list';
