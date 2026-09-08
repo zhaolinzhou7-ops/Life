@@ -17,7 +17,7 @@
  */
 import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color } from '../src/xiangqi/rules';
 import { fromFen, moveToText } from '../src/xiangqi/notation';
-import { analyze } from '../src/xiangqi/ai';
+import { steadyAnalyze } from './steady-analyze';
 import { readFileSync, writeFileSync } from 'fs';
 
 const FILE = 'src/xiangqi/puzzles.json';
@@ -66,10 +66,12 @@ for (const r of rows) {
     notes.push(`✗ ${r.id} FEN 读不出，删`);
     continue;
   }
-  const a = analyze(p.board, p.toMove, { maxDepth: DEPTH, timeMs: TIME, jitter: 0 });
+  // 必须真的搜到 DEPTH 层，否则同一道题机器忙和闲会得出不同结论
+  const a = steadyAnalyze(p.board, p.toMove, DEPTH, TIME);
   const top = a.moves[0];
-  if (!top) {
-    dropped++;
+  if (!a.full || !top) {
+    notes.push(`  ${r.id} 搜不到 ${DEPTH} 层（只到 ${a.depth}），原样留着不改`);
+    kept.push(r);
     continue;
   }
   const ties = a.moves.filter((m) => top.score - m.score <= TIE).map((m) => moveToText(p.board, m.move));

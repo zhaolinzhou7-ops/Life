@@ -18,9 +18,10 @@
  *     --outfile=/tmp/audit.mjs && node /tmp/audit.mjs
  *   FAST=1 只做不花时间的检查（编码/摆位/合法性/主变），CI 里用这个
  */
-import { legalMoves, applyMove, isInCheck, type Board, type Color } from '../src/xiangqi/rules';
-import { fromFen, moveToText, textToMove } from '../src/xiangqi/notation';
-import { analyze } from '../src/xiangqi/ai';
+import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color } from '../src/xiangqi/rules';
+import { fromFen, toFen, moveToText, textToMove } from '../src/xiangqi/notation';
+import { think } from '../src/xiangqi/ai';
+import { steadyAnalyze } from './steady-analyze';
 import { checkBoard } from './validate-positions';
 import puzzles from '../src/xiangqi/puzzles.json';
 import mates from '../src/xiangqi/matepatterns.json';
@@ -28,6 +29,37 @@ import endgames from '../src/xiangqi/endgamelib.json';
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 const legalOf = (b: Board, c: Color) => legalMoves(b, c).filter((m) => !isInCheck(applyMove(b, m), c));
+
+/** 引擎双方下到底，判定规则和 App 里一致（60 回合无吃子判和、三次重复判和） */
+function playToEnd(
+  board: Board,
+  toMove: Color,
+  depth: number,
+  timeMs: number,
+  maxPlies: number,
+): 'red-win' | 'black-win' | 'draw' {
+  let b = board;
+  let c = toMove;
+  let sinceCapture = 0;
+  const seen = new Map<string, number>();
+  for (let ply = 0; ply < maxPlies; ply++) {
+    const st = statusAfter(b, c);
+    if (st !== 'playing') return st;
+    if (!legalOf(b, c).length) return c === 'r' ? 'black-win' : 'red-win';
+    const m = think(b, c, { maxDepth: depth, timeMs, jitter: 0 });
+    if (!m) return 'draw';
+    const cap = !!b[m.ty][m.tx];
+    b = applyMove(b, m);
+    c = other(c);
+    sinceCapture = cap ? 0 : sinceCapture + 1;
+    if (sinceCapture >= 120) return 'draw';
+    const key = toFen(b, c);
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
+    if (n >= 3) return 'draw';
+  }
+  return 'draw';
+}
 
 const problems: Record<string, number> = {};
 const samples: Record<string, string[]> = {};
@@ -106,7 +138,13 @@ function auditMates(rows: Row[], label: string) {
     if (!r.mateIn) continue;
     const p = fromFen(r.fen);
     if (!p) continue;
-    const a = analyze(p.board, p.toMove, { maxDepth: depth, timeMs: 8000, jitter: 0 });
+    // 一定要真的搜到 depth 层。时限截断的半截结果会漏掉"同样快的杀法"——
+    // 上一版体检就因为这个报出一道假问题，而机器闲的时候又复现不了
+    const a = steadyAnalyze(p.board, p.toMove, depth, 8000);
+    if (!a.full) {
+      flag(`${label}·搜不到判定深度`, `${r.id}（只到 ${a.depth} 层）`);
+      continue;
+    }
     const truth = a.moves[0]?.mateIn;
     if (truth !== r.mateIn) {
       flag(`${label}·杀棋步数标错`, `${r.id} 标${r.mateIn} 实际${truth ?? '不成杀'}`);
@@ -120,22 +158,26 @@ function auditMates(rows: Row[], label: string) {
 }
 
 /**
- * 残局的胜/和。
+ * 残局的胜/和：**必须真的下一遍**，不能拿静态分判。
  *
- * 注意这里**只能抓一个方向的错**：标"胜"而引擎连优势都看不到，那基本是错的；
- * 标"和"却是例胜的局面，静态分看不出来，得靠生成器里的 theory 闸门挡。
+ * 这条我第一版写错了，而且错得很典型：拿 14 层的静态分去卡"标胜的局面
+ * 引擎该看得到优势"，结果把 4 个正确的局面报成了错。原因是双兵对双士
+ * 这类局面**赢家在子力上是亏的**（两个兵 200 分 vs 两个士 440 分），
+ * 静态分当然是负的，赢要靠几十步的技术兑现——静态分根本判不了这种事。
+ *
+ * 又是同一个毛病：拿一个便宜的近似当判据，去审一个用更强方法定下来的结论。
+ * 所以这里改成和生成器同一套做法：下到底，看结果对不对得上。
  */
 function auditEndgames(rows: { id: string; name: string; fen: string; you: Color; target: string }[]) {
   for (const e of rows) {
     const p = fromFen(e.fen);
     if (!p) continue;
-    const a = analyze(p.board, p.toMove, { maxDepth: 14, timeMs: 4000, jitter: 0 });
-    const top = a.moves[0];
-    const sc = p.toMove === e.you ? (top?.score ?? 0) : -(top?.score ?? 0);
-    if (e.target === 'win' && top?.mateIn == null && sc < 250)
-      flag('残局·标胜但引擎看不到优势', `${e.id}（${e.name}）分=${sc}`);
-    if (e.target === 'draw' && (top?.mateIn ?? 0) > 0)
-      flag('残局·标和但引擎有杀', `${e.id}（${e.name}）${top!.mateIn} 步杀`);
+    const r = playToEnd(p.board, p.toMove, 12, 3000, 120);
+    const youWin = r === (e.you === 'r' ? 'red-win' : 'black-win');
+    const youLose = r !== 'draw' && !youWin;
+    if (youLose) flag('残局·标的结果反了，你会输', `${e.id}（${e.name}）标${e.target}`);
+    else if (e.target === 'win' && !youWin) flag('残局·标胜但下不出胜果', `${e.id}（${e.name}）`);
+    else if (e.target === 'draw' && youWin) flag('残局·标和但其实能赢', `${e.id}（${e.name}）`);
   }
 }
 

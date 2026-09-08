@@ -15,7 +15,7 @@
  */
 import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color } from '../src/xiangqi/rules';
 import { fromFen, moveToText } from '../src/xiangqi/notation';
-import { analyze } from '../src/xiangqi/ai';
+import { steadyAnalyze } from './steady-analyze';
 import { readFileSync, writeFileSync } from 'fs';
 
 /** 步数标签必须在这个深度以上才稳。实测 5/7 层还会飘，9 层起一致 */
@@ -67,7 +67,14 @@ export function fixFile(path: string, label: string): void {
       notes.push(`✗ ${r.id} FEN 读不出，删`);
       continue;
     }
-    const a = analyze(p.board, p.toMove, { maxDepth: DEPTH, timeMs: TIME, jitter: 0 });
+    // 必须真的搜到 DEPTH 层：时限截断的结果会漏掉"同样快的杀法"，
+    // 而且同一台机器忙和闲会给出不同答案——数据不能随机器负载而变
+    const a = steadyAnalyze(p.board, p.toMove, DEPTH, TIME);
+    if (!a.full) {
+      notes.push(`✗ ${r.id} 搜不到 ${DEPTH} 层（只到 ${a.depth}），跳过不改`);
+      kept.push(r);
+      continue;
+    }
     const truth = a.moves[0]?.mateIn;
     if (!truth || truth <= 0) {
       dropped++;
