@@ -36,10 +36,38 @@ for (const f of files) {
   process.stderr.write(`${f}: ${list.length} 题，去重后新增 ${list.length - dup}\n`);
 }
 
+/**
+ * 已经有 id 的题**必须保住原来的 id**。
+ *
+ * 原来是合并完按顺序全部重编号。那样存档就废了：错题本、自校准的难度
+ * 修正值都是按题号存的，重编号之后全部指向别的题——用户几个月的记录
+ * 会安静地对错人，而且看不出来。
+ *
+ * 按**文件顺序**发号（所以第一个文件传老题库），先到先得：老题保住原号，
+ * 新题里撞号的另发一个。发完再按难度排序。
+ */
+const used = new Set();
+let seq = 0;
+const nextId = (p) => {
+  let id;
+  do {
+    id = `${p.kind}${p.mateIn ?? ''}-${(seq++).toString(36)}`;
+  } while (used.has(id));
+  return id;
+};
+let renamed = 0;
+for (const p of out) {
+  if (p.id && !used.has(p.id)) {
+    used.add(p.id);
+    continue;
+  }
+  if (p.id) renamed++;
+  p.id = nextId(p);
+  used.add(p.id);
+}
+if (renamed) process.stderr.write(`新题里有 ${renamed} 个题号和老题库撞了，已另发号\n`);
+
 out.sort((a, b) => a.rating - b.rating);
-out.forEach((p, i) => {
-  p.id = `${p.kind}${p.mateIn ?? ''}-${i.toString(36)}`;
-});
 
 // 体检：每类的数量与难度跨度。某一类太少的话测评那一维会测不准，得知道
 const byKind = {};

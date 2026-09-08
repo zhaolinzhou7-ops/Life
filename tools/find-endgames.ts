@@ -302,11 +302,20 @@ function playOut(board: Board, toMove: Color, depth: number, timeMs: number, max
   return { result: 'draw', plies: maxPlies, reason: '未分胜负' };
 }
 
+/**
+ * ⚠️ 时限一定要给足，让**层数**成为约束，而不是墙上时钟。
+ *
+ * 这一点是踩出来的：同一批局面，机器上还跑着别的任务时"单车对马双士"
+ * 判出 0 胜 4 和，机器空下来重跑就是 3 胜 1 和。原因是搜索按 timeMs 截断，
+ * CPU 被抢就搜不到指定层数，引擎变弱、赢不下来、于是被记成"和"。
+ * **胜和判定绝不能随机器忙不忙而变。** 所以时限给到 3~8 秒，
+ * 残局局面子少，正常几十毫秒就搜完了，给这么多是为了让层数说了算。
+ */
 const DEPTH = Number(process.env.DEPTH ?? 12);
-const TIME = Number(process.env.TIME_MS ?? 1000);
+const TIME = Number(process.env.TIME_MS ?? 3000);
 /** 复核档：判「和」之前必须让更强的一档再试一次 */
 const DEEP_DEPTH = Number(process.env.DEEP_DEPTH ?? 14);
-const DEEP_TIME = Number(process.env.DEEP_TIME_MS ?? 3000);
+const DEEP_TIME = Number(process.env.DEEP_TIME_MS ?? 8000);
 /** App 里 60 回合无吃子就判和，走不进这个长度的「胜」在软件里本来也兑现不了 */
 const MAX_PLIES = 120;
 /**
