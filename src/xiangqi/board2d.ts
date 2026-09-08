@@ -96,11 +96,22 @@ export class Board2D {
     this.arrows = [];
     this.dirty = true;
   }
-  /** 走子动画；动画期间棋盘按"已经走完"的样子画，只有那个子在滑 */
+  /**
+   * 走子动画。默认**不做动画**——训练时一天要走几百步，
+   * 每步等 0.26 秒纯属浪费，落子即到才跟得上思路。
+   * 想看动画的话把 animSec 调大。
+   */
+  animSec = 0;
+
   animateMove(m: Move, board: Board, onDone: () => void) {
     this.board = board;
-    this.anim = { m, t: 0, dur: 0.26, onDone };
     this.dirty = true;
+    if (this.animSec <= 0) {
+      // 仍然要异步回调：调用方靠 onDone 串后续流程，同步执行会打乱顺序
+      requestAnimationFrame(() => onDone());
+      return;
+    }
+    this.anim = { m, t: 0, dur: this.animSec, onDone };
   }
 
   dispose() {

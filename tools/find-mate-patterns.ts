@@ -22,7 +22,8 @@ import {
   type PType,
 } from '../src/xiangqi/rules';
 import { analyze } from '../src/xiangqi/ai';
-import { toFen, moveToText } from '../src/xiangqi/notation';
+import { toFen, fromFen, moveToText } from '../src/xiangqi/notation';
+import { checkBoard } from './validate-positions';
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 
@@ -286,19 +287,149 @@ const SHAPES: Shape[] = [
   },
 ];
 
+/**
+ * 骨架预置：有些图形对摆位的要求太具体，随机撒点几乎不可能撞上。
+ *
+ * 比如闷宫要求「将在 (4,0)、双士正好堵住 (3,0)(5,0)、再有个子填 (4,1)」，
+ * 三个条件同时命中的概率极低——跑 140 秒一个都出不来。
+ *
+ * 所以对这类图形先把骨架摆好，剩下的子随机撒，**正确性照旧由引擎验**
+ * （唯一解的 N 回合杀 + 几何判定）。我摆错了的话引擎会一个都验不过，
+ * 这一点今天已经验证过很多次了。
+ */
+type Seed = { fixed: [PType, Color, number, number][]; rand: [PType, Color][] };
+
+const SEEDS: Record<string, Seed[]> = {
+  'men-gong': [
+    {
+      // 将困在底线正中，双士堵住左右，马填住唯一的上方退路
+      fixed: [['K', 'b', 4, 0], ['A', 'b', 3, 0], ['A', 'b', 5, 0], ['H', 'b', 4, 1], ['K', 'r', 4, 9]],
+      rand: [['C', 'r'], ['R', 'r']],
+    },
+    {
+      fixed: [['K', 'b', 4, 0], ['A', 'b', 3, 0], ['A', 'b', 5, 0], ['P', 'b', 4, 1], ['K', 'r', 4, 9]],
+      rand: [['C', 'r'], ['H', 'r']],
+    },
+  ],
+  'tian-di-pao': [
+    {
+      // 一炮镇中路、一炮打底线，将在中路
+      fixed: [['K', 'b', 4, 1], ['A', 'b', 3, 0], ['A', 'b', 5, 0], ['K', 'r', 4, 9]],
+      rand: [['C', 'r'], ['C', 'r'], ['R', 'r']],
+    },
+    {
+      fixed: [['K', 'b', 4, 0], ['A', 'b', 4, 1], ['E', 'b', 2, 0], ['K', 'r', 4, 9]],
+      rand: [['C', 'r'], ['C', 'r'], ['H', 'r']],
+    },
+  ],
+  'er-gui-pai-men': [
+    {
+      // 双兵贴在将两侧
+      fixed: [['K', 'b', 4, 1], ['P', 'r', 3, 1], ['P', 'r', 5, 1], ['K', 'r', 4, 9]],
+      rand: [['R', 'r']],
+    },
+    {
+      fixed: [['K', 'b', 4, 0], ['P', 'r', 3, 0], ['P', 'r', 5, 0], ['K', 'r', 4, 9]],
+      rand: [['C', 'r'], ['R', 'r']],
+    },
+  ],
+};
+
+/** 按骨架造局面：固定子摆好，其余随机 */
+function seededPosition(seed: Seed): Board | null {
+  const bd: Board = Array.from({ length: 10 }, () => Array(9).fill(null));
+  for (const [t, c, x, y] of seed.fixed) {
+    if (bd[y][x]) return null;
+    bd[y][x] = { t, c };
+  }
+  for (const [t, c] of seed.rand) {
+    let ok = false;
+    for (let k = 0; k < 120 && !ok; k++) {
+      const y = (Math.random() * 10) | 0;
+      const x = (Math.random() * 9) | 0;
+      if (bd[y][x]) continue;
+      if (!canStand(t, c, x, y)) continue;
+      if (c === 'r' && t !== 'K' && t !== 'A' && t !== 'E' && y > 4) continue;
+      if (c === 'r' && t === 'P' && y > 3) continue;
+      bd[y][x] = { t, c };
+      ok = true;
+    }
+    if (!ok) return null;
+  }
+  return bd;
+}
+
 // ---------------- 造局面 ----------------
+
+/**
+ * 受限兵种的全部可落点。直接从这个表里抽，比"随机撒点再拒绝"快一个数量级——
+ * 士只有 5 个合法格，随机撒到 90 个格子上命中率只有 5%，绝大部分时间在空转。
+ */
+function legalSquares(t: PType, c: Color): [number, number][] | null {
+  if (t === 'K') {
+    const ys = c === 'r' ? [7, 8, 9] : [0, 1, 2];
+    const out: [number, number][] = [];
+    for (const y of ys) for (const x of [3, 4, 5]) out.push([x, y]);
+    return out;
+  }
+  if (t === 'A') {
+    return c === 'r' ? [[3, 7], [5, 7], [4, 8], [3, 9], [5, 9]] : [[3, 0], [5, 0], [4, 1], [3, 2], [5, 2]];
+  }
+  if (t === 'E') {
+    return c === 'r'
+      ? [[2, 9], [6, 9], [0, 7], [4, 7], [8, 7], [2, 5], [6, 5]]
+      : [[2, 0], [6, 0], [0, 2], [4, 2], [8, 2], [2, 4], [6, 4]];
+  }
+  return null; // 车马炮兵仍然随机撒点，它们的可落点很多
+}
+
+/**
+ * 这个子能不能站在这一格——**必须按真正的落点判，不能只判"在不在九宫/本方半场"**。
+ *
+ * 这里踩过一个大坑：原来士只判了 x∈[3,5] 且在九宫的 y 范围内，
+ * 等于允许士出现在九宫的 9 个格里。但士只能沿斜线走，一辈子只能落在
+ * **5 个交叉点**上；象同理，只有 7 个象位。结果生成出来的局面里
+ * 有 45%~80% 摆着"这辈子走不到那儿"的士象，懂棋的一眼就看出是假局面。
+ */
+function canStand(t: PType, c: Color, x: number, y: number): boolean {
+  const eq = (l: readonly (readonly [number, number])[]) => l.some(([a, b]) => a === x && b === y);
+  switch (t) {
+    case 'K':
+      return x >= 3 && x <= 5 && (c === 'r' ? y >= 7 && y <= 9 : y >= 0 && y <= 2);
+    case 'A':
+      // 九宫的五个斜线交叉点
+      return eq(c === 'r' ? ([[3, 7], [5, 7], [4, 8], [3, 9], [5, 9]] as const)
+                          : ([[3, 0], [5, 0], [4, 1], [3, 2], [5, 2]] as const));
+    case 'E':
+      // 本方七个象位（不过河）
+      return eq(c === 'r' ? ([[2, 9], [6, 9], [0, 7], [4, 7], [8, 7], [2, 5], [6, 5]] as const)
+                          : ([[2, 0], [6, 0], [0, 2], [4, 2], [8, 2], [2, 4], [6, 4]] as const));
+    case 'P':
+      // 兵不能倒退回自己底线；没过河时只能待在原始的偶数纵线上
+      if (c === 'r') return y <= 6 && (y <= 4 || x % 2 === 0);
+      return y >= 3 && (y >= 5 || x % 2 === 0);
+    default:
+      return true; // 车马炮哪儿都能到
+  }
+}
 
 function randomPosition(atk: PType[], def: PType[]): Board | null {
   const bd: Board = Array.from({ length: 10 }, () => Array(9).fill(null));
   const put = (t: PType, c: Color): boolean => {
+    // 受限兵种直接从可落点里抽，别用随机撒点碰运气
+    const fixed = legalSquares(t, c);
+    if (fixed) {
+      const free = fixed.filter(([x, y]) => !bd[y][x]);
+      if (!free.length) return false;
+      const [x, y] = free[(Math.random() * free.length) | 0];
+      bd[y][x] = { t, c };
+      return true;
+    }
     for (let k = 0; k < 90; k++) {
       const y = (Math.random() * 10) | 0;
       const x = (Math.random() * 9) | 0;
       if (bd[y][x]) continue;
-      const inPalace = x >= 3 && x <= 5 && (c === 'r' ? y >= 7 : y <= 2);
-      if ((t === 'K' || t === 'A') && !inPalace) continue;
-      if (t === 'E' && (c === 'r' ? y < 5 : y > 4)) continue;
-      if (t === 'P' && (c === 'r' ? y > 6 : y < 3)) continue;
+      if (!canStand(t, c, x, y)) continue;
       // 攻方的子必须压在黑方半场，否则随机摆出来的图形离九宫太远，
       // 形状判定永远命中不了；兵还要更靠前一点
       if (c === 'r' && t !== 'K' && t !== 'A' && t !== 'E' && y > 4) continue;
@@ -320,7 +451,15 @@ function randomPosition(atk: PType[], def: PType[]): Board | null {
 const SETS: Record<string, [PType[], PType[]][]> = {
   'ma-hou-pao': [[['H', 'C'], ['A', 'A']], [['H', 'C', 'R'], ['A', 'A', 'E']]],
   'chong-pao': [[['C', 'C'], ['A', 'A']], [['C', 'C', 'H'], ['A', 'A', 'E']]],
-  'men-gong': [[['C'], ['A', 'A', 'E', 'E']], [['C', 'H'], ['A', 'A', 'E', 'E']]],
+  // 闷宫要求将的退路全被自己人堵死。双士双象堵不住九宫正中那一格（象落不到），
+  // 必须给黑方配一个马或卒去填 (4,1)，否则这个图形根本造不出来。
+  'men-gong': [
+    [['C'], ['A', 'A', 'H']],
+    [['C'], ['A', 'A', 'P']],
+    [['C', 'H'], ['A', 'A', 'H', 'E']],
+    [['C', 'R'], ['A', 'A', 'P', 'E']],
+    [['C', 'C'], ['A', 'A', 'H']],
+  ],
   'wo-cao-ma': [[['H', 'R'], ['A', 'A']], [['H', 'C'], ['A', 'A', 'E']]],
   'gua-jiao-ma': [[['H', 'R'], ['A', 'A']], [['H', 'C'], ['A', 'A']]],
   // 天地炮要一炮在中路一炮在底线，随机摆很难同时凑齐，多给一个子帮忙成杀
@@ -328,7 +467,15 @@ const SETS: Record<string, [PType[], PType[]][]> = {
   'shuang-che-cuo': [[['R', 'R'], ['A', 'A', 'E']], [['R', 'R'], ['A', 'A', 'E', 'H']], [['R', 'R'], ['A', 'A']]],
   // 铁门栓需要中路有个"架子"给炮隔，纯 K/C/R 很难自然出现，加个兵当架子
   'tie-men-shuan': [[['C', 'R', 'P'], ['A', 'A']], [['C', 'R', 'H'], ['A', 'A', 'E']], [['C', 'R'], ['A', 'A', 'E']]],
-  'er-gui-pai-men': [[['P', 'P', 'R'], ['A', 'A']], [['P', 'P', 'C'], ['A', 'A']], [['P', 'P', 'H'], ['A', 'A']]],
+  // 二鬼拍门要两个兵贴着将，守方带太多子几乎不可能成杀
+  'er-gui-pai-men': [
+    [['P', 'P'], []],
+    [['P', 'P', 'R'], []],
+    [['P', 'P', 'C'], []],
+    [['P', 'P', 'R'], ['A']],
+    [['P', 'P', 'H'], ['A']],
+    [['P', 'P', 'C'], ['A', 'A']],
+  ],
   'bai-lian-jiang': [[['R'], ['A', 'A']], [['R', 'P'], ['A']], [['H', 'P'], ['A', 'A']], [['C', 'P'], ['A']]],
   'da-dao-wan-xin': [[['R', 'C'], ['A', 'A', 'E']], [['R', 'C', 'H'], ['A', 'A', 'E', 'E']]],
 };
@@ -367,8 +514,14 @@ for (const sh of shapes) {
   const budget = BUDGET_MS / shapes.length;
 
   while (got < PER_SHAPE && Date.now() - t0 < budget) {
-    const [atk, def] = sets[(Math.random() * sets.length) | 0];
-    const b = randomPosition(atk, def);
+    const seeds = SEEDS[sh.id];
+    let b: Board | null;
+    if (seeds && Math.random() < 0.85) {
+      b = seededPosition(seeds[(Math.random() * seeds.length) | 0]);
+    } else {
+      const [atk, def] = sets[(Math.random() * sets.length) | 0];
+      b = randomPosition(atk, def);
+    }
     if (!b) continue;
     if (statusAfter(b, 'r') !== 'playing' || statusAfter(b, 'b') !== 'playing') continue;
     if (isInCheck(b, 'b')) continue; // 起手就将着军，不成题
@@ -405,6 +558,9 @@ for (const sh of shapes) {
 
     const fen = toFen(b, 'r');
     if (seen.has(fen)) continue;
+    // 闸门：局面必须是真实对局里能出现的
+    const chk = fromFen(fen);
+    if (!chk || checkBoard(chk.board).length) continue;
     seen.add(fen);
     out.push({
       id: `${sh.id}-${got}`,

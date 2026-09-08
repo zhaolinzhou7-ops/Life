@@ -37,9 +37,9 @@ import { CHARACTERS, avatarCanvas, pickLine, type Character } from '../character
  * 偶尔看几盘很带感，天天练就是纯等待。想看效果的人可以调回标准。
  */
 const ANIM_SPEEDS = [
-  { id: 'std', name: '标准', desc: '完整的抓子—平移—落子动画', scale: 1, pause: 140 },
-  { id: 'fast', name: '快', desc: '动画压到四成，推荐日常训练用', scale: 0.4, pause: 0 },
-  { id: 'instant', name: '极速', desc: '几乎无动画，落子即到，适合刷棋', scale: 0.06, pause: 0 },
+  { id: 'off', name: '关闭', desc: '落子即到，没有任何动画', scale: 0, pause: 0 },
+  { id: 'fast', name: '快', desc: '很短的落子动画', scale: 0.35, pause: 0 },
+  { id: 'std', name: '完整', desc: '抓子—平移—落子的完整动画', scale: 1, pause: 140 },
 ] as const;
 
 const LEVELS = [
@@ -133,7 +133,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let theme = (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme;
     let rival = Number(localStorage.getItem('xq-rival') ?? 2);
     let facing = (localStorage.getItem('xq-facing') ?? 'duel') as 'duel' | 'me';
-    let anim = Math.max(0, Math.min(ANIM_SPEEDS.length - 1, Number(localStorage.getItem('xq-anim') ?? 1)));
+    let anim = Math.max(0, Math.min(ANIM_SPEEDS.length - 1, Number(localStorage.getItem('xq-anim') ?? 0)));
 
     const s = document.createElement('div');
     s.className = 'screen xq-setup';
@@ -273,7 +273,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   }
 
   // ============ 对局 ============
-  function startGame(level: number, theme: PieceTheme, rival: Character, flipBlack: boolean, animIdx = 1) {
+  function startGame(level: number, theme: PieceTheme, rival: Character, flipBlack: boolean, animIdx = 0) {
     const L = LEVELS[level];
     const SPEED = ANIM_SPEEDS[Math.max(0, Math.min(ANIM_SPEEDS.length - 1, animIdx))];
     let board: Board = initialBoard();

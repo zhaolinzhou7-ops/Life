@@ -13,7 +13,8 @@
  */
 import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color, type PType } from '../src/xiangqi/rules';
 import { think } from '../src/xiangqi/ai';
-import { toFen, moveToText } from '../src/xiangqi/notation';
+import { toFen, fromFen, moveToText } from '../src/xiangqi/notation';
+import { checkBoard } from './validate-positions';
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 
@@ -150,17 +151,76 @@ const COMBOS: Combo[] = [
   },
 ];
 
+/**
+ * 受限兵种的全部可落点。直接从这个表里抽，比"随机撒点再拒绝"快一个数量级——
+ * 士只有 5 个合法格，随机撒到 90 个格子上命中率只有 5%，绝大部分时间在空转。
+ */
+function legalSquares(t: PType, c: Color): [number, number][] | null {
+  if (t === 'K') {
+    const ys = c === 'r' ? [7, 8, 9] : [0, 1, 2];
+    const out: [number, number][] = [];
+    for (const y of ys) for (const x of [3, 4, 5]) out.push([x, y]);
+    return out;
+  }
+  if (t === 'A') {
+    return c === 'r' ? [[3, 7], [5, 7], [4, 8], [3, 9], [5, 9]] : [[3, 0], [5, 0], [4, 1], [3, 2], [5, 2]];
+  }
+  if (t === 'E') {
+    return c === 'r'
+      ? [[2, 9], [6, 9], [0, 7], [4, 7], [8, 7], [2, 5], [6, 5]]
+      : [[2, 0], [6, 0], [0, 2], [4, 2], [8, 2], [2, 4], [6, 4]];
+  }
+  return null; // 车马炮兵仍然随机撒点，它们的可落点很多
+}
+
+/**
+ * 这个子能不能站在这一格——**必须按真正的落点判，不能只判"在不在九宫/本方半场"**。
+ *
+ * 这里踩过一个大坑：原来士只判了 x∈[3,5] 且在九宫的 y 范围内，
+ * 等于允许士出现在九宫的 9 个格里。但士只能沿斜线走，一辈子只能落在
+ * **5 个交叉点**上；象同理，只有 7 个象位。结果生成出来的局面里
+ * 有 45%~80% 摆着"这辈子走不到那儿"的士象，懂棋的一眼就看出是假局面。
+ */
+function canStand(t: PType, c: Color, x: number, y: number): boolean {
+  const eq = (l: readonly (readonly [number, number])[]) => l.some(([a, b]) => a === x && b === y);
+  switch (t) {
+    case 'K':
+      return x >= 3 && x <= 5 && (c === 'r' ? y >= 7 && y <= 9 : y >= 0 && y <= 2);
+    case 'A':
+      // 九宫的五个斜线交叉点
+      return eq(c === 'r' ? ([[3, 7], [5, 7], [4, 8], [3, 9], [5, 9]] as const)
+                          : ([[3, 0], [5, 0], [4, 1], [3, 2], [5, 2]] as const));
+    case 'E':
+      // 本方七个象位（不过河）
+      return eq(c === 'r' ? ([[2, 9], [6, 9], [0, 7], [4, 7], [8, 7], [2, 5], [6, 5]] as const)
+                          : ([[2, 0], [6, 0], [0, 2], [4, 2], [8, 2], [2, 4], [6, 4]] as const));
+    case 'P':
+      // 兵不能倒退回自己底线；没过河时只能待在原始的偶数纵线上
+      if (c === 'r') return y <= 6 && (y <= 4 || x % 2 === 0);
+      return y >= 3 && (y >= 5 || x % 2 === 0);
+    default:
+      return true; // 车马炮哪儿都能到
+  }
+}
+
 function randomPosition(strong: PType[], weak: PType[], sc: Color): Board | null {
   const bd: Board = Array.from({ length: 10 }, () => Array(9).fill(null));
   const wc = other(sc);
   const put = (t: PType, c: Color): boolean => {
+    // 受限兵种直接从可落点里抽，别用随机撒点碰运气
+    const fixed = legalSquares(t, c);
+    if (fixed) {
+      const free = fixed.filter(([x, y]) => !bd[y][x]);
+      if (!free.length) return false;
+      const [x, y] = free[(Math.random() * free.length) | 0];
+      bd[y][x] = { t, c };
+      return true;
+    }
     for (let k = 0; k < 90; k++) {
       const y = (Math.random() * 10) | 0;
       const x = (Math.random() * 9) | 0;
       if (bd[y][x]) continue;
-      const inPalace = x >= 3 && x <= 5 && (c === 'r' ? y >= 7 : y <= 2);
-      if ((t === 'K' || t === 'A') && !inPalace) continue;
-      if (t === 'E' && (c === 'r' ? y < 5 : y > 4)) continue;
+      if (!canStand(t, c, x, y)) continue;
       if (t === 'P' && (c === 'r' ? y > 4 : y < 5)) continue; // 兵已过河，残局才有意义
       bd[y][x] = { t, c };
       return true;
@@ -241,6 +301,8 @@ for (const combo of combos) {
     if (!b) continue;
     if (statusAfter(b, 'r') !== 'playing' || statusAfter(b, 'b') !== 'playing') continue;
     if (isInCheck(b, 'b') || isInCheck(b, 'r')) continue; // 起手就将着，不是残局练习
+    // 闸门：局面必须是真实对局里能出现的（士象的落点、子力数量）
+    if (checkBoard(b).length) continue;
     // 太快就结束的不要——那是杀法题不是残局
     const quick = playOut(b, 'r', 6, 200, 12);
     if (quick.result !== 'draw' && quick.plies <= 8) continue;

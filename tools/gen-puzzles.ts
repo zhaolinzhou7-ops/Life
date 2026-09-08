@@ -28,7 +28,8 @@ import {
   type PType,
 } from '../src/xiangqi/rules';
 import { analyze, think } from '../src/xiangqi/ai';
-import { toFen, moveToText } from '../src/xiangqi/notation';
+import { toFen, fromFen, moveToText } from '../src/xiangqi/notation';
+import { checkBoard } from './validate-positions';
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 const mkey = (m: Move) => `${m.fx},${m.fy},${m.tx},${m.ty}`;
@@ -82,17 +83,75 @@ function rateDifficulty(b: Board, c: Color, answer: Move, legalCount: number): n
 // ---------------- 局面来源 ----------------
 
 /** 随机摆子：杀法题用。摆不下返回 null */
+/**
+ * 受限兵种的全部可落点。直接从这个表里抽，比"随机撒点再拒绝"快一个数量级——
+ * 士只有 5 个合法格，随机撒到 90 个格子上命中率只有 5%，绝大部分时间在空转。
+ */
+function legalSquares(t: PType, c: Color): [number, number][] | null {
+  if (t === 'K') {
+    const ys = c === 'r' ? [7, 8, 9] : [0, 1, 2];
+    const out: [number, number][] = [];
+    for (const y of ys) for (const x of [3, 4, 5]) out.push([x, y]);
+    return out;
+  }
+  if (t === 'A') {
+    return c === 'r' ? [[3, 7], [5, 7], [4, 8], [3, 9], [5, 9]] : [[3, 0], [5, 0], [4, 1], [3, 2], [5, 2]];
+  }
+  if (t === 'E') {
+    return c === 'r'
+      ? [[2, 9], [6, 9], [0, 7], [4, 7], [8, 7], [2, 5], [6, 5]]
+      : [[2, 0], [6, 0], [0, 2], [4, 2], [8, 2], [2, 4], [6, 4]];
+  }
+  return null; // 车马炮兵仍然随机撒点，它们的可落点很多
+}
+
+/**
+ * 这个子能不能站在这一格——**必须按真正的落点判，不能只判"在不在九宫/本方半场"**。
+ *
+ * 这里踩过一个大坑：原来士只判了 x∈[3,5] 且 y 在九宫范围内，等于允许士出现在
+ * 九宫的 9 个格里。但士只能沿斜线走，一辈子只能落在 **5 个交叉点**上；
+ * 象同理只有 7 个象位。结果生成出来的局面里有 45%~80% 摆着"这辈子走不到那儿"
+ * 的士象，懂棋的一眼就看出是假局面。
+ */
+function canStand(t: PType, c: Color, x: number, y: number): boolean {
+  const eq = (l: readonly (readonly [number, number])[]) => l.some(([a, b]) => a === x && b === y);
+  switch (t) {
+    case 'K':
+      return x >= 3 && x <= 5 && (c === 'r' ? y >= 7 && y <= 9 : y >= 0 && y <= 2);
+    case 'A':
+      // 九宫的五个斜线交叉点
+      return eq(c === 'r' ? ([[3, 7], [5, 7], [4, 8], [3, 9], [5, 9]] as const)
+                          : ([[3, 0], [5, 0], [4, 1], [3, 2], [5, 2]] as const));
+    case 'E':
+      // 本方七个象位（象不过河）
+      return eq(c === 'r' ? ([[2, 9], [6, 9], [0, 7], [4, 7], [8, 7], [2, 5], [6, 5]] as const)
+                          : ([[2, 0], [6, 0], [0, 2], [4, 2], [8, 2], [2, 4], [6, 4]] as const));
+    case 'P':
+      // 兵不能倒退回自己底线；没过河时只能待在原始的偶数纵线上
+      if (c === 'r') return y <= 6 && (y <= 4 || x % 2 === 0);
+      return y >= 3 && (y >= 5 || x % 2 === 0);
+    default:
+      return true; // 车马炮哪儿都能到
+  }
+}
+
 function randomPosition(atk: PType[], def: PType[], atkColor: Color): Board | null {
   const bd: Board = Array.from({ length: 10 }, () => Array(9).fill(null));
   const put = (t: PType, c: Color): boolean => {
-    for (let k = 0; k < 80; k++) {
+    // 受限兵种直接从可落点里抽，别用随机撒点碰运气
+    const fixed = legalSquares(t, c);
+    if (fixed) {
+      const free = fixed.filter(([x, y]) => !bd[y][x]);
+      if (!free.length) return false;
+      const [x, y] = free[(Math.random() * free.length) | 0];
+      bd[y][x] = { t, c };
+      return true;
+    }
+    for (let k = 0; k < 90; k++) {
       const y = (Math.random() * 10) | 0;
       const x = (Math.random() * 9) | 0;
       if (bd[y][x]) continue;
-      const inPalace = x >= 3 && x <= 5 && (c === 'r' ? y >= 7 : y <= 2);
-      if ((t === 'K' || t === 'A') && !inPalace) continue;
-      if (t === 'E' && (c === 'r' ? y < 5 : y > 4)) continue; // 象不过河
-      if (t === 'P' && (c === 'r' ? y > 6 : y < 3)) continue; // 兵不能倒退回底线区
+      if (!canStand(t, c, x, y)) continue;
       bd[y][x] = { t, c };
       return true;
     }
@@ -326,30 +385,48 @@ const BUDGET_MS = Number(process.env.BUDGET_MS ?? 240000);
 
 /** 杀法题的兵种组合：攻方带什么、守方带什么 */
 const MATE_SETS: [PType[], PType[]][] = [
+  // 士象摆到真正的落点之后，防线是**真的管用**的，成杀率比之前低很多。
+  // 所以要配一批守方子力更少的组合——实战里的杀棋也大多发生在
+  // 对方士象已经被消耗掉的时候，这样反而更贴近真实。
+  [['R'], []],
+  [['R', 'C'], []],
+  [['R', 'H'], []],
+  [['C', 'C'], []],
+  [['H', 'C'], []],
+  [['R'], ['A']],
+  [['R', 'C'], ['A']],
+  [['R', 'H'], ['A']],
+  [['C', 'C'], ['A']],
+  [['H', 'C'], ['A']],
+  [['R', 'P'], ['A']],
+  [['C', 'P'], ['A']],
+  [['H', 'H'], ['A']],
   [['R'], ['A', 'A']],
-  [['R', 'C'], ['A', 'A', 'E']],
-  [['R', 'H'], ['A', 'A', 'E']],
+  [['R', 'C'], ['A', 'A']],
+  [['R', 'H'], ['A', 'A']],
   [['C', 'C'], ['A', 'A']],
-  [['H', 'C'], ['A', 'A']],
-  [['R', 'P'], ['A', 'A', 'E']],
+  [['R', 'P'], ['A', 'A']],
+  // 守方带得多的留一部分：这类杀法最难一眼看穿，是难题的来源
+  [['R', 'C'], ['A', 'A', 'E']],
+  [['R', 'C', 'H'], ['A', 'A', 'E']],
   [['R', 'C', 'H'], ['A', 'A', 'E', 'E']],
-  [['H', 'H'], ['A', 'A']],
-  [['R', 'R'], ['A', 'A', 'E', 'H']],
-  [['C', 'P'], ['A', 'A']],
-  // 守方子力越多，杀法越难被一眼看穿——这是把题库难度上限抬起来最有效的办法
-  [['R', 'C', 'H'], ['A', 'A', 'E', 'E', 'H']],
-  [['R', 'C', 'P'], ['A', 'A', 'E', 'E', 'C']],
-  [['R', 'H', 'H'], ['A', 'A', 'E', 'E', 'R']],
-  [['R', 'C', 'C'], ['A', 'A', 'E', 'E', 'H', 'P']],
-  [['R', 'R', 'C'], ['A', 'A', 'E', 'E', 'R', 'H']],
+  [['R', 'R', 'C'], ['A', 'A', 'E', 'E', 'H']],
 ];
 
 const out: Puzzle[] = [];
 const seen = new Set<string>();
 const MIN_RATING = Number(process.env.MIN_RATING ?? 0);
+let rejected = 0;
 const push = (p: Puzzle | null) => {
   if (!p || seen.has(p.fen)) return false;
   if (p.rating < MIN_RATING) return false;
+  // 闸门：局面必须是真实对局里能出现的（士象兵的落点、子力数量）
+  const parsed = fromFen(p.fen);
+  const errs = parsed ? checkBoard(parsed.board) : ['FEN 解析失败'];
+  if (errs.length) {
+    rejected++;
+    return false;
+  }
   seen.add(p.fen);
   p.id = `${p.kind}${p.mateIn ?? ''}-${out.length.toString(36)}`;
   out.push(p);
@@ -408,6 +485,7 @@ if (TARGET.opening > 0) {
   process.stderr.write(`开局: ${got}/${TARGET.opening}\n`);
 }
 
+if (rejected) process.stderr.write(`\n⚠️ 校验拦下 ${rejected} 个非法摆位的局面\n`);
 out.sort((a, b) => a.rating - b.rating);
 process.stderr.write(
   `\n合计 ${out.length} 题，难度 ${out[0]?.rating}~${out[out.length - 1]?.rating}，` +
