@@ -2,24 +2,50 @@
  * 搜索线程的调用封装：能起 Worker 就用 Worker，起不来（老浏览器 / 沙箱限制）
  * 就退回主线程同步计算，保证功能永远可用。
  */
-import { bestMove, type SearchOpts } from './ai';
-import type { Board, Color, Move } from './rules';
+import { bestMove, judgeMove, type SearchOpts } from './ai';
+import { applyMove, type Board, type Color, type Move } from './rules';
+import type { Judged } from './analysis';
 
 let worker: Worker | null = null;
 let seq = 0;
 const pending = new Map<number, (m: Move | null) => void>();
+/** 复盘是流式的：每算完一手回一次 onStep，全部算完回 onDone */
+const reviews = new Map<number, { onStep: ReviewStep; onDone: () => void }>();
 let workerBroken = false;
+
+export type ReviewStep = (ply: number, color: Color, board: Board, judged: Judged | null) => void;
+
+interface WorkerMsg {
+  id: number;
+  kind?: 'review-step' | 'review-done';
+  move?: Move | null;
+  ply?: number;
+  color?: Color;
+  board?: Board;
+  judged?: Judged | null;
+}
 
 function ensureWorker(): Worker | null {
   if (workerBroken) return null;
   if (worker) return worker;
   try {
     worker = new Worker(new URL('./ai.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (e: MessageEvent<{ id: number; move: Move | null }>) => {
-      const cb = pending.get(e.data.id);
+    worker.onmessage = (e: MessageEvent<WorkerMsg>) => {
+      const d = e.data;
+      if (d.kind === 'review-step') {
+        reviews.get(d.id)?.onStep(d.ply!, d.color!, d.board!, d.judged ?? null);
+        return;
+      }
+      if (d.kind === 'review-done') {
+        const r = reviews.get(d.id);
+        reviews.delete(d.id);
+        r?.onDone();
+        return;
+      }
+      const cb = pending.get(d.id);
       if (cb) {
-        pending.delete(e.data.id);
-        cb(e.data.move);
+        pending.delete(d.id);
+        cb(d.move ?? null);
       }
     };
     worker.onerror = () => {
@@ -27,6 +53,8 @@ function ensureWorker(): Worker | null {
       workerBroken = true;
       for (const [, cb] of pending) cb(null);
       pending.clear();
+      for (const [, r] of reviews) r.onDone();
+      reviews.clear();
       worker?.terminate();
       worker = null;
     };
@@ -49,7 +77,6 @@ export function requestMove(board: Board, color: Color, opts: SearchOpts): Promi
       done = true;
       resolve(m);
     };
-    pending.set(id, finish);
     // 兜底：线程异常没回消息时，超时后主线程自己算
     const guard = window.setTimeout(() => {
       if (pending.has(id)) {
@@ -65,9 +92,60 @@ export function requestMove(board: Board, color: Color, opts: SearchOpts): Promi
   });
 }
 
+/**
+ * 复盘整盘棋。每算完一手调一次 onStep（界面可以边算边显示），全部算完调 onDone。
+ * 返回取消函数——用户中途退出复盘界面时要能停下来，不然白烧几秒 CPU。
+ */
+export function requestReview(
+  board: Board,
+  color: Color,
+  moves: Move[],
+  opts: SearchOpts,
+  onStep: ReviewStep,
+  onDone: () => void,
+): () => void {
+  const w = ensureWorker();
+  const id = ++seq;
+
+  if (w) {
+    reviews.set(id, { onStep, onDone });
+    w.postMessage({ kind: 'review', id, board, color, moves, opts });
+    return () => {
+      if (!reviews.delete(id)) return;
+      // Worker 里的循环停不下来，只能整个换掉，避免它继续往回发消息
+      worker?.terminate();
+      worker = null;
+    };
+  }
+
+  // 同步兜底：切成一手一个宏任务，界面还能响应，不至于整片冻住
+  let cancelled = false;
+  let cur = board;
+  let c = color;
+  let i = 0;
+  const step = () => {
+    if (cancelled) return;
+    if (i >= moves.length) {
+      onDone();
+      return;
+    }
+    const judged = judgeMove(cur, c, moves[i], opts);
+    onStep(i, c, cur, judged);
+    cur = applyMove(cur, moves[i]);
+    c = c === 'r' ? 'b' : 'r';
+    i++;
+    window.setTimeout(step, 0);
+  };
+  window.setTimeout(step, 0);
+  return () => {
+    cancelled = true;
+  };
+}
+
 export function disposeAi() {
   worker?.terminate();
   worker = null;
   pending.clear();
+  reviews.clear();
   workerBroken = false;
 }

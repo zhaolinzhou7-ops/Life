@@ -2103,3 +2103,688 @@ canvas {
   color: #ffb59a;
   background: rgba(255, 138, 101, 0.16);
 }
+
+/* ===================== 象棋：复盘 ===================== */
+/* 手机上棋盘在上面，复盘做成底部抽屉；宽屏时改成右侧面板，不挡棋盘 */
+.xq-hidden {
+  display: none !important;
+}
+.xq-rv {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 56vh;
+  padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px);
+  background: linear-gradient(180deg, rgba(12, 18, 25, 0.92), rgba(8, 12, 17, 0.98));
+  border-top: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -12px 34px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  animation: xq-rv-in 0.28s ease-out;
+}
+@keyframes xq-rv-in {
+  from {
+    transform: translateY(18px);
+    opacity: 0;
+  }
+}
+.xq-rv-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+.xq-rv-head b {
+  font-size: 15px;
+}
+.xq-rv-progress {
+  flex: 1;
+  font-size: 12px;
+  opacity: 0.65;
+}
+.xq-rv-close {
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-size: 17px;
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+/* 概览：漏着/失误统计 + 决定胜负的一手 */
+.xq-rv-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.xq-rv-chip {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 3px 10px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+.xq-rv-chip b {
+  font-size: 13px;
+}
+.xq-rv-chip.bad b {
+  color: #e0433a;
+}
+.xq-rv-chip.warn b {
+  color: #e8703d;
+}
+.xq-rv-turn {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+  text-align: left;
+  background: rgba(224, 67, 58, 0.13);
+  border: 1px solid rgba(224, 67, 58, 0.4);
+  border-radius: 10px;
+  padding: 7px 10px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.xq-rv-turn b {
+  color: #ffd76e;
+}
+
+/* 着法时间线：横向滚动，颜色就是这一手的评级 */
+.xq-rv-list {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.xq-rv-item {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  border-bottom: 2px solid var(--g);
+  border-radius: 8px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.xq-rv-item .n {
+  opacity: 0.5;
+  font-size: 10px;
+}
+.xq-rv-item .g {
+  color: var(--g);
+  font-size: 10px;
+}
+.xq-rv-item.bad {
+  background: color-mix(in srgb, var(--g) 16%, transparent);
+}
+.xq-rv-item.on {
+  background: color-mix(in srgb, var(--g) 30%, transparent);
+  border-color: var(--g);
+}
+.xq-rv-item.turn {
+  box-shadow: 0 0 0 1px #ffd76e inset;
+}
+
+/* 单手详情 */
+.xq-rv-detail {
+  min-height: 62px;
+}
+.xq-rv-empty {
+  font-size: 12px;
+  opacity: 0.55;
+  padding: 8px 2px;
+}
+.xq-rv-move {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+.xq-rv-grade {
+  background: var(--g);
+  color: #0b1016;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.xq-rv-loss {
+  font-size: 11px;
+  opacity: 0.6;
+}
+.xq-rv-comment {
+  margin-top: 5px;
+  font-size: 13px;
+  line-height: 1.6;
+  opacity: 0.9;
+}
+.xq-rv-pv {
+  margin-top: 5px;
+  font-size: 12px;
+  opacity: 0.72;
+  letter-spacing: 0.4px;
+}
+.xq-rv-pv span {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  padding: 1px 6px;
+  margin-right: 6px;
+  font-size: 10px;
+  opacity: 0.8;
+}
+.xq-rv-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.xq-rv-pos {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* 宽屏（横屏 / 平板 / 桌面）改成右侧面板，棋盘完整可见 */
+@media (min-width: 720px) {
+  .xq-rv {
+    left: auto;
+    top: 56px;
+    right: 10px;
+    bottom: 10px;
+    width: 330px;
+    max-height: none;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+  }
+  .xq-rv-list {
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .xq-rv-item {
+    width: 100%;
+    border-bottom: 1px solid var(--line);
+    border-left: 3px solid var(--g);
+  }
+}
+
+/* 复盘：收起状态只留点评与翻页，把棋盘让出来 */
+.xq-rv.mini .xq-rv-summary,
+.xq-rv.mini .xq-rv-list {
+  display: none;
+}
+.xq-rv-fold {
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-size: 15px;
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.xq-rv-turn.alt {
+  background: rgba(255, 215, 110, 0.1);
+  border-color: rgba(255, 215, 110, 0.35);
+}
+
+/* ===================== 象棋：学棋（测评 / 练习 / 报告） ===================== */
+.xq-coach {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  overflow: hidden;
+  background: #16202a;
+}
+.xq-coach .screen {
+  height: 100%;
+  overflow-y: auto;
+  padding: calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 20px);
+}
+.xq-coach-home h1,
+.xq-coach-report h1 {
+  margin-bottom: 4px;
+}
+.xq-coach .sub .ci {
+  opacity: 0.55;
+  font-size: 0.85em;
+}
+.xq-loading {
+  text-align: center;
+  padding: 40px 10px;
+  opacity: 0.7;
+  font-size: 14px;
+}
+
+.xq-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: 10px 0 4px;
+}
+.xq-chip {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 4px 11px;
+  font-size: 12px;
+}
+.xq-chip.warn {
+  background: rgba(232, 163, 61, 0.14);
+  border-color: rgba(232, 163, 61, 0.4);
+}
+.xq-chip b {
+  color: #ffd76e;
+}
+
+/* 五维雷达 */
+.xq-radar-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 8px 12px;
+  margin: 12px 0;
+}
+.xq-radar {
+  display: block;
+  width: 100%;
+  height: 220px;
+}
+.xq-radar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: center;
+  margin-top: 6px;
+}
+.xq-radar-item {
+  font-size: 11px;
+  opacity: 0.75;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+.xq-radar-item b {
+  color: #ffd76e;
+}
+.xq-radar-item.weak {
+  background: rgba(232, 112, 61, 0.16);
+  opacity: 1;
+}
+
+/* 报告 */
+.xq-rank-big {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffd76e;
+  margin: 6px 0 2px;
+}
+.xq-rank-big span {
+  display: block;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+  opacity: 0.7;
+}
+.xq-report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 12px 0;
+}
+.xq-report-row {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-left: 3px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 8px 11px;
+}
+.xq-report-row.weak {
+  border-left-color: #e8703d;
+  background: rgba(232, 112, 61, 0.09);
+}
+.xq-report-row .hd {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.xq-report-row .hd b {
+  color: #ffd76e;
+  margin-left: auto;
+}
+.xq-report-row .hd .tag {
+  background: #e8703d;
+  color: #10161d;
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 10px;
+  margin-left: 0;
+}
+.xq-report-row .ds {
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.72;
+  line-height: 1.55;
+}
+.xq-advice {
+  background: rgba(255, 215, 110, 0.07);
+  border: 1px solid rgba(255, 215, 110, 0.25);
+  border-radius: 12px;
+  padding: 11px 13px;
+  margin: 4px 0 14px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.xq-advice p {
+  margin: 6px 0 0;
+  opacity: 0.85;
+}
+.xq-advice .dim {
+  opacity: 0.55;
+  font-size: 12px;
+}
+.xq-coach .card .tag.warn {
+  background: #e8703d;
+  color: #10161d;
+}
+
+/* ===================== 象棋：做题界面 ===================== */
+.xq-coach-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.xq-prog {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.09);
+  flex: 0 0 auto;
+}
+.xq-prog i {
+  display: block;
+  height: 100%;
+  background: #ffd76e;
+  transition: width 0.3s;
+}
+.xq-tr {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(env(safe-area-inset-top) + 6px) 10px calc(env(safe-area-inset-bottom) + 10px);
+  gap: 8px;
+}
+.xq-tr-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+.xq-tr-cap {
+  opacity: 0.6;
+}
+.xq-tr-ask {
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffd76e;
+}
+.xq-tr-side {
+  opacity: 0.6;
+}
+.xq-tr-board {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.xq-b2d {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: manipulation;
+}
+.xq-tr-fb {
+  flex: 0 0 auto;
+  min-height: 46px;
+  border-radius: 10px;
+  padding: 7px 11px;
+  font-size: 13px;
+  line-height: 1.6;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+}
+.xq-tr-fb:empty {
+  background: none;
+  border-color: transparent;
+}
+.xq-tr-fb.ok {
+  background: rgba(62, 196, 109, 0.13);
+  border-color: rgba(62, 196, 109, 0.4);
+}
+.xq-tr-fb.no {
+  background: rgba(224, 67, 58, 0.13);
+  border-color: rgba(224, 67, 58, 0.4);
+}
+.xq-tr-fb.tip {
+  background: rgba(255, 215, 110, 0.1);
+  border-color: rgba(255, 215, 110, 0.32);
+}
+.xq-tr-fb .h {
+  font-weight: 600;
+}
+.xq-tr-fb .l,
+.xq-tr-fb .r {
+  font-size: 12px;
+  opacity: 0.82;
+  margin-top: 3px;
+  letter-spacing: 0.3px;
+}
+.xq-tr-fb .r {
+  opacity: 0.62;
+}
+.xq-tr-bad {
+  padding: 30px;
+  text-align: center;
+  opacity: 0.7;
+}
+.xq-tr-bar {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+.xq-tr-bar .xq-btn {
+  padding: 9px 18px;
+  font-size: 13px;
+}
+.xq-btn.primary {
+  background: #ffd76e;
+  color: #16202a;
+  border-color: #ffd76e;
+  font-weight: 600;
+}
+.xq-btn.ghost {
+  opacity: 0.7;
+}
+.xq-tr-note {
+  font-size: 11px;
+  opacity: 0.5;
+}
+
+/* 宽屏时棋盘别拉得太夸张 */
+@media (min-width: 720px) {
+  .xq-tr-board {
+    max-width: 560px;
+    width: 100%;
+    margin: 0 auto;
+  }
+}
+
+/* 今日训练：一天的几个块 */
+.xq-block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.xq-block {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.xq-block:active {
+  transform: scale(0.99);
+}
+.xq-block .n {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 215, 110, 0.18);
+  color: #ffd76e;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+.xq-block .t {
+  font-size: 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.xq-block .t .m {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.55;
+  white-space: nowrap;
+}
+.xq-block .d {
+  margin-top: 3px;
+  font-size: 12px;
+  opacity: 0.7;
+  line-height: 1.55;
+}
+
+/* 学习路线：四个阶段 */
+.xq-stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 0 14px;
+}
+.xq-stage {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--line);
+  border-left: 3px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 11px 13px;
+  opacity: 0.72;
+}
+.xq-stage.cur {
+  opacity: 1;
+  border-left-color: #ffd76e;
+  background: rgba(255, 215, 110, 0.07);
+}
+.xq-stage.done {
+  border-left-color: #3ec46d;
+}
+.xq-stage .hd {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.xq-stage .hd .wk {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.55;
+  margin-left: auto;
+}
+.xq-stage .hd .ok,
+.xq-stage .hd .now {
+  font-size: 10px;
+  font-weight: 400;
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+.xq-stage .hd .ok {
+  background: #3ec46d;
+  color: #10161d;
+}
+.xq-stage .hd .now {
+  background: #ffd76e;
+  color: #10161d;
+}
+.xq-stage .goal {
+  margin-top: 5px;
+  font-size: 12.5px;
+  color: #ffd76e;
+}
+.xq-stage .why {
+  margin-top: 5px;
+  font-size: 12px;
+  opacity: 0.72;
+  line-height: 1.6;
+}
+.xq-stage ul {
+  margin: 7px 0 0;
+  padding-left: 17px;
+  font-size: 12px;
+  opacity: 0.72;
+  line-height: 1.7;
+}
+.xq-stage .grad {
+  margin-top: 7px;
+  font-size: 11px;
+  opacity: 0.62;
+  border-top: 1px dashed var(--line);
+  padding-top: 6px;
+}
+.xq-stage .grad b {
+  font-weight: 400;
+  opacity: 0.8;
+}
+.xq-stage .grad b.ok {
+  color: #3ec46d;
+  opacity: 1;
+}
+.xq-rv-harvest {
+  margin-top: 7px;
+  background: rgba(62, 196, 109, 0.12);
+  border: 1px solid rgba(62, 196, 109, 0.35);
+  border-radius: 9px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.xq-rv-harvest b {
+  color: #3ec46d;
+}
