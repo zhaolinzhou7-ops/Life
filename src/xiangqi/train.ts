@@ -117,7 +117,8 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     elFb.className = 'xq-tr-fb ok';
     elFb.innerHTML = `
       <div class="h">✅ 对了 · ${text}</div>
-      ${puzzle.line.length > 1 ? `<div class="l">完整下法：${puzzle.line.join(' ')}</div>` : ''}`;
+      ${puzzle.line.length > 1 ? `<div class="l">完整下法：${puzzle.line.join(' ')}</div>` : ''}
+      ${puzzle.blunder ? `<div class="r">这个局面是从真实对局里抓的——当时那盘棋走的是 <b>${puzzle.blunder}</b>，亏了子。</div>` : ''}`;
     finishBar(true);
   }
 
@@ -128,6 +129,11 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       <div class="l">正解：<b>${puzzle.answer}</b>${
         puzzle.line.length > 1 ? `　完整下法：${puzzle.line.join(' ')}` : ''
       }</div>
+      ${
+        puzzle.blunder
+          ? `<div class="r">别灰心——这个局面是从真实对局里抓的，当时那盘棋也走错了（走的是 ${puzzle.blunder}）。</div>`
+          : ''
+      }
       <div class="r">正在算对方怎么惩罚这一手…</div>`;
     finishBar(false);
     // 走错之后对方的最强应手——让你看见代价，而不是只被告知"错了"

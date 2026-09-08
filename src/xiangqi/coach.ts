@@ -33,6 +33,9 @@ import {
   markMateCleared,
   getCleared,
   playStats,
+  calibratePuzzle,
+  calibratedCount,
+  effectiveRating,
   type Dim,
 } from './save';
 import { Assessment, diagnose, type AssessResult } from './assess';
@@ -111,6 +114,7 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     const srs = srsCount();
     const solved = totalSolved();
     const decl = ttLevelById(getDeclared() ?? '');
+    const cal = calibratedCount();
     const cleared = getCleared();
 
     const scr = document.createElement('div');
@@ -126,6 +130,7 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
         ${streak > 0 ? `<span class="xq-chip">🔥 连续 <b>${streak}</b> 天</span>` : ''}
         ${solved > 0 ? `<span class="xq-chip">✅ 做过 <b>${solved}</b> 题</span>` : ''}
         ${srs.due > 0 ? `<span class="xq-chip warn">📌 <b>${srs.due}</b> 道错题待复习</span>` : ''}
+        ${cal > 0 ? `<span class="xq-chip">🎚 已按你的成绩校准 <b>${cal}</b> 道题</span>` : ''}
       </div>`;
 
     if (assessed) scr.appendChild(radarCard(rs));
@@ -377,6 +382,7 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       allowHint: false,
       onDone: (r) => {
         a.answer(r.correct);
+        calibratePuzzle(q.puzzle.id, q.puzzle.rating, getRatings()[q.dim].r, r.correct);
         if (!r.correct) markWrong(q.puzzle.id);
         else markRight(q.puzzle.id);
         nextQuestion(a, missing);
@@ -642,7 +648,14 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
         const ok = r.correct && !r.usedHint;
         // 错题重练不计分（dim 为 null）：那些题你见过，做对可能只是记住了答案，
         // 拿它涨分会把水平估高。复习只管有没有真的记牢，不管分数。
-        if (dim) updateRating(dim, p.rating, ok);
+        const eff = effectiveRating(p.id, p.rating);
+        if (dim) {
+          const before = getRatings()[dim].r;
+          updateRating(dim, eff, ok);
+          // 同一次 Elo 的另一边：反过来修正这道题的难度。
+          // 引擎标的难度衡量的是机器的难度，你的成绩才是人的难度。
+          calibratePuzzle(p.id, p.rating, before, ok);
+        }
         if (ok) markRight(p.id);
         else markWrong(p.id);
         done(ok);
