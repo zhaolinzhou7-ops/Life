@@ -25,6 +25,8 @@ import {
   allDueSoon,
   srsCount,
   pruneSrs,
+  guessEndgame,
+  getEgGuesses,
   totalSolved,
   getHistory,
   getDeclared,
@@ -819,6 +821,7 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     if (!wrap.isConnected) return;
     const groups = endgamesByName();
     const cleared = new Set(getCleared().endgames);
+    const guesses = getEgGuesses();
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-home';
     scr.innerHTML = `
@@ -839,13 +842,17 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     for (const g of groups) {
       const done = g.items.filter((i) => cleared.has(i.id)).length;
       const wins = g.items.filter((i) => i.target === 'win').length;
+      // 还没全部判断过就先不说有几个是胜局——那等于替你把判断做了
+      const guessedAll = g.items.every((i) => guesses[i.id]);
       const el = document.createElement('div');
       el.className = 'card home-card';
       el.innerHTML = `
         <div class="title">${g.name}<span class="tag">${g.category}</span>${
           done === g.items.length ? '<span class="tag warn">已过</span>' : done ? `<span class="tag">${done}/${g.items.length}</span>` : ''
         }</div>
-        <div class="desc">${g.material}　·　${g.items.length} 个局面（其中 ${wins} 个是胜局）<br>${g.goal}</div>`;
+        <div class="desc">${g.material}　·　${g.items.length} 个局面${
+          guessedAll ? `（其中 ${wins} 个是胜局）` : ''
+        }<br>${g.goal}</div>`;
       el.onclick = () => showEndgameGroup(g);
       list.appendChild(el);
     }
@@ -874,15 +881,45 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       </div>`;
     const list = document.createElement('div');
     list.className = 'card-list';
+    const guesses = getEgGuesses();
     g.items.forEach((e, i) => {
       const el = document.createElement('div');
       el.className = 'card home-card';
-      el.innerHTML = `
-        <div class="title">局面 ${i + 1}
-          <span class="tag ${e.target === 'win' ? 'warn' : ''}">${e.target === 'win' ? '你能赢' : '只能和'}</span>
-          ${cleared.has(e.id) ? '<span class="tag">已过</span>' : ''}</div>
-        <div class="desc">${e.target === 'win' ? '把优势下成胜势' : '守住这个和棋'}</div>`;
-      el.onclick = () => runEndgame(g, i);
+      // 没猜过就先不揭晓。残局功力的核心是"判断这局是胜是和"，
+      // 直接把答案印在卡片上，等于把这一课删掉了
+      const render = () => {
+        const guess = guesses[e.id];
+        if (!guess) {
+          el.innerHTML = `
+            <div class="title">局面 ${i + 1}<span class="tag">先判断</span></div>
+            <div class="desc">看一眼这个局面，你觉得强的一方能赢下来，还是只能和？</div>
+            <div class="xq-eg-guess">
+              <button class="xq-btn" data-g="win">能赢</button>
+              <button class="xq-btn" data-g="draw">只能和</button>
+            </div>`;
+          el.querySelectorAll<HTMLButtonElement>('[data-g]').forEach((btn) => {
+            btn.onclick = (ev) => {
+              ev.stopPropagation();
+              const gv = btn.dataset.g as 'win' | 'draw';
+              guesses[e.id] = gv;
+              guessEndgame(e.id, gv, e.target);
+              render();
+            };
+          });
+          el.onclick = null;
+          return;
+        }
+        const right = guess === e.target;
+        el.innerHTML = `
+          <div class="title">局面 ${i + 1}
+            <span class="tag ${e.target === 'win' ? 'warn' : ''}">${e.target === 'win' ? '你能赢' : '只能和'}</span>
+            ${cleared.has(e.id) ? '<span class="tag">已过</span>' : ''}</div>
+          <div class="desc">${right ? '✅ 你判断对了' : `❌ 你猜的是「${guess === 'win' ? '能赢' : '只能和'}」`}　·　${
+            e.target === 'win' ? '把优势下成胜势' : '守住这个和棋'
+          }${e.reason ? `<br><span class="dim">引擎实测：${drawWhy(e)}</span>` : ''}</div>`;
+        el.onclick = () => runEndgame(g, i);
+      };
+      render();
       list.appendChild(el);
     });
     scr.appendChild(list);
@@ -892,6 +929,22 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     back.onclick = showEndgameList;
     scr.appendChild(back);
     wrap.appendChild(scr);
+  }
+
+  /**
+   * 把"这个结果怎么来的"说成人话。
+   *
+   * 标"和"有两种完全不同的意思：局面本来就是和棋，还是**在 60 回合无吃子
+   * 判和这条规则下走不出胜果**。后者可能和棋书上的理论结论不一样
+   * （比如单车对马双士，书上说例胜，但要走的步数超过这条规则），
+   * 不写清楚就会被当成软件算错了。
+   */
+  function drawWhy(e: EndgamePos): string {
+    if (e.target === 'win') return `${Math.ceil(e.plies / 2)} 回合内能将死`;
+    if (e.reason?.includes('无吃子')) return '打到 60 回合无吃子判和——注意这是规则判的和，不一定是理论和棋';
+    if (e.reason?.includes('重复')) return '双方都走不出变化，三次重复判和';
+    if (e.reason?.includes('未分')) return `打了 ${Math.ceil(e.plies / 2)} 回合还是没分出胜负`;
+    return e.reason ?? '';
   }
 
   function runEndgame(g: ReturnType<typeof endgamesByName>[number], i: number) {

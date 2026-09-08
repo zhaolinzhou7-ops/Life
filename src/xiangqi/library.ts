@@ -59,6 +59,14 @@ export interface EndgamePos {
   goal: string;
   tips: string[];
   plies: number;
+  /**
+   * 这个结果是怎么走出来的：将死/困毙、60 回合无吃子、三次重复、打满没分出胜负。
+   *
+   * 标"和"有两种完全不同的意思——局面本来就是和棋，还是**在 60 回合无吃子
+   * 判和这条规则下走不出胜果**。后者可能和棋书上的理论结论不一样，
+   * 界面上必须说清楚，否则会被当成软件算错了。
+   */
+  reason?: string;
   rating: number;
 }
 

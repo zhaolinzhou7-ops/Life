@@ -159,6 +159,14 @@ interface SaveData {
   /** 残局与杀法图形的完成记录 */
   clearedEndgames: string[];
   clearedMates: string[];
+  /**
+   * 残局的"先猜是胜是和"：题号 -> 你猜的。
+   *
+   * 残局功力的核心是**判断**，不是走法。所以每个局面在你猜之前不显示答案，
+   * 猜完才揭晓、才让你下。猜错本身就是最值钱的反馈——说明你对这类子力
+   * 组合的判断是偏的，而这个偏差在实战里直接决定你该不该兑子。
+   */
+  egGuess: Record<string, 'win' | 'draw'>;
 }
 
 const EMPTY_RATINGS = (): Record<Dim, Rating> => ({
@@ -184,6 +192,7 @@ const EMPTY = (): SaveData => ({
   ownSeq: 0,
   clearedEndgames: [],
   clearedMates: [],
+  egGuess: {},
   puzzleAdj: {},
 });
 
@@ -330,6 +339,18 @@ export function markMateCleared(id: string) {
   const d = load();
   if (!d.clearedMates.includes(id)) d.clearedMates.push(id);
   store(d);
+}
+
+/** 记下你对某个残局"是胜是和"的判断；返回猜得对不对 */
+export function guessEndgame(id: string, guess: 'win' | 'draw', truth: 'win' | 'draw'): boolean {
+  const d = load();
+  d.egGuess[id] = guess;
+  store(d);
+  return guess === truth;
+}
+
+export function getEgGuesses(): Record<string, 'win' | 'draw'> {
+  return load().egGuess ?? {};
 }
 
 export function getCleared(): { endgames: string[]; mates: string[] } {

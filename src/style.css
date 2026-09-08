@@ -2436,6 +2436,18 @@ canvas {
   margin: 6px 0 2px;
 }
 /* 分数尺子的说明：写小一点、灰一点，它是免责说明不是结论 */
+/* 残局卡片上的"先判断"：两个按钮并排，别做得像主操作 */
+.xq-eg-guess {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.xq-eg-guess .xq-btn {
+  flex: 1;
+  padding: 8px 0;
+  font-size: 14px;
+}
+
 .xq-scale-note {
   margin: 8px auto 0;
   max-width: 30em;

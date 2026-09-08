@@ -350,6 +350,14 @@ interface EgOut {
   tips: string[];
   /** 引擎走完用了多少步，用来估难度 */
   plies: number;
+  /**
+   * 结果是怎么来的：将死/困毙、60 回合无吃子、三次重复、还是打满没分出胜负。
+   *
+   * 这条要显示给学生看。标"和"有两种完全不同的意思：一种是这局面本来就是和棋，
+   * 另一种是**在 60 回合无吃子判和这条规则下走不出胜果**——后者和棋书上的
+   * 理论结论可能不一样，不写清楚就会被当成软件算错了。
+   */
+  reason: string;
   rating: number;
 }
 
@@ -396,6 +404,7 @@ for (const combo of combos) {
       goal: combo.goal,
       tips: combo.tips,
       plies: v.plies,
+      reason: v.reason,
       // 赢的局面按步数给难度：越长越难走
       rating: youWin ? Math.min(1700, 950 + v.plies * 6) : 1150,
     });
