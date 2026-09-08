@@ -109,8 +109,11 @@ function* sampleFromGames(): Generator<{ board: Board; color: Color }> {
   for (;;) {
     let b = initialBoard();
     let c: Color = 'r';
-    const depth = 2 + ((Math.random() * 2) | 0);
-    const jitter = 40 + Math.random() * 180; // 有扰动才会出现真实的破绽
+    // 采样强度决定题的难度上限：弱引擎+大扰动 → 破绽浅显、题都简单；
+    // 强引擎+小扰动 → 剩下的战术才是"要算几层才看得见"的那种。
+    // 这是之前整批题偏简单的真正根因，比事后过滤有效得多。
+    const depth = SAMPLE_DEPTH + ((Math.random() * 2) | 0);
+    const jitter = 40 + Math.random() * SAMPLE_JITTER;
     for (let ply = 0; ply < 60; ply++) {
       if (statusAfter(b, c) !== 'playing') break;
       const legal = legalMoves(b, c).filter((m) => !isInCheck(applyMove(b, m), c));
@@ -156,13 +159,20 @@ function tryMate(b: Board, c: Color, wantMate: number): Puzzle | null {
  * 甩不开的直接丢，命中的再上 6 层确认。
  */
 function promising(b: Board, c: Color, gap: number): boolean {
-  const a = analyze(b, c, { maxDepth: 3, timeMs: 900, jitter: 0 });
+  const a = analyze(b, c, { maxDepth: PREFILTER_DEPTH, timeMs: 1500, jitter: 0 });
   if (a.moves.length < 6) return false;
   return a.moves[0].score - a.moves[1].score >= gap;
 }
 
 /** 只要难题：设 HARD=1 时启用 */
 const HARD = process.env.HARD === '1';
+/** 采样对局用多强的引擎；越强，采到的战术越隐蔽 */
+const SAMPLE_DEPTH = Number(process.env.SAMPLE_DEPTH ?? 2);
+const SAMPLE_JITTER = Number(process.env.SAMPLE_JITTER ?? 180);
+/** 预筛用几层看。用 3 层等于只要浅层就看得出的题——难题必须提高这个 */
+const PREFILTER_DEPTH = Number(process.env.PREFILTER_DEPTH ?? 3);
+/** 确认用几层。深层战术要更深才判得准 */
+const VERIFY_DEPTH = Number(process.env.VERIFY_DEPTH ?? 6);
 
 /**
  * 难题预筛：**浅看看不出来**（2 层时最佳与次佳几乎没差），才有资格当难题。
@@ -202,7 +212,7 @@ function tryTactic(b: Board, c: Color): Puzzle | null {
 /** 眼力题：绝大多数着法都要亏子，只有一两手安全——正是"漏着"的反面 */
 function trySafety(b: Board, c: Color): Puzzle | null {
   if (HARD ? !deepOnly(b, c) : !promising(b, c, 200)) return null;
-  const a = analyze(b, c, { maxDepth: 6, timeMs: 5000, jitter: 0 });
+  const a = analyze(b, c, { maxDepth: VERIFY_DEPTH, timeMs: 6000, jitter: 0 });
   if (a.moves.length < 8) return null;
   const top = a.moves[0];
   if (top.mateIn !== undefined) return null;
