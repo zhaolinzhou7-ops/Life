@@ -103,7 +103,13 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     view.setMarks([]);
     const text = moveToText(board, mv);
     // 一样好的着法一律算对：杀法题里同样步数的杀棋常常不止一手，
-    // 只认记下来的那一手会把走对的人判错
+    // 只认记下来的那一手会把走对的人判错。
+    //
+    // 已知短板：`also` 是离线生成时算好的，**实战抓回来的错题（own-）没有**。
+    // 复盘用的 judgeMove 对非最佳着法走的是窄窗口，返回的是边界不是精确分，
+    // 拿不出"所有一样好的着法"；要补就得给 Worker 加一条 analyze 通道。
+    // 量过题库里正解不唯一的比例只有 2.2%，暂时不值得为它把复盘成本翻倍，
+    // 所以这里明确记下来：own- 的题只认引擎首选，走出另一手一样好的会被判错。
     const correct = text === puzzle.answer || !!puzzle.also?.includes(text);
     const after = applyMove(board, mv);
     board = after;
@@ -137,6 +143,11 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       <div class="l">正解：<b>${puzzle.answer}</b>${
         puzzle.also?.length ? `（走 ${puzzle.also.join('、')} 也一样）` : ''
       }${puzzle.line.length > 1 ? `　完整下法：${puzzle.line.join(' ')}` : ''}</div>
+      ${
+        puzzle.id.startsWith('own-')
+          ? '<div class="r dim">这是从你自己的对局里抓的题，只对着引擎的首选判分——你要是走出另一手一样好的，这里也会算错，别当真。</div>'
+          : ''
+      }
       ${
         puzzle.blunder
           ? `<div class="r">别灰心——这个局面是从真实对局里抓的，当时那盘棋也走错了（走的是 ${puzzle.blunder}）。</div>`
