@@ -33,6 +33,7 @@ import {
   type PType,
 } from '../src/xiangqi/rules';
 import { analyze, think } from '../src/xiangqi/ai';
+import { steadyAnalyze } from './steady-analyze';
 import { toFen, fromFen, moveToText } from '../src/xiangqi/notation';
 import { checkBoard } from './validate-positions';
 import { rateDifficulty } from './rate-difficulty';
@@ -302,8 +303,10 @@ function tryTrap(b: Board, c: Color, kind: 'tactic' | 'safety' | 'endgame' | 'op
   if (mkey(midTop.move) === mkey(obvious)) return bump(`${kind}:顺手的就是对的`), null;
   const midObv = mid.moves.find((m) => mkey(m.move) === mkey(obvious));
   if (!midObv || midTop.score - midObv.score < 150) return bump(`${kind}:顺手那手亏得不够多`), null;
-  // 3. 深查确认
-  const a = analyze(b, c, { maxDepth: TRAP_DEPTH, timeMs: 6000, jitter: 0 });
+  // 3. 深查确认。必须真的搜到 TRAP_DEPTH 层——时限截断的结果会随机器忙不忙
+  // 而变，那样生成出来的题就不可复现了（残局和杀法题都在这上面栽过）
+  const a = steadyAnalyze(b, c, TRAP_DEPTH, 6000);
+  if (!a.full) return bump(`${kind}:搜不到判定深度`), null;
   const top = a.moves[0];
   if (top.mateIn !== undefined) return bump(`${kind}:是杀法题`), null;
   if (mkey(top.move) === mkey(obvious)) return bump(`${kind}:深查后顺手的又对了`), null;
