@@ -11,8 +11,8 @@
 import { COLS, ROWS, type Board, type Color, type Move, type PType } from './rules';
 import { pieceName } from './notation';
 
-const RED = '#b3311f';
-const BLACK = '#22303a';
+const RED = '#a51e0c';
+const BLACK = '#141d24';
 
 export interface Mark {
   x: number;
@@ -54,11 +54,8 @@ export class Board2D {
   private w = 0;
   private h = 0;
   private raf = 0;
-  private lastT = 0;
   private dirty = true;
   private disposed = false;
-  /** 走子动画：从 (fx,fy) 滑到 (tx,ty) */
-  private anim: { m: Move; t: number; dur: number; onDone: () => void } | null = null;
 
   constructor(parent: HTMLElement, opts: Board2DOpts = {}) {
     this.flip = !!opts.flip;
@@ -96,22 +93,19 @@ export class Board2D {
     this.arrows = [];
     this.dirty = true;
   }
-  /**
-   * 走子动画。默认**不做动画**——训练时一天要走几百步，
-   * 每步等 0.26 秒纯属浪费，落子即到才跟得上思路。
-   * 想看动画的话把 animSec 调大。
-   */
-  animSec = 0;
 
+  /**
+   * 走一步。**没有动画，落子即到。**
+   *
+   * 教学场景一天要走几百步，每步等 0.26 秒纯属浪费；更要紧的是棋子在半空的
+   * 那一瞬不在任何交叉点上，看到就是"位置不对"。回调仍然放到下一帧——
+   * 调用方靠 onDone 串后续流程，同步执行会打乱顺序。
+   */
   animateMove(m: Move, board: Board, onDone: () => void) {
+    void m;
     this.board = board;
     this.dirty = true;
-    if (this.animSec <= 0) {
-      // 仍然要异步回调：调用方靠 onDone 串后续流程，同步执行会打乱顺序
-      requestAnimationFrame(() => onDone());
-      return;
-    }
-    this.anim = { m, t: 0, dur: this.animSec, onDone };
+    requestAnimationFrame(() => onDone());
   }
 
   dispose() {
@@ -359,16 +353,32 @@ export class Board2D {
     g.strokeStyle = col;
     g.lineWidth = Math.max(1.2, r * 0.06);
     g.beginPath();
-    g.arc(cx, cy, r * 0.8, 0, Math.PI * 2);
+    g.arc(cx, cy, r * 0.86, 0, Math.PI * 2);
     g.stroke();
 
-    // 字：先压一道暗影再写正色，看起来像刻进去的
+    /**
+     * 字。**认得清排在好看前面。**
+     *
+     * 原来是"先压一道半透明暗影再写正色"，那道偏移的暗影其实在糊边缘，
+     * 字号也只有半径的 1.08 倍。手机上一个棋子才五六十像素，糊一点就认不出
+     * 炮和相的区别了。
+     *
+     * 改成路牌和字幕的通用做法：**先用盘面底色在字外面描一圈**，
+     * 把字和底隔开，再补一条极细的深色边把轮廓咬死，最后填正色。
+     * 不改配色，纯靠隔离带提对比。字号也放大到 1.24 倍半径。
+     */
     const label = pieceName(t, c);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.font = `700 ${Math.round(r * 1.08)}px "STKaiti","KaiTi","Songti SC",serif`;
-    g.fillStyle = 'rgba(90,60,30,0.30)';
-    g.fillText(label, cx + r * 0.035, cy + r * 0.045);
+    g.font = `700 ${Math.round(r * 1.24)}px "STKaiti","KaiTi","Songti SC",serif`;
+    g.lineJoin = 'round';
+    g.miterLimit = 2;
+    g.strokeStyle = '#fdf0d6';
+    g.lineWidth = Math.max(2, r * 0.20);
+    g.strokeText(label, cx, cy);
+    g.strokeStyle = 'rgba(60,38,14,0.45)';
+    g.lineWidth = Math.max(0.8, r * 0.035);
+    g.strokeText(label, cx, cy);
     g.fillStyle = col;
     g.fillText(label, cx, cy);
 
@@ -377,23 +387,12 @@ export class Board2D {
   }
 
   // ---------- 主循环 ----------
-  private loop = (now = 0) => {
+  private loop = () => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.loop);
-    const dt = this.lastT ? Math.min(0.05, (now - this.lastT) / 1000) : 0;
-    this.lastT = now;
     // 容器一开始可能还没布局（宽高为 0），量到尺寸变化就重新算一次
     const r = this.canvas.getBoundingClientRect();
     if (Math.abs(r.width - this.w) > 1 || Math.abs(r.height - this.h) > 1) this.resize();
-    if (this.anim) {
-      this.anim.t += dt;
-      this.dirty = true;
-      if (this.anim.t >= this.anim.dur) {
-        const done = this.anim.onDone;
-        this.anim = null;
-        done();
-      }
-    }
     if (!this.dirty) return;
     this.dirty = false;
     this.draw();
@@ -427,27 +426,12 @@ export class Board2D {
       }
     }
 
-    // 棋子
-    const a = this.anim;
+    // 棋子：每个都画在自己的交叉点上，没有中间状态
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
         const p = this.board[y][x];
         if (!p) continue;
-        // 动画中的那个子最后单独画
-        if (a && x === a.m.tx && y === a.m.ty) continue;
         const [px, py] = this.px(x, y);
-        g.drawImage(this.sprite(p.t, p.c), px - spriteR, py - spriteR, spriteR * 2, spriteR * 2);
-      }
-    }
-    if (a) {
-      const p = this.board[a.m.ty][a.m.tx];
-      if (p) {
-        const k = Math.min(1, a.t / a.dur);
-        const e = 1 - (1 - k) * (1 - k); // easeOut
-        const [sx, sy] = this.px(a.m.fx, a.m.fy);
-        const [tx, ty] = this.px(a.m.tx, a.m.ty);
-        const px = sx + (tx - sx) * e;
-        const py = sy + (ty - sy) * e;
         g.drawImage(this.sprite(p.t, p.c), px - spriteR, py - spriteR, spriteR * 2, spriteR * 2);
       }
     }

@@ -7,6 +7,7 @@
  */
 import { applyMove, cloneBoard, type Board, type Color, type Move, type PType } from './rules';
 import { moveToText, pieceName } from './notation';
+import type { Dim } from './save';
 
 /** 子力价值，和引擎 ai.ts 里的 VAL 保持一致（兵=100） */
 export const PIECE_VALUE: Record<PType, number> = { K: 60000, A: 220, E: 220, H: 450, R: 1000, C: 500, P: 100 };
@@ -92,6 +93,8 @@ export interface ReviewedMove {
   bestPv?: string[];
   /** 一句话人话点评 */
   comment: string;
+  /** 这一手的亏损算在哪一维（只有真亏了才有意义） */
+  dim: Dim;
 }
 
 export interface GameReview {
@@ -102,6 +105,11 @@ export interface GameReview {
   worst: Record<Color, number>;
   /** 按方统计 */
   stats: Record<Color, { total: number; blunders: number; mistakes: number; avgLoss: number }>;
+  /**
+   * 每一方的分**分别丢在哪一维**（只统计"不佳"以上的失误）。
+   * 每日训练就是照着这个排的——练你真正在输分的那一块，而不是练你分低的那一块。
+   */
+  lossBy: Record<Color, Partial<Record<Dim, number>>>;
 }
 
 /** 依分差与局势翻转定级。翻转优先——分差 300 但把赢棋走没了，比单纯亏 300 严重得多 */
@@ -169,6 +177,34 @@ function firstLoss(b: Board, pv: Move[], me: Color): { text: string; piece: stri
   return hit && balance(cur, me) - startBal <= -PIECE_VALUE.P ? hit : null;
 }
 
+/** 盘面上还剩多少子力（不含将帅），用来判断进没进残局 */
+function materialLeft(b: Board): number {
+  let n = 0;
+  for (const row of b) for (const p of row) if (p && p.t !== 'K' && p.t !== 'A' && p.t !== 'E') n++;
+  return n;
+}
+
+/**
+ * 这一手的分**丢在哪一维**。
+ *
+ * 这是整套训练系统里最关键的一次归因：做题分只说明你会不会做题，
+ * 而决定你输棋的是实战里分从哪儿漏掉的。专业教练拿到一盘棋，第一件事
+ * 就是分门别类地问"这几步分别是什么性质的错"，然后照着最贵的那一类去练。
+ *
+ * 归类的顺序是有讲究的，从"最该先解决的"往下排：
+ *   漏杀       → 杀法：眼前就有杀棋没看见，最可惜
+ *   开局十二手内 → 布局：这个阶段的亏损几乎都是不懂定式思路
+ *   子力已经很少 → 残局：技术问题，不是眼力问题
+ *   对方立刻吃你子 → 眼力：没看见对方的威胁，业余输棋六成是这个
+ *   其余         → 战术：有赢子的手段没抓住
+ */
+export function dimOfLoss(b: Board, j: Judged, me: Color, ply: number, flip?: Flip): Dim {
+  if (flip === 'missed-mate' || (j.best.mateIn !== undefined && j.best.mateIn > 0)) return 'mate';
+  if (ply < 24) return 'opening';
+  if (materialLeft(b) <= 6) return 'endgame';
+  return firstLoss(b, j.played.pv, me) ? 'safety' : 'tactic';
+}
+
 /** 生成一句人话点评 */
 function commentOf(b: Board, j: Judged, me: Color, grade: Grade, flip: Flip | undefined, loss: number): string {
   if (flip === 'missed-mate') {
@@ -178,7 +214,16 @@ function commentOf(b: Board, j: Judged, me: Color, grade: Grade, flip: Flip | un
   }
   if (grade === 'best' || grade === 'good') {
     if (j.best.mateIn !== undefined && j.best.mateIn > 0) return '好棋，已经走进杀局了。';
-    return '这步是引擎的首选，继续保持。';
+    // "分差很小"和"就是首选"是两回事。原来这两种都说成"这步是引擎的首选"，
+    // 而界面同时又在旁边列着另一手更好的着法，自相矛盾——稍微懂棋的人一眼看穿。
+    const same =
+      j.best.move.fx === j.played.move.fx && j.best.move.fy === j.played.move.fy &&
+      j.best.move.tx === j.played.move.tx && j.best.move.ty === j.played.move.ty;
+    if (same) return '这步就是引擎的首选，继续保持。';
+    const alt = moveToText(b, j.best.move);
+    return grade === 'best'
+      ? `这步和引擎的首选 ${alt} 一样好。`
+      : `这步可以，引擎更想走 ${alt}，但差得不多。`;
   }
 
   const lost = firstLoss(b, j.played.pv, me);
@@ -239,6 +284,7 @@ export function reviewMove(b: Board, ply: number, color: Color, j: Judged): Revi
     bestText: isBest ? undefined : moveToText(b, j.best.move),
     bestPv: isBest ? undefined : pvText(b, j.best.pv).slice(0, 6),
     comment: commentOf(b, j, color, grade, flip, loss),
+    dim: dimOfLoss(b, j, color, ply, flip),
   };
 }
 
@@ -249,12 +295,15 @@ export function summarize(moves: ReviewedMove[]): GameReview {
     b: { total: 0, blunders: 0, mistakes: 0, avgLoss: 0 },
   };
   const sum: Record<Color, number> = { r: 0, b: 0 };
+  const lossBy: GameReview['lossBy'] = { r: {}, b: {} };
   for (const m of moves) {
     const s = stats[m.color];
     s.total++;
     sum[m.color] += m.loss;
     if (m.grade === 'blunder') s.blunders++;
     else if (m.grade === 'mistake') s.mistakes++;
+    // 只统计"不佳"以上的失误。好棋和小波动算进去只会把画面搅浑
+    if (m.loss >= 80) lossBy[m.color][m.dim] = (lossBy[m.color][m.dim] ?? 0) + m.loss;
   }
   for (const c of ['r', 'b'] as Color[]) {
     stats[c].avgLoss = stats[c].total ? Math.round(sum[c] / stats[c].total) : 0;
@@ -280,5 +329,5 @@ export function summarize(moves: ReviewedMove[]): GameReview {
     if (m.loss > 0 && (cur < 0 || m.loss > moves[cur].loss)) worst[m.color] = i;
   });
 
-  return { moves, turning, worst, stats };
+  return { moves, turning, worst, stats, lossBy };
 }

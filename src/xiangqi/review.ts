@@ -217,6 +217,9 @@ export function runReview(opts: ReviewOpts): () => void {
       blunders: me.blunders,
       mistakes: me.mistakes,
       avgLoss: me.avgLoss,
+      // 这盘的分分别丢在哪一维——每日训练就是照着这个排的
+      lossBy: rep.lossBy[playerColor],
+      plies: rep.moves.filter((m) => m.color === playerColor).length,
     });
     let saved = 0;
     rep.moves.forEach((m, i) => {
@@ -225,8 +228,9 @@ export function runReview(opts: ReviewOpts): () => void {
       if (!m.bestMove || !m.bestText) return;
       const before = boards[i];
       const ok = addOwnPuzzle({
-        // 走错的是漏着就归"眼力"，其余归"战术"——和五维评分对得上
-        kind: m.grade === 'blunder' ? 'safety' : 'tactic',
+        // 用复盘归因出来的维度。原来是"漏着算眼力、失误算战术"，
+        // 那只看错的严重程度，不看错的**性质**——开局吃亏和残局走软是两回事
+        kind: m.dim,
         fen: toFen(before, m.color),
         answer: m.bestText,
         line: m.bestPv ?? [m.bestText],

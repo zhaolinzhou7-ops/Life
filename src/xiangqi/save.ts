@@ -43,20 +43,41 @@ export const TT_LEVELS: { id: string; name: string; seed: number; desc: string }
 
 export const ttLevelById = (id: string) => TT_LEVELS.find((l) => l.id === id);
 
-/** 段位表：贴中国棋友的说法，比裸分数有体感 */
+/**
+ * 段位表：贴中国棋友的说法，比裸分数有体感。
+ *
+ * 这里**故意不写"业几"**。原来写了，而且和上面的 TT_LEVELS 互相打架——
+ * 段位表说 1500 分约等于"业 2-3"，自报表却说"业 6-7"只值 1350 分，
+ * 等于自己声称业 2-3 比业 6-7 强。各家平台的"业 N"根本不是一把尺子，
+ * 硬写就一定会错。所以段位只描述**你能做到什么**，
+ * 要和天天象棋对照的话走 ttNear()，那边只有一份数据，不会再打架。
+ */
 export const RANKS: { min: number; name: string; desc: string }[] = [
   { min: 0, name: '入门', desc: '会走子，规则清楚' },
   { min: 900, name: '新手', desc: '能下完一盘，但常漏着' },
-  { min: 1100, name: '初级', desc: '棋友级，会简单杀法' },
-  { min: 1300, name: '中级', desc: '公园中上水平' },
-  { min: 1500, name: '高级', desc: '公园高手 / 网络业 2-3' },
-  { min: 1700, name: '准专业', desc: '业 4-5' },
-  { min: 1900, name: '专业级', desc: '——' },
+  { min: 1100, name: '初级', desc: '会简单杀法，不太送子了' },
+  { min: 1300, name: '中级', desc: '有战术意识，残局能走出结果' },
+  { min: 1500, name: '高级', desc: '公园里少有对手，算得清三五步' },
+  { min: 1700, name: '准专业', desc: '布局成体系，中局有计划' },
+  { min: 1900, name: '专业级', desc: '受过系统训练的水平' },
 ];
 
 export function rankOf(r: number) {
   let hit = RANKS[0];
   for (const x of RANKS) if (r >= x.min) hit = x;
+  return hit;
+}
+
+/**
+ * 这个分数大概相当于天天象棋的哪一档。
+ *
+ * 直接拿 TT_LEVELS 的起点分做最近邻，不另抄一份对照表——
+ * 两份对照表迟早会对不上，上一版就是这么错的。
+ * 说明里也要讲清楚这只是个粗对照：两边的尺子本来就不是同一把。
+ */
+export function ttNear(r: number) {
+  let hit = TT_LEVELS[0];
+  for (const l of TT_LEVELS) if (Math.abs(l.seed - r) < Math.abs(hit.seed - r)) hit = l;
   return hit;
 }
 
@@ -92,6 +113,16 @@ export interface GameRecord {
   blunders: number;
   mistakes: number;
   avgLoss: number;
+  /**
+   * 这盘棋的分**丢在哪一维**（每一维累计亏了多少分）。
+   *
+   * 这是整套系统里最该有、之前却没有的东西：做题分只说明你**会不会做题**，
+   * 而真正决定你输棋的是**实战里分从哪儿漏掉的**。专业教练看的就是这个，
+   * 不是看你题做得怎么样。有了它，每日训练才谈得上"按你的真实水平安排"。
+   */
+  lossBy?: Partial<Record<Dim, number>>;
+  /** 这盘走了多少手，用来判断样本够不够 */
+  plies?: number;
 }
 
 interface SaveData {
@@ -118,6 +149,20 @@ interface SaveData {
    */
   own: Puzzle[];
   ownSeq: number;
+  /**
+   * 最近的做题流水（维度 + 对错），只留最近 200 条。
+   *
+   * 有它才能回答"这一维的题对你来说是不是太简单了"。教学上正确率维持在
+   * 70~85% 进步最快：太高说明在做已经会的题，太低说明在硬啃。
+   * 光看等级分看不出这件事——分数是长期累积的，看不出最近几天的状态。
+   */
+  recent: { dim: Dim; ok: boolean }[];
+  /** 上次做测验的日子（自 1970 起的天数），用来决定该不该再测一次 */
+  lastQuiz?: number;
+  /** 你在这些标着「和棋」的残局里真的赢了——引擎判错了，以你的结果为准 */
+  beatDraw?: string[];
+  /** 让子定级的进度 */
+  ladder?: LadderState;
   /** 自报的天天象棋级别（TT_LEVELS 的 id），只用来给测评定起点 */
   declared?: string;
   /**
@@ -138,6 +183,14 @@ interface SaveData {
   /** 残局与杀法图形的完成记录 */
   clearedEndgames: string[];
   clearedMates: string[];
+  /**
+   * 残局的"先猜是胜是和"：题号 -> 你猜的。
+   *
+   * 残局功力的核心是**判断**，不是走法。所以每个局面在你猜之前不显示答案，
+   * 猜完才揭晓、才让你下。猜错本身就是最值钱的反馈——说明你对这类子力
+   * 组合的判断是偏的，而这个偏差在实战里直接决定你该不该兑子。
+   */
+  egGuess: Record<string, 'win' | 'draw'>;
 }
 
 const EMPTY_RATINGS = (): Record<Dim, Rating> => ({
@@ -163,6 +216,8 @@ const EMPTY = (): SaveData => ({
   ownSeq: 0,
   clearedEndgames: [],
   clearedMates: [],
+  egGuess: {},
+  recent: [],
   puzzleAdj: {},
 });
 
@@ -276,8 +331,142 @@ export function updateRating(dim: Dim, puzzleRating: number, correct: boolean): 
     n: cur.n + 1,
   };
   d.ratings[dim] = next;
+  (d.recent ??= []).push({ dim, ok: correct });
+  if (d.recent.length > 200) d.recent.shift();
   store(d);
   return next;
+}
+
+/**
+ * 最近 n 次这一维的正确率。做题数不够就返回 null——
+ * 三四道题算出来的正确率没有意义，不能拿去调难度。
+ */
+export function recentAccuracy(dim: Dim, n = 20): { acc: number; n: number } | null {
+  const list = (load().recent ?? []).filter((r) => r.dim === dim).slice(-n);
+  if (list.length < 6) return null;
+  return { acc: list.filter((r) => r.ok).length / list.length, n: list.length };
+}
+
+/**
+ * 实战里每一维累计漏掉多少分（最近 n 盘）。
+ *
+ * 这是"你为什么输棋"的直接答案，也是每日训练该练什么的第一依据。
+ */
+/**
+ * 距上次测验多少天。从没测过就当很久没测——第一次进来就该测一次。
+ *
+ * 为什么要定期测：练而不测，涨没涨全靠感觉。而且做题时的等级分是**边练边动**的，
+ * 混着提示、混着重复做过的题，不适合当水平的读数；单独一场不给提示的小测才干净。
+ */
+// ---------------- 让子定级 ----------------
+
+/**
+ * 让子阶梯。**这是唯一没有天花板的棋力读数。**
+ *
+ * 做题分衡量的是"会不会做题"，而且受题库最难那道题的限制——业 6 以上的人
+ * 很快就顶到上限，再练分也不动了。教练历来的办法是让子：
+ * 让你两个马能赢，让一个马赢不了，你的水平就在这两档之间。
+ * 这个尺子没有上限（让子让完了就往上加引擎深度），而且量的是**实战能力**，
+ * 不是做题能力——两者可以差很远。
+ *
+ * 阶梯从易到难单调排列，每一档给一个大致的对应分，只用来显示，不参与出题。
+ */
+export const LADDER: { id: string; name: string; desc: string; strip: number; depth: number; approx: number }[] = [
+  { id: 'h2', name: '让双马', desc: '对手少两个马', strip: 2, depth: 6, approx: 900 },
+  { id: 'h1', name: '让单马', desc: '对手少一个马', strip: 1, depth: 6, approx: 1100 },
+  { id: 'e0', name: '分先 · 进阶', desc: '子力相同，对手算 6 层', strip: 0, depth: 6, approx: 1300 },
+  { id: 'e1', name: '分先 · 高手', desc: '子力相同，对手算 10 层', strip: 0, depth: 10, approx: 1550 },
+  { id: 'e2', name: '分先 · 大师', desc: '子力相同，对手算 14 层', strip: 0, depth: 14, approx: 1800 },
+];
+
+export interface LadderState {
+  /** 当前所在档位（LADDER 的下标） */
+  rung: number;
+  /** 每一档的战绩流水，用来判断"稳不稳" */
+  log: { rung: number; won: boolean }[];
+}
+
+export function getLadder(): LadderState {
+  const d = load();
+  if (d.ladder) return d.ladder;
+  /**
+   * 没下过的话，**按你自报的天天象棋级别直接落在对应档**，别从最低档爬。
+   *
+   * 业 6 的人从"让双马"起步要连赢八盘才摸到自己的真实水平，那八盘既无聊
+   * 又测不出东西。定级的意义是尽快找到你的边界，不是走完全部台阶。
+   * 起点估错也没关系——赢就升、输就降，两三盘就归位。
+   */
+  const seed = seedRating();
+  let rung = 0;
+  for (let i = 0; i < LADDER.length; i++) if (seed >= LADDER[i].approx - 100) rung = i;
+  return { rung, log: [] };
+}
+
+/**
+ * 记一局让子棋的结果，返回新的档位和一句说明。
+ *
+ * 升降规则：赢了升一档，输了降一档，但**要在同一档赢够两盘才算站稳**。
+ * 只赢一盘就宣布水平提升，运气成分太大——真人教练也是看你稳不稳，
+ * 不是看你偶尔赢一次。
+ */
+export function recordLadder(won: boolean): { rung: number; moved: -1 | 0 | 1; steady: boolean } {
+  const d = load();
+  const st = d.ladder ?? { rung: 0, log: [] };
+  st.log.push({ rung: st.rung, won });
+  if (st.log.length > 60) st.log.shift();
+  const here = st.log.filter((x) => x.rung === st.rung).slice(-3);
+  const winsHere = here.filter((x) => x.won).length;
+  let moved: -1 | 0 | 1 = 0;
+  if (won && winsHere >= 2 && st.rung < LADDER.length - 1) {
+    st.rung++;
+    moved = 1;
+  } else if (!won && here.length >= 2 && winsHere === 0 && st.rung > 0) {
+    st.rung--;
+    moved = -1;
+  }
+  d.ladder = st;
+  store(d);
+  const cur = st.log.filter((x) => x.rung === st.rung).slice(-3);
+  return { rung: st.rung, moved, steady: cur.filter((x) => x.won).length >= 2 };
+}
+
+/**
+ * 距上次完整测评多少天。
+ *
+ * 每周小测（10 题）看趋势，**每月一次完整测评**才是校准。两者分工不同：
+ * 小测题量少，只够看方向；完整测评三十多题、自适应难度，给的是带置信区间的
+ * 读数。一个月一次，既能看出真涨幅，又不会频繁到被"背题"污染。
+ */
+export function daysSinceAssess(): number {
+  const h = load().history;
+  if (!h.length) return 999;
+  const last = h[h.length - 1];
+  const d = Math.floor(new Date(last.d).getTime() / 86400000);
+  return Math.max(0, todayNum() - d);
+}
+
+export function daysSinceQuiz(): number {
+  const q = load().lastQuiz;
+  return q === undefined ? 999 : Math.max(0, todayNum() - q);
+}
+
+export function markQuizDone() {
+  const d = load();
+  d.lastQuiz = todayNum();
+  store(d);
+}
+
+export function lossProfile(n = 10): { by: Record<Dim, number>; games: number; total: number } {
+  const games = load().games.slice(-n);
+  const by = { safety: 0, mate: 0, tactic: 0, endgame: 0, opening: 0 } as Record<Dim, number>;
+  let total = 0;
+  for (const g of games) {
+    for (const [k, v] of Object.entries(g.lossBy ?? {})) {
+      by[k as Dim] += v ?? 0;
+      total += v ?? 0;
+    }
+  }
+  return { by, games: games.length, total };
 }
 
 export function getDeclared(): string | undefined {
@@ -309,6 +498,39 @@ export function markMateCleared(id: string) {
   const d = load();
   if (!d.clearedMates.includes(id)) d.clearedMates.push(id);
   store(d);
+}
+
+/**
+ * 你在某个标着「和棋」的残局里**真的赢了**。
+ *
+ * 库里的胜和是引擎实测的，而引擎的残局技术是有限的——它下不出来的胜果，
+ * 懂技术的人下得出来。用户就赢过一个标着和棋的单车对双士。
+ * 这种时候程序不该继续嘴硬，该认账：把这件事记下来，卡片上改口，
+ * 并且**以后不再拿这个局面当"守和"练习**。
+ *
+ * 这条也是整套系统里唯一"用户数据推翻软件结论"的地方，我觉得它应该存在：
+ * 引擎的判定是最好的自动近似，但它不是裁判。
+ */
+export function markBeatDraw(id: string) {
+  const d = load();
+  (d.beatDraw ??= []).includes(id) || d.beatDraw.push(id);
+  store(d);
+}
+
+export function getBeatDraw(): string[] {
+  return load().beatDraw ?? [];
+}
+
+/** 记下你对某个残局"是胜是和"的判断；返回猜得对不对 */
+export function guessEndgame(id: string, guess: 'win' | 'draw', truth: 'win' | 'draw'): boolean {
+  const d = load();
+  d.egGuess[id] = guess;
+  store(d);
+  return guess === truth;
+}
+
+export function getEgGuesses(): Record<string, 'win' | 'draw'> {
+  return load().egGuess ?? {};
 }
 
 export function getCleared(): { endgames: string[]; mates: string[] } {
@@ -397,6 +619,21 @@ export function allDueSoon(limit = 10): SrsCard[] {
     .srs.slice()
     .sort((a, b) => b.wrong - a.wrong || a.due - b.due)
     .slice(0, limit);
+}
+
+/**
+ * 清掉指向已经不存在的题目的复习卡。
+ *
+ * 题库会变——修数据时删掉过错题，自己实战抓的题也会被 200 道上限挤掉。
+ * 卡还留着的话，首页会显示"12 道待复习"而点进去只有 8 道。
+ * save.ts 不能反过来 import 题库（会成环），所以由上层把"这题还在不在"传进来。
+ */
+export function pruneSrs(exists: (id: string) => boolean): number {
+  const d = load();
+  const before = d.srs.length;
+  d.srs = d.srs.filter((c) => exists(c.id));
+  if (d.srs.length !== before) store(d);
+  return before - d.srs.length;
 }
 
 export function srsCount(): { total: number; due: number } {
@@ -499,8 +736,12 @@ export function addOwnPuzzle(p: Omit<Puzzle, 'id'>): string | null {
   if (d.own.some((x) => x.fen === p.fen)) return null;
   const id = `own-${d.ownSeq++}`;
   d.own.push({ ...p, id });
-  // 只留最近 200 道，别让存档无限涨
-  if (d.own.length > 200) d.own.shift();
+  // 只留最近 200 道，别让存档无限涨。丢掉题的同时**必须把它的复习卡一起丢掉**，
+  // 否则错题本里会留下一堆指向不存在题目的卡：界面上数字有、点进去是空的。
+  if (d.own.length > 200) {
+    const gone = d.own.shift();
+    if (gone) d.srs = d.srs.filter((c) => c.id !== gone.id);
+  }
   d.srs.push({ id, box: 0, wrong: 1, due: todayNum() + SRS_INTERVALS[0] });
   store(d);
   return id;

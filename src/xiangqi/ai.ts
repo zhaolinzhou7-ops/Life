@@ -118,6 +118,19 @@ const ttScore = new Int32Array(TT_SIZE);
 const ttMove = new Int32Array(TT_SIZE);
 const ttDepth = new Int8Array(TT_SIZE);
 const ttFlag = new Int8Array(TT_SIZE); // 0=精确 1=下界 2=上界
+
+/**
+ * 杀棋分进出置换表要换算距离。
+ *
+ * 将死的分是 `-MATE + ply`，也就是**相对当前这一层**的。同一个局面可以从
+ * 不同深度到达，直接把分存进去、再从别的层取出来，"几回合杀"就错了。
+ * 出题时就栽在这上面：398 道杀法题里 14 道步数标错、8 道换个深度结论就变，
+ * 根子在这里——存的时候要先换成"从这个局面还要几步"，取的时候再加回当前层数。
+ */
+const toTT = (sc: number, ply: number): number =>
+  sc > MATE - 200 ? sc + ply : sc < -MATE + 200 ? sc - ply : sc;
+const fromTT = (sc: number, ply: number): number =>
+  sc > MATE - 200 ? sc - ply : sc < -MATE + 200 ? sc + ply : sc;
 let ttGen = 0;
 const ttAge = new Int8Array(TT_SIZE);
 
@@ -527,7 +540,7 @@ function negamax(depth: number, alpha: number, beta: number, ply: number, canNul
   if (ttKey[ti] === h1 && ttCheck[ti] === h2) {
     ttM = ttMove[ti];
     if (ply > 0 && ttDepth[ti] >= depth) {
-      const sc = ttScore[ti];
+      const sc = fromTT(ttScore[ti], ply);
       const fl = ttFlag[ti];
       if (fl === 0) return sc;
       if (fl === 1 && sc >= beta) return sc;
@@ -600,7 +613,7 @@ function negamax(depth: number, alpha: number, beta: number, ply: number, canNul
   if (ttKey[ti] !== h1 || ttDepth[ti] <= depth || ttAge[ti] !== ttGen) {
     ttKey[ti] = h1;
     ttCheck[ti] = h2;
-    ttScore[ti] = best;
+    ttScore[ti] = toTT(best, ply);
     ttMove[ti] = bestM;
     ttDepth[ti] = depth;
     ttFlag[ti] = best <= origAlpha ? 2 : best >= beta ? 1 : 0;
@@ -841,6 +854,28 @@ export function analyze(b: Board, color: Color, opts: SearchOpts): Analysis {
     depth: reachedDepth,
     nodes,
   };
+}
+
+/**
+ * 把引擎的记忆清空（置换表、杀手着法、历史表）。
+ *
+ * 对弈时**不该调用**——置换表跨着法复用正是它快的原因。
+ * 这是给离线出数据用的：搜索结果依赖置换表里残留的内容，同一个局面
+ * 在不同的调用历史下会得出不同结论。残局的"这局是胜是和"就栽在这上面——
+ * 生成时判胜、体检时判和，两边代码一样，差别只在之前算过什么。
+ * 离线生成的数据必须只由局面决定，所以每定一个局面之前先清空。
+ */
+export function resetEngine() {
+  ttKey.fill(0);
+  ttCheck.fill(0);
+  ttScore.fill(0);
+  ttMove.fill(0);
+  ttDepth.fill(0);
+  ttFlag.fill(0);
+  ttAge.fill(0);
+  ttGen = 0;
+  killers.fill(0);
+  history.fill(0);
 }
 
 /** 静态估值（不搜索），红方为正。教学里用来讲「现在谁的子力占优」 */

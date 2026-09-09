@@ -9,7 +9,7 @@ import {
   type Board,
   type Move,
 } from './rules';
-import { disposeAi, requestMove } from './aiclient';
+import { disposeAi, requestMove, warmupAi } from './aiclient';
 import { runReview } from './review';
 import { runCoach } from './coach';
 import { isAssessed, getRatings, overallOf, rankOf, srsCount } from './save';
@@ -32,14 +32,23 @@ import { CHARACTERS, avatarCanvas, pickLine, type Character } from '../character
 
 // 深度是实测能跑到的层数（引擎约 140 万节点/秒），不是名义上限。
 // jitter 是评估扰动，只给低难度用来模拟"看走眼"，高难度必须为 0。
+
 /**
- * 动画速度。默认「快」——实测原速一个回合要 2.8 秒，其中 1.26 秒是纯动画，
- * 偶尔看几盘很带感，天天练就是纯等待。想看效果的人可以调回标准。
+ * 对局节奏。
+ *
+ * 上一版把动画全删了之后出现一个新问题：**你一落子对方立刻就走**，
+ * 没有一点下棋的呼吸感，很机械。但这跟"棋子位置不对"那个 bug 不是一回事——
+ * 那个是把棋子抬离盘面，这个只是节奏。所以节奏可以调，悬浮不会回来。
+ *
+ * 两个参数：
+ *   slide 落子平移的时长（棋子贴着盘面滑过去，永远以精确落点收尾）
+ *   think 对手最少"想"多久。搜索本身在 Worker 里跑，这里只是不让它
+ *         比这个时间更早把结果甩出来——真人不会零点二秒就落子。
  */
-const ANIM_SPEEDS = [
-  { id: 'off', name: '关闭', desc: '落子即到，没有任何动画', scale: 0, pause: 0 },
-  { id: 'fast', name: '快', desc: '很短的落子动画', scale: 0.35, pause: 0 },
-  { id: 'std', name: '完整', desc: '抓子—平移—落子的完整动画', scale: 1, pause: 140 },
+const TEMPOS = [
+  { id: 'fast', name: '明快', desc: '落子即到，对手几乎秒回', slide: 0, think: 0 },
+  { id: 'natural', name: '自然', desc: '有落子动作，对手会想一下（推荐）', slide: 0.22, think: 900 },
+  { id: 'slow', name: '沉稳', desc: '慢一些，像面对面下棋', slide: 0.34, think: 1600 },
 ] as const;
 
 const LEVELS = [
@@ -104,7 +113,20 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           : '先测一下水平（约 20 分钟），再按短板安排练什么。测评题会跟着你的表现自动调难度。',
         go: () => {
           clearAll();
-          disposeCoach = runCoach(wrap, showModeMenu);
+          disposeCoach = runCoach(wrap, showModeMenu, (strip, depth, onFinish) => {
+            // 让子定级的对局交回对弈流程：那边已经有完整的棋盘、复盘和结算
+            disposeCoach?.();
+            disposeCoach = null;
+            const lv = Math.max(0, Math.min(LEVELS.length - 1, depth >= 14 ? 3 : depth >= 10 ? 2 : 1));
+            startGame(
+              lv,
+              (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme,
+              CHARACTERS[Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length],
+              (localStorage.getItem('xq-facing') ?? 'duel') === 'duel',
+              Number(localStorage.getItem('xq-tempo') ?? 1),
+              { strip, depth, onFinish },
+            );
+          });
         },
       },
     ];
@@ -133,7 +155,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let theme = (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme;
     let rival = Number(localStorage.getItem('xq-rival') ?? 2);
     let facing = (localStorage.getItem('xq-facing') ?? 'duel') as 'duel' | 'me';
-    let anim = Math.max(0, Math.min(ANIM_SPEEDS.length - 1, Number(localStorage.getItem('xq-anim') ?? 0)));
+    let tempo = Math.max(0, Math.min(TEMPOS.length - 1, Number(localStorage.getItem('xq-tempo') ?? 1)));
 
     const s = document.createElement('div');
     s.className = 'screen xq-setup';
@@ -231,21 +253,21 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       s.appendChild(fRow);
 
       // 动画速度
-      const aLabel = document.createElement('div');
-      aLabel.className = 'xq-sec';
-      aLabel.textContent = '动画速度';
-      s.appendChild(aLabel);
-      const aRow = document.createElement('div');
-      aRow.className = 'diff-row';
-      ANIM_SPEEDS.forEach((sp, i) => {
+      const tLabel = document.createElement('div');
+      tLabel.className = 'xq-sec';
+      tLabel.textContent = '对局节奏';
+      s.appendChild(tLabel);
+      const tRow = document.createElement('div');
+      tRow.className = 'diff-row';
+      TEMPOS.forEach((tp, i) => {
         const card = document.createElement('div');
-        card.className = 'card' + (anim === i ? ' selected' : '');
-        card.innerHTML = `<div class="title" style="justify-content:center">${sp.name}</div>
-          <div class="desc" style="text-align:center">${sp.desc}</div>`;
-        card.onclick = () => { anim = i; sfxTap(); render(); };
-        aRow.appendChild(card);
+        card.className = 'card' + (tempo === i ? ' selected' : '');
+        card.innerHTML = `<div class="title" style="justify-content:center">${tp.name}</div>
+          <div class="desc" style="text-align:center">${tp.desc}</div>`;
+        card.onclick = () => { tempo = i; sfxTap(); render(); };
+        tRow.appendChild(card);
       });
-      s.appendChild(aRow);
+      s.appendChild(tRow);
 
       const go = document.createElement('button');
       go.className = 'btn';
@@ -255,10 +277,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         localStorage.setItem('xq-theme', theme);
         localStorage.setItem('xq-rival', String(rival));
         localStorage.setItem('xq-facing', facing);
-        localStorage.setItem('xq-anim', String(anim));
+        localStorage.setItem('xq-tempo', String(tempo));
         s.remove();
         setupEl = null;
-        startGame(level, theme, CHARACTERS[rival], facing === 'duel', anim);
+        startGame(level, theme, CHARACTERS[rival], facing === 'duel', tempo);
       };
       s.appendChild(go);
 
@@ -273,10 +295,31 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   }
 
   // ============ 对局 ============
-  function startGame(level: number, theme: PieceTheme, rival: Character, flipBlack: boolean, animIdx = 0) {
+  /**
+   * @param handicap 让子局：对手（黑方）少几个马，以及固定的搜索深度；
+   *                 下完把胜负回给 onFinish，由定级阶梯决定升降档
+   */
+  function startGame(
+    level: number,
+    theme: PieceTheme,
+    rival: Character,
+    flipBlack: boolean,
+    tempoIdx = 1,
+    handicap?: { strip: number; depth: number; onFinish: (won: boolean) => void },
+  ) {
+    const TEMPO = TEMPOS[Math.max(0, Math.min(TEMPOS.length - 1, tempoIdx))];
     const L = LEVELS[level];
-    const SPEED = ANIM_SPEEDS[Math.max(0, Math.min(ANIM_SPEEDS.length - 1, animIdx))];
     let board: Board = initialBoard();
+    // 让子：把黑方的马拿掉。让子是教练给学生定级最老实的办法——
+    // 让你两个马能赢、让一个马赢不了，水平就卡在这两档之间。
+    if (handicap?.strip) {
+      const spots: [number, number][] = [[1, 0], [7, 0]];
+      for (let i = 0; i < handicap.strip && i < spots.length; i++) {
+        const [hx, hy] = spots[i];
+        board[hy][hx] = null;
+      }
+    }
+
     let history: Board[] = [];
     /** 整盘的着法序列，复盘用。history 存的是局面，复盘要的是着法 */
     let moveLog: Move[] = [];
@@ -291,8 +334,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let bubbleTimer = 0;
 
     const scene = new XiangqiScene(wrap, (x, y) => onTap(x, y), theme, flipBlack);
-    scene.setAnimScale(SPEED.scale);
+    scene.setSlideSec(TEMPO.slide);
     scene.syncBoard(board);
+    // 先把搜索线程热起来，别让第一步的回手慢一大截
+    warmupAi(board, 'b');
     scene.dealIn();
     startBgm('guqin');
 
@@ -443,15 +488,20 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         // 搜索在 Worker 里跑，主线程继续放动画；思考期间对手头像有呼吸光效
         const myTurn = ++aiSeq;
         scene.setThinking(true);
-        // 这里原本硬等 140ms 才开始搜索，纯属白白浪费——搜索在 Worker 里跑，
-        // 不影响动画。快/极速档直接置 0。
-        aiTimer = window.setTimeout(() => {
-          requestMove(board, 'b', { maxDepth: L.depth, jitter: L.jitter, timeMs: L.timeMs }).then((m) => {
-            if (over || myTurn !== aiSeq) return; // 期间悔棋/重开了，丢弃这次结果
+        // 对手至少"想"这么久再落子。搜索本身在 Worker 里跑，这里只是压住
+        // 结果不要来得太早——新手档 300ms 就算完了，秒回让人觉得对面是台机器。
+        // 再加一点随机，免得每一步都卡在同一个时刻，那样同样很机械。
+        const t0 = performance.now();
+        const wait = TEMPO.think ? TEMPO.think * (0.75 + Math.random() * 0.5) : 0;
+        requestMove(board, 'b', { maxDepth: handicap?.depth ?? L.depth, jitter: handicap ? 0 : L.jitter, timeMs: handicap ? 2000 : L.timeMs }).then((m) => {
+          if (over || myTurn !== aiSeq) return; // 期间悔棋/重开了，丢弃这次结果
+          const rest = Math.max(0, wait - (performance.now() - t0));
+          aiTimer = window.setTimeout(() => {
+            if (over || myTurn !== aiSeq) return;
             scene.setThinking(false);
             if (m) doMove(m);
-          });
-        }, SPEED.pause);
+          }, rest);
+        });
       } else {
         setTurnUI();
         if (Math.random() < 0.14) say(pickLine(rival.lines.taunt));
@@ -473,7 +523,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       selected = null;
       resultEl?.remove();
       resultEl = null;
-      scene.syncBoard(board);
+      scene.setSlideSec(TEMPO.slide);
+    scene.syncBoard(board);
+    // 先把搜索线程热起来，别让第一步的回手慢一大截
+    warmupAi(board, 'b');
       setTurnUI();
     }
 
@@ -490,7 +543,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       selected = null;
       resultEl?.remove();
       resultEl = null;
-      scene.syncBoard(board);
+      scene.setSlideSec(TEMPO.slide);
+    scene.syncBoard(board);
+    // 先把搜索线程热起来，别让第一步的回手慢一大截
+    warmupAi(board, 'b');
       scene.dealIn();
       setTurnUI();
       setTimeout(() => say(pickLine(rival.lines.greet)), 500);
@@ -502,6 +558,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let lastWon = false;
     function showResult(playerWon: boolean) {
       lastWon = playerWon;
+      handicap?.onFinish(playerWon);
       if (playerWon) {
         sfxWinBig();
         setTimeout(() => say(pickLine(rival.lines.lose)), 500);

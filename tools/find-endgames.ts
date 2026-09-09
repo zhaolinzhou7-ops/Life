@@ -10,10 +10,22 @@
  *
  * 而且这本身就是最好的残局训练：**先判断这个局面是赢是和，再下到底验证**。
  * 判断力才是残局功力的核心，会不会走反倒是其次。
+ *
+ * ⚠️ 第二次踩坑（比士象摆位那次更隐蔽）：
+ * 原来的胜和判定是「引擎自己对下一盘，红方赢了就记胜，没赢就记和」，
+ * 而引擎只有 9 层 / 500ms。结果**单车对双士这种教科书例胜，引擎有时赢不下来，
+ * 就被记成了「和」**——软件于是理直气壮地教了一个假结论。
+ * 同一个「单车对双士」四个局面记出了 3 胜 1 和，自相矛盾。
+ *
+ * 所以现在多了两道闸门：
+ *   1. 每个子力组合写上**定式结论**（theory），实测结论和定式对不上的局面直接扔掉，
+ *      不进库。宁可少几个局面，也不能教错。
+ *   2. 判定用的引擎强度大幅提高，且**上限按 App 自己的规则来**（60 回合无吃子判和），
+ *      赢不下来的"胜"本来也兑现不了。
  */
 import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color, type PType } from '../src/xiangqi/rules';
-import { think } from '../src/xiangqi/ai';
-import { toFen, fromFen, moveToText } from '../src/xiangqi/notation';
+import { verdict, playOut } from './playout-verdict';
+import { toFen, fromFen } from '../src/xiangqi/notation';
 import { checkBoard } from './validate-positions';
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
@@ -30,6 +42,21 @@ interface Combo {
   /** 这一局练什么 */
   goal: string;
   tips: string[];
+  /**
+   * 这个子力组合的**定式结论**（站在"你"的角度）。
+   * 实测结论必须和它一致，否则说明要么局面不典型、要么引擎没走出来——两种都不能进库。
+   * 'varies' 留给结论真的取决于具体摆法的组合（比如车兵对车双士）。
+   */
+  theory: 'win' | 'draw' | 'varies';
+  /**
+   * 棋书上这一类的定论，**只用来显示，不参与判定**。
+   *
+   * 有些组合（马炮对士象全、马兵对双士）书上是例胜，但要走很多步很精确的棋，
+   * 我的引擎冷启动之后在 60 回合内走不出来。这时候标"和棋"是实测事实，
+   * 可要是不说明白，懂棋的人会以为软件算错了。所以把书上的结论一起显示出来，
+   * 让人看得见"这是引擎走不出来"，而不是"这局理论上就是和"。
+   */
+  book?: string;
 }
 
 /** 专业课里排在前面的实用残局，按子力组合列 */
@@ -47,6 +74,9 @@ const COMBOS: Combo[] = [
       '帅要过河参与——帅占中路能封住将的横向逃路，这叫"帅助攻"',
       '士会挡道，注意别让士正好填在你要将军的线上',
     ],
+    /** 单车例胜双士，教科书结论，没有争议 */
+    book: '单车例胜双士',
+    theory: 'win',
   },
   {
     id: 'r-vs-aabb',
@@ -60,6 +90,9 @@ const COMBOS: Combo[] = [
       '士象全是很硬的防线，单车往往吃不动',
       '重点体会：多一个车也赢不了的局面长什么样，那种时候就别盲目兑子',
     ],
+    /** 单车例和士象全，同样是教科书结论——「该不该兑车」就是按这条判的 */
+    book: '单车例和士象全',
+    theory: 'draw',
   },
   {
     id: 'r-vs-h-aa',
@@ -70,6 +103,9 @@ const COMBOS: Combo[] = [
     material: '车 vs 马双士',
     goal: '练怎么捉住乱窜的马，同时不让将跑出来。',
     tips: ['马失去士象保护时最怕被车照住', '先把马和将分开，再逐个处理'],
+    /** 车对马双士的结论要看马和将的相对位置，不硬写 */
+    book: '单车对马双士，书上归入车胜马双士，但要走很精确',
+    theory: 'varies',
   },
   {
     id: 'hc-vs-aabb',
@@ -80,6 +116,9 @@ const COMBOS: Combo[] = [
     material: '马炮 vs 士象全',
     goal: '马炮是最经典的攻杀组合。练的是马炮怎么互为炮架、互相掩护。',
     tips: ['炮要架子，马正好当架子；马怕被捉，炮正好照住', '经典的「马后炮」就是从这类局面长出来的'],
+    /** 马炮破士象全要走对方法，随机摆出来的局面不一定还在胜势里 */
+    book: '马炮例胜士象全——是公认的胜势，只是技术要求很高',
+    theory: 'varies',
   },
   {
     id: 'rc-vs-aabb',
@@ -90,6 +129,9 @@ const COMBOS: Combo[] = [
     material: '车炮 vs 士象全',
     goal: '车炮配合破士象全。车负责限制，炮负责穿透。',
     tips: ['炮要找到能打进九宫的那条线，车负责把士象逼开', '注意保持炮架'],
+    /** 同上，车炮虽强，摆法不对也赢不下来 */
+    book: '车炮例胜士象全',
+    theory: 'varies',
   },
   {
     id: 'rp-vs-r-aa',
@@ -100,6 +142,9 @@ const COMBOS: Combo[] = [
     material: '车兵 vs 车双士',
     goal: '实战出现率最高的残局之一：多一个兵怎么兑现成胜势。',
     tips: ['多兵的一方要避免兑车——兑光了就是单兵对双士', '兵要往九宫方向推，车在旁边保护'],
+    /** 多一个兵能不能兑现，完全取决于兵的位置和车的站位 */
+    book: '车兵对车双士，能不能赢要看兵和车的位置',
+    theory: 'varies',
   },
   {
     id: 'pp-vs-aa',
@@ -114,6 +159,9 @@ const COMBOS: Combo[] = [
       '两个兵要一起走，散开了各自都没威力——「二鬼拍门」就是这个图形',
       '帅一定要顶上去，兵单独成不了事',
     ],
+    /** 两个兵要成「二鬼拍门」才必胜，散开的两个兵经常只是和 */
+    book: '双兵能不能胜双士，要看两个兵能不能形成「二鬼拍门」',
+    theory: 'varies',
   },
   {
     id: 'hp-vs-aa',
@@ -124,6 +172,9 @@ const COMBOS: Combo[] = [
     material: '马兵 vs 双士',
     goal: '马和兵配合。马控点，兵占位。',
     tips: ['马走到能控制将落点的位置，兵顶上去封门', '小心马被蹩腿'],
+    /** 马兵胜双士要马能控点、兵能占位，位置不对就和 */
+    book: '马兵例胜双士——是胜势，但要马控点、兵占位配合得很准',
+    theory: 'varies',
   },
   {
     id: 'c-aa-vs-r',
@@ -138,6 +189,104 @@ const COMBOS: Combo[] = [
       '炮和士要互相保护，散开就被各个击破',
       '能守和的局面千万别贪着去拼——很多输棋是守方自己走乱的',
     ],
+    /** 炮双士例和单车，守方只要不走乱就守得住 */
+    book: '炮双士例和单车',
+    theory: 'draw',
+  },
+  {
+    id: 'h-vs-a',
+    name: '单马对单士',
+    category: '马类',
+    strong: ['H'],
+    weak: ['A'],
+    material: '马 vs 单士',
+    goal: '马怎么单独把将困住。这是马类残局的入门课，也是"马控点"这个概念最干净的例子。',
+    tips: [
+      '马不能像车那样一条线扫过去，只能一格一格地把将的落点掐掉',
+      '帅必须过来帮忙——单马加单帅才封得住九宫',
+      '注意别被士垫住马腿，马腿被蹩就等于这一手没了',
+    ],
+    book: '单马例胜单士，但要走得很准，帅不上去就赢不了',
+    theory: 'varies',
+  },
+  {
+    id: 'h-vs-aa',
+    name: '单马对双士',
+    category: '马类',
+    strong: ['H'],
+    weak: ['A', 'A'],
+    material: '马 vs 双士',
+    goal: '和上一课只差一个士，结论就反过来了。练的是<b>判断</b>：什么时候该兑、什么时候该守。',
+    tips: [
+      '两个士互相保护，马再怎么走也掐不干净将的落点',
+      '这一局的价值在于知道它是和棋——实战里该不该用马换掉对方最后一个士，全看这条',
+    ],
+    book: '单马例和双士',
+    theory: 'draw',
+  },
+  {
+    id: 'rp-vs-aabb',
+    name: '车兵对士象全',
+    category: '组合',
+    strong: ['R', 'P'],
+    weak: ['A', 'A', 'E', 'E'],
+    material: '车兵 vs 士象全',
+    goal: '实战出现率极高：单车破不了士象全，加一个兵就能破。练的就是这个兵怎么用。',
+    tips: [
+      '兵是用来<b>换士</b>的，不是用来将军的——兵换掉一个士，车就有机可乘',
+      '兵要走到九宫口（四路或六路）才有价值，散在边路等于没有',
+      '别急着兑车，兑光了就是单兵对士象全，那是和棋',
+    ],
+    book: '车兵例胜士象全',
+    theory: 'varies',
+  },
+  {
+    id: 'pp-hi-vs-aabb',
+    name: '高低兵对士象全',
+    category: '兵类',
+    strong: ['P', 'P'],
+    weak: ['A', 'A', 'E', 'E'],
+    material: '双兵 vs 士象全',
+    goal: '一个高兵一个低兵配合破士象全。兵类残局里最实用的一型。',
+    tips: [
+      '高兵负责机动，低兵负责占位，两个兵的分工不一样',
+      '帅要顶到中路，兵才有落脚的地方',
+      '象是最难缠的——先想办法把象逼开，再动士',
+    ],
+    book: '高低兵例胜士象全，但要走得很精确',
+    theory: 'varies',
+  },
+  {
+    id: 'cp-vs-aa',
+    name: '炮兵对双士',
+    category: '组合',
+    strong: ['C', 'P'],
+    weak: ['A', 'A'],
+    material: '炮兵 vs 双士',
+    goal: '炮需要架子，而对方的士正好可以当架子。练的是怎么把对方的子变成自己的工具。',
+    tips: [
+      '炮打闷宫的机会就藏在这类局面里——士被自己的将堵住，炮隔着士打',
+      '兵的作用是逼士动，士一动阵型就散',
+      '帅不上去，炮兵成不了事',
+    ],
+    book: '炮兵能不能胜双士，要看兵的位置和士的形状',
+    theory: 'varies',
+  },
+  {
+    id: 'h-aa-vs-r',
+    name: '马双士守单车',
+    category: '车类',
+    strong: ['H', 'A', 'A'],
+    weak: ['R'],
+    material: '马双士 vs 车（你是守方）',
+    goal: '又一课守棋。马比炮难守——马没有炮那种远程反击，只能靠位置。',
+    tips: [
+      '马要待在能被士保护的位置，落单就会被车捉死',
+      '将别乱走，走出九宫等于送',
+      '守和的关键永远是：别让对方的车同时攻到两个目标',
+    ],
+    book: '单车对马双士，书上归入车胜，守方要走得很准才和得了',
+    theory: 'varies',
   },
   {
     id: 'aabb-vs-rc',
@@ -148,6 +297,9 @@ const COMBOS: Combo[] = [
     material: '士象全 vs 车炮（你是守方）',
     goal: '守方练习。士象怎么摆才是最硬的形状？',
     tips: ['象要能互相保护（连环象），士要能填补中路', '最怕的是炮打士象的那条线，注意别让象落单'],
+    /** 士象全例和车炮，前提是象要连、士要正 */
+    book: '士象全例和车炮',
+    theory: 'draw',
   },
 ];
 
@@ -233,42 +385,15 @@ function randomPosition(strong: PType[], weak: PType[], sc: Color): Board | null
   return bd;
 }
 
-interface Outcome {
-  result: 'red-win' | 'black-win' | 'draw';
-  plies: number;
-  reason: string;
-}
-
-function playOut(board: Board, toMove: Color, depth: number, timeMs: number, maxPlies: number): Outcome {
-  let b = board;
-  let c = toMove;
-  let sinceCapture = 0;
-  const seen = new Map<string, number>();
-  for (let ply = 0; ply < maxPlies; ply++) {
-    const st = statusAfter(b, c);
-    if (st !== 'playing') return { result: st, plies: ply, reason: '将死/困毙' };
-    const legal = legalMoves(b, c).filter((m) => !isInCheck(applyMove(b, m), c));
-    if (!legal.length) return { result: c === 'r' ? 'black-win' : 'red-win', plies: ply, reason: '无着可走' };
-    const m = think(b, c, { maxDepth: depth, timeMs, jitter: 0 });
-    if (!m) return { result: 'draw', plies: ply, reason: '引擎无着' };
-    const cap = !!b[m.ty][m.tx];
-    b = applyMove(b, m);
-    c = other(c);
-    sinceCapture = cap ? 0 : sinceCapture + 1;
-    if (sinceCapture >= 120) return { result: 'draw', plies: ply + 1, reason: '60 回合无吃子' };
-    const key = toFen(b, c);
-    const n = (seen.get(key) ?? 0) + 1;
-    seen.set(key, n);
-    if (n >= 3) return { result: 'draw', plies: ply + 1, reason: '三次重复' };
-  }
-  return { result: 'draw', plies: maxPlies, reason: '未分胜负' };
-}
-
-const DEPTH = Number(process.env.DEPTH ?? 9);
-const TIME = Number(process.env.TIME_MS ?? 500);
+/**
+ * 太快就赢下来的局面不要。实用残局练的是**把优势兑现的技术**，
+ * 三五步就将死的那是杀法题，放进残局课等于白占一课。
+ */
+const MIN_WIN_PLIES = Number(process.env.MIN_WIN_PLIES ?? 16);
 const PER = Number(process.env.PER_COMBO ?? 3);
 const BUDGET = Number(process.env.BUDGET_MS ?? 400000);
-const ONLY = process.env.ONLY ?? '';
+/** 只跑其中几个组合，逗号分隔。分批跑是为了每批都能在前台看完，不留后台长任务 */
+const ONLY = (process.env.ONLY ?? '').split(',').filter(Boolean);
 
 interface EgOut {
   id: string;
@@ -284,16 +409,26 @@ interface EgOut {
   tips: string[];
   /** 引擎走完用了多少步，用来估难度 */
   plies: number;
+  /**
+   * 结果是怎么来的：将死/困毙、60 回合无吃子、三次重复、还是打满没分出胜负。
+   *
+   * 这条要显示给学生看。标"和"有两种完全不同的意思：一种是这局面本来就是和棋，
+   * 另一种是**在 60 回合无吃子判和这条规则下走不出胜果**——后者和棋书上的
+   * 理论结论可能不一样，不写清楚就会被当成软件算错了。
+   */
+  reason: string;
   rating: number;
 }
 
 const out: EgOut[] = [];
-const combos = COMBOS.filter((c) => !ONLY || c.id === ONLY);
+const combos = COMBOS.filter((c) => !ONLY.length || ONLY.includes(c.id));
 for (const combo of combos) {
   let got = 0;
   const t0 = Date.now();
   const budget = BUDGET / combos.length;
   let tried = 0;
+  let rejected = 0;
+  let unstable = 0;
   while (got < PER && Date.now() - t0 < budget) {
     tried++;
     // 强方固定执红，"你"就是强方（守方局里 strong 是士象炮，你还是执红）
@@ -307,10 +442,20 @@ for (const combo of combos) {
     const quick = playOut(b, 'r', 6, 200, 12);
     if (quick.result !== 'draw' && quick.plies <= 8) continue;
 
-    const o = playOut(b, 'r', DEPTH, TIME, 200);
-    const youWin = o.result === 'red-win';
-    const youLose = o.result === 'black-win';
-    if (youLose) continue; // 你会输的局面不能当练习
+    const v = verdict(b, 'r');
+    if (v.target === 'loss') continue; // 你会输的局面不能当练习
+    if (v.target === 'unstable') {
+      unstable++;
+      continue; // 胜和边界上的局面，没有稳定答案，不能当教材
+    }
+    // 闸门二：实测结论要和定式对得上。对不上有两种可能——这个摆法不典型，
+    // 或者引擎没把胜势走出来——不管哪种，都不该拿去当"结论"教人。
+    if (combo.theory !== 'varies' && v.target !== combo.theory) {
+      rejected++;
+      continue;
+    }
+    const youWin = v.target === 'win';
+    if (youWin && v.plies < MIN_WIN_PLIES) continue; // 几步就杀完的不算残局课
 
     out.push({
       id: `${combo.id}-${got}`,
@@ -322,16 +467,20 @@ for (const combo of combos) {
       target: youWin ? 'win' : 'draw',
       goal: combo.goal,
       tips: combo.tips,
-      plies: o.plies,
+      plies: v.plies,
+      reason: v.reason,
+      book: combo.book,
       // 赢的局面按步数给难度：越长越难走
-      rating: youWin ? Math.min(1700, 950 + o.plies * 6) : 1150,
+      rating: youWin ? Math.min(1700, 950 + v.plies * 6) : 1150,
     });
     got++;
   }
   const w = out.filter((x) => x.id.startsWith(combo.id) && x.target === 'win').length;
   const d = out.filter((x) => x.id.startsWith(combo.id) && x.target === 'draw').length;
   process.stderr.write(
-    `${combo.name.padEnd(14)} ${got}/${PER}  胜${w} 和${d}  (试 ${tried} 次, ${Math.round((Date.now() - t0) / 1000)}s)\n`,
+    `${combo.name.padEnd(14)} ${got}/${PER}  胜${w} 和${d}  ` +
+      `(试 ${tried} 次，定式对不上扔 ${rejected} 个，胜和不稳定扔 ${unstable} 个, ` +
+      `${Math.round((Date.now() - t0) / 1000)}s)\n`,
   );
 }
 

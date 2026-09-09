@@ -15,6 +15,10 @@ import { KIND_PROMPT, type Puzzle } from './puzzles';
 export interface PuzzleResult {
   correct: boolean;
   usedHint: boolean;
+  /** 限时模式下有没有超时 */
+  timedOut?: boolean;
+  /** 从出题到落子用了多少秒 */
+  seconds?: number;
 }
 
 export interface PuzzleOpts {
@@ -22,6 +26,17 @@ export interface PuzzleOpts {
   caption?: string;
   /** 是否允许提示。测评时要关掉，不然测不准 */
   allowHint?: boolean;
+  /**
+   * 限时（秒）。0 或不填 = 不限时。
+   *
+   * 为什么要有限时这一档：**「算不出来」和「懒得算」是两个完全不同的病**，
+   * 而不限时的时候它们长得一模一样——都是做错。不限时你会一直盯着看，
+   * 最后蒙一个；限时逼你在时间内给出答案，做错之后再给你不限时重做一遍，
+   * 两次的差别就把病因分出来了：限时错、不限时对 = 你算得出来只是没去算；
+   * 两次都错 = 是真的算不出来。前者练的是习惯，后者练的是能力，
+   * 练法完全不同。
+   */
+  timeLimit?: number;
   /** 答完之后点"继续"触发 */
   onDone: (r: PuzzleResult) => void;
 }
@@ -46,6 +61,9 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
   let hintLevel = 0;
   let answered = false;
   let busy = false;
+  const startedAt = Date.now();
+  const limit = opts.timeLimit ?? 0;
+  let timer = 0;
 
   wrap.innerHTML = `
     <div class="xq-tr-top">
@@ -56,6 +74,7 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       <span class="xq-tr-side">${me === 'r' ? '红方走' : '黑方走'} · 难度 ${puzzle.rating}</span>
     </div>
     <div class="xq-tr-board"></div>
+    ${limit ? '<div class="xq-tr-clock"><i></i><span></span></div>' : ''}
     <div class="xq-tr-fb"></div>
     <div class="xq-tr-bar"></div>`;
 
@@ -102,7 +121,15 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     selected = null;
     view.setMarks([]);
     const text = moveToText(board, mv);
-    const correct = text === puzzle.answer;
+    // 一样好的着法一律算对：杀法题里同样步数的杀棋常常不止一手，
+    // 只认记下来的那一手会把走对的人判错。
+    //
+    // 已知短板：`also` 是离线生成时算好的，**实战抓回来的错题（own-）没有**。
+    // 复盘用的 judgeMove 对非最佳着法走的是窄窗口，返回的是边界不是精确分，
+    // 拿不出"所有一样好的着法"；要补就得给 Worker 加一条 analyze 通道。
+    // 量过题库里正解不唯一的比例只有 2.2%，暂时不值得为它把复盘成本翻倍，
+    // 所以这里明确记下来：own- 的题只认引擎首选，走出另一手一样好的会被判错。
+    const correct = text === puzzle.answer || !!puzzle.also?.includes(text);
     const after = applyMove(board, mv);
     board = after;
     view.animateMove(mv, after, () => {
@@ -117,7 +144,13 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     elFb.className = 'xq-tr-fb ok';
     elFb.innerHTML = `
       <div class="h">✅ 对了 · ${text}</div>
-      ${puzzle.line.length > 1 ? `<div class="l">完整下法：${puzzle.line.join(' ')}</div>` : ''}
+      ${
+        text !== puzzle.answer
+          ? `<div class="l">这手和 <b>${puzzle.answer}</b> 一样好，都算对。</div>`
+          : puzzle.line.length > 1
+            ? `<div class="l">完整下法：${puzzle.line.join(' ')}</div>`
+            : ''
+      }
       ${puzzle.blunder ? `<div class="r">这个局面是从真实对局里抓的——当时那盘棋走的是 <b>${puzzle.blunder}</b>，亏了子。</div>` : ''}`;
     finishBar(true);
   }
@@ -127,8 +160,13 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     elFb.innerHTML = `
       <div class="h">❌ 不对 · 你走的是 ${text}</div>
       <div class="l">正解：<b>${puzzle.answer}</b>${
-        puzzle.line.length > 1 ? `　完整下法：${puzzle.line.join(' ')}` : ''
-      }</div>
+        puzzle.also?.length ? `（走 ${puzzle.also.join('、')} 也一样）` : ''
+      }${puzzle.line.length > 1 ? `　完整下法：${puzzle.line.join(' ')}` : ''}</div>
+      ${
+        puzzle.id.startsWith('own-')
+          ? '<div class="r dim">这是从你自己的对局里抓的题，只对着引擎的首选判分——你要是走出另一手一样好的，这里也会算错，别当真。</div>'
+          : ''
+      }
       ${
         puzzle.blunder
           ? `<div class="r">别灰心——这个局面是从真实对局里抓的，当时那盘棋也走错了（走的是 ${puzzle.blunder}）。</div>`
@@ -183,7 +221,9 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     elBar.innerHTML = allowHint
       ? `<button class="xq-btn" id="xq-tr-hint">💡 提示${hintLevel ? `（已用 ${hintLevel}/3）` : ''}</button>
          <button class="xq-btn ghost" id="xq-tr-skip">跳过</button>`
-      : '<span class="xq-tr-note">测评中不给提示，凭自己判断就好</span>';
+      : `<span class="xq-tr-note">${
+          limit ? '限时题不给提示——限时就是要逼你自己算' : '这一轮不给提示，凭自己判断就好'
+        }</span>`;
     const h = elBar.querySelector('#xq-tr-hint') as HTMLButtonElement | null;
     if (h) h.onclick = () => hint();
     const s = elBar.querySelector('#xq-tr-skip') as HTMLButtonElement | null;
@@ -195,10 +235,43 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     };
   }
 
-  function finishBar(correct: boolean) {
+  function finishBar(correct: boolean, timedOut = false) {
+    clearInterval(timer);
     elBar.innerHTML = '<button class="xq-btn primary" id="xq-tr-next">继续 →</button>';
     (elBar.querySelector('#xq-tr-next') as HTMLButtonElement).onclick = () =>
-      opts.onDone({ correct, usedHint: hintLevel > 0 });
+      opts.onDone({
+        correct,
+        usedHint: hintLevel > 0,
+        timedOut,
+        seconds: Math.round((Date.now() - startedAt) / 100) / 10,
+      });
+  }
+
+  // 限时：走一条读秒进度条，到点自动判超时
+  if (limit) {
+    const clock = wrap.querySelector('.xq-tr-clock') as HTMLElement;
+    const barI = clock.querySelector('i') as HTMLElement;
+    const barT = clock.querySelector('span') as HTMLElement;
+    timer = window.setInterval(() => {
+      if (answered) {
+        clearInterval(timer);
+        return;
+      }
+      const left = Math.max(0, limit - (Date.now() - startedAt) / 1000);
+      barI.style.width = `${(left / limit) * 100}%`;
+      barT.textContent = `${left.toFixed(0)}s`;
+      clock.classList.toggle('hot', left <= limit * 0.25);
+      if (left <= 0) {
+        clearInterval(timer);
+        answered = true;
+        elFb.className = 'xq-tr-fb no';
+        elFb.innerHTML = `<div class="h">⏱ 时间到</div>
+          <div class="l">正解：<b>${puzzle.answer}</b></div>
+          <div class="r">时间到不等于你不会。等会儿会把这道题<b>不限时</b>再给你一次——
+          两次的差别能分清是"算不出来"还是"没去算"。</div>`;
+        finishBar(false, true);
+      }
+    }, 100);
   }
 
   renderBar();
@@ -217,7 +290,8 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       },
       /** 随便走一手错的 */
       playWrong: () => {
-        const m = legal().find((mv) => moveToText(board, mv) !== puzzle.answer);
+        const ok = new Set([puzzle.answer, ...(puzzle.also ?? [])]);
+        const m = legal().find((mv) => !ok.has(moveToText(board, mv)));
         if (m) submit(m);
         return !!m;
       },
@@ -226,6 +300,7 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
   }
 
   return () => {
+    clearInterval(timer);
     view.dispose();
     wrap.remove();
   };

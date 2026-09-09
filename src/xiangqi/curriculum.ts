@@ -11,7 +11,7 @@
  * 另一条原则：**毕业看能力，不看天数**。每个阶段有明确的出师标准，
  * 达标才放行，否则就在这一阶段继续磨。
  */
-import { DIM_INFO, type Dim } from './save';
+import { DIM_INFO, DIMS, type Dim } from './save';
 
 export interface Stage {
   id: number;
@@ -136,7 +136,7 @@ export function graduateStatus(stage: Stage, ratings: Record<Dim, { r: number }>
 
 // ---------------- 每日训练 ----------------
 
-export type BlockKind = 'warmup' | 'srs' | 'focus' | 'mate-shape' | 'endgame' | 'game';
+export type BlockKind = 'warmup' | 'srs' | 'focus' | 'mate-shape' | 'endgame' | 'game' | 'quiz' | 'timed' | 'opening' | 'replay';
 
 export interface Block {
   kind: BlockKind;
@@ -149,6 +149,73 @@ export interface Block {
   count?: number;
   /** 难度偏移：热身要比当前水平简单一点，找手感用的 */
   ratingBias?: number;
+  /**
+   * **今天为什么要练这一块**——用你自己的数据说话。
+   *
+   * 这是和"按模板排课"最大的区别。学生凭什么信今天该练眼力？
+   * 因为"最近 6 盘你丢的分里 58% 是漏着"。说得出数字的处方才有人照做。
+   */
+  why?: string;
+}
+
+/** 每日训练需要的全部输入：分数、实战丢分、最近正确率、错题数 */
+export interface TrainInput {
+  stage: Stage;
+  ratings: Record<Dim, { r: number }>;
+  /** 最近若干盘实战里，各维累计丢了多少分 */
+  loss: { by: Record<Dim, number>; games: number; total: number };
+  /** 最近这一维的做题正确率，题量不够给 null */
+  accuracy: (d: Dim) => { acc: number; n: number } | null;
+  dueCount: number;
+  /** 距离上次测验多少天，用来决定今天要不要插一场小测 */
+  daysSinceQuiz: number;
+}
+
+/**
+ * 正确率维持在 70~85% 时进步最快。
+ *
+ * 这是刻意练习最硬的一条：高于这个区间说明你在做已经会的题——舒服但不涨棋；
+ * 低于这个区间说明在硬啃，错得太多学不到东西还打击信心。
+ * 所以难度不该由我拍板，而是**跟着你最近的正确率自动走**。
+ */
+export function biasFor(acc: { acc: number; n: number } | null): { bias: number; note: string } {
+  if (!acc) return { bias: 0, note: '' };
+  const pct = Math.round(acc.acc * 100);
+  if (acc.acc >= 0.85) return { bias: 130, note: `最近 ${acc.n} 道对了 ${pct}%，题偏简单了，今天加难度` };
+  if (acc.acc <= 0.55) return { bias: -130, note: `最近 ${acc.n} 道只对了 ${pct}%，先降难度把手感找回来` };
+  return { bias: 0, note: `最近 ${acc.n} 道对了 ${pct}%，难度正合适` };
+}
+
+/**
+ * 今天该主攻哪一维。
+ *
+ * **优先看实战丢分，而不是看做题分数低。** 这是专业教练和普通教材最大的分别：
+ * 做题分只说明你会不会做题，而你输棋是因为实战里分从某个地方漏掉了。
+ * 一个人可以残局题做得很好，实战照样把多子的残局走成和棋。
+ *
+ * 实战样本不够（少于 3 盘）才退回按分数挑——那时候只能先信做题分。
+ */
+export function prescribeFocus(inp: TrainInput): { dim: Dim; why: string } {
+  const { loss, stage, ratings } = inp;
+  if (loss.games >= 3 && loss.total > 200) {
+    let top: Dim = 'safety';
+    for (const d of DIMS) if (loss.by[d] > loss.by[top]) top = d;
+    const share = Math.round((loss.by[top] / loss.total) * 100);
+    if (share >= 25) {
+      return {
+        dim: top,
+        why: `最近 ${loss.games} 盘实战，你丢的分里 <b>${share}%</b> 出在「${DIM_INFO[top].name}」上——这是你现在最贵的漏洞，今天就练它。`,
+      };
+    }
+  }
+  const d = focusDim(stage, ratings);
+  return {
+    dim: d,
+    why:
+      loss.games < 3
+        ? `实战样本还不够（${loss.games} 盘），今天先按分数最低的一维排：「${DIM_INFO[d].name}」。多下几盘之后，训练会改成按你实战丢分排。`
+        : `五维丢分比较均匀，按阶段${stage.id}的重点排：「${DIM_INFO[d].name}」。`,
+  };
 }
 
 /**
@@ -156,8 +223,15 @@ export interface Block {
  *
  * 25 分钟是刻意选的：在注意力窗口之内，而且每天都能坚持——
  * 一次练两小时、然后三周不碰，效果远不如每天 25 分钟。
+ *
+ * 五块的顺序也是有讲究的，对应一节正经课的结构：
+ *   热身（唤醒）→ 错题（补漏）→ 专项（在能力边缘练）→ 阶段内容（新东西）
+ *   → 实战 + 复盘（把练的东西用出来，再从实战里发现下一个漏洞）
+ * 最后一步是闭环：复盘会把你这盘走错的手做成题，明天进错题本。
  */
-export function dailyPlan(stage: Stage, focus: Dim, dueCount: number): Block[] {
+export function dailyPlan(inp: TrainInput): Block[] {
+  const { stage, dueCount, accuracy } = inp;
+  const focus = prescribeFocus(inp);
   const blocks: Block[] = [
     {
       kind: 'warmup',
@@ -167,6 +241,7 @@ export function dailyPlan(stage: Stage, focus: Dim, dueCount: number): Block[] {
       dim: 'mate',
       count: 5,
       ratingBias: -150,
+      why: '开局先做几道有把握的，是为了把"看图形"的状态唤醒，不是为了练难题。',
     },
   ];
 
@@ -175,8 +250,72 @@ export function dailyPlan(stage: Stage, focus: Dim, dueCount: number): Block[] {
       kind: 'srs',
       title: `错题重练（${dueCount} 道）`,
       desc: '按 1/3/7/21/60 天的间隔回来找你。同一个坑不该掉第二次。',
-      minutes: 5,
+      minutes: Math.min(8, 2 + Math.ceil(dueCount * 0.5)),
       count: dueCount,
+      why: '这些题一半是你自己实战里走错的局面。重做比做新题划算得多——你已经证明过这里会错。',
+    });
+  }
+
+  // 每周一场小测：不测就不知道练的东西有没有落到实处
+  if (inp.daysSinceQuiz >= 7) {
+    blocks.push({
+      kind: 'quiz',
+      title: '每周小测（10 题）',
+      desc: '五维各抽两题，不给提示。测出来的分直接更新你的五维雷达。',
+      minutes: 6,
+      count: 10,
+      why:
+        inp.daysSinceQuiz >= 900
+          ? '你还没做过小测。练而不测，涨没涨全靠感觉——每周一次，10 题，够看出趋势。'
+          : `距离上次小测 ${inp.daysSinceQuiz} 天了。练而不测，涨没涨全靠感觉——每周一次，10 题，够看出趋势。`,
+    });
+  }
+
+  const b = biasFor(accuracy(focus.dim));
+  blocks.push({
+    kind: 'focus',
+    title: `今日专项：${DIM_INFO[focus.dim].name}`,
+    desc: DIM_INFO[focus.dim].desc,
+    minutes: 8,
+    dim: focus.dim,
+    count: 8,
+    ratingBias: b.bias,
+    why: b.note ? `${focus.why}<br>${b.note}。` : focus.why,
+  });
+
+  /**
+   * 每周轮换一项"专业训练里最容易被业余跳过"的内容。
+   *
+   * 这三样都不是天天做的东西，但一样都不能没有：
+   *   限时计算 —— 把"算不出来"和"懒得算"分开，这两个病练法相反
+   *   布局定式 —— 到 1500 以上布局才成为真瓶颈，但那时候临时补来不及
+   *   打谱     —— 最老的一项训练，练的是"先自己想一手"的习惯
+   * 按星期几轮，保证一周里每样都轮得到，又不会天天占时间。
+   */
+  const rotate = new Date().getDay();
+  if (rotate === 2 && stage.id >= 2) {
+    blocks.push({
+      kind: 'timed',
+      title: '限时计算（6 题）',
+      desc: '每题 45 秒，做错的再不限时重做一遍。',
+      minutes: 8,
+      why: '「算不出来」和「懒得算」在不限时的时候长得一模一样，但练法完全相反：一个练习惯，一个练能力。分不清就会用错药。',
+    });
+  } else if (rotate === 4 && stage.id >= 3) {
+    blocks.push({
+      kind: 'opening',
+      title: '布局定式：过一套',
+      desc: '中炮对屏风马 / 反宫马 / 仙人指路。看完再用猜着法过一遍。',
+      minutes: 8,
+      why: '布局排在后面不是因为不重要，是因为前面没练好时布局那点便宜守不住。你现在到阶段3了，可以开始补。',
+    });
+  } else if (rotate === 6) {
+    blocks.push({
+      kind: 'replay',
+      title: '打谱：猜着法',
+      desc: '一手一手过棋谱，轮到你先自己想一手再看原谱。',
+      minutes: 10,
+      why: '看谱的时候人人都觉得"这手我也想得到"，先走一遍才知道想不想得到。周末时间宽裕，适合做这个。',
     });
   }
 
@@ -186,31 +325,25 @@ export function dailyPlan(stage: Stage, focus: Dim, dueCount: number): Block[] {
       kind: 'mate-shape',
       title: '杀法图形：认一个新图形',
       desc: '马后炮、闷宫、双车错…… 有名字的杀棋一共就那么多。认熟了是条件反射，这比多算两层管用。',
-      minutes: 6,
+      minutes: 5,
+      why: '这个阶段最划算的投入是"认图形"。图形有名字才记得住，记住了下次一眼就认出来。',
     });
   } else {
     blocks.push({
       kind: 'endgame',
       title: '残局实战：下到底',
-      desc: '摆好局面跟引擎下完——多子必须赢下来，少子必须守和。中局的优势最后都要靠这个兑现。',
-      minutes: 8,
+      desc: '摆好局面跟引擎下完——多子必须赢下来，少子必须守和。',
+      minutes: 7,
+      why: '中局挣来的优势最后都要在残局兑现。多一个马走成和棋，比中局失误还可惜。',
     });
   }
 
   blocks.push({
-    kind: 'focus',
-    title: `今日专项：${DIM_INFO[focus].name}`,
-    desc: `${DIM_INFO[focus].desc}。${stage.emoji} 阶段${stage.id}「${stage.name}」主练这一维，也是这一阶段里你最弱的。`,
-    minutes: 6,
-    dim: focus,
-    count: 8,
-  });
-
-  blocks.push({
     kind: 'game',
     title: '实战一局 + 复盘',
-    desc: '做题练的是识别，实战练的是运用，两样都得有。下完一定要复盘——不复盘等于白下。',
+    desc: '做题练的是识别，实战练的是运用，两样都得有。',
     minutes: 7,
+    why: '复盘不是走个过场：它会把你这盘走错的手做成题存进错题本，明天回来找你。这一步不做，整个循环就断了。',
   });
 
   return blocks;
@@ -249,6 +382,80 @@ export const WEEK_PLAN: WeekDay[] = [
     minutes: 20,
   },
 ];
+
+// ---------------- 月度目标 ----------------
+
+export interface MonthGoal {
+  /** 一句话目标 */
+  title: string;
+  /** 怎么算达成——必须是可检验的，不能是"感觉进步了" */
+  check: string;
+  kind: 'rating' | 'behavior' | 'content';
+}
+
+/**
+ * 这个月的目标。
+ *
+ * 【为什么必须有可检验的标准】"多练练""提高眼力"这种目标没法证伪，
+ * 一个月后你不知道自己做到没有，只能凭感觉——而感觉是最不可靠的。
+ * 教练开的目标一定是可检验的：分数到多少、每盘漏着降到几次、
+ * 哪几类残局能下出结果。做到没做到，一查便知。
+ *
+ * 【为什么涨幅只敢写 +60】按每天 25 分钟、每周 6 天，一个月约 10 小时。
+ * 集中练一维，60 分是个不算离谱的预期；写 +200 好看但会让人一个月后
+ * 觉得自己失败。宁可保守。
+ */
+export function monthGoals(
+  focus: Dim,
+  ratings: Record<Dim, { r: number }>,
+  stage: Stage,
+  blundersPerGame: number | null,
+): MonthGoal[] {
+  const goals: MonthGoal[] = [
+    {
+      kind: 'rating',
+      title: `把「${DIM_INFO[focus].name}」从 ${ratings[focus].r} 推到 ${ratings[focus].r + 60}`,
+      check: `一个月后做一次完整测评，这一维 ≥ ${ratings[focus].r + 60} 分`,
+    },
+  ];
+  if (blundersPerGame !== null && blundersPerGame > 0.8) {
+    goals.push({
+      kind: 'behavior',
+      title: `实战漏着从每盘 ${blundersPerGame.toFixed(1)} 次降到 0.8 次以下`,
+      check: '看最近 10 盘的复盘统计——这个数字比分数更能说明问题',
+    });
+  } else {
+    goals.push({
+      kind: 'behavior',
+      title: '保持每盘漏着不超过 0.8 次',
+      check: '看最近 10 盘的复盘统计。这个数守不住，分数涨了也是虚的',
+    });
+  }
+  const need = stage.graduate.filter((g) => ratings[g.dim].r < g.rating);
+  if (need.length) {
+    goals.push({
+      kind: 'content',
+      title: `向阶段${stage.id}出师标准推进：${need.map((g) => `${DIM_INFO[g.dim].name} ${g.rating}`).join('、')}`,
+      check: `差 ${need.map((g) => `${DIM_INFO[g.dim].name} ${g.rating - ratings[g.dim].r} 分`).join('、')}`,
+    });
+  } else {
+    goals.push({
+      kind: 'content',
+      title: `阶段${stage.id}已达标，这个月开始啃阶段${Math.min(4, stage.id + 1)}的内容`,
+      check: '下一阶段的出师标准里至少有一项过线',
+    });
+  }
+  return goals;
+}
+
+/** 按本周主攻的维度，把周计划里"专项"那几天写实 */
+export function weekFor(focus: Dim): WeekDay[] {
+  return WEEK_PLAN.map((d) =>
+    d.title === '常规训练'
+      ? { ...d, desc: `热身 + 错题 + <b>${DIM_INFO[focus].name}</b>专项 + 实战复盘` }
+      : d,
+  );
+}
 
 /** 专业训练里几条最容易被业余忽略的原则 */
 export const PRO_PRINCIPLES: { title: string; body: string }[] = [
