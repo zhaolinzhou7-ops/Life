@@ -2436,6 +2436,55 @@ canvas {
   margin: 6px 0 2px;
 }
 /* 分数尺子的说明：写小一点、灰一点，它是免责说明不是结论 */
+/* 今日训练：每一块下面那句"今天为什么练这个" */
+.xq-block .w {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #ffd76e;
+  opacity: 0.88;
+}
+.xq-block .w b { color: #ffe9a8; }
+
+/* 实战丢分条形图 */
+.xq-lossbars { margin: 8px 0 4px; }
+.xq-lossbars .row {
+  display: grid;
+  grid-template-columns: 3.2em 1fr 2.6em;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 0;
+  font-size: 12px;
+}
+.xq-lossbars .bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+.xq-lossbars .bar i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #e8703d, #e0433a);
+}
+.xq-lossbars .v { text-align: right; opacity: 0.85; }
+
+/* 小测结果的五维涨跌 */
+.xq-quiz-rows { margin: 10px 0; }
+.xq-quiz-rows .row {
+  display: grid;
+  grid-template-columns: 1fr 3.5em 3.5em;
+  align-items: center;
+  padding: 7px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 14px;
+}
+.xq-quiz-rows .v { text-align: right; font-weight: 600; }
+.xq-quiz-rows .d { text-align: right; font-size: 13px; opacity: 0.75; }
+.xq-quiz-rows .d.up { color: #3ec46d; opacity: 1; }
+.xq-quiz-rows .d.down { color: #e8703d; opacity: 1; }
+
 /* 残局卡片上的小棋盘：让"先判断"这一步真的有东西可判 */
 .xq-eg-thumb {
   position: relative;

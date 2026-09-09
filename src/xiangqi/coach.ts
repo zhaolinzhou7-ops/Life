@@ -25,6 +25,10 @@ import {
   allDueSoon,
   srsCount,
   pruneSrs,
+  lossProfile,
+  recentAccuracy,
+  daysSinceQuiz,
+  markQuizDone,
   guessEndgame,
   getEgGuesses,
   totalSolved,
@@ -573,6 +577,83 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     step();
   }
 
+  /**
+   * 每周小测：五维各两题，**不给提示**，做完直接更新五维雷达。
+   *
+   * 为什么要和日常练习分开：日常做题的分是边练边动的，混着提示、混着重复
+   * 做过的题，不适合当水平的读数。单独一场不给提示、每维题量固定的小测才干净，
+   * 也才看得出这一周练的东西有没有落到实处。
+   *
+   * 只有 10 题，测不出精确的绝对水平，但**足够看趋势**——而看趋势正是它的用途。
+   */
+  async function startQuiz(then?: () => void) {
+    clear();
+    await loadPuzzles();
+    if (!wrap.isConnected) return;
+    const used = new Set<string>();
+    const plan: Dim[] = [];
+    for (const d of DIMS) plan.push(d, d); // 五维各两题
+    const before = { ...getRatings() };
+    let i = 0;
+    let right = 0;
+
+    const step = () => {
+      if (i >= plan.length) {
+        markQuizDone();
+        showQuizResult(before, right, plan.length, then);
+        return;
+      }
+      const dim = plan[i];
+      const p = pickNear(DIM_KIND[dim], getRatings()[dim].r, used);
+      if (!p) {
+        i++;
+        step();
+        return;
+      }
+      used.add(p.id);
+      i++;
+      runOne(p, dim, `小测 ${i}/${plan.length} · ${DIM_INFO[dim].name}`, (ok) => {
+        if (ok) right++;
+        step();
+      }, false);
+    };
+    step();
+  }
+
+  /** 小测结果：重点不是这次考了多少，而是**和上次比动了多少** */
+  function showQuizResult(
+    before: Record<Dim, { r: number; n: number }>,
+    right: number,
+    total: number,
+    then?: () => void,
+  ) {
+    clear();
+    const now = getRatings();
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-report';
+    const rows = DIMS.map((d) => {
+      const diff = now[d].r - before[d].r;
+      const sign = diff > 0 ? '+' : '';
+      const cls = diff > 0 ? 'up' : diff < 0 ? 'down' : '';
+      return `<div class="row"><span class="k">${DIM_INFO[d].emoji} ${DIM_INFO[d].name}</span>
+        <span class="v">${now[d].r}</span>
+        <span class="d ${cls}">${diff === 0 ? '—' : sign + diff}</span></div>`;
+    }).join('');
+    scr.innerHTML = `
+      <h1>小测结果</h1>
+      <div class="xq-rank-big">${right} / ${total}</div>
+      <div class="xq-quiz-rows">${rows}</div>
+      <div class="xq-advice"><b>怎么看这个结果</b>
+        <p>10 题测不出精确水平，看的是<b>方向</b>：某一维连着几周往下走，说明那块练法不对或者练得不够；
+        全都不动，说明难度没跟上——题太简单了做对也不涨分。</p></div>`;
+    const go = document.createElement('button');
+    go.className = 'btn';
+    go.textContent = then ? '继续今天的训练 →' : '返回';
+    go.onclick = () => (then ? then() : showHome());
+    scr.appendChild(go);
+    wrap.appendChild(scr);
+  }
+
   // ---------------- 错题重练 ----------------
   async function startReview(then?: () => void) {
     clear();
@@ -665,14 +746,21 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
   }
 
   /** 做一道题：判分、更新评分与错题本 */
-  function runOne(p: Puzzle, dim: Dim | null, caption: string, done: (ok: boolean) => void) {
+  function runOne(
+    p: Puzzle,
+    dim: Dim | null,
+    caption: string,
+    done: (ok: boolean) => void,
+    /** 测验要关掉提示：给了提示就测不准，和正式测评一个道理 */
+    allowHint = true,
+  ) {
     clear();
     const host = document.createElement('div');
     host.className = 'xq-coach-stage';
     wrap.appendChild(host);
     disposeScreen = runPuzzle(host, p, {
       caption,
-      allowHint: true,
+      allowHint,
       onDone: (r) => {
         // 用了提示不算做对：算对了会把评分虚抬，下次出的题就偏难
         const ok = r.correct && !r.usedHint;
@@ -1018,14 +1106,49 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     });
   }
 
+  /**
+   * "你的分都丢在哪儿"——今日训练的依据，直接摆给你看。
+   *
+   * 不摆出来的话，"今天练眼力"就只是一句安排；摆出来之后它是一个结论：
+   * 最近这几盘，你的分确实主要漏在那一维上。
+   */
+  function lossCard(loss: ReturnType<typeof lossProfile>): string {
+    if (!loss.games || loss.total < 100) {
+      return `<div class="xq-advice"><b>还没有足够的实战数据</b>
+        <p>训练安排现在按你的<b>做题分数</b>排。等你下够 3 盘并复盘之后，
+        会改成按<b>实战丢分</b>排——那才是你真正在输棋的地方。做题会做不等于实战用得上。</p></div>`;
+    }
+    const rows = DIMS.map((d) => ({ d, v: loss.by[d] }))
+      .sort((a, b) => b.v - a.v)
+      .filter((r) => r.v > 0);
+    const max = rows[0]?.v || 1;
+    return `<div class="xq-advice"><b>最近 ${loss.games} 盘，你的分丢在哪儿</b>
+      <div class="xq-lossbars">${rows
+        .map(
+          (r) => `<div class="row"><span class="k">${DIM_INFO[r.d].name}</span>
+            <span class="bar"><i style="width:${Math.round((r.v / max) * 100)}%"></i></span>
+            <span class="v">${Math.round((r.v / loss.total) * 100)}%</span></div>`,
+        )
+        .join('')}</div>
+      <p class="dim">按引擎复盘逐手归因：漏杀算杀法，开局十二手内算布局，子力很少时算残局，
+      被对方立刻吃子算眼力，其余算战术。</p></div>`;
+  }
+
   // ---------------- 今日训练 ----------------
   function showToday() {
     clear();
     const rs = getRatings();
     const stage = stageFor(rs);
-    const focus = focusDim(stage, rs);
     const due = srsCount().due;
-    const blocks = dailyPlan(stage, focus, due);
+    const loss = lossProfile(10);
+    const blocks = dailyPlan({
+      stage,
+      ratings: rs,
+      loss,
+      accuracy: (d) => recentAccuracy(d),
+      dueCount: due,
+      daysSinceQuiz: daysSinceQuiz(),
+    });
     const total = blocks.reduce((a, b) => a + b.minutes, 0);
 
     const scr = document.createElement('div');
@@ -1033,7 +1156,10 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     scr.innerHTML = `
       <h1>今日训练</h1>
       <div class="sub">${stage.emoji} 阶段${stage.id} · ${stage.name} — ${stage.goal}</div>
-      <div class="xq-chips"><span class="xq-chip">⏱ 约 <b>${total}</b> 分钟</span></div>`;
+      <div class="xq-chips"><span class="xq-chip">⏱ 约 <b>${total}</b> 分钟</span>${
+        loss.games ? `<span class="xq-chip">📊 依据最近 <b>${loss.games}</b> 盘实战</span>` : ''
+      }</div>
+      ${lossCard(loss)}`;
 
     const list = document.createElement('div');
     list.className = 'xq-block-list';
@@ -1045,6 +1171,7 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
         <div class="bd">
           <div class="t">${b.title}<span class="m">${b.minutes} 分钟</span></div>
           <div class="d">${b.desc}</div>
+          ${b.why ? `<div class="w">${b.why}</div>` : ''}
         </div>`;
       el.onclick = () => runBlock(b, blocks, i);
       list.appendChild(el);
@@ -1101,6 +1228,10 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     }
     if (b.kind === 'srs') {
       startReview(goNext);
+      return;
+    }
+    if (b.kind === 'quiz') {
+      void startQuiz(goNext);
       return;
     }
     if (b.kind === 'mate-shape') {

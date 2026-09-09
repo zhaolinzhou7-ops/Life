@@ -113,6 +113,16 @@ export interface GameRecord {
   blunders: number;
   mistakes: number;
   avgLoss: number;
+  /**
+   * 这盘棋的分**丢在哪一维**（每一维累计亏了多少分）。
+   *
+   * 这是整套系统里最该有、之前却没有的东西：做题分只说明你**会不会做题**，
+   * 而真正决定你输棋的是**实战里分从哪儿漏掉的**。专业教练看的就是这个，
+   * 不是看你题做得怎么样。有了它，每日训练才谈得上"按你的真实水平安排"。
+   */
+  lossBy?: Partial<Record<Dim, number>>;
+  /** 这盘走了多少手，用来判断样本够不够 */
+  plies?: number;
 }
 
 interface SaveData {
@@ -139,6 +149,16 @@ interface SaveData {
    */
   own: Puzzle[];
   ownSeq: number;
+  /**
+   * 最近的做题流水（维度 + 对错），只留最近 200 条。
+   *
+   * 有它才能回答"这一维的题对你来说是不是太简单了"。教学上正确率维持在
+   * 70~85% 进步最快：太高说明在做已经会的题，太低说明在硬啃。
+   * 光看等级分看不出这件事——分数是长期累积的，看不出最近几天的状态。
+   */
+  recent: { dim: Dim; ok: boolean }[];
+  /** 上次做测验的日子（自 1970 起的天数），用来决定该不该再测一次 */
+  lastQuiz?: number;
   /** 自报的天天象棋级别（TT_LEVELS 的 id），只用来给测评定起点 */
   declared?: string;
   /**
@@ -193,6 +213,7 @@ const EMPTY = (): SaveData => ({
   clearedEndgames: [],
   clearedMates: [],
   egGuess: {},
+  recent: [],
   puzzleAdj: {},
 });
 
@@ -306,8 +327,55 @@ export function updateRating(dim: Dim, puzzleRating: number, correct: boolean): 
     n: cur.n + 1,
   };
   d.ratings[dim] = next;
+  (d.recent ??= []).push({ dim, ok: correct });
+  if (d.recent.length > 200) d.recent.shift();
   store(d);
   return next;
+}
+
+/**
+ * 最近 n 次这一维的正确率。做题数不够就返回 null——
+ * 三四道题算出来的正确率没有意义，不能拿去调难度。
+ */
+export function recentAccuracy(dim: Dim, n = 20): { acc: number; n: number } | null {
+  const list = (load().recent ?? []).filter((r) => r.dim === dim).slice(-n);
+  if (list.length < 6) return null;
+  return { acc: list.filter((r) => r.ok).length / list.length, n: list.length };
+}
+
+/**
+ * 实战里每一维累计漏掉多少分（最近 n 盘）。
+ *
+ * 这是"你为什么输棋"的直接答案，也是每日训练该练什么的第一依据。
+ */
+/**
+ * 距上次测验多少天。从没测过就当很久没测——第一次进来就该测一次。
+ *
+ * 为什么要定期测：练而不测，涨没涨全靠感觉。而且做题时的等级分是**边练边动**的，
+ * 混着提示、混着重复做过的题，不适合当水平的读数；单独一场不给提示的小测才干净。
+ */
+export function daysSinceQuiz(): number {
+  const q = load().lastQuiz;
+  return q === undefined ? 999 : Math.max(0, todayNum() - q);
+}
+
+export function markQuizDone() {
+  const d = load();
+  d.lastQuiz = todayNum();
+  store(d);
+}
+
+export function lossProfile(n = 10): { by: Record<Dim, number>; games: number; total: number } {
+  const games = load().games.slice(-n);
+  const by = { safety: 0, mate: 0, tactic: 0, endgame: 0, opening: 0 } as Record<Dim, number>;
+  let total = 0;
+  for (const g of games) {
+    for (const [k, v] of Object.entries(g.lossBy ?? {})) {
+      by[k as Dim] += v ?? 0;
+      total += v ?? 0;
+    }
+  }
+  return { by, games: games.length, total };
 }
 
 export function getDeclared(): string | undefined {
