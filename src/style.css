@@ -2436,6 +2436,79 @@ canvas {
   margin: 6px 0 2px;
 }
 /* 分数尺子的说明：写小一点、灰一点，它是免责说明不是结论 */
+/* 限时计算的读秒条 */
+.xq-tr-clock {
+  position: relative;
+  height: 22px;
+  margin: 6px 2px 2px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.xq-tr-clock i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #3ec46d, #7ec46d);
+  transition: width 0.1s linear;
+}
+.xq-tr-clock.hot i { background: linear-gradient(90deg, #e8703d, #e0433a); }
+.xq-tr-clock span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f1720;
+}
+
+/* 棋谱播放器（定式讲解 / 打谱猜着法） */
+.xq-rp { padding: 8px 10px 16px; }
+.xq-rp-head { text-align: center; margin-bottom: 6px; }
+.xq-rp-head .t { font-size: 17px; font-weight: 700; color: #ffd76e; }
+.xq-rp-head .s { font-size: 12px; opacity: 0.7; margin-top: 2px; }
+.xq-rp-board {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 9 / 10;
+  margin: 6px auto;
+}
+.xq-rp-board .xq-b2d { position: absolute; inset: 0; width: 100%; height: 100%; }
+.xq-rp-say {
+  min-height: 3.4em;
+  margin: 8px 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid rgba(255, 255, 255, 0.18);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.xq-rp-say.ok { border-left-color: #3ec46d; }
+.xq-rp-say.no { border-left-color: #e8703d; }
+.xq-rp-say.ask { border-left-color: #ffd76e; }
+.xq-rp-say.done { border-left-color: #4a8fd4; }
+.xq-rp-say .h { font-weight: 700; margin-bottom: 3px; }
+.xq-rp-say .w { opacity: 0.86; }
+.xq-rp-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  margin: 6px 0;
+}
+.xq-rp-bar .xq-btn { flex: 1; }
+.xq-rp-trail {
+  font-size: 12px;
+  line-height: 1.9;
+  opacity: 0.66;
+  word-break: break-all;
+  padding: 0 2px;
+}
+.xq-rp-trail .on { color: #ffd76e; font-weight: 700; opacity: 1; }
+
 /* 训练方案里的月度目标 */
 .xq-goal {
   margin: 8px 0;

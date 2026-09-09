@@ -58,6 +58,9 @@ import { loadPuzzles, pickNear, byId, ratingRange, type Puzzle, type PuzzleKind 
 import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
+import { runReplay } from './replay';
+import type { Color } from './rules';
+import { OPENINGS } from './openings';
 import { Board2D } from './board2d';
 import { fromFen } from './notation';
 import { STAGES, stageFor, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block } from './curriculum';
@@ -248,6 +251,21 @@ export function runCoach(
         t: `📋 我的训练方案${daysSinceAssess() >= 28 ? '（该月测了）' : ''}`,
         d: '你现在什么水平、为什么输棋、这个月的目标、每周怎么排、怎么判断有没有进步——一页说完。',
         go: () => showProgram(),
+      },
+      {
+        t: '📜 打谱',
+        d: '一手一手过棋谱，轮到你的时候先自己想一手再看原谱。看的时候都觉得"我也想得到"，先走一遍才知道。',
+        go: () => void showGames(),
+      },
+      {
+        t: '⏱ 限时计算',
+        d: '限时做一遍，错的再不限时做一遍——把"算不出来"和"懒得算"分开。这是两个完全不同的病，练法相反。',
+        go: () => void startTimed(),
+      },
+      {
+        t: '📖 布局定式',
+        d: '中炮对屏风马、中炮对反宫马、仙人指路。每一手都讲"在干什么"，还能用猜着法过一遍——光看谱你会以为自己都想得到。',
+        go: () => showOpenings(),
       },
       {
         t: `📏 让子定级 · ${LADDER[getLadder().rung].name}`,
@@ -1305,6 +1323,18 @@ export function runCoach(
       void startQuiz(goNext);
       return;
     }
+    if (b.kind === 'timed') {
+      void startTimed(goNext);
+      return;
+    }
+    if (b.kind === 'opening') {
+      showOpenings();
+      return;
+    }
+    if (b.kind === 'replay') {
+      void showGames();
+      return;
+    }
     if (b.kind === 'mate-shape') {
       void loadLibrary().then(() => {
         if (!wrap.isConnected) return;
@@ -1328,6 +1358,272 @@ export function runCoach(
       return;
     }
     startPractice(b.dim ?? weakestDim(getRatings()), b.count ?? 10, goNext, b.ratingBias ?? 40);
+  }
+
+  // ---------------- 打谱 ----------------
+  /**
+   * 打谱：**先自己想一手，再看谱怎么走。**
+   *
+   * 这是专业训练里最老的一项，而它起作用的地方不是"看"，是"猜"。
+   * 看谱的时候人人都觉得"这手我也想得到"，真让你先走一遍才知道想不想得到。
+   *
+   * ⚠️ 这里的谱**不是名局**，得说清楚：
+   *   · 名局要有可靠的棋谱来源，我没有。**凭印象编一份署着真人名字的对局
+   *     是不能做的**——那是伪造真实人物的记录，比留个空白糟糕得多。
+   *   · 纯引擎自战也不行：实测让引擎从头下，第 1 手走"炮八进四"、
+   *     第 3 手"将5进1"——它没有开局库，开局分支太多，十层搜索看不出所以然。
+   *     拿那种谱打，学到的全是坏习惯。
+   * 所以是**开局按已验证的定式走完，之后交给引擎自战**。开局是书上的，
+   * 中局是引擎的，两段都站得住。等有了可靠的名局棋谱再补。
+   */
+  async function showGames() {
+    clear();
+    const games = (await import('./games.json')).default as {
+      id: string;
+      name: string;
+      result: string;
+      opening: string;
+      bookPlies: number;
+      moves: { t: string; why?: string }[];
+    }[];
+    if (!wrap.isConnected) return;
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-report';
+    scr.innerHTML = `
+      <h1>打谱</h1>
+      <div class="sub">先自己想一手，再看谱怎么走</div>
+      <div class="xq-advice"><b>这些谱是怎么来的——先说清楚</b>
+        <p><b>不是名局。</b>名局要有可靠的棋谱来源，我没有；而凭印象编一份署着
+        真人名字的对局是不能做的，那是伪造记录。</p>
+        <p>也不是纯引擎自战——实测让引擎从头下，第 1 手"炮八进四"、第 3 手"将5进1"，
+        它<b>没有开局库</b>，开局阶段看不出所以然。拿那种谱打只会学坏。</p>
+        <p>所以这里是<b>开局按定式走完、中局之后交给引擎</b>：开局是书上的，
+        中局是引擎的。打谱真正起作用的是"猜着法"这个动作，这一点对中局同样成立。</p>
+      </div>`;
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    for (const g of games) {
+      const el = document.createElement('div');
+      el.className = 'card home-card';
+      el.innerHTML = `<div class="title">${g.name}<span class="tag">${g.result}</span></div>
+        <div class="desc">${g.moves.length} 手 · 前 ${g.bookPlies} 手是「${g.opening}」定式，之后是引擎自战</div>`;
+      el.onclick = () => {
+        clear();
+        const host = document.createElement('div');
+        host.className = 'xq-coach-stage';
+        wrap.appendChild(host);
+        disposeScreen = runReplay(host, {
+          title: g.name,
+          subtitle: '猜着法：轮到红方时先自己走一手',
+          intro: `前 ${g.bookPlies} 手是「${g.opening}」的定式走法，之后是引擎自战。轮到红方时会先让你走，再揭晓原谱。`,
+          moves: g.moves,
+          guessFor: 'r',
+          notes: [
+            '猜不中很正常，甚至猜中率低反而说明这谱对你有东西可学。',
+            '重点是看清<b>原谱为什么那么走</b>，不是比谁猜得多。',
+            '同一局隔几天再打一遍，看看这次能不能猜中上次没猜中的地方。',
+          ],
+          onExit: () => void showGames(),
+        });
+      };
+      list.appendChild(el);
+    }
+    scr.appendChild(list);
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showHome;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  // ---------------- 限时计算 ----------------
+  /**
+   * 限时计算：**把「算不出来」和「懒得算」分开。**
+   *
+   * 这两个病在不限时的时候长得一模一样——都是做错。但它们的练法完全相反：
+   * 「懒得算」要练的是习惯（每步落子前强迫自己算一遍），
+   * 「算不出来」要练的是能力（从更简单的题往上垒）。
+   * 分不清就会用错药，练半天没效果。
+   *
+   * 分法很简单：**限时做一遍，错的题再不限时做一遍**。
+   *   限时错、不限时对  → 你算得出来，只是没去算
+   *   两次都错          → 真的算不出来
+   */
+  async function startTimed(then?: () => void) {
+    clear();
+    await loadPuzzles();
+    if (!wrap.isConnected) return;
+    const dim: Dim = 'tactic';
+    const TOTAL = 6;
+    const LIMIT = 45;
+    const used = new Set<string>();
+    const missed: Puzzle[] = [];
+    let i = 0;
+    let inTime = 0;
+
+    const round1 = () => {
+      if (i >= TOTAL) return round2();
+      const p = pickNear(DIM_KIND[dim], getRatings()[dim].r - 60, used);
+      if (!p) return round2();
+      used.add(p.id);
+      i++;
+      clear();
+      const host = document.createElement('div');
+      host.className = 'xq-coach-stage';
+      wrap.appendChild(host);
+      disposeScreen = runPuzzle(host, p, {
+        caption: `限时计算 ${i}/${TOTAL} · 每题 ${LIMIT} 秒`,
+        allowHint: false,
+        timeLimit: LIMIT,
+        onDone: (r) => {
+          if (r.correct) inTime++;
+          else missed.push(p);
+          round1();
+        },
+      });
+    };
+
+    /** 第二轮：把限时没做出来的题**不限时**再给一遍 */
+    let j = 0;
+    let solvedUnlimited = 0;
+    const round2 = () => {
+      if (!missed.length) return report();
+      if (j >= missed.length) return report();
+      const p = missed[j];
+      j++;
+      clear();
+      const host = document.createElement('div');
+      host.className = 'xq-coach-stage';
+      wrap.appendChild(host);
+      disposeScreen = runPuzzle(host, p, {
+        caption: `不限时重做 ${j}/${missed.length} · 这次慢慢算`,
+        allowHint: false,
+        onDone: (r) => {
+          if (r.correct) solvedUnlimited++;
+          round2();
+        },
+      });
+    };
+
+    const report = () => {
+      clear();
+      const lazy = solvedUnlimited;
+      const cant = missed.length - solvedUnlimited;
+      const scr = document.createElement('div');
+      scr.className = 'screen xq-coach-report';
+      scr.innerHTML = `
+        <h1>限时计算 · 诊断</h1>
+        <div class="xq-rank-big">${inTime} / ${TOTAL}<span>在 ${LIMIT} 秒内做对</span></div>
+        <div class="xq-advice"><b>没做出来的那 ${missed.length} 道，分成两类</b>
+          <div class="xq-goal"><b>没去算：${lazy} 道</b>
+            <span>限时做错，不限时就做对了。<b>你算得出来，只是当时没算。</b>
+            这是习惯问题——实战里每步落子前强迫自己把对方的应手过一遍，比做一百道题管用。</span></div>
+          <div class="xq-goal"><b>算不出来：${cant} 道</b>
+            <span>给了时间也没做出来。这是能力问题，得从更简单的题往上垒，
+            急不得。硬啃比自己水平高两档的题只会打击信心。</span></div>
+          <p class="dim">${
+            lazy > cant
+              ? '你的主要问题是<b>没去算</b>——这其实是好消息，习惯比能力好改。下棋时慢一点，落子前数三秒。'
+              : cant > lazy
+                ? '你的主要问题是<b>算不出来</b>——按部就班往上垒就行，别急着做难题。'
+                : '两类各占一半。先解决"没去算"，那个见效快。'
+          }</p>
+        </div>`;
+      const go = document.createElement('button');
+      go.className = 'btn';
+      go.textContent = then ? '继续今天的训练 →' : '返回';
+      go.onclick = () => (then ? then() : showHome());
+      scr.appendChild(go);
+      wrap.appendChild(scr);
+    };
+
+    round1();
+  }
+
+  // ---------------- 布局定式 ----------------
+  /**
+   * 布局课。**讲思路，不背招法。**
+   *
+   * 之前布局这一维只有"别早早亏子"的题，没有"中炮想干什么"。
+   * 招法背下来只能应付一模一样的局面，思路懂了才能应付变着——
+   * 而实战里对手基本不会跟你走一模一样的谱。
+   *
+   * 两种练法：先看一遍（讲解），再用猜着法过一遍。看的时候人人都觉得
+   * "这手我也想得到"，真让你先走一遍才知道想不想得到。
+   */
+  function showOpenings() {
+    clear();
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-report';
+    scr.innerHTML = `
+      <h1>布局定式</h1>
+      <div class="sub">讲思路，不背招法</div>
+      <div class="xq-advice"><b>布局为什么排在最后</b>
+        <p>业余棋手输棋六成是漏着、两成半是残局走不出结果，布局只占一成。
+        前面几样没练好的时候，布局占的那点便宜根本守不住——这正是"背了一堆定式
+        还是不涨棋"的原因。</p>
+        <p>但到了 1500 以上布局就是真瓶颈了。这时候要的<b>不是招法表</b>，
+        是每一手在干什么。所以下面每一手都配一句理由，
+        而且建议你用<b>猜着法</b>再过一遍：光看谱，你会以为自己都想得到。</p>
+      </div>`;
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    for (const o of OPENINGS) {
+      const el = document.createElement('div');
+      el.className = 'card home-card';
+      el.innerHTML = `<div class="title">${o.name}<span class="tag">${o.side === 'red' ? '先手' : '后手'}</span></div>
+        <div class="desc">${o.tag}<br><span class="dim">${o.moves.length} 手</span></div>`;
+      el.onclick = () => showOpening(o);
+      list.appendChild(el);
+    }
+    scr.appendChild(list);
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showHome;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  function showOpening(o: (typeof OPENINGS)[number]) {
+    clear();
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-report';
+    scr.innerHTML = `<h1>${o.name}</h1><div class="sub">${o.tag}</div>
+      <div class="xq-advice"><b>核心思路——要记住的是这个</b><p>${o.idea}</p></div>`;
+    const a = document.createElement('button');
+    a.className = 'btn';
+    a.textContent = '📖 看一遍（讲解）';
+    a.onclick = () => runOpening(o, undefined);
+    scr.appendChild(a);
+    const g = document.createElement('button');
+    g.className = 'btn';
+    g.textContent = `🎯 猜着法（你执${o.side === 'red' ? '红' : '黑'}）`;
+    g.onclick = () => runOpening(o, o.side === 'red' ? 'r' : 'b');
+    scr.appendChild(g);
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showOpenings;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  function runOpening(o: (typeof OPENINGS)[number], guessFor: Color | undefined) {
+    clear();
+    const host = document.createElement('div');
+    host.className = 'xq-coach-stage';
+    wrap.appendChild(host);
+    disposeScreen = runReplay(host, {
+      title: o.name,
+      subtitle: guessFor ? '猜着法：先自己走，再看原谱' : '讲解：每一手都说明在做什么',
+      intro: o.idea,
+      moves: o.moves.map((m) => ({ t: m.t, why: m.why })),
+      guessFor,
+      notes: o.traps,
+      onExit: () => showOpening(o),
+    });
   }
 
   // ---------------- 让子定级 ----------------

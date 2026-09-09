@@ -136,7 +136,7 @@ export function graduateStatus(stage: Stage, ratings: Record<Dim, { r: number }>
 
 // ---------------- 每日训练 ----------------
 
-export type BlockKind = 'warmup' | 'srs' | 'focus' | 'mate-shape' | 'endgame' | 'game' | 'quiz';
+export type BlockKind = 'warmup' | 'srs' | 'focus' | 'mate-shape' | 'endgame' | 'game' | 'quiz' | 'timed' | 'opening' | 'replay';
 
 export interface Block {
   kind: BlockKind;
@@ -282,6 +282,42 @@ export function dailyPlan(inp: TrainInput): Block[] {
     ratingBias: b.bias,
     why: b.note ? `${focus.why}<br>${b.note}。` : focus.why,
   });
+
+  /**
+   * 每周轮换一项"专业训练里最容易被业余跳过"的内容。
+   *
+   * 这三样都不是天天做的东西，但一样都不能没有：
+   *   限时计算 —— 把"算不出来"和"懒得算"分开，这两个病练法相反
+   *   布局定式 —— 到 1500 以上布局才成为真瓶颈，但那时候临时补来不及
+   *   打谱     —— 最老的一项训练，练的是"先自己想一手"的习惯
+   * 按星期几轮，保证一周里每样都轮得到，又不会天天占时间。
+   */
+  const rotate = new Date().getDay();
+  if (rotate === 2 && stage.id >= 2) {
+    blocks.push({
+      kind: 'timed',
+      title: '限时计算（6 题）',
+      desc: '每题 45 秒，做错的再不限时重做一遍。',
+      minutes: 8,
+      why: '「算不出来」和「懒得算」在不限时的时候长得一模一样，但练法完全相反：一个练习惯，一个练能力。分不清就会用错药。',
+    });
+  } else if (rotate === 4 && stage.id >= 3) {
+    blocks.push({
+      kind: 'opening',
+      title: '布局定式：过一套',
+      desc: '中炮对屏风马 / 反宫马 / 仙人指路。看完再用猜着法过一遍。',
+      minutes: 8,
+      why: '布局排在后面不是因为不重要，是因为前面没练好时布局那点便宜守不住。你现在到阶段3了，可以开始补。',
+    });
+  } else if (rotate === 6) {
+    blocks.push({
+      kind: 'replay',
+      title: '打谱：猜着法',
+      desc: '一手一手过棋谱，轮到你先自己想一手再看原谱。',
+      minutes: 10,
+      why: '看谱的时候人人都觉得"这手我也想得到"，先走一遍才知道想不想得到。周末时间宽裕，适合做这个。',
+    });
+  }
 
   // 阶段一二练图形识别，阶段三之后重心转到残局——这就是专业课的顺序
   if (stage.id <= 2) {
