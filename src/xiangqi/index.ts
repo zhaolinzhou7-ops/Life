@@ -32,15 +32,6 @@ import { CHARACTERS, avatarCanvas, pickLine, type Character } from '../character
 
 // 深度是实测能跑到的层数（引擎约 140 万节点/秒），不是名义上限。
 // jitter 是评估扰动，只给低难度用来模拟"看走眼"，高难度必须为 0。
-/**
- * 动画速度。默认「快」——实测原速一个回合要 2.8 秒，其中 1.26 秒是纯动画，
- * 偶尔看几盘很带感，天天练就是纯等待。想看效果的人可以调回标准。
- */
-const ANIM_SPEEDS = [
-  { id: 'off', name: '关闭', desc: '落子即到，没有任何动画', scale: 0, pause: 0 },
-  { id: 'fast', name: '快', desc: '很短的落子动画', scale: 0.35, pause: 0 },
-  { id: 'std', name: '完整', desc: '抓子—平移—落子的完整动画', scale: 1, pause: 140 },
-] as const;
 
 const LEVELS = [
   { id: 0, name: '新手', desc: '会看走眼，适合练手', depth: 3, jitter: 110, timeMs: 300 },
@@ -133,7 +124,6 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let theme = (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme;
     let rival = Number(localStorage.getItem('xq-rival') ?? 2);
     let facing = (localStorage.getItem('xq-facing') ?? 'duel') as 'duel' | 'me';
-    let anim = Math.max(0, Math.min(ANIM_SPEEDS.length - 1, Number(localStorage.getItem('xq-anim') ?? 0)));
 
     const s = document.createElement('div');
     s.className = 'screen xq-setup';
@@ -231,22 +221,6 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       s.appendChild(fRow);
 
       // 动画速度
-      const aLabel = document.createElement('div');
-      aLabel.className = 'xq-sec';
-      aLabel.textContent = '动画速度';
-      s.appendChild(aLabel);
-      const aRow = document.createElement('div');
-      aRow.className = 'diff-row';
-      ANIM_SPEEDS.forEach((sp, i) => {
-        const card = document.createElement('div');
-        card.className = 'card' + (anim === i ? ' selected' : '');
-        card.innerHTML = `<div class="title" style="justify-content:center">${sp.name}</div>
-          <div class="desc" style="text-align:center">${sp.desc}</div>`;
-        card.onclick = () => { anim = i; sfxTap(); render(); };
-        aRow.appendChild(card);
-      });
-      s.appendChild(aRow);
-
       const go = document.createElement('button');
       go.className = 'btn';
       go.textContent = '⚔️ 开始对弈';
@@ -255,10 +229,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         localStorage.setItem('xq-theme', theme);
         localStorage.setItem('xq-rival', String(rival));
         localStorage.setItem('xq-facing', facing);
-        localStorage.setItem('xq-anim', String(anim));
         s.remove();
         setupEl = null;
-        startGame(level, theme, CHARACTERS[rival], facing === 'duel', anim);
+        startGame(level, theme, CHARACTERS[rival], facing === 'duel');
       };
       s.appendChild(go);
 
@@ -273,9 +246,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   }
 
   // ============ 对局 ============
-  function startGame(level: number, theme: PieceTheme, rival: Character, flipBlack: boolean, animIdx = 0) {
+  function startGame(level: number, theme: PieceTheme, rival: Character, flipBlack: boolean) {
     const L = LEVELS[level];
-    const SPEED = ANIM_SPEEDS[Math.max(0, Math.min(ANIM_SPEEDS.length - 1, animIdx))];
     let board: Board = initialBoard();
     let history: Board[] = [];
     /** 整盘的着法序列，复盘用。history 存的是局面，复盘要的是着法 */
@@ -291,7 +263,6 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let bubbleTimer = 0;
 
     const scene = new XiangqiScene(wrap, (x, y) => onTap(x, y), theme, flipBlack);
-    scene.setAnimScale(SPEED.scale);
     scene.syncBoard(board);
     scene.dealIn();
     startBgm('guqin');
@@ -443,15 +414,12 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         // 搜索在 Worker 里跑，主线程继续放动画；思考期间对手头像有呼吸光效
         const myTurn = ++aiSeq;
         scene.setThinking(true);
-        // 这里原本硬等 140ms 才开始搜索，纯属白白浪费——搜索在 Worker 里跑，
-        // 不影响动画。快/极速档直接置 0。
-        aiTimer = window.setTimeout(() => {
-          requestMove(board, 'b', { maxDepth: L.depth, jitter: L.jitter, timeMs: L.timeMs }).then((m) => {
-            if (over || myTurn !== aiSeq) return; // 期间悔棋/重开了，丢弃这次结果
-            scene.setThinking(false);
-            if (m) doMove(m);
-          });
-        }, SPEED.pause);
+        // 不再有"等动画播完"这回事，轮到对手就直接开始搜索
+        requestMove(board, 'b', { maxDepth: L.depth, jitter: L.jitter, timeMs: L.timeMs }).then((m) => {
+          if (over || myTurn !== aiSeq) return; // 期间悔棋/重开了，丢弃这次结果
+          scene.setThinking(false);
+          if (m) doMove(m);
+        });
       } else {
         setTurnUI();
         if (Math.random() < 0.14) say(pickLine(rival.lines.taunt));

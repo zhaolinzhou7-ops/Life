@@ -54,11 +54,8 @@ export class Board2D {
   private w = 0;
   private h = 0;
   private raf = 0;
-  private lastT = 0;
   private dirty = true;
   private disposed = false;
-  /** 走子动画：从 (fx,fy) 滑到 (tx,ty) */
-  private anim: { m: Move; t: number; dur: number; onDone: () => void } | null = null;
 
   constructor(parent: HTMLElement, opts: Board2DOpts = {}) {
     this.flip = !!opts.flip;
@@ -96,22 +93,19 @@ export class Board2D {
     this.arrows = [];
     this.dirty = true;
   }
-  /**
-   * 走子动画。默认**不做动画**——训练时一天要走几百步，
-   * 每步等 0.26 秒纯属浪费，落子即到才跟得上思路。
-   * 想看动画的话把 animSec 调大。
-   */
-  animSec = 0;
 
+  /**
+   * 走一步。**没有动画，落子即到。**
+   *
+   * 教学场景一天要走几百步，每步等 0.26 秒纯属浪费；更要紧的是棋子在半空的
+   * 那一瞬不在任何交叉点上，看到就是"位置不对"。回调仍然放到下一帧——
+   * 调用方靠 onDone 串后续流程，同步执行会打乱顺序。
+   */
   animateMove(m: Move, board: Board, onDone: () => void) {
+    void m;
     this.board = board;
     this.dirty = true;
-    if (this.animSec <= 0) {
-      // 仍然要异步回调：调用方靠 onDone 串后续流程，同步执行会打乱顺序
-      requestAnimationFrame(() => onDone());
-      return;
-    }
-    this.anim = { m, t: 0, dur: this.animSec, onDone };
+    requestAnimationFrame(() => onDone());
   }
 
   dispose() {
@@ -377,23 +371,12 @@ export class Board2D {
   }
 
   // ---------- 主循环 ----------
-  private loop = (now = 0) => {
+  private loop = () => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.loop);
-    const dt = this.lastT ? Math.min(0.05, (now - this.lastT) / 1000) : 0;
-    this.lastT = now;
     // 容器一开始可能还没布局（宽高为 0），量到尺寸变化就重新算一次
     const r = this.canvas.getBoundingClientRect();
     if (Math.abs(r.width - this.w) > 1 || Math.abs(r.height - this.h) > 1) this.resize();
-    if (this.anim) {
-      this.anim.t += dt;
-      this.dirty = true;
-      if (this.anim.t >= this.anim.dur) {
-        const done = this.anim.onDone;
-        this.anim = null;
-        done();
-      }
-    }
     if (!this.dirty) return;
     this.dirty = false;
     this.draw();
@@ -427,27 +410,12 @@ export class Board2D {
       }
     }
 
-    // 棋子
-    const a = this.anim;
+    // 棋子：每个都画在自己的交叉点上，没有中间状态
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
         const p = this.board[y][x];
         if (!p) continue;
-        // 动画中的那个子最后单独画
-        if (a && x === a.m.tx && y === a.m.ty) continue;
         const [px, py] = this.px(x, y);
-        g.drawImage(this.sprite(p.t, p.c), px - spriteR, py - spriteR, spriteR * 2, spriteR * 2);
-      }
-    }
-    if (a) {
-      const p = this.board[a.m.ty][a.m.tx];
-      if (p) {
-        const k = Math.min(1, a.t / a.dur);
-        const e = 1 - (1 - k) * (1 - k); // easeOut
-        const [sx, sy] = this.px(a.m.fx, a.m.fy);
-        const [tx, ty] = this.px(a.m.tx, a.m.ty);
-        const px = sx + (tx - sx) * e;
-        const py = sy + (ty - sy) * e;
         g.drawImage(this.sprite(p.t, p.c), px - spriteR, py - spriteR, spriteR * 2, spriteR * 2);
       }
     }

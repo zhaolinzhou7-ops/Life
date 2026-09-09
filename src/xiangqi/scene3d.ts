@@ -16,14 +16,6 @@ const PIECE_H = 0.26;
 const cellToWorld = (x: number, y: number) =>
   new THREE.Vector3((x - (COLS - 1) / 2) * CELL, TOP_Y, (y - (ROWS - 1) / 2) * CELL);
 
-interface Tween {
-  t: number;
-  dur: number;
-  /** 真实起始时刻（ms）：按墙钟推进，低帧率设备也能准时播完 */
-  start: number;
-  update: (k: number) => void;
-  onDone?: () => void;
-}
 
 interface PieceMesh {
   mesh: THREE.Group;
@@ -405,9 +397,7 @@ export class XiangqiScene {
   private pieces: PieceMesh[] = [];
   private pieceRoot = new THREE.Group();
   private markerRoot = new THREE.Group();
-  private tweens: Tween[] = [];
   private raf = 0;
-  private thinking = false;
   private disposed = false;
   private selected: PieceMesh | null = null;
   private checkRing: THREE.Mesh;
@@ -416,12 +406,7 @@ export class XiangqiScene {
   private composer!: EffectComposer;
   private bloom!: UnrealBloomPass;
   private impactRing!: THREE.Mesh;
-  private shakeT = 0;
-  private shakeAmp = 0;
-  private camBase = new THREE.Vector3();
-  private checkT = -1;
   private boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TOP_Y);
-  private clock = new THREE.Clock();
 
   constructor(
     container: HTMLElement,
@@ -595,16 +580,10 @@ export class XiangqiScene {
     this.lastFrom = mkMark(0x8bc34a, 0.12, 0.2);
     this.lastTo = mkMark(0xffc107, PIECE_R + 0.05, PIECE_R + 0.15);
 
-    // 相机（红方视角，按屏幕比例自适应拉远保证全盘可见）+ 入场动画
+    // 相机（红方视角，按屏幕比例自适应拉远保证全盘可见）。**不做入场动画**
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
-    const camEnd = this.fitCameraPos();
-    const camStart = camEnd.clone().multiplyScalar(1.4);
-    this.camera.position.copy(camStart);
+    this.camera.position.copy(this.fitCameraPos());
     this.camera.lookAt(0, 0, -0.3);
-    this.addTween(1.1, (k) => {
-      this.camera.position.lerpVectors(camStart, this.fitCameraPos(), 1 - (1 - k) ** 3);
-      this.camera.lookAt(0, 0, -0.3);
-    });
 
     // Bloom 辉光后处理
     this.composer = new EffectComposer(this.renderer);
@@ -620,37 +599,14 @@ export class XiangqiScene {
 
   // ---------- 公共接口 ----------
 
-  /** 开局入场：棋子从高空逐个砸落（带弹跳），配相机推近 */
+  /**
+   * 开局摆子。
+   *
+   * 这里原来是「棋子从高空逐个砸落 + 相机推近」。全部去掉了——
+   * 见文件头那段说明：这个 3D 场景现在一帧都不动棋子。
+   */
   dealIn() {
-    this.pieces.forEach((p, i) => {
-      const target = cellToWorld(p.x, p.y);
-      const mesh = p.mesh;
-      const delay = i * 0.012;
-      mesh.position.set(target.x, TOP_Y + 2.6 + Math.random() * 1.2, target.z);
-      mesh.scale.setScalar(0.6);
-      mesh.visible = false;
-      this.addTween(
-        delay + 0.26,
-        (k) => {
-          const kk = Math.max(0, (k * (delay + 0.26) - delay) / 0.26);
-          if (kk <= 0) return;
-          mesh.visible = true;
-          const e = kk * kk; // 加速下落
-          mesh.position.y = THREE.MathUtils.lerp(TOP_Y + 2.6, TOP_Y, e);
-          mesh.scale.setScalar(0.6 + kk * 0.4);
-        },
-        () => {
-          mesh.position.copy(target);
-          mesh.visible = true;
-          // 落地压扁回弹
-          this.addTween(0.24, (k) => {
-            const s = 1 + Math.sin(k * Math.PI) * 0.22 * (1 - k);
-            mesh.scale.set(s, 1 / s, s);
-          });
-          if (i === this.pieces.length - 1) this.shake(0.05);
-        },
-      );
-    });
+    this.snapAll();
   }
 
   /** 重建全部棋子（初始化 / 悔棋 / 重开） */
@@ -676,8 +632,9 @@ export class XiangqiScene {
   /** 选中棋子（浮起）并显示可走点 */
   select(cell: { x: number; y: number } | null, targets: { x: number; y: number; capture: boolean }[] = []) {
     if (this.selected) {
-      const s = this.selected;
-      this.addTween(0.15, (k) => (s.mesh.position.y = TOP_Y + (1 - k) * 0.35));
+      // 原来是把棋子抬起来 0.35。抬起来的棋子在截图里就是"没落在交叉点上"——
+      // 用户报的"位置不对"多半就是看到了这种半空中的状态。改成画一个静态圈。
+      this.selected.mesh.position.copy(cellToWorld(this.selected.x, this.selected.y));
       this.selected = null;
     }
     this.markerRoot.clear();
@@ -685,7 +642,14 @@ export class XiangqiScene {
     const pm = this.pieceAt(cell.x, cell.y);
     if (!pm) return;
     this.selected = pm;
-    this.addTween(0.15, (k) => (pm.mesh.position.y = TOP_Y + k * 0.35));
+    const selRing = new THREE.Mesh(
+      new THREE.RingGeometry(PIECE_R + 0.06, PIECE_R + 0.14, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffd76e, transparent: true, opacity: 0.95, side: THREE.DoubleSide }),
+    );
+    selRing.rotation.x = -Math.PI / 2;
+    const sp = cellToWorld(cell.x, cell.y);
+    selRing.position.set(sp.x, TOP_Y + 0.02, sp.z);
+    this.markerRoot.add(selRing);
     for (const t of targets) {
       const marker = t.capture
         ? new THREE.Mesh(
@@ -704,7 +668,19 @@ export class XiangqiScene {
     }
   }
 
-  /** 执行走子动画（含吃子） */
+  /**
+   * 走一步棋。**落子即到，不做任何动画。**
+   *
+   * 原来是三段动画：抓起 0.16 秒、空中平移 0.26 秒、拍下 0.14 秒，加上被吃子
+   * 飞出去、落地压扁回弹、冲击波、震屏。问题不只是慢：
+   *
+   *   · 棋子在空中的那半秒里**不在任何交叉点上**。看到那一瞬间（截图、卡顿、
+   *     切后台回来）就是"棋子位置不对"。士象走斜线，偏得最明显。
+   *   · 更麻烦的是动画一旦没走完（切标签页、场景被销毁、回调链断了），
+   *     棋子就**永久停在半空**，再也回不到格子上。
+   *
+   * 所以不是"把动画调快"，而是整块拿掉。落子这件事没有中间状态可言。
+   */
   animateMove(m: Move, onDone: () => void) {
     const mover = this.pieceAt(m.fx, m.fy);
     if (!mover) {
@@ -715,113 +691,64 @@ export class XiangqiScene {
     const victim = this.pieceAt(m.tx, m.ty);
     if (victim) {
       this.pieces = this.pieces.filter((p) => p !== victim);
-      const vm = victim.mesh;
-      const dir = new THREE.Vector3(vm.position.x * 0.25 + (Math.random() - 0.5), 0, vm.position.z * 0.25).normalize();
-      this.addTween(
-        0.5,
-        (k) => {
-          vm.position.x += dir.x * 0.09;
-          vm.position.z += dir.z * 0.09;
-          vm.position.y = TOP_Y + Math.sin(k * Math.PI) * 1.1;
-          vm.rotation.x += 0.15;
-          vm.rotation.z += 0.12;
-          vm.scale.setScalar(1 - k * 0.8);
-        },
-        () => this.pieceRoot.remove(vm),
-      );
+      this.pieceRoot.remove(victim.mesh);
     }
-    const from = cellToWorld(m.fx, m.fy);
-    const to = cellToWorld(m.tx, m.ty);
     mover.x = m.tx;
     mover.y = m.ty;
-    const mesh = mover.mesh;
-    const LIFT = 1.15; // 抬起高度（模拟手拿起棋子）
-    // 第一段：抓起（快速抬高 + 轻微倾斜）
-    this.addTween(
-      0.16,
-      (k) => {
-        mesh.position.y = TOP_Y + LIFT * (1 - (1 - k) ** 2);
-        mesh.rotation.z = k * 0.12;
-        mesh.scale.setScalar(1 + k * 0.08);
-      },
-      () => {
-        // 第二段：空中平移
-        this.addTween(
-          0.26,
-          (k) => {
-            const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
-            mesh.position.x = from.x + (to.x - from.x) * e;
-            mesh.position.z = from.z + (to.z - from.z) * e;
-            mesh.position.y = TOP_Y + LIFT + Math.sin(k * Math.PI) * 0.18;
-          },
-          () => {
-            // 第三段：拍下（加速落地 + 压扁回弹）
-            this.addTween(
-              0.14,
-              (k) => {
-                mesh.position.y = TOP_Y + LIFT * (1 - k * k);
-                mesh.rotation.z = 0.12 * (1 - k);
-              },
-              () => {
-                mesh.position.copy(to);
-                mesh.rotation.z = 0;
-                // 落地弹性
-                this.addTween(0.22, (k) => {
-                  const s = 1 + Math.sin(k * Math.PI) * 0.16 * (1 - k);
-                  mesh.scale.set(s, 1 / s, s);
-                });
-                this.impact(to.x, to.z, victim ? 1 : 0.55);
-                this.shake(victim ? 0.09 : 0.03);
-                // 落点标记
-                this.lastFrom.position.set(from.x, TOP_Y + 0.02, from.z);
-                this.lastTo.position.set(to.x, TOP_Y + 0.02, to.z);
-                this.lastFrom.visible = true;
-                this.lastTo.visible = true;
-                onDone();
-              },
-            );
-          },
-        );
-      },
-    );
+    const from = cellToWorld(m.fx, m.fy);
+    const to = cellToWorld(m.tx, m.ty);
+    mover.mesh.position.copy(to);
+    mover.mesh.rotation.z = 0;
+    mover.mesh.scale.setScalar(1);
+    this.lastFrom.position.set(from.x, TOP_Y + 0.02, from.z);
+    this.lastTo.position.set(to.x, TOP_Y + 0.02, to.z);
+    this.lastFrom.visible = true;
+    this.lastTo.visible = true;
+    // 每走一步都把所有棋子按棋盘坐标钉回去。动画删干净之后这一步理论上是多余的，
+    // 留着是当不变量：以后谁再往这里加会动棋子的东西，也不会有子停在半空。
+    this.snapAll();
+    // 回调仍然放到下一帧：doMove 是靠 onDone 串后续流程的，同步调用会让它
+    // 抢在 setTurnUI 前面，把"轮到谁"的状态覆盖掉。
+    requestAnimationFrame(() => onDone());
   }
 
-  /** 落子/吃子冲击波 */
-  private impact(x: number, z: number, power = 1) {
-    this.impactRing.position.set(x, TOP_Y + 0.03, z);
-    const mat = this.impactRing.material as THREE.MeshBasicMaterial;
-    this.addTween(0.5, (k) => {
-      this.impactRing.scale.setScalar(0.5 + k * 3.2 * power);
-      mat.opacity = (1 - k) * 0.95 * power;
-    });
+  /**
+   * 把每个棋子钉回它在棋盘上的那个交叉点，并清掉缩放/旋转。
+   *
+   * 这是"棋子必须落在交叉点上"这条不变量的执行者。
+   */
+  snapAll() {
+    for (const p of this.pieces) {
+      p.mesh.position.copy(cellToWorld(p.x, p.y));
+      p.mesh.rotation.z = 0;
+      p.mesh.scale.setScalar(1);
+      p.mesh.visible = true;
+    }
   }
 
-  /** 相机震屏 */
-  private shake(amp: number) {
-    this.camBase.copy(this.camera.position);
-    this.shakeAmp = amp;
-    this.shakeT = 0;
-  }
-
-  /** 绝杀大特效：金色冲击波连爆 + 强震屏 */
+  /**
+   * 冲击波、震屏、绝杀特效——**全部去掉了**。
+   *
+   * 这三样原来都绕过了"动画速度"这个设置：把动画调成关闭，震屏照震、
+   * 冲击波照放。用户说"动画全部去掉"而画面还在动，就是因为它们没走那条开关。
+   * 现在不留开关，直接空实现——留空函数是为了不动调用方。
+   */
+  /** 绝杀提示：只把落点标出来，不放特效 */
   finishBlast(x: number, y: number) {
     const p = cellToWorld(x, y);
-    for (let i = 0; i < 3; i++) {
-      setTimeout(() => this.impact(p.x, p.z, 1.6), i * 160);
-    }
-    this.shake(0.22);
+    this.lastTo.position.set(p.x, TOP_Y + 0.02, p.z);
+    this.lastTo.visible = true;
   }
 
   /**
    * 对手思考指示：黑将轻微起伏 + 呼吸光。
    * 搜索已经移到 Worker，主线程能持续放这个动画，玩家不会觉得游戏卡死了。
    */
-  setThinking(on: boolean) {
-    this.thinking = on;
-    if (!on) {
-      const k = this.pieces.find((p) => p.t === 'K' && p.c === 'b');
-      if (k) k.mesh.position.y = TOP_Y;
-    }
+  setThinking(_on: boolean) {
+    // 原来是让黑将上下起伏表示"对手在想"。那也是动画，而且同样绕过了开关；
+    // 更糟的是它把一个棋子长期悬在半空——正是"棋子位置不对"的观感来源。
+    // 现在只记状态，画面上一动不动，"轮到谁"由顶部的文字说明。
+    this.snapAll();
   }
 
   /** 高亮某格上的将（将军提示） */
@@ -829,7 +756,6 @@ export class XiangqiScene {
     const p = cellToWorld(x, y);
     this.checkRing.position.set(p.x, TOP_Y + 0.03, p.z);
     this.checkRing.visible = true;
-    this.checkT = 0;
   }
   hideCheck() {
     this.checkRing.visible = false;
@@ -909,26 +835,6 @@ export class XiangqiScene {
     return g;
   }
 
-  /**
-   * 动画时长倍率。1 = 原速，越小越快，0 = 直接到位。
-   *
-   * 走一步棋原本要 0.56 秒（抓起 0.16 + 平移 0.26 + 落下 0.14），
-   * 一个回合光动画就 1.12 秒。看几盘很带感，天天练就是纯粹的等待。
-   */
-  private animScale = 1;
-
-  setAnimScale(v: number) {
-    this.animScale = Math.max(0, v);
-  }
-
-  private addTween(dur: number, update: (k: number) => void, onDone?: () => void) {
-    // 留一个下限而不是同步执行完。animateMove 是靠 onDone 层层串起来的，
-    // 同步跑完会让 doMove 里的回调抢在 setTurnUI 前面，把"轮到谁"的状态覆盖掉。
-    // 给最小时长，动画在下一帧结束，回调顺序和原来完全一致。
-    const d = Math.max(0.001, dur * this.animScale);
-    this.tweens.push({ t: 0, dur: d, start: performance.now(), update, onDone });
-  }
-
   /** 计算能容纳整个棋盘的相机位置（约 55° 俯角） */
   private fitCameraPos(): THREE.Vector3 {
     const aspect = window.innerWidth / window.innerHeight;
@@ -967,47 +873,18 @@ export class XiangqiScene {
   private loop = () => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.loop);
-    const dt = Math.min(this.clock.getDelta(), 0.05);
-    // 震屏（衰减正弦）
-    if (this.shakeAmp > 0.0005) {
-      this.shakeT += dt;
-      const decay = Math.exp(-this.shakeT * 7);
-      const a = this.shakeAmp * decay;
-      this.camera.position.set(
-        this.camBase.x + Math.sin(this.shakeT * 62) * a,
-        this.camBase.y + Math.cos(this.shakeT * 51) * a,
-        this.camBase.z + Math.sin(this.shakeT * 44) * a * 0.6,
-      );
-      this.camera.lookAt(0, 0, -0.3);
-      if (decay < 0.02) {
-        this.shakeAmp = 0;
-        this.camera.position.copy(this.camBase);
-        this.camera.lookAt(0, 0, -0.3);
-      }
-    }
-    const nowMs = performance.now();
-    for (const tw of this.tweens) {
-      tw.t = (nowMs - tw.start) / 1000;
-      tw.update(Math.min(1, tw.t / tw.dur));
-    }
-    const done = this.tweens.filter((t) => t.t >= t.dur);
-    this.tweens = this.tweens.filter((t) => t.t < t.dur);
-    for (const t of done) t.onDone?.();
-
-    if (this.checkRing.visible) {
-      this.checkT += dt;
-      const k = 0.7 + Math.sin(this.checkT * 7) * 0.3;
-      (this.checkRing.material as THREE.MeshBasicMaterial).opacity = k;
-    }
-    // 对手思考中：黑将起伏，给"人在想"的观感
-    if (this.thinking) {
-      const k = this.pieces.find((p) => p.t === 'K' && p.c === 'b');
-      if (k) k.mesh.position.y = TOP_Y + 0.16 + Math.sin(nowMs / 230) * 0.1;
-    }
-    // 选中棋子轻微悬浮
-    if (this.selected) {
-      this.selected.mesh.position.y = TOP_Y + 0.35 + Math.sin(performance.now() / 260) * 0.04;
-    }
+    // ⚠️ 这里原来有三段每帧都在跑的动画，**而且全都绕过了"动画速度"这个设置**：
+    //   1. 将军环呼吸闪烁
+    //   2. 对手思考时黑将上下起伏
+    //   3. **选中的棋子悬浮 0.35 并轻微上下摆动**
+    //
+    // 第 3 条就是"士位置不对"的真正来源：你点一下自己的仕准备走，
+    // 它立刻浮起来 0.35 个单位并且一直在动——在 56° 俯角下，浮起来的棋子
+    // 看上去就是**没落在交叉点上**，斜着走的士象偏得最明显。
+    // 而且不管动画速度设成什么，这三段照跑，所以"关掉动画"根本不起作用。
+    //
+    // 现在全部删掉。选中改成在格子上画一个静态的圈（见 select()），
+    // 棋子本身一帧都不动。
     this.composer.render();
   };
 }
