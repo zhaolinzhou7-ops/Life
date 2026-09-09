@@ -933,7 +933,16 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       </div>`;
     const list = document.createElement('div');
     list.className = 'card-list';
-    for (const g of groups) {
+    // 十六类平铺太长，按车/马/炮/兵/组合分段——专业残局课本也是这么分的
+    let lastCat = '';
+    for (const g of groups.slice().sort((a, b) => a.category.localeCompare(b.category))) {
+      if (g.category !== lastCat) {
+        lastCat = g.category;
+        const h = document.createElement('div');
+        h.className = 'xq-sec';
+        h.textContent = g.category;
+        list.appendChild(h);
+      }
       const done = g.items.filter((i) => cleared.has(i.id)).length;
       const wins = g.items.filter((i) => i.target === 'win').length;
       // 还没全部判断过就先不说有几个是胜局——那等于替你把判断做了
@@ -1008,9 +1017,9 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
         const right = guess === e.target;
         el.innerHTML = `
           <div class="title">局面 ${i + 1}
-            <span class="tag ${e.target === 'win' ? 'warn' : ''}">${e.target === 'win' ? '你能赢' : '只能和'}</span>
+            <span class="tag ${e.target === 'win' ? 'warn' : ''}">${e.target === 'win' ? '你能赢' : '和棋'}</span>
             ${cleared.has(e.id) ? '<span class="tag">已过</span>' : ''}</div>
-          <div class="desc">${right ? '✅ 你判断对了' : `❌ 你猜的是「${guess === 'win' ? '能赢' : '只能和'}」`}　·　${
+          <div class="desc">${right ? '✅ 你判断对了' : `❌ 你猜的是「${guess === 'win' ? '能赢' : '和棋'}」`}　·　${
             e.target === 'win' ? '把优势下成胜势' : '守住这个和棋'
           }${e.reason ? `<br><span class="dim">引擎实测：${drawWhy(e)}</span>` : ''}${bookNote(e)}</div>
           <div class="xq-eg-thumb"></div>`;
@@ -1192,6 +1201,25 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     wrap.appendChild(scr);
   }
 
+  /**
+   * 从还没过的组里挑**难度最贴近你水平**的那一组。
+   *
+   * 原来是 `groups.find(还没过的第一个)`——顺序完全取决于数据文件里的排列。
+   * 残局现在有十六类，从"单马对单士"到"车炮对士象全"跨度很大，
+   * 按文件顺序发等于随机给你一课。练在能力边缘才涨得快，这条对残局同样成立。
+   */
+  function pickByLevel<T extends { items: { id: string; rating: number }[] }>(
+    groups: T[],
+    cleared: Set<string>,
+    myRating: number,
+  ): T | undefined {
+    const open = groups.filter((g) => g.items.some((i) => !cleared.has(i.id)));
+    const pool = open.length ? open : groups;
+    if (!pool.length) return undefined;
+    const avg = (g: T) => g.items.reduce((a, i) => a + i.rating, 0) / g.items.length;
+    return pool.reduce((best, g) => (Math.abs(avg(g) - myRating) < Math.abs(avg(best) - myRating) ? g : best), pool[0]);
+  }
+
   /** 跑一个训练块；做完自动接下一块，最后一块结束回今日训练页 */
   function runBlock(b: Block, all: Block[], idx: number) {
     const goNext = () => {
@@ -1235,12 +1263,11 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       return;
     }
     if (b.kind === 'mate-shape') {
-      // 挑一个还没掌握的图形来练
       void loadLibrary().then(() => {
         if (!wrap.isConnected) return;
         const cleared = new Set(getCleared().mates);
         const groups = matesByName();
-        const next = groups.find((g) => g.items.some((i) => !cleared.has(i.id))) ?? groups[0];
+        const next = pickByLevel(groups, cleared, getRatings().mate.r);
         if (!next) return goNext();
         showMateLesson(next);
       });
@@ -1250,8 +1277,8 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       void loadLibrary().then(() => {
         if (!wrap.isConnected) return;
         const cleared = new Set(getCleared().endgames);
-        const groups = endgamesByName();
-        const next = groups.find((g) => g.items.some((i) => !cleared.has(i.id))) ?? groups[0];
+        const next = pickByLevel(endgamesByName(), new Set(getCleared().endgames), getRatings().endgame.r);
+        void cleared;
         if (!next) return goNext();
         showEndgameGroup(next);
       });

@@ -24,7 +24,7 @@
  *      赢不下来的"胜"本来也兑现不了。
  */
 import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color, type PType } from '../src/xiangqi/rules';
-import { think, resetEngine } from '../src/xiangqi/ai';
+import { think, analyze, resetEngine } from '../src/xiangqi/ai';
 import { toFen, fromFen, moveToText } from '../src/xiangqi/notation';
 import { checkBoard } from './validate-positions';
 
@@ -194,6 +194,101 @@ const COMBOS: Combo[] = [
     theory: 'draw',
   },
   {
+    id: 'h-vs-a',
+    name: '单马对单士',
+    category: '马类',
+    strong: ['H'],
+    weak: ['A'],
+    material: '马 vs 单士',
+    goal: '马怎么单独把将困住。这是马类残局的入门课，也是"马控点"这个概念最干净的例子。',
+    tips: [
+      '马不能像车那样一条线扫过去，只能一格一格地把将的落点掐掉',
+      '帅必须过来帮忙——单马加单帅才封得住九宫',
+      '注意别被士垫住马腿，马腿被蹩就等于这一手没了',
+    ],
+    book: '单马例胜单士，但要走得很准，帅不上去就赢不了',
+    theory: 'varies',
+  },
+  {
+    id: 'h-vs-aa',
+    name: '单马对双士',
+    category: '马类',
+    strong: ['H'],
+    weak: ['A', 'A'],
+    material: '马 vs 双士',
+    goal: '和上一课只差一个士，结论就反过来了。练的是<b>判断</b>：什么时候该兑、什么时候该守。',
+    tips: [
+      '两个士互相保护，马再怎么走也掐不干净将的落点',
+      '这一局的价值在于知道它是和棋——实战里该不该用马换掉对方最后一个士，全看这条',
+    ],
+    book: '单马例和双士',
+    theory: 'draw',
+  },
+  {
+    id: 'rp-vs-aabb',
+    name: '车兵对士象全',
+    category: '组合',
+    strong: ['R', 'P'],
+    weak: ['A', 'A', 'E', 'E'],
+    material: '车兵 vs 士象全',
+    goal: '实战出现率极高：单车破不了士象全，加一个兵就能破。练的就是这个兵怎么用。',
+    tips: [
+      '兵是用来<b>换士</b>的，不是用来将军的——兵换掉一个士，车就有机可乘',
+      '兵要走到九宫口（四路或六路）才有价值，散在边路等于没有',
+      '别急着兑车，兑光了就是单兵对士象全，那是和棋',
+    ],
+    book: '车兵例胜士象全',
+    theory: 'varies',
+  },
+  {
+    id: 'pp-hi-vs-aabb',
+    name: '高低兵对士象全',
+    category: '兵类',
+    strong: ['P', 'P'],
+    weak: ['A', 'A', 'E', 'E'],
+    material: '双兵 vs 士象全',
+    goal: '一个高兵一个低兵配合破士象全。兵类残局里最实用的一型。',
+    tips: [
+      '高兵负责机动，低兵负责占位，两个兵的分工不一样',
+      '帅要顶到中路，兵才有落脚的地方',
+      '象是最难缠的——先想办法把象逼开，再动士',
+    ],
+    book: '高低兵例胜士象全，但要走得很精确',
+    theory: 'varies',
+  },
+  {
+    id: 'cp-vs-aa',
+    name: '炮兵对双士',
+    category: '组合',
+    strong: ['C', 'P'],
+    weak: ['A', 'A'],
+    material: '炮兵 vs 双士',
+    goal: '炮需要架子，而对方的士正好可以当架子。练的是怎么把对方的子变成自己的工具。',
+    tips: [
+      '炮打闷宫的机会就藏在这类局面里——士被自己的将堵住，炮隔着士打',
+      '兵的作用是逼士动，士一动阵型就散',
+      '帅不上去，炮兵成不了事',
+    ],
+    book: '炮兵能不能胜双士，要看兵的位置和士的形状',
+    theory: 'varies',
+  },
+  {
+    id: 'h-aa-vs-r',
+    name: '马双士守单车',
+    category: '车类',
+    strong: ['H', 'A', 'A'],
+    weak: ['R'],
+    material: '马双士 vs 车（你是守方）',
+    goal: '又一课守棋。马比炮难守——马没有炮那种远程反击，只能靠位置。',
+    tips: [
+      '马要待在能被士保护的位置，落单就会被车捉死',
+      '将别乱走，走出九宫等于送',
+      '守和的关键永远是：别让对方的车同时攻到两个目标',
+    ],
+    book: '单车对马双士，书上归入车胜，守方要走得很准才和得了',
+    theory: 'varies',
+  },
+  {
     id: 'aabb-vs-rc',
     name: '士象全守车炮',
     category: '组合',
@@ -298,6 +393,14 @@ interface Outcome {
   book?: string;
 }
 
+/** 盘面子力差（红减黑，不含将帅），用来判断谁是强方 */
+function edge(b: Board): number {
+  const V: Record<string, number> = { A: 220, E: 220, H: 450, R: 1000, C: 500, P: 100 };
+  let s = 0;
+  for (const row of b) for (const p of row) if (p && p.t !== 'K') s += (p.c === 'r' ? 1 : -1) * (V[p.t] ?? 0);
+  return s;
+}
+
 function playOut(board: Board, toMove: Color, depth: number, timeMs: number, maxPlies: number): Outcome {
   let b = board;
   let c = toMove;
@@ -308,8 +411,31 @@ function playOut(board: Board, toMove: Color, depth: number, timeMs: number, max
     if (st !== 'playing') return { result: st, plies: ply, reason: '将死/困毙' };
     const legal = legalMoves(b, c).filter((m) => !isInCheck(applyMove(b, m), c));
     if (!legal.length) return { result: c === 'r' ? 'black-win' : 'red-win', plies: ply, reason: '无着可走' };
-    const m = think(b, c, { maxDepth: depth, timeMs, jitter: 0 });
-    if (!m) return { result: 'draw', plies: ply, reason: '引擎无着' };
+    let m = think(b, c, { maxDepth: depth, timeMs, jitter: 0 });
+    /**
+     * ⚠️ 强方不许原地打转。
+     *
+     * 第一版量出来的 50 个"和棋"**全部是三次重复判的，平均只走了 17 步**。
+     * 那不是"技术不够赢不下来"，是引擎在这类局面里根本没有"进展"的概念：
+     * 每条路的估值都差不多，于是两边来回晃，八九个回合就三次重复了。
+     * 把这个记成"这局是和棋"，又是把"我的工具做不到"当成"这件事做不到"。
+     *
+     * 真人强方不会这么走。所以这里补一条：**子力占优的一方，如果最佳着法会
+     * 走回已经出现过的局面，就换下一手**——分数差得不多的前提下。
+     * 真到了每一手都只能重复，那才是真的没辙。
+     */
+    const strongSide = edge(b) > 150 ? 'r' : edge(b) < -150 ? 'b' : null;
+    if (m && c === strongSide) {
+      const key0 = toFen(applyMove(b, m), other(c));
+      if ((seen.get(key0) ?? 0) >= 1) {
+        const a = analyze(b, c, { maxDepth: depth, timeMs, jitter: 0 });
+        const top = a.moves[0];
+        const alt = a.moves.find(
+          (x) => (top.score - x.score) < 120 && (seen.get(toFen(applyMove(b, x.move), other(c))) ?? 0) === 0,
+        );
+        if (alt) m = alt.move;
+      }
+    }
     const cap = !!b[m.ty][m.tx];
     b = applyMove(b, m);
     c = other(c);
