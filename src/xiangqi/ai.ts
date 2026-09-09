@@ -856,6 +856,28 @@ export function analyze(b: Board, color: Color, opts: SearchOpts): Analysis {
   };
 }
 
+/**
+ * 把引擎的记忆清空（置换表、杀手着法、历史表）。
+ *
+ * 对弈时**不该调用**——置换表跨着法复用正是它快的原因。
+ * 这是给离线出数据用的：搜索结果依赖置换表里残留的内容，同一个局面
+ * 在不同的调用历史下会得出不同结论。残局的"这局是胜是和"就栽在这上面——
+ * 生成时判胜、体检时判和，两边代码一样，差别只在之前算过什么。
+ * 离线生成的数据必须只由局面决定，所以每定一个局面之前先清空。
+ */
+export function resetEngine() {
+  ttKey.fill(0);
+  ttCheck.fill(0);
+  ttScore.fill(0);
+  ttMove.fill(0);
+  ttDepth.fill(0);
+  ttFlag.fill(0);
+  ttAge.fill(0);
+  ttGen = 0;
+  killers.fill(0);
+  history.fill(0);
+}
+
 /** 静态估值（不搜索），红方为正。教学里用来讲「现在谁的子力占优」 */
 export function evaluatePosition(b: Board): number {
   load(b, 'r');

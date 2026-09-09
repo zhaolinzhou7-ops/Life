@@ -20,7 +20,7 @@
  */
 import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color } from '../src/xiangqi/rules';
 import { fromFen, toFen, moveToText, textToMove } from '../src/xiangqi/notation';
-import { think } from '../src/xiangqi/ai';
+import { think, resetEngine } from '../src/xiangqi/ai';
 import { steadyAnalyze } from './steady-analyze';
 import { checkBoard } from './validate-positions';
 import puzzles from '../src/xiangqi/puzzles.json';
@@ -178,6 +178,10 @@ function auditEndgames(rows: { id: string; name: string; fen: string; you: Color
     // 第一版这里只下一遍 12 层，把生成器用 12/13/14 三个深度确认过的
     // 局面报成了错——同一个局面不同深度走的是不同路线，单跑一次的结论
     // 本来就不稳。拿一个更弱的方法去审更强方法定下来的结论，又是同一个毛病。
+    // 和生成器一字不差的顺序：先清空引擎记忆，再依次跑 12/13/14 层。
+    // 少了这一步，两边跑出来的结果对不上——不是数据错，是搜索会受
+    // 置换表里残留内容的影响，而两边算过的东西不一样。
+    resetEngine();
     const runs = [12, 13, 14].map((d) => playToEnd(p.board, p.toMove, d, d >= 14 ? 8000 : 3000, 120));
     const mine = (r: string) => (e.you === 'r' ? 'red-win' : 'black-win') === r;
     const wins = runs.filter(mine).length;

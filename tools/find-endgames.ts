@@ -24,7 +24,7 @@
  *      赢不下来的"胜"本来也兑现不了。
  */
 import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color, type PType } from '../src/xiangqi/rules';
-import { think } from '../src/xiangqi/ai';
+import { think, resetEngine } from '../src/xiangqi/ai';
 import { toFen, fromFen, moveToText } from '../src/xiangqi/notation';
 import { checkBoard } from './validate-positions';
 
@@ -48,6 +48,15 @@ interface Combo {
    * 'varies' 留给结论真的取决于具体摆法的组合（比如车兵对车双士）。
    */
   theory: 'win' | 'draw' | 'varies';
+  /**
+   * 棋书上这一类的定论，**只用来显示，不参与判定**。
+   *
+   * 有些组合（马炮对士象全、马兵对双士）书上是例胜，但要走很多步很精确的棋，
+   * 我的引擎冷启动之后在 60 回合内走不出来。这时候标"和棋"是实测事实，
+   * 可要是不说明白，懂棋的人会以为软件算错了。所以把书上的结论一起显示出来，
+   * 让人看得见"这是引擎走不出来"，而不是"这局理论上就是和"。
+   */
+  book?: string;
 }
 
 /** 专业课里排在前面的实用残局，按子力组合列 */
@@ -66,6 +75,7 @@ const COMBOS: Combo[] = [
       '士会挡道，注意别让士正好填在你要将军的线上',
     ],
     /** 单车例胜双士，教科书结论，没有争议 */
+    book: '单车例胜双士',
     theory: 'win',
   },
   {
@@ -81,6 +91,7 @@ const COMBOS: Combo[] = [
       '重点体会：多一个车也赢不了的局面长什么样，那种时候就别盲目兑子',
     ],
     /** 单车例和士象全，同样是教科书结论——「该不该兑车」就是按这条判的 */
+    book: '单车例和士象全',
     theory: 'draw',
   },
   {
@@ -93,6 +104,7 @@ const COMBOS: Combo[] = [
     goal: '练怎么捉住乱窜的马，同时不让将跑出来。',
     tips: ['马失去士象保护时最怕被车照住', '先把马和将分开，再逐个处理'],
     /** 车对马双士的结论要看马和将的相对位置，不硬写 */
+    book: '单车对马双士，书上归入车胜马双士，但要走很精确',
     theory: 'varies',
   },
   {
@@ -105,6 +117,7 @@ const COMBOS: Combo[] = [
     goal: '马炮是最经典的攻杀组合。练的是马炮怎么互为炮架、互相掩护。',
     tips: ['炮要架子，马正好当架子；马怕被捉，炮正好照住', '经典的「马后炮」就是从这类局面长出来的'],
     /** 马炮破士象全要走对方法，随机摆出来的局面不一定还在胜势里 */
+    book: '马炮例胜士象全——是公认的胜势，只是技术要求很高',
     theory: 'varies',
   },
   {
@@ -117,6 +130,7 @@ const COMBOS: Combo[] = [
     goal: '车炮配合破士象全。车负责限制，炮负责穿透。',
     tips: ['炮要找到能打进九宫的那条线，车负责把士象逼开', '注意保持炮架'],
     /** 同上，车炮虽强，摆法不对也赢不下来 */
+    book: '车炮例胜士象全',
     theory: 'varies',
   },
   {
@@ -129,6 +143,7 @@ const COMBOS: Combo[] = [
     goal: '实战出现率最高的残局之一：多一个兵怎么兑现成胜势。',
     tips: ['多兵的一方要避免兑车——兑光了就是单兵对双士', '兵要往九宫方向推，车在旁边保护'],
     /** 多一个兵能不能兑现，完全取决于兵的位置和车的站位 */
+    book: '车兵对车双士，能不能赢要看兵和车的位置',
     theory: 'varies',
   },
   {
@@ -145,6 +160,7 @@ const COMBOS: Combo[] = [
       '帅一定要顶上去，兵单独成不了事',
     ],
     /** 两个兵要成「二鬼拍门」才必胜，散开的两个兵经常只是和 */
+    book: '双兵能不能胜双士，要看两个兵能不能形成「二鬼拍门」',
     theory: 'varies',
   },
   {
@@ -157,6 +173,7 @@ const COMBOS: Combo[] = [
     goal: '马和兵配合。马控点，兵占位。',
     tips: ['马走到能控制将落点的位置，兵顶上去封门', '小心马被蹩腿'],
     /** 马兵胜双士要马能控点、兵能占位，位置不对就和 */
+    book: '马兵例胜双士——是胜势，但要马控点、兵占位配合得很准',
     theory: 'varies',
   },
   {
@@ -173,6 +190,7 @@ const COMBOS: Combo[] = [
       '能守和的局面千万别贪着去拼——很多输棋是守方自己走乱的',
     ],
     /** 炮双士例和单车，守方只要不走乱就守得住 */
+    book: '炮双士例和单车',
     theory: 'draw',
   },
   {
@@ -185,6 +203,7 @@ const COMBOS: Combo[] = [
     goal: '守方练习。士象怎么摆才是最硬的形状？',
     tips: ['象要能互相保护（连环象），士要能填补中路', '最怕的是炮打士象的那条线，注意别让象落单'],
     /** 士象全例和车炮，前提是象要连、士要正 */
+    book: '士象全例和车炮',
     theory: 'draw',
   },
 ];
@@ -275,6 +294,8 @@ interface Outcome {
   result: 'red-win' | 'black-win' | 'draw';
   plies: number;
   reason: string;
+  /** 棋书上这一类的定论，只用来显示 */
+  book?: string;
 }
 
 function playOut(board: Board, toMove: Color, depth: number, timeMs: number, maxPlies: number): Outcome {
@@ -341,6 +362,11 @@ const MIN_WIN_PLIES = Number(process.env.MIN_WIN_PLIES ?? 16);
 const VERDICT_DEPTHS = [DEPTH, DEPTH + 1, DEEP_DEPTH];
 
 function verdict(b: Board): { target: 'win' | 'draw' | 'loss' | 'unstable'; plies: number; reason: string } {
+  // 先把引擎的记忆清空。搜索结果依赖置换表里残留的东西——同一个局面、同样的
+  // 深度，在不同的调用历史下会走出不同的路线、得出不同的结论。体检和生成器
+  // 用同一份代码却对不上，根子就在这里。清空之后，结论只由局面和深度决定，
+  // 体检那边照同样的顺序再跑一遍就能复现。
+  resetEngine();
   const runs = VERDICT_DEPTHS.map((d, i) =>
     playOut(b, 'r', d, i === VERDICT_DEPTHS.length - 1 ? DEEP_TIME : TIME, MAX_PLIES),
   );
@@ -432,6 +458,7 @@ for (const combo of combos) {
       tips: combo.tips,
       plies: v.plies,
       reason: v.reason,
+      book: combo.book,
       // 赢的局面按步数给难度：越长越难走
       rating: youWin ? Math.min(1700, 950 + v.plies * 6) : 1150,
     });

@@ -924,7 +924,7 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
             ${cleared.has(e.id) ? '<span class="tag">已过</span>' : ''}</div>
           <div class="desc">${right ? '✅ 你判断对了' : `❌ 你猜的是「${guess === 'win' ? '能赢' : '只能和'}」`}　·　${
             e.target === 'win' ? '把优势下成胜势' : '守住这个和棋'
-          }${e.reason ? `<br><span class="dim">引擎实测：${drawWhy(e)}</span>` : ''}</div>
+          }${e.reason ? `<br><span class="dim">引擎实测：${drawWhy(e)}</span>` : ''}${bookNote(e)}</div>
           <div class="xq-eg-thumb"></div>`;
         showThumb(el, e);
         el.onclick = () => runEndgame(g, i);
@@ -966,10 +966,25 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
    */
   function drawWhy(e: EndgamePos): string {
     if (e.target === 'win') return `${Math.ceil(e.plies / 2)} 回合内能将死`;
-    if (e.reason?.includes('无吃子')) return '打到 60 回合无吃子判和——注意这是规则判的和，不一定是理论和棋';
+    if (e.reason?.includes('无吃子')) return '打到 60 回合无吃子判和——这是规则判的和，不一定是理论和棋';
     if (e.reason?.includes('重复')) return '双方都走不出变化，三次重复判和';
     if (e.reason?.includes('未分')) return `打了 ${Math.ceil(e.plies / 2)} 回合还是没分出胜负`;
     return e.reason ?? '';
+  }
+
+  /**
+   * 实测结果和棋书结论不一致时，把这件事说破。
+   *
+   * 马炮对士象全书上是例胜，但要走很多步很精确的棋，引擎在 60 回合内走不出来，
+   * 实测就记成"和"。不说明白的话，懂棋的人只会觉得这软件算错了——
+   * 而事实是：**这一局的胜势要靠技术兑现，兑现不了就是和**，这本身才是该学的东西。
+   */
+  function bookNote(e: EndgamePos): string {
+    if (!e.book) return '';
+    const conflict = e.target === 'draw' && /例胜|胜势/.test(e.book);
+    return conflict
+      ? `<br><span class="dim">棋书上：${e.book}。引擎这一局没走出胜果——胜势要靠技术兑现，兑不出来就是和。</span>`
+      : `<br><span class="dim">棋书上：${e.book}</span>`;
   }
 
   function runEndgame(g: ReturnType<typeof endgamesByName>[number], i: number) {

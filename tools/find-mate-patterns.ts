@@ -144,14 +144,25 @@ const SHAPES: Shape[] = [
         const c = scan(b, a.x, a.y, dx, dy);
         if (c && c.p.c === 'r' && c.p.t === 'C') byCannon = true;
       }
-      if (!byCannon) return false;
+      if (!byCannon) {
+        bump('闷宫·不是炮在将军');
+        return false;
+      }
       // 九宫内所有相邻格都被自己人占着
       const steps = kingSteps(kx, ky);
-      if (!steps.length) return false;
-      return steps.every(([x, y]) => {
+      if (!steps.length) {
+        bump('闷宫·将没有相邻格');
+        return false;
+      }
+      const blocked = steps.filter(([x, y]) => {
         const p = at(b, x, y);
         return !!p && p.c === 'b';
-      });
+      }).length;
+      if (blocked < steps.length) {
+        bump(`闷宫·退路只堵住 ${blocked}/${steps.length}`);
+        return false;
+      }
+      return true;
     },
   },
   {
@@ -307,8 +318,26 @@ const SEEDS: Record<string, Seed[]> = {
       rand: [['C', 'r'], ['R', 'r']],
     },
     {
-      fixed: [['K', 'b', 4, 0], ['A', 'b', 3, 0], ['A', 'b', 5, 0], ['P', 'b', 4, 1], ['K', 'r', 4, 9]],
-      rand: [['C', 'r'], ['H', 'r']],
+      // 最经典的那一型：中士当炮架，将被自己的车马堵在底线两边
+      fixed: [['K', 'b', 4, 0], ['A', 'b', 4, 1], ['C', 'b', 3, 0], ['H', 'b', 5, 0], ['K', 'r', 4, 9]],
+      rand: [['C', 'r'], ['C', 'r']],
+    },
+    {
+      // 双士堵两边、马填正中
+      fixed: [['K', 'b', 4, 0], ['A', 'b', 3, 0], ['A', 'b', 5, 0], ['H', 'b', 4, 1], ['K', 'r', 4, 9]],
+      rand: [['C', 'r'], ['C', 'r']],
+    },
+    {
+      // 堵路的子必须**动不了**才行。上面两个骨架里那匹马是能跳开的，
+      // 黑方一躲，最终局面就不再是"退路全被自己人堵死"，图形判定当然过不去
+      //（实测就是卡在"退路只堵住 2/3"）。这一型把中士四个落点全占满，
+      // 士彻底动不了，才是真正的闷宫。
+      fixed: [
+        ['K', 'b', 4, 0], ['A', 'b', 4, 1], ['A', 'b', 3, 2],
+        ['R', 'b', 3, 0], ['H', 'b', 5, 0], ['C', 'b', 5, 2],
+        ['K', 'r', 4, 9],
+      ],
+      rand: [['C', 'r'], ['C', 'r']],
     },
   ],
   'tian-di-pao': [
@@ -334,6 +363,25 @@ const SEEDS: Record<string, Seed[]> = {
     },
   ],
 };
+
+/**
+ * 骨架自检：**写死的那些子必须站在它这辈子到得了的格子上**。
+ *
+ * 这里栽过一次，而且和最初那个士象 bug 一模一样：闷宫的骨架里写了
+ * 「黑兵在 (4,1)」，可黑兵是往下走的，永远到不了第 1 行。落点闸门确实
+ * 拦住了它，但拦得**一声不吭**——于是闷宫这个图形一直造不出来，
+ * 查了半天才发现是我自己的骨架写错了。所以骨架要在启动时就自检，
+ * 错了立刻报出来，别等到"产出 0 个"再回头猜。
+ */
+for (const [id, seeds] of Object.entries(SEEDS)) {
+  for (const seed of seeds) {
+    for (const [t, c, x, y] of seed.fixed) {
+      if (!canStand(t, c, x, y)) {
+        throw new Error(`骨架 ${id} 写错了：${c}${t} 到不了 (${x},${y})`);
+      }
+    }
+  }
+}
 
 /** 按骨架造局面：固定子摆好，其余随机 */
 function seededPosition(seed: Seed): Board | null {
@@ -448,17 +496,22 @@ function randomPosition(atk: PType[], def: PType[]): Board | null {
 }
 
 /** 每种图形该带什么子，命中率高得多 */
+/** 各道关卡拦下多少——DEBUG=1 时打印。造不出图形时靠这个定位，别猜 */
+const stat: Record<string, number> = {};
+const bump = (k: string) => { stat[k] = (stat[k] ?? 0) + 1; };
+
 const SETS: Record<string, [PType[], PType[]][]> = {
   'ma-hou-pao': [[['H', 'C'], ['A', 'A']], [['H', 'C', 'R'], ['A', 'A', 'E']]],
   'chong-pao': [[['C', 'C'], ['A', 'A']], [['C', 'C', 'H'], ['A', 'A', 'E']]],
   // 闷宫要求将的退路全被自己人堵死。双士双象堵不住九宫正中那一格（象落不到），
   // 必须给黑方配一个马或卒去填 (4,1)，否则这个图形根本造不出来。
+  // 闷宫必须是**炮**将死的。给红方配车配马的话，杀棋十有八九是车马做的，
+  // 图形判定就通不过——实测五个成杀的候选全是"不是炮在将军"。所以红方只给炮。
   'men-gong': [
-    [['C'], ['A', 'A', 'H']],
-    [['C'], ['A', 'A', 'P']],
-    [['C', 'H'], ['A', 'A', 'H', 'E']],
-    [['C', 'R'], ['A', 'A', 'P', 'E']],
     [['C', 'C'], ['A', 'A', 'H']],
+    [['C'], ['A', 'A', 'H']],
+    [['C', 'C'], ['A', 'A', 'H', 'E']],
+    [['C', 'C'], ['A', 'A', 'C']],
   ],
   'wo-cao-ma': [[['H', 'R'], ['A', 'A']], [['H', 'C'], ['A', 'A', 'E']]],
   'gua-jiao-ma': [[['H', 'R'], ['A', 'A']], [['H', 'C'], ['A', 'A']]],
@@ -525,48 +578,86 @@ for (const sh of shapes) {
       b = randomPosition(atk, def);
     }
     if (!b) continue;
+    bump('摆出局面');
     if (statusAfter(b, 'r') !== 'playing' || statusAfter(b, 'b') !== 'playing') continue;
-    if (isInCheck(b, 'b')) continue; // 起手就将着军，不成题
+    if (isInCheck(b, 'b')) {
+      bump('起手就将着军');
+      continue; // 不成题
+    }
 
     // 深度必须够：7 层报出来的"几回合杀"会飘，实测 9 层起才稳，这里取 13 留余量
     const a = analyze(b, 'r', { maxDepth: 13, timeMs: 8000, jitter: 0 });
     if (!a.moves.length) continue;
     const top = a.moves[0];
-    if (top.mateIn === undefined || top.mateIn <= 0 || top.mateIn > MAX_MATE) continue;
+    if (top.mateIn === undefined || top.mateIn <= 0 || top.mateIn > MAX_MATE) {
+      bump('不成杀或步数太多');
+      continue;
+    }
     // 同样快的杀法全收下来一起算对。原来这里是"发现第二手也能杀就丢掉"，
     // 但浅层的次佳常常还没搜出杀来，所以那个"唯一"是假的——
     // 真正的后果是学生走出另一手同样快的杀棋会被判错。
     const alts = a.moves.filter((m) => m.mateIn === top.mateIn).map((m) => moveToText(b, m.move));
-    if (alts.length > 4) continue; // 随便走走都能杀，不成题
+    if (alts.length > 4) {
+      bump('杀法太多，不成题');
+      continue;
+    }
+    bump('成杀了');
 
-    // 把主变走完，对最终局面判形状
+    // 把主变走完，对最终局面判形状。
+    //
+    // ⚠️ 这里原来走的是 `pv.slice(0, mateIn * 2)`，**多走了一步**：N 回合杀
+    // 只有 2N-1 步，走满 2N 步等于在将死之后还往下走一手。置换表抠出来的
+    // 主变尾巴不一定合法，多走的那一手常常把黑将吃掉，于是 findKing 返回 null，
+    // 整个候选被无声地丢掉。闷宫造不出来就是栽在这儿：66 个成杀的候选里
+    // 有 45 个死在这一行，而且一句话都没打印。走到将死就停。
     let cur: Board = b;
     const line: string[] = [];
     let lastTo = { x: top.move.tx, y: top.move.ty };
     let captured: PType | null = null;
-    let okLine = true;
-    for (const m of top.pv.slice(0, top.mateIn * 2)) {
-      const legal = legalMoves(cur, cur === b ? 'r' : ('r' as Color)); // 仅用于健壮性，实际按 pv 顺序走
-      void legal;
+    let over: 'playing' | 'red-win' | 'black-win' | 'draw' = 'playing';
+    for (const m of top.pv.slice(0, top.mateIn * 2 - 1)) {
+      const legalNow = legalMoves(cur, cur === b ? 'r' : ('r' as Color));
+      void legalNow;
       line.push(moveToText(cur, m));
       const r = step(cur, m);
       cur = r.board;
       lastTo = { x: m.tx, y: m.ty };
       if (r.captured) captured = r.captured;
+      over = statusAfter(cur, cur === b ? 'r' : ('b' as Color));
+      if (over !== 'playing') break;
     }
-    if (!okLine) continue;
 
     const k = findKing(cur, 'b');
-    if (!k) continue;
+    if (!k) {
+      bump('主变把将走没了');
+      continue;
+    }
     // 必须确实已经被将死
-    if (statusAfter(cur, 'b') !== 'red-win') continue;
-    if (!sh.test(cur, k[0], k[1], lastTo, captured)) continue;
+    if (statusAfter(cur, 'b') !== 'red-win') {
+      bump('主变走完并没有将死');
+      continue;
+    }
+    if (!sh.test(cur, k[0], k[1], lastTo, captured)) {
+      bump('杀完之后不是这个图形');
+      continue;
+    }
 
     const fen = toFen(b, 'r');
-    if (seen.has(fen)) continue;
+    if (seen.has(fen)) {
+      bump('这个局面已经收过了');
+      continue;
+    }
     // 闸门：局面必须是真实对局里能出现的
     const chk = fromFen(fen);
-    if (!chk || checkBoard(chk.board).length) continue;
+    if (!chk) {
+      bump('FEN 读不回来');
+      continue;
+    }
+    const errs = checkBoard(chk.board);
+    if (errs.length) {
+      bump(`摆位不合法(${errs[0]})`);
+      continue;
+    }
     seen.add(fen);
     out.push({
       id: `${sh.id}-${got}`,
@@ -585,5 +676,9 @@ for (const sh of shapes) {
   process.stderr.write(`${sh.name.padEnd(10)} ${got}/${PER_SHAPE}  (${Math.round((Date.now() - t0) / 1000)}s)\n`);
 }
 
+if (process.env.DEBUG) {
+  process.stderr.write('\n各道关卡拦下的数量：\n');
+  for (const k of Object.keys(stat).sort()) process.stderr.write(`  ${k.padEnd(20)} ${stat[k]}\n`);
+}
 process.stderr.write(`\n合计 ${out.length} 个图形实例\n`);
 process.stdout.write(JSON.stringify(out));
