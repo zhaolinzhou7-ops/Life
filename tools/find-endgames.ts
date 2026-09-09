@@ -24,8 +24,8 @@
  *      赢不下来的"胜"本来也兑现不了。
  */
 import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color, type PType } from '../src/xiangqi/rules';
-import { think, analyze, resetEngine } from '../src/xiangqi/ai';
-import { toFen, fromFen, moveToText } from '../src/xiangqi/notation';
+import { verdict, playOut } from './playout-verdict';
+import { toFen, fromFen } from '../src/xiangqi/notation';
 import { checkBoard } from './validate-positions';
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
@@ -385,126 +385,11 @@ function randomPosition(strong: PType[], weak: PType[], sc: Color): Board | null
   return bd;
 }
 
-interface Outcome {
-  result: 'red-win' | 'black-win' | 'draw';
-  plies: number;
-  reason: string;
-  /** 棋书上这一类的定论，只用来显示 */
-  book?: string;
-}
-
-/** 盘面子力差（红减黑，不含将帅），用来判断谁是强方 */
-function edge(b: Board): number {
-  const V: Record<string, number> = { A: 220, E: 220, H: 450, R: 1000, C: 500, P: 100 };
-  let s = 0;
-  for (const row of b) for (const p of row) if (p && p.t !== 'K') s += (p.c === 'r' ? 1 : -1) * (V[p.t] ?? 0);
-  return s;
-}
-
-function playOut(board: Board, toMove: Color, depth: number, timeMs: number, maxPlies: number): Outcome {
-  let b = board;
-  let c = toMove;
-  let sinceCapture = 0;
-  const seen = new Map<string, number>();
-  for (let ply = 0; ply < maxPlies; ply++) {
-    const st = statusAfter(b, c);
-    if (st !== 'playing') return { result: st, plies: ply, reason: '将死/困毙' };
-    const legal = legalMoves(b, c).filter((m) => !isInCheck(applyMove(b, m), c));
-    if (!legal.length) return { result: c === 'r' ? 'black-win' : 'red-win', plies: ply, reason: '无着可走' };
-    let m = think(b, c, { maxDepth: depth, timeMs, jitter: 0 });
-    /**
-     * ⚠️ 强方不许原地打转。
-     *
-     * 第一版量出来的 50 个"和棋"**全部是三次重复判的，平均只走了 17 步**。
-     * 那不是"技术不够赢不下来"，是引擎在这类局面里根本没有"进展"的概念：
-     * 每条路的估值都差不多，于是两边来回晃，八九个回合就三次重复了。
-     * 把这个记成"这局是和棋"，又是把"我的工具做不到"当成"这件事做不到"。
-     *
-     * 真人强方不会这么走。所以这里补一条：**子力占优的一方，如果最佳着法会
-     * 走回已经出现过的局面，就换下一手**——分数差得不多的前提下。
-     * 真到了每一手都只能重复，那才是真的没辙。
-     */
-    const strongSide = edge(b) > 150 ? 'r' : edge(b) < -150 ? 'b' : null;
-    if (m && c === strongSide) {
-      const key0 = toFen(applyMove(b, m), other(c));
-      if ((seen.get(key0) ?? 0) >= 1) {
-        const a = analyze(b, c, { maxDepth: depth, timeMs, jitter: 0 });
-        const top = a.moves[0];
-        const alt = a.moves.find(
-          (x) => (top.score - x.score) < 120 && (seen.get(toFen(applyMove(b, x.move), other(c))) ?? 0) === 0,
-        );
-        if (alt) m = alt.move;
-      }
-    }
-    const cap = !!b[m.ty][m.tx];
-    b = applyMove(b, m);
-    c = other(c);
-    sinceCapture = cap ? 0 : sinceCapture + 1;
-    if (sinceCapture >= 120) return { result: 'draw', plies: ply + 1, reason: '60 回合无吃子' };
-    const key = toFen(b, c);
-    const n = (seen.get(key) ?? 0) + 1;
-    seen.set(key, n);
-    if (n >= 3) return { result: 'draw', plies: ply + 1, reason: '三次重复' };
-  }
-  return { result: 'draw', plies: maxPlies, reason: '未分胜负' };
-}
-
-/**
- * ⚠️ 时限一定要给足，让**层数**成为约束，而不是墙上时钟。
- *
- * 这一点是踩出来的：同一批局面，机器上还跑着别的任务时"单车对马双士"
- * 判出 0 胜 4 和，机器空下来重跑就是 3 胜 1 和。原因是搜索按 timeMs 截断，
- * CPU 被抢就搜不到指定层数，引擎变弱、赢不下来、于是被记成"和"。
- * **胜和判定绝不能随机器忙不忙而变。** 所以时限给到 3~8 秒，
- * 残局局面子少，正常几十毫秒就搜完了，给这么多是为了让层数说了算。
- */
-const DEPTH = Number(process.env.DEPTH ?? 12);
-const TIME = Number(process.env.TIME_MS ?? 3000);
-/** 复核档：判「和」之前必须让更强的一档再试一次 */
-const DEEP_DEPTH = Number(process.env.DEEP_DEPTH ?? 14);
-const DEEP_TIME = Number(process.env.DEEP_TIME_MS ?? 8000);
-/** App 里 60 回合无吃子就判和，走不进这个长度的「胜」在软件里本来也兑现不了 */
-const MAX_PLIES = 120;
 /**
  * 太快就赢下来的局面不要。实用残局练的是**把优势兑现的技术**，
  * 三五步就将死的那是杀法题，放进残局课等于白占一课。
  */
 const MIN_WIN_PLIES = Number(process.env.MIN_WIN_PLIES ?? 16);
-
-/**
- * 定这一局到底是胜是和。
- *
- * 两条要害，都是踩出来的：
- *
- * 1. **「引擎没赢下来」不等于「这局赢不了」**。第一版直接把没赢记成了和，
- *    于是单车对双士这种例胜局面被标成「只能和」，软件教了个假结论。
- *
- * 2. **一次下出来的结果不算数**。同一个局面用 12 层和 14 层去下，走的是
- *    不同的路线，结果可能不一样——体检里就出现过"生成时判胜、复查时下成和"
- *    和反过来的情况各好几个。这说明那些局面本身处在胜和边界上，
- *    "这局是胜是和"根本没有稳定答案，那就不该拿来当教材。
- *    所以现在要求**三个深度下出同一个结果**才收，不一致的直接扔掉。
- */
-const VERDICT_DEPTHS = [DEPTH, DEPTH + 1, DEEP_DEPTH];
-
-function verdict(b: Board): { target: 'win' | 'draw' | 'loss' | 'unstable'; plies: number; reason: string } {
-  // 先把引擎的记忆清空。搜索结果依赖置换表里残留的东西——同一个局面、同样的
-  // 深度，在不同的调用历史下会走出不同的路线、得出不同的结论。体检和生成器
-  // 用同一份代码却对不上，根子就在这里。清空之后，结论只由局面和深度决定，
-  // 体检那边照同样的顺序再跑一遍就能复现。
-  resetEngine();
-  const runs = VERDICT_DEPTHS.map((d, i) =>
-    playOut(b, 'r', d, i === VERDICT_DEPTHS.length - 1 ? DEEP_TIME : TIME, MAX_PLIES),
-  );
-  // 只要有一次红方赢下来，就说明这局是能赢的（没赢只能说明那一次没走好）；
-  // 但要标成"胜"，得三次都赢——赢一次赢不了两次的局面在实战里没有教学价值
-  const wins = runs.filter((r) => r.result === 'red-win');
-  const losses = runs.filter((r) => r.result === 'black-win');
-  if (losses.length) return { target: 'loss', plies: losses[0].plies, reason: losses[0].reason };
-  if (wins.length === runs.length) return { target: 'win', plies: wins[0].plies, reason: wins[0].reason };
-  if (wins.length) return { target: 'unstable', plies: wins[0].plies, reason: '有的深度赢得下来有的赢不下来' };
-  return { target: 'draw', plies: runs[runs.length - 1].plies, reason: runs[runs.length - 1].reason };
-}
 const PER = Number(process.env.PER_COMBO ?? 3);
 const BUDGET = Number(process.env.BUDGET_MS ?? 400000);
 /** 只跑其中几个组合，逗号分隔。分批跑是为了每批都能在前台看完，不留后台长任务 */
@@ -557,7 +442,7 @@ for (const combo of combos) {
     const quick = playOut(b, 'r', 6, 200, 12);
     if (quick.result !== 'draw' && quick.plies <= 8) continue;
 
-    const v = verdict(b);
+    const v = verdict(b, 'r');
     if (v.target === 'loss') continue; // 你会输的局面不能当练习
     if (v.target === 'unstable') {
       unstable++;

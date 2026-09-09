@@ -18,9 +18,9 @@
  *     --outfile=/tmp/audit.mjs && node /tmp/audit.mjs
  *   FAST=1 只做不花时间的检查（编码/摆位/合法性/主变），CI 里用这个
  */
-import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color } from '../src/xiangqi/rules';
-import { fromFen, toFen, moveToText, textToMove } from '../src/xiangqi/notation';
-import { think, resetEngine } from '../src/xiangqi/ai';
+import { legalMoves, applyMove, isInCheck, type Board, type Color } from '../src/xiangqi/rules';
+import { fromFen, moveToText, textToMove } from '../src/xiangqi/notation';
+import { verdict } from './playout-verdict';
 import { steadyAnalyze } from './steady-analyze';
 import { checkBoard } from './validate-positions';
 import puzzles from '../src/xiangqi/puzzles.json';
@@ -29,37 +29,6 @@ import endgames from '../src/xiangqi/endgamelib.json';
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 const legalOf = (b: Board, c: Color) => legalMoves(b, c).filter((m) => !isInCheck(applyMove(b, m), c));
-
-/** 引擎双方下到底，判定规则和 App 里一致（60 回合无吃子判和、三次重复判和） */
-function playToEnd(
-  board: Board,
-  toMove: Color,
-  depth: number,
-  timeMs: number,
-  maxPlies: number,
-): 'red-win' | 'black-win' | 'draw' {
-  let b = board;
-  let c = toMove;
-  let sinceCapture = 0;
-  const seen = new Map<string, number>();
-  for (let ply = 0; ply < maxPlies; ply++) {
-    const st = statusAfter(b, c);
-    if (st !== 'playing') return st;
-    if (!legalOf(b, c).length) return c === 'r' ? 'black-win' : 'red-win';
-    const m = think(b, c, { maxDepth: depth, timeMs, jitter: 0 });
-    if (!m) return 'draw';
-    const cap = !!b[m.ty][m.tx];
-    b = applyMove(b, m);
-    c = other(c);
-    sinceCapture = cap ? 0 : sinceCapture + 1;
-    if (sinceCapture >= 120) return 'draw';
-    const key = toFen(b, c);
-    const n = (seen.get(key) ?? 0) + 1;
-    seen.set(key, n);
-    if (n >= 3) return 'draw';
-  }
-  return 'draw';
-}
 
 const problems: Record<string, number> = {};
 const samples: Record<string, string[]> = {};
@@ -160,36 +129,26 @@ function auditMates(rows: Row[], label: string) {
 }
 
 /**
- * 残局的胜/和：**必须真的下一遍**，不能拿静态分判。
+ * 残局的胜和：**直接调生成器用的那一份 verdict**。
  *
- * 这条我第一版写错了，而且错得很典型：拿 14 层的静态分去卡"标胜的局面
- * 引擎该看得到优势"，结果把 4 个正确的局面报成了错。原因是双兵对双士
- * 这类局面**赢家在子力上是亏的**（两个兵 200 分 vs 两个士 440 分），
- * 静态分当然是负的，赢要靠几十步的技术兑现——静态分根本判不了这种事。
- *
- * 又是同一个毛病：拿一个便宜的近似当判据，去审一个用更强方法定下来的结论。
- * 所以这里改成和生成器同一套做法：下到底，看结果对不对得上。
+ * 这条判据我改错过三次，每次都是同一个毛病——体检自己抄了一份更弱的判法，
+ * 然后把生成器验过的好数据报成错：
+ *   一次 拿 14 层的静态分去审"实战下出来"的结论
+ *   二次 只下一遍 12 层，而生成器跑的是 12/13/14 三个深度
+ *   三次 生成器加了"强方不许原地打转"，体检这边没加
+ * 根子是判定逻辑有两份，改一边另一边不知道。现在只留一份
+ * （tools/playout-verdict.ts），两边 import 同一段代码，
+ * **检查者和生产者用的是同一段逻辑**，从结构上不可能再对不上。
  */
 function auditEndgames(rows: { id: string; name: string; fen: string; you: Color; target: string }[]) {
   for (const e of rows) {
     const p = fromFen(e.fen);
     if (!p) continue;
-    // 必须和生成器用同一套判法：**一次下出来的结果不算数**。
-    // 第一版这里只下一遍 12 层，把生成器用 12/13/14 三个深度确认过的
-    // 局面报成了错——同一个局面不同深度走的是不同路线，单跑一次的结论
-    // 本来就不稳。拿一个更弱的方法去审更强方法定下来的结论，又是同一个毛病。
-    // 和生成器一字不差的顺序：先清空引擎记忆，再依次跑 12/13/14 层。
-    // 少了这一步，两边跑出来的结果对不上——不是数据错，是搜索会受
-    // 置换表里残留内容的影响，而两边算过的东西不一样。
-    resetEngine();
-    const runs = [12, 13, 14].map((d) => playToEnd(p.board, p.toMove, d, d >= 14 ? 8000 : 3000, 120));
-    const mine = (r: string) => (e.you === 'r' ? 'red-win' : 'black-win') === r;
-    const wins = runs.filter(mine).length;
-    const losses = runs.filter((r) => r !== 'draw' && !mine(r)).length;
-    if (losses) flag('残局·标的结果反了，你会输', `${e.id}（${e.name}）标${e.target}`);
-    else if (e.target === 'win' && wins < runs.length)
-      flag('残局·标胜但下不稳', `${e.id}（${e.name}）${wins}/${runs.length} 次赢下来`);
-    else if (e.target === 'draw' && wins) flag('残局·标和但其实能赢', `${e.id}（${e.name}）`);
+    const v = verdict(p.board, e.you);
+    if (v.target === 'loss') flag('残局·标的结果反了，你会输', `${e.id}（${e.name}）标${e.target}`);
+    else if (v.target === 'unstable') flag('残局·胜和不稳定', `${e.id}（${e.name}）不同深度结论不一致`);
+    else if (v.target !== e.target)
+      flag(`残局·标的是${e.target === 'win' ? '胜' : '和'}，实测是${v.target === 'win' ? '胜' : '和'}`, `${e.id}（${e.name}）`);
   }
 }
 
