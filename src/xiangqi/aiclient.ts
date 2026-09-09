@@ -66,6 +66,24 @@ function ensureWorker(): Worker | null {
 }
 
 /** 异步求解；Worker 不可用时同步兜底 */
+/**
+ * 提前把搜索线程叫起来。
+ *
+ * Worker 是懒创建的：第一次轮到对手时才 new Worker，那一下要装载模块、
+ * 编译、初始化置换表。结果就是**第一步的回手明显比后面慢**，
+ * 而第一步恰恰是人对"这软件反应快不快"印象最深的时候。
+ * 开局时先扔一个极小的搜索进去把它热起来，代价可以忽略。
+ */
+export function warmupAi(board: Board, color: Color) {
+  const w = ensureWorker();
+  if (!w) return; // 起不来就算了，同步兜底路径本来也不需要预热
+  const id = ++seq;
+  pending.set(id, () => {
+    /* 预热结果不要 */
+  });
+  w.postMessage({ id, board, color, opts: { maxDepth: 1, timeMs: 30, jitter: 0 } });
+}
+
 export function requestMove(board: Board, color: Color, opts: SearchOpts): Promise<Move | null> {
   const w = ensureWorker();
   if (!w) return Promise.resolve(bestMove(board, color, opts.maxDepth, opts.jitter, opts.timeMs));

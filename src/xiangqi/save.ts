@@ -159,6 +159,8 @@ interface SaveData {
   recent: { dim: Dim; ok: boolean }[];
   /** 上次做测验的日子（自 1970 起的天数），用来决定该不该再测一次 */
   lastQuiz?: number;
+  /** 你在这些标着「和棋」的残局里真的赢了——引擎判错了，以你的结果为准 */
+  beatDraw?: string[];
   /** 自报的天天象棋级别（TT_LEVELS 的 id），只用来给测评定起点 */
   declared?: string;
   /**
@@ -407,6 +409,27 @@ export function markMateCleared(id: string) {
   const d = load();
   if (!d.clearedMates.includes(id)) d.clearedMates.push(id);
   store(d);
+}
+
+/**
+ * 你在某个标着「和棋」的残局里**真的赢了**。
+ *
+ * 库里的胜和是引擎实测的，而引擎的残局技术是有限的——它下不出来的胜果，
+ * 懂技术的人下得出来。用户就赢过一个标着和棋的单车对双士。
+ * 这种时候程序不该继续嘴硬，该认账：把这件事记下来，卡片上改口，
+ * 并且**以后不再拿这个局面当"守和"练习**。
+ *
+ * 这条也是整套系统里唯一"用户数据推翻软件结论"的地方，我觉得它应该存在：
+ * 引擎的判定是最好的自动近似，但它不是裁判。
+ */
+export function markBeatDraw(id: string) {
+  const d = load();
+  (d.beatDraw ??= []).includes(id) || d.beatDraw.push(id);
+  store(d);
+}
+
+export function getBeatDraw(): string[] {
+  return load().beatDraw ?? [];
 }
 
 /** 记下你对某个残局"是胜是和"的判断；返回猜得对不对 */

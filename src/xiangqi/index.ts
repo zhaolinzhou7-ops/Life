@@ -9,7 +9,7 @@ import {
   type Board,
   type Move,
 } from './rules';
-import { disposeAi, requestMove } from './aiclient';
+import { disposeAi, requestMove, warmupAi } from './aiclient';
 import { runReview } from './review';
 import { runCoach } from './coach';
 import { isAssessed, getRatings, overallOf, rankOf, srsCount } from './save';
@@ -32,6 +32,24 @@ import { CHARACTERS, avatarCanvas, pickLine, type Character } from '../character
 
 // 深度是实测能跑到的层数（引擎约 140 万节点/秒），不是名义上限。
 // jitter 是评估扰动，只给低难度用来模拟"看走眼"，高难度必须为 0。
+
+/**
+ * 对局节奏。
+ *
+ * 上一版把动画全删了之后出现一个新问题：**你一落子对方立刻就走**，
+ * 没有一点下棋的呼吸感，很机械。但这跟"棋子位置不对"那个 bug 不是一回事——
+ * 那个是把棋子抬离盘面，这个只是节奏。所以节奏可以调，悬浮不会回来。
+ *
+ * 两个参数：
+ *   slide 落子平移的时长（棋子贴着盘面滑过去，永远以精确落点收尾）
+ *   think 对手最少"想"多久。搜索本身在 Worker 里跑，这里只是不让它
+ *         比这个时间更早把结果甩出来——真人不会零点二秒就落子。
+ */
+const TEMPOS = [
+  { id: 'fast', name: '明快', desc: '落子即到，对手几乎秒回', slide: 0, think: 0 },
+  { id: 'natural', name: '自然', desc: '有落子动作，对手会想一下（推荐）', slide: 0.22, think: 900 },
+  { id: 'slow', name: '沉稳', desc: '慢一些，像面对面下棋', slide: 0.34, think: 1600 },
+] as const;
 
 const LEVELS = [
   { id: 0, name: '新手', desc: '会看走眼，适合练手', depth: 3, jitter: 110, timeMs: 300 },
@@ -124,6 +142,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let theme = (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme;
     let rival = Number(localStorage.getItem('xq-rival') ?? 2);
     let facing = (localStorage.getItem('xq-facing') ?? 'duel') as 'duel' | 'me';
+    let tempo = Math.max(0, Math.min(TEMPOS.length - 1, Number(localStorage.getItem('xq-tempo') ?? 1)));
 
     const s = document.createElement('div');
     s.className = 'screen xq-setup';
@@ -221,6 +240,22 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       s.appendChild(fRow);
 
       // 动画速度
+      const tLabel = document.createElement('div');
+      tLabel.className = 'xq-sec';
+      tLabel.textContent = '对局节奏';
+      s.appendChild(tLabel);
+      const tRow = document.createElement('div');
+      tRow.className = 'diff-row';
+      TEMPOS.forEach((tp, i) => {
+        const card = document.createElement('div');
+        card.className = 'card' + (tempo === i ? ' selected' : '');
+        card.innerHTML = `<div class="title" style="justify-content:center">${tp.name}</div>
+          <div class="desc" style="text-align:center">${tp.desc}</div>`;
+        card.onclick = () => { tempo = i; sfxTap(); render(); };
+        tRow.appendChild(card);
+      });
+      s.appendChild(tRow);
+
       const go = document.createElement('button');
       go.className = 'btn';
       go.textContent = '⚔️ 开始对弈';
@@ -229,9 +264,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         localStorage.setItem('xq-theme', theme);
         localStorage.setItem('xq-rival', String(rival));
         localStorage.setItem('xq-facing', facing);
+        localStorage.setItem('xq-tempo', String(tempo));
         s.remove();
         setupEl = null;
-        startGame(level, theme, CHARACTERS[rival], facing === 'duel');
+        startGame(level, theme, CHARACTERS[rival], facing === 'duel', tempo);
       };
       s.appendChild(go);
 
@@ -246,7 +282,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   }
 
   // ============ 对局 ============
-  function startGame(level: number, theme: PieceTheme, rival: Character, flipBlack: boolean) {
+  function startGame(level: number, theme: PieceTheme, rival: Character, flipBlack: boolean, tempoIdx = 1) {
+    const TEMPO = TEMPOS[Math.max(0, Math.min(TEMPOS.length - 1, tempoIdx))];
     const L = LEVELS[level];
     let board: Board = initialBoard();
     let history: Board[] = [];
@@ -263,7 +300,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let bubbleTimer = 0;
 
     const scene = new XiangqiScene(wrap, (x, y) => onTap(x, y), theme, flipBlack);
+    scene.setSlideSec(TEMPO.slide);
     scene.syncBoard(board);
+    // 先把搜索线程热起来，别让第一步的回手慢一大截
+    warmupAi(board, 'b');
     scene.dealIn();
     startBgm('guqin');
 
@@ -414,11 +454,19 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         // 搜索在 Worker 里跑，主线程继续放动画；思考期间对手头像有呼吸光效
         const myTurn = ++aiSeq;
         scene.setThinking(true);
-        // 不再有"等动画播完"这回事，轮到对手就直接开始搜索
+        // 对手至少"想"这么久再落子。搜索本身在 Worker 里跑，这里只是压住
+        // 结果不要来得太早——新手档 300ms 就算完了，秒回让人觉得对面是台机器。
+        // 再加一点随机，免得每一步都卡在同一个时刻，那样同样很机械。
+        const t0 = performance.now();
+        const wait = TEMPO.think ? TEMPO.think * (0.75 + Math.random() * 0.5) : 0;
         requestMove(board, 'b', { maxDepth: L.depth, jitter: L.jitter, timeMs: L.timeMs }).then((m) => {
           if (over || myTurn !== aiSeq) return; // 期间悔棋/重开了，丢弃这次结果
-          scene.setThinking(false);
-          if (m) doMove(m);
+          const rest = Math.max(0, wait - (performance.now() - t0));
+          aiTimer = window.setTimeout(() => {
+            if (over || myTurn !== aiSeq) return;
+            scene.setThinking(false);
+            if (m) doMove(m);
+          }, rest);
         });
       } else {
         setTurnUI();
@@ -441,7 +489,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       selected = null;
       resultEl?.remove();
       resultEl = null;
-      scene.syncBoard(board);
+      scene.setSlideSec(TEMPO.slide);
+    scene.syncBoard(board);
+    // 先把搜索线程热起来，别让第一步的回手慢一大截
+    warmupAi(board, 'b');
       setTurnUI();
     }
 
@@ -458,7 +509,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       selected = null;
       resultEl?.remove();
       resultEl = null;
-      scene.syncBoard(board);
+      scene.setSlideSec(TEMPO.slide);
+    scene.syncBoard(board);
+    // 先把搜索线程热起来，别让第一步的回手慢一大截
+    warmupAi(board, 'b');
       scene.dealIn();
       setTurnUI();
       setTimeout(() => say(pickLine(rival.lines.greet)), 500);

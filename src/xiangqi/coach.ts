@@ -38,6 +38,8 @@ import {
   TT_LEVELS,
   ttLevelById,
   markEndgameCleared,
+  markBeatDraw,
+  getBeatDraw,
   markMateCleared,
   getCleared,
   playStats,
@@ -985,6 +987,7 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
     const list = document.createElement('div');
     list.className = 'card-list';
     const guesses = getEgGuesses();
+    const beaten = new Set(getBeatDraw());
     g.items.forEach((e, i) => {
       const el = document.createElement('div');
       el.className = 'card home-card';
@@ -1014,14 +1017,23 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
           el.onclick = null;
           return;
         }
-        const right = guess === e.target;
+        const beat = beaten.has(e.id); // 你在这个标着和棋的局面里真赢过
+        const right = beat ? guess === 'win' : guess === e.target;
         el.innerHTML = `
           <div class="title">局面 ${i + 1}
-            <span class="tag ${e.target === 'win' ? 'warn' : ''}">${e.target === 'win' ? '你能赢' : '和棋'}</span>
+            <span class="tag ${e.target === 'win' || beat ? 'warn' : ''}">${
+              beat ? '你赢过' : e.target === 'win' ? '你能赢' : '和棋'
+            }</span>
             ${cleared.has(e.id) ? '<span class="tag">已过</span>' : ''}</div>
           <div class="desc">${right ? '✅ 你判断对了' : `❌ 你猜的是「${guess === 'win' ? '能赢' : '和棋'}」`}　·　${
             e.target === 'win' ? '把优势下成胜势' : '守住这个和棋'
-          }${e.reason ? `<br><span class="dim">引擎实测：${drawWhy(e)}</span>` : ''}${bookNote(e)}</div>
+          }${
+            beat
+              ? '<br><span class="dim">⚑ 这局引擎判的是和，但<b>你实际赢下来了</b>——以你的结果为准。引擎的残局技术有限，它下不出来的胜果，懂技术的人下得出来。</span>'
+              : e.reason
+                ? `<br><span class="dim">引擎实测：${drawWhy(e)}</span>`
+                : ''
+          }${beat ? '' : bookNote(e)}</div>
           <div class="xq-eg-thumb"></div>`;
         showThumb(el, e);
         el.onclick = () => runEndgame(g, i);
@@ -1098,6 +1110,9 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       subtitle: `${e.material} · 局面 ${i + 1}`,
       tips: e.tips,
       onDone: (r) => {
+        // 你在标着「和棋」的局面里赢了：说明这个标注保守了，以你的结果为准。
+        // 引擎的判定是最好的自动近似，但它不是裁判。
+        if (r === 'win' && e.target === 'draw') markBeatDraw(e.id);
         // 达成目标才算过：胜局必须赢，和局守和即可
         if (r === 'win' || (r === 'draw' && e.target === 'draw')) {
           markEndgameCleared(e.id);

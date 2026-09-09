@@ -11,8 +11,8 @@
 import { COLS, ROWS, type Board, type Color, type Move, type PType } from './rules';
 import { pieceName } from './notation';
 
-const RED = '#b3311f';
-const BLACK = '#22303a';
+const RED = '#a51e0c';
+const BLACK = '#141d24';
 
 export interface Mark {
   x: number;
@@ -353,16 +353,32 @@ export class Board2D {
     g.strokeStyle = col;
     g.lineWidth = Math.max(1.2, r * 0.06);
     g.beginPath();
-    g.arc(cx, cy, r * 0.8, 0, Math.PI * 2);
+    g.arc(cx, cy, r * 0.86, 0, Math.PI * 2);
     g.stroke();
 
-    // 字：先压一道暗影再写正色，看起来像刻进去的
+    /**
+     * 字。**认得清排在好看前面。**
+     *
+     * 原来是"先压一道半透明暗影再写正色"，那道偏移的暗影其实在糊边缘，
+     * 字号也只有半径的 1.08 倍。手机上一个棋子才五六十像素，糊一点就认不出
+     * 炮和相的区别了。
+     *
+     * 改成路牌和字幕的通用做法：**先用盘面底色在字外面描一圈**，
+     * 把字和底隔开，再补一条极细的深色边把轮廓咬死，最后填正色。
+     * 不改配色，纯靠隔离带提对比。字号也放大到 1.24 倍半径。
+     */
     const label = pieceName(t, c);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.font = `700 ${Math.round(r * 1.08)}px "STKaiti","KaiTi","Songti SC",serif`;
-    g.fillStyle = 'rgba(90,60,30,0.30)';
-    g.fillText(label, cx + r * 0.035, cy + r * 0.045);
+    g.font = `700 ${Math.round(r * 1.24)}px "STKaiti","KaiTi","Songti SC",serif`;
+    g.lineJoin = 'round';
+    g.miterLimit = 2;
+    g.strokeStyle = '#fdf0d6';
+    g.lineWidth = Math.max(2, r * 0.20);
+    g.strokeText(label, cx, cy);
+    g.strokeStyle = 'rgba(60,38,14,0.45)';
+    g.lineWidth = Math.max(0.8, r * 0.035);
+    g.strokeText(label, cx, cy);
     g.fillStyle = col;
     g.fillText(label, cx, cy);
 

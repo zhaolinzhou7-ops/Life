@@ -168,8 +168,8 @@ export const PIECE_THEMES: Record<PieceTheme, ThemeDef & { sideBlack: number; bo
     // 红方＝暖白玉，黑方＝墨玉（青碧），两副明显不同
     faceInner: '#fdf6e6',
     faceOuter: '#e8d5a8',
-    faceInnerBlack: '#dff0e6',
-    faceOuterBlack: '#8fbfa8',
+    faceInnerBlack: '#eaf6ef',
+    faceOuterBlack: '#a8cfbc',
     side: 0xe6d3a4,
     bottom: 0xc8b184,
     sideBlack: 0x6fae94,
@@ -178,7 +178,7 @@ export const PIECE_THEMES: Record<PieceTheme, ThemeDef & { sideBlack: number; bo
     clearcoat: 1,
     transmission: 0.12,
     redInk: '#c1121f',
-    blackInk: '#0f3b2c',
+    blackInk: '#06251a',
     ringRed: '#c8a02c',
     ringBlack: '#1f5c46',
   },
@@ -186,8 +186,8 @@ export const PIECE_THEMES: Record<PieceTheme, ThemeDef & { sideBlack: number; bo
     // 红方＝浅黄杨木，黑方＝深紫檀
     faceInner: '#f7e3b8',
     faceOuter: '#dfbc81',
-    faceInnerBlack: '#a87f52',
-    faceOuterBlack: '#7c5533',
+    faceInnerBlack: '#d9b98c',
+    faceOuterBlack: '#a87f52',
     side: 0xd0a468,
     bottom: 0xa87c42,
     sideBlack: 0x6f4a2c,
@@ -196,7 +196,7 @@ export const PIECE_THEMES: Record<PieceTheme, ThemeDef & { sideBlack: number; bo
     clearcoat: 0.85,
     transmission: 0,
     redInk: '#b81d24',
-    blackInk: '#241309',
+    blackInk: '#1a0d05',
     ringRed: '#a3161c',
     ringBlack: '#2b1a0e',
   },
@@ -240,8 +240,22 @@ function pieceProfile(): THREE.Vector2[] {
 }
 
 /** 棋子顶面：底色 + 金/彩刻环 + 字。flip=true 时字倒转（供对面玩家正读） */
+/**
+ * 棋子正面。
+ *
+ * 【认字优先于好看】用户反馈"炮字看不太清"。原来的画法有四处在削弱对比：
+ *   · 字只占 52%，在手机上一个棋子才五六十像素，字就更小了
+ *   · 内圈白线画在 0.37 半径上，正好贴着字，视觉上把字挤扁
+ *   · 用了 4px 模糊阴影"做立体"，模糊边缘反而降低了黑白分界的锐度
+ *   · 底色是浅色渐变，黑方还是浅绿底配深绿字，本来对比就弱
+ *
+ * 现在的做法：字放大到 62%，内圈让开，去掉模糊阴影，改成
+ * **在字的外面描一圈底色**（halo）——这是路牌和字幕通用的手法：
+ * 不改配色，只在字与底之间插一条同底色的隔离带，笔画立刻"跳"出来。
+ * 再补一条极细的深色描边把边缘咬死。纹理分辨率也提到 384。
+ */
 function makeFaceTexture(char: string, ink: string, ring: string, theme: ThemeDef, flip: boolean): THREE.CanvasTexture {
-  const S = 256;
+  const S = 384;
   const cv = document.createElement('canvas');
   cv.width = S;
   cv.height = S;
@@ -255,31 +269,38 @@ function makeFaceTexture(char: string, ink: string, ring: string, theme: ThemeDe
   g.save();
   g.translate(S / 2, S / 2);
   if (flip) g.rotate(Math.PI);
-  // 双刻环（外细内粗，金属感）
+  // 双刻环：外圈保留质感，内圈往外让 0.03，别贴着字
   g.strokeStyle = ring;
-  g.lineWidth = 8;
+  g.lineWidth = S * 0.032;
   g.beginPath();
-  g.arc(0, 0, S * 0.42, 0, Math.PI * 2);
+  g.arc(0, 0, S * 0.43, 0, Math.PI * 2);
   g.stroke();
-  g.strokeStyle = 'rgba(255,255,255,0.55)';
-  g.lineWidth = 2;
+  g.strokeStyle = 'rgba(255,255,255,0.5)';
+  g.lineWidth = S * 0.006;
   g.beginPath();
-  g.arc(0, 0, S * 0.37, 0, Math.PI * 2);
+  g.arc(0, 0, S * 0.40, 0, Math.PI * 2);
   g.stroke();
-  // 字
-  g.fillStyle = ink;
-  g.font = `bold ${S * 0.52}px "KaiTi","STKaiti",serif`;
+
+  // 字：先用底色描一圈粗边（把字和底隔开），再压一条极细深边，最后填墨色
+  g.font = `bold ${S * 0.62}px "KaiTi","STKaiti","Songti SC",serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.shadowColor = 'rgba(0,0,0,0.5)';
-  g.shadowBlur = 4;
-  g.shadowOffsetY = 2;
-  g.fillText(char, 0, S * 0.02);
+  g.lineJoin = 'round';
+  g.miterLimit = 2;
+  const y = S * 0.02;
+  g.strokeStyle = theme.faceInner;
+  g.lineWidth = S * 0.075;
+  g.strokeText(char, 0, y);
+  g.strokeStyle = 'rgba(0,0,0,0.35)';
+  g.lineWidth = S * 0.012;
+  g.strokeText(char, 0, y);
+  g.fillStyle = ink;
+  g.fillText(char, 0, y);
   g.restore();
 
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
   return tex;
 }
 
@@ -400,6 +421,27 @@ export class XiangqiScene {
   private raf = 0;
   private disposed = false;
   private selected: PieceMesh | null = null;
+  /**
+   * 落子平移的时长（秒）。0 = 落子即到。
+   *
+   * 为什么可以放心把它加回来：上一版删掉的是**把棋子抬离盘面**的那些效果
+   * （选中悬浮、抓起放下、思考起伏），棋子离开了交叉点所在的平面才会让人
+   * 觉得"位置不对"。贴着盘面的平移不动 y，而且每一步都以 snapAll() 收尾，
+   * 中途被打断也会立刻钉回格子上。
+   */
+  private slideSec = 0;
+  private slide: {
+    mesh: THREE.Group;
+    from: THREE.Vector3;
+    to: THREE.Vector3;
+    t0: number;
+    dur: number;
+    onDone: () => void;
+  } | null = null;
+
+  setSlideSec(v: number) {
+    this.slideSec = Math.max(0, v);
+  }
   private checkRing: THREE.Mesh;
   private lastFrom!: THREE.Mesh;
   private lastTo!: THREE.Mesh;
@@ -611,6 +653,7 @@ export class XiangqiScene {
 
   /** 重建全部棋子（初始化 / 悔棋 / 重开） */
   syncBoard(b: Board) {
+    this.slide = null; // 重建棋子时丢掉未完成的平移，别让它去动已经不存在的 mesh
     for (const p of this.pieces) this.pieceRoot.remove(p.mesh);
     this.pieces = [];
     for (let y = 0; y < ROWS; y++)
@@ -688,6 +731,8 @@ export class XiangqiScene {
       return;
     }
     this.select(null);
+    // 上一步还在滑就立刻钉住，绝不允许两段动画叠在同一个棋子上
+    this.finishSlide();
     const victim = this.pieceAt(m.tx, m.ty);
     if (victim) {
       this.pieces = this.pieces.filter((p) => p !== victim);
@@ -697,19 +742,32 @@ export class XiangqiScene {
     mover.y = m.ty;
     const from = cellToWorld(m.fx, m.fy);
     const to = cellToWorld(m.tx, m.ty);
-    mover.mesh.position.copy(to);
-    mover.mesh.rotation.z = 0;
-    mover.mesh.scale.setScalar(1);
     this.lastFrom.position.set(from.x, TOP_Y + 0.02, from.z);
     this.lastTo.position.set(to.x, TOP_Y + 0.02, to.z);
     this.lastFrom.visible = true;
     this.lastTo.visible = true;
-    // 每走一步都把所有棋子按棋盘坐标钉回去。动画删干净之后这一步理论上是多余的，
-    // 留着是当不变量：以后谁再往这里加会动棋子的东西，也不会有子停在半空。
+
+    if (this.slideSec <= 0) {
+      mover.mesh.position.copy(to);
+      this.snapAll();
+      requestAnimationFrame(() => onDone());
+      return;
+    }
+    // 贴着盘面滑过去。**y 始终是 TOP_Y**——棋子从不离开盘面，
+    // 这是和上一版那个"选中悬浮"最本质的区别：那个把棋子抬离了交叉点所在的平面，
+    // 看上去就是"位置不对"；平移始终在平面内，而且一定以精确落点收尾。
+    mover.mesh.position.copy(from);
+    this.slide = { mesh: mover.mesh, from, to, t0: performance.now(), dur: this.slideSec * 1000, onDone };
+  }
+
+  /** 把正在滑的那一步立刻落定（换屏、悔棋、下一步抢进来时都要调） */
+  private finishSlide() {
+    const s = this.slide;
+    if (!s) return;
+    this.slide = null;
+    s.mesh.position.copy(s.to);
     this.snapAll();
-    // 回调仍然放到下一帧：doMove 是靠 onDone 串后续流程的，同步调用会让它
-    // 抢在 setTurnUI 前面，把"轮到谁"的状态覆盖掉。
-    requestAnimationFrame(() => onDone());
+    s.onDone();
   }
 
   /**
@@ -873,6 +931,20 @@ export class XiangqiScene {
   private loop = () => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.loop);
+    // 落子平移：唯一保留的动作。始终贴着盘面（不动 y），到点立刻钉死
+    const nowMs = performance.now();
+    const sl = this.slide;
+    if (sl) {
+      const k = Math.min(1, (nowMs - sl.t0) / sl.dur);
+      const e = 1 - (1 - k) ** 3; // easeOut，起步快收尾稳，像手推过去
+      sl.mesh.position.set(
+        sl.from.x + (sl.to.x - sl.from.x) * e,
+        TOP_Y,
+        sl.from.z + (sl.to.z - sl.from.z) * e,
+      );
+      if (k >= 1) this.finishSlide();
+    }
+
     // ⚠️ 这里原来有三段每帧都在跑的动画，**而且全都绕过了"动画速度"这个设置**：
     //   1. 将军环呼吸闪烁
     //   2. 对手思考时黑将上下起伏
