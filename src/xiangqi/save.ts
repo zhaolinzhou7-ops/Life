@@ -356,6 +356,21 @@ export function recentAccuracy(dim: Dim, n = 20): { acc: number; n: number } | n
  * 为什么要定期测：练而不测，涨没涨全靠感觉。而且做题时的等级分是**边练边动**的，
  * 混着提示、混着重复做过的题，不适合当水平的读数；单独一场不给提示的小测才干净。
  */
+/**
+ * 距上次完整测评多少天。
+ *
+ * 每周小测（10 题）看趋势，**每月一次完整测评**才是校准。两者分工不同：
+ * 小测题量少，只够看方向；完整测评三十多题、自适应难度，给的是带置信区间的
+ * 读数。一个月一次，既能看出真涨幅，又不会频繁到被"背题"污染。
+ */
+export function daysSinceAssess(): number {
+  const h = load().history;
+  if (!h.length) return 999;
+  const last = h[h.length - 1];
+  const d = Math.floor(new Date(last.d).getTime() / 86400000);
+  return Math.max(0, todayNum() - d);
+}
+
 export function daysSinceQuiz(): number {
   const q = load().lastQuiz;
   return q === undefined ? 999 : Math.max(0, todayNum() - q);

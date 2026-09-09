@@ -2436,6 +2436,23 @@ canvas {
   margin: 6px 0 2px;
 }
 /* 分数尺子的说明：写小一点、灰一点，它是免责说明不是结论 */
+/* 训练方案里的月度目标 */
+.xq-goal {
+  margin: 8px 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid #ffd76e;
+}
+.xq-goal b { display: block; font-size: 14px; line-height: 1.5; }
+.xq-goal span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.72;
+}
+.warn-t { color: #ffd76e; }
+
 /* 今日训练：每一块下面那句"今天为什么练这个" */
 .xq-block .w {
   margin-top: 6px;

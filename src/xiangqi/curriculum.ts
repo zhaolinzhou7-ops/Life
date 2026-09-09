@@ -347,6 +347,80 @@ export const WEEK_PLAN: WeekDay[] = [
   },
 ];
 
+// ---------------- 月度目标 ----------------
+
+export interface MonthGoal {
+  /** 一句话目标 */
+  title: string;
+  /** 怎么算达成——必须是可检验的，不能是"感觉进步了" */
+  check: string;
+  kind: 'rating' | 'behavior' | 'content';
+}
+
+/**
+ * 这个月的目标。
+ *
+ * 【为什么必须有可检验的标准】"多练练""提高眼力"这种目标没法证伪，
+ * 一个月后你不知道自己做到没有，只能凭感觉——而感觉是最不可靠的。
+ * 教练开的目标一定是可检验的：分数到多少、每盘漏着降到几次、
+ * 哪几类残局能下出结果。做到没做到，一查便知。
+ *
+ * 【为什么涨幅只敢写 +60】按每天 25 分钟、每周 6 天，一个月约 10 小时。
+ * 集中练一维，60 分是个不算离谱的预期；写 +200 好看但会让人一个月后
+ * 觉得自己失败。宁可保守。
+ */
+export function monthGoals(
+  focus: Dim,
+  ratings: Record<Dim, { r: number }>,
+  stage: Stage,
+  blundersPerGame: number | null,
+): MonthGoal[] {
+  const goals: MonthGoal[] = [
+    {
+      kind: 'rating',
+      title: `把「${DIM_INFO[focus].name}」从 ${ratings[focus].r} 推到 ${ratings[focus].r + 60}`,
+      check: `一个月后做一次完整测评，这一维 ≥ ${ratings[focus].r + 60} 分`,
+    },
+  ];
+  if (blundersPerGame !== null && blundersPerGame > 0.8) {
+    goals.push({
+      kind: 'behavior',
+      title: `实战漏着从每盘 ${blundersPerGame.toFixed(1)} 次降到 0.8 次以下`,
+      check: '看最近 10 盘的复盘统计——这个数字比分数更能说明问题',
+    });
+  } else {
+    goals.push({
+      kind: 'behavior',
+      title: '保持每盘漏着不超过 0.8 次',
+      check: '看最近 10 盘的复盘统计。这个数守不住，分数涨了也是虚的',
+    });
+  }
+  const need = stage.graduate.filter((g) => ratings[g.dim].r < g.rating);
+  if (need.length) {
+    goals.push({
+      kind: 'content',
+      title: `向阶段${stage.id}出师标准推进：${need.map((g) => `${DIM_INFO[g.dim].name} ${g.rating}`).join('、')}`,
+      check: `差 ${need.map((g) => `${DIM_INFO[g.dim].name} ${g.rating - ratings[g.dim].r} 分`).join('、')}`,
+    });
+  } else {
+    goals.push({
+      kind: 'content',
+      title: `阶段${stage.id}已达标，这个月开始啃阶段${Math.min(4, stage.id + 1)}的内容`,
+      check: '下一阶段的出师标准里至少有一项过线',
+    });
+  }
+  return goals;
+}
+
+/** 按本周主攻的维度，把周计划里"专项"那几天写实 */
+export function weekFor(focus: Dim): WeekDay[] {
+  return WEEK_PLAN.map((d) =>
+    d.title === '常规训练'
+      ? { ...d, desc: `热身 + 错题 + <b>${DIM_INFO[focus].name}</b>专项 + 实战复盘` }
+      : d,
+  );
+}
+
 /** 专业训练里几条最容易被业余忽略的原则 */
 export const PRO_PRINCIPLES: { title: string; body: string }[] = [
   {

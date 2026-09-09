@@ -29,6 +29,8 @@ import {
   recentAccuracy,
   daysSinceQuiz,
   markQuizDone,
+  daysSinceAssess,
+  getGames,
   guessEndgame,
   getEgGuesses,
   totalSolved,
@@ -49,13 +51,13 @@ import {
   type Dim,
 } from './save';
 import { Assessment, diagnose, type AssessResult } from './assess';
-import { loadPuzzles, pickNear, byId, type Puzzle, type PuzzleKind } from './puzzles';
+import { loadPuzzles, pickNear, byId, ratingRange, type Puzzle, type PuzzleKind } from './puzzles';
 import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
 import { Board2D } from './board2d';
 import { fromFen } from './notation';
-import { STAGES, stageFor, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, type Block } from './curriculum';
+import { STAGES, stageFor, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block } from './curriculum';
 
 const DIM_KIND: Record<Dim, PuzzleKind> = {
   safety: 'safety',
@@ -233,6 +235,11 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
           ? `按你的水平出题。现在在${stage.emoji} 阶段${stage.id}，建议先练「${DIM_INFO[focusDim(stage, rs)].name}」。`
           : '五个方向随便挑一个练。测评之后这里会按你的水平自动调难度。',
         go: () => showPickDim(),
+      },
+      {
+        t: `📋 我的训练方案${daysSinceAssess() >= 28 ? '（该月测了）' : ''}`,
+        d: '你现在什么水平、为什么输棋、这个月的目标、每周怎么排、怎么判断有没有进步——一页说完。',
+        go: () => showProgram(),
       },
       {
         t: '🗺️ 学习路线',
@@ -490,19 +497,27 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
              <b>不漏着 → 算得清 → 残局 → 布局</b>，不要一上来背定式。</p>`
       }
       <p class="dim">题做得越多分数越准。现在的 ±${res.ci} 分是按你答的 ${log.length} 题算出来的。</p>
-      <p class="dim">⚠️ 说清楚这套分数的边界。题库是引擎生成并逐题验证的，
-      各维能测到的上限不一样：杀法到 1942、残局 1872、战术 1602、布局 1517，
-      <b>眼力最弱只到 1187</b>。在 <b>900~1500</b> 这一段测得比较准
-      （实测偏差 100 分以内），再往上会<b>系统性偏低</b>——
-      带 ≥ 号的那几项就是顶到天花板了。</p>
+      <p class="dim">⚠️ 说清楚这套分数的边界。各维能测到的上限取决于题库里最难的题
+      ——<b>这几个数是从当前题库直接算的，不是写死的</b>：${DIMS.map(
+        (d) => `${DIM_INFO[d].name} ${ratingRange(DIM_KIND[d])[1] || '—'}`,
+      ).join('、')}。
+      顶到上限的那几维会显示 ≥ 号，意思是<b>真实水平只会更高</b>，这个数只是下限。</p>
       <p class="dim">如果你本来就比这个区间强（比如天天象棋业 6 以上），
       别太当真这个分，看首页的 <b>实战表现</b>（每盘漏着数、平均亏损）更准——
       那是从你真实对局里量的，没有天花板。</p>`;
     scr.appendChild(advice);
 
+    // 测完最该看的不是"去练哪一维"，而是**完整的方案**——
+    // 一个教练测完之后交给你的是一份处方，不是一句"你去练眼力吧"
+    const plan = document.createElement('button');
+    plan.className = 'btn';
+    plan.textContent = '📋 看我的训练方案 →';
+    plan.onclick = showProgram;
+    scr.appendChild(plan);
+
     const go = document.createElement('button');
-    go.className = 'btn';
-    go.textContent = `开始练「${DIM_INFO[rec].name}」`;
+    go.className = 'btn ghost';
+    go.textContent = `直接开始练「${DIM_INFO[rec].name}」`;
     go.onclick = () => startPractice(rec);
     scr.appendChild(go);
 
@@ -1300,6 +1315,150 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       return;
     }
     startPractice(b.dim ?? weakestDim(getRatings()), b.count ?? 10, goNext, b.ratingBias ?? 40);
+  }
+
+  // ---------------- 我的训练方案 ----------------
+  /**
+   * 测评之后该交出来的东西：**一份写着你自己数字的处方**，不是一张通用课程表。
+   *
+   * 一个教练带你，第一次测完之后会告诉你六件事：
+   *   1. 你现在什么水平（而且要说清这个读数有多准）
+   *   2. 你为什么输棋（分门别类，用你自己的对局说话）
+   *   3. 这个月的目标是什么（**必须可检验**，不能是"提高眼力"）
+   *   4. 每天练什么、每周怎么排
+   *   5. 往后几个阶段的路线和大致时间
+   *   6. 怎么判断到底有没有进步
+   * 这一页就是这六件事。少了任何一件，"训练方案"都只是课程表。
+   */
+  function showProgram() {
+    clear();
+    const rs = getRatings();
+    const stage = stageFor(rs);
+    const overall = overallOf(rs);
+    const loss = lossProfile(10);
+    const games = getGames().slice(-10);
+    const bpg = games.length ? games.reduce((a, g) => a + g.blunders, 0) / games.length : null;
+    const focus = prescribeFocus({
+      stage,
+      ratings: rs,
+      loss,
+      accuracy: (d) => recentAccuracy(d),
+      dueCount: srsCount().due,
+      daysSinceQuiz: daysSinceQuiz(),
+    });
+    const goals = monthGoals(focus.dim, rs, stage, bpg);
+    const hist = getHistory();
+    const ci = hist.length ? '' : '';
+    void ci;
+    const sinceAssess = daysSinceAssess();
+
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-report';
+    scr.innerHTML = `
+      <h1>我的训练方案</h1>
+      <div class="sub">按你的测评结果和最近的实战数据生成，会随着你的表现自动调整</div>
+
+      <div class="xq-advice"><b>① 你现在的水平</b>
+        <p><b>${rankOf(overall).name} · ${overall} 分</b>（本 App 内部刻度，粗略对照天天象棋
+        <b>${ttNear(overall).name}</b>）。${
+          hist.length
+            ? `上次完整测评是 ${sinceAssess} 天前。`
+            : '你还没做过完整测评，下面这些数字是按做题记录估的，先去测一次会准得多。'
+        }</p>
+        <div class="xq-lossbars">${DIMS.map((d) => {
+          const w = Math.round(((rs[d].r - 600) / 1200) * 100);
+          return `<div class="row"><span class="k">${DIM_INFO[d].name}</span>
+            <span class="bar"><i style="width:${Math.max(4, Math.min(100, w))}%;background:${
+              d === focus.dim ? 'linear-gradient(90deg,#e8703d,#e0433a)' : 'linear-gradient(90deg,#4a8fd4,#3ec46d)'
+            }"></i></span><span class="v">${rs[d].r}</span></div>`;
+        }).join('')}</div>
+        <p class="dim">红色那一维是这个月的主攻方向。分数只是内部刻度，别和别家的等级分换算——
+        真正要看的是它<b>往哪个方向动</b>。</p>
+      </div>
+
+      <div class="xq-advice"><b>② 你为什么输棋</b>
+        <p>${focus.why}</p>
+        ${
+          bpg !== null
+            ? `<p>最近 ${games.length} 盘，平均每盘 <b>${bpg.toFixed(1)}</b> 次漏着。
+               业余棋手输棋六成是漏着——<b>这个数字比分数更能说明问题</b>。</p>`
+            : '<p class="dim">还没有对局记录。下几盘并复盘之后，这里会告诉你分具体丢在哪。</p>'
+        }
+      </div>
+
+      <div class="xq-advice"><b>③ 这个月的目标</b>
+        ${goals
+          .map(
+            (g) => `<div class="xq-goal"><b>${g.title}</b><span>怎么算达成：${g.check}</span></div>`,
+          )
+          .join('')}
+        <p class="dim">涨幅只写 +60 是刻意保守的：每天 25 分钟、每周 6 天，一个月约 10 小时，
+        集中练一维 60 分是个不算离谱的预期。写 +200 好看，但一个月后只会让你觉得自己失败。</p>
+      </div>`;
+
+    // ④ 一周怎么排
+    const week = document.createElement('div');
+    week.className = 'xq-week';
+    week.innerHTML =
+      `<div class="xq-sec2">④ 一周怎么排</div>` +
+      weekFor(focus.dim)
+        .map(
+          (d) => `<div class="xq-week-row${d.minutes > 30 ? ' long' : ''}">
+          <span class="d">${d.label}</span>
+          <span class="t">${d.title}<span class="m">${d.minutes} 分钟</span></span>
+          <span class="s">${d.desc}</span>
+        </div>`,
+        )
+        .join('');
+    scr.appendChild(week);
+
+    // ⑤ 路线 ⑥ 怎么判断有没有进步
+    const tail = document.createElement('div');
+    const ms = nextMilestone(overall);
+    tail.innerHTML = `
+      <div class="xq-advice"><b>⑤ 往后的路线</b>
+        <p>你在 ${stage.emoji} <b>阶段${stage.id}「${stage.name}」</b>——${stage.goal}。
+        出师标准：${graduateStatus(stage, rs)
+          .map((g) => `${g.name} ${g.need}（现在 ${g.now}${g.ok ? ' ✅' : ''}）`)
+          .join('、')}。</p>
+        <p>下一个台阶是 <b>${ms.label}</b>，按每天 25 分钟、每周 6 天大约 <b>${ms.time}</b>。
+        中间会有两到六周的平台期——那不是没进步，是在把学到的东西固化。</p>
+        <p class="dim">四个阶段的完整内容在「学习路线」里。顺序是按"业余棋手为什么输棋"排的，
+        不是传统的开局→中局→残局。</p>
+      </div>
+
+      <div class="xq-advice"><b>⑥ 怎么知道有没有进步</b>
+        <p>三条一起看，缺一条都会骗自己：</p>
+        <ul style="margin:6px 0 0;padding-left:18px;line-height:1.8">
+          <li><b>每周小测</b>（10 题，五维各两题，不给提示）——看方向，一周一次</li>
+          <li><b>每月完整测评</b>（三十多题，自适应难度）——看真实涨幅${
+            sinceAssess >= 28 ? '，<b class="warn-t">你已经该测了</b>' : `，还有 ${Math.max(0, 28 - sinceAssess)} 天`
+          }</li>
+          <li><b>实战每盘漏着次数</b>——最实在的一条。做题会做不等于实战不漏</li>
+        </ul>
+        <p class="dim">只看做题分数最容易自我感觉良好：题做熟了分自然涨，实战照样送子。
+        所以第三条必须一起看。</p>
+      </div>`;
+    scr.appendChild(tail);
+
+    const act = document.createElement('button');
+    act.className = 'btn';
+    act.textContent = sinceAssess >= 28 ? '🔁 去做这个月的完整测评' : '📅 开始今天的训练';
+    act.onclick = () => (sinceAssess >= 28 ? startAssessment() : showToday());
+    scr.appendChild(act);
+
+    const road = document.createElement('button');
+    road.className = 'btn ghost';
+    road.textContent = '🗺️ 看四个阶段的完整内容';
+    road.onclick = showRoadmap;
+    scr.appendChild(road);
+
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showHome;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
   }
 
   // ---------------- 学习路线 ----------------
