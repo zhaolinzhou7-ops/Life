@@ -106,6 +106,10 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
           }`;
     play(); // 不管猜没猜中，都按原谱往下走
     renderBar();
+    // ⚠️ 猜中最后一手之后要收尾。少了这一句，renderBar() 因为已经走完而
+    // 直接返回，按钮停在上一状态，界面就卡住了——只有"想不出直接看"那条
+    // 分支写了 finish()，猜着法这条漏了。
+    if (idx >= opts.moves.length) finish();
   }
 
   /** 按原谱走下一手 */
