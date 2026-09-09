@@ -161,6 +161,8 @@ interface SaveData {
   lastQuiz?: number;
   /** 你在这些标着「和棋」的残局里真的赢了——引擎判错了，以你的结果为准 */
   beatDraw?: string[];
+  /** 让子定级的进度 */
+  ladder?: LadderState;
   /** 自报的天天象棋级别（TT_LEVELS 的 id），只用来给测评定起点 */
   declared?: string;
   /**
@@ -356,6 +358,78 @@ export function recentAccuracy(dim: Dim, n = 20): { acc: number; n: number } | n
  * 为什么要定期测：练而不测，涨没涨全靠感觉。而且做题时的等级分是**边练边动**的，
  * 混着提示、混着重复做过的题，不适合当水平的读数；单独一场不给提示的小测才干净。
  */
+// ---------------- 让子定级 ----------------
+
+/**
+ * 让子阶梯。**这是唯一没有天花板的棋力读数。**
+ *
+ * 做题分衡量的是"会不会做题"，而且受题库最难那道题的限制——业 6 以上的人
+ * 很快就顶到上限，再练分也不动了。教练历来的办法是让子：
+ * 让你两个马能赢，让一个马赢不了，你的水平就在这两档之间。
+ * 这个尺子没有上限（让子让完了就往上加引擎深度），而且量的是**实战能力**，
+ * 不是做题能力——两者可以差很远。
+ *
+ * 阶梯从易到难单调排列，每一档给一个大致的对应分，只用来显示，不参与出题。
+ */
+export const LADDER: { id: string; name: string; desc: string; strip: number; depth: number; approx: number }[] = [
+  { id: 'h2', name: '让双马', desc: '对手少两个马', strip: 2, depth: 6, approx: 900 },
+  { id: 'h1', name: '让单马', desc: '对手少一个马', strip: 1, depth: 6, approx: 1100 },
+  { id: 'e0', name: '分先 · 进阶', desc: '子力相同，对手算 6 层', strip: 0, depth: 6, approx: 1300 },
+  { id: 'e1', name: '分先 · 高手', desc: '子力相同，对手算 10 层', strip: 0, depth: 10, approx: 1550 },
+  { id: 'e2', name: '分先 · 大师', desc: '子力相同，对手算 14 层', strip: 0, depth: 14, approx: 1800 },
+];
+
+export interface LadderState {
+  /** 当前所在档位（LADDER 的下标） */
+  rung: number;
+  /** 每一档的战绩流水，用来判断"稳不稳" */
+  log: { rung: number; won: boolean }[];
+}
+
+export function getLadder(): LadderState {
+  const d = load();
+  if (d.ladder) return d.ladder;
+  /**
+   * 没下过的话，**按你自报的天天象棋级别直接落在对应档**，别从最低档爬。
+   *
+   * 业 6 的人从"让双马"起步要连赢八盘才摸到自己的真实水平，那八盘既无聊
+   * 又测不出东西。定级的意义是尽快找到你的边界，不是走完全部台阶。
+   * 起点估错也没关系——赢就升、输就降，两三盘就归位。
+   */
+  const seed = seedRating();
+  let rung = 0;
+  for (let i = 0; i < LADDER.length; i++) if (seed >= LADDER[i].approx - 100) rung = i;
+  return { rung, log: [] };
+}
+
+/**
+ * 记一局让子棋的结果，返回新的档位和一句说明。
+ *
+ * 升降规则：赢了升一档，输了降一档，但**要在同一档赢够两盘才算站稳**。
+ * 只赢一盘就宣布水平提升，运气成分太大——真人教练也是看你稳不稳，
+ * 不是看你偶尔赢一次。
+ */
+export function recordLadder(won: boolean): { rung: number; moved: -1 | 0 | 1; steady: boolean } {
+  const d = load();
+  const st = d.ladder ?? { rung: 0, log: [] };
+  st.log.push({ rung: st.rung, won });
+  if (st.log.length > 60) st.log.shift();
+  const here = st.log.filter((x) => x.rung === st.rung).slice(-3);
+  const winsHere = here.filter((x) => x.won).length;
+  let moved: -1 | 0 | 1 = 0;
+  if (won && winsHere >= 2 && st.rung < LADDER.length - 1) {
+    st.rung++;
+    moved = 1;
+  } else if (!won && here.length >= 2 && winsHere === 0 && st.rung > 0) {
+    st.rung--;
+    moved = -1;
+  }
+  d.ladder = st;
+  store(d);
+  const cur = st.log.filter((x) => x.rung === st.rung).slice(-3);
+  return { rung: st.rung, moved, steady: cur.filter((x) => x.won).length >= 2 };
+}
+
 /**
  * 距上次完整测评多少天。
  *

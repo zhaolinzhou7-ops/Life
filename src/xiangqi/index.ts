@@ -113,7 +113,20 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           : '先测一下水平（约 20 分钟），再按短板安排练什么。测评题会跟着你的表现自动调难度。',
         go: () => {
           clearAll();
-          disposeCoach = runCoach(wrap, showModeMenu);
+          disposeCoach = runCoach(wrap, showModeMenu, (strip, depth, onFinish) => {
+            // 让子定级的对局交回对弈流程：那边已经有完整的棋盘、复盘和结算
+            disposeCoach?.();
+            disposeCoach = null;
+            const lv = Math.max(0, Math.min(LEVELS.length - 1, depth >= 14 ? 3 : depth >= 10 ? 2 : 1));
+            startGame(
+              lv,
+              (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme,
+              CHARACTERS[Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length],
+              (localStorage.getItem('xq-facing') ?? 'duel') === 'duel',
+              Number(localStorage.getItem('xq-tempo') ?? 1),
+              { strip, depth, onFinish },
+            );
+          });
         },
       },
     ];
@@ -282,10 +295,31 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   }
 
   // ============ 对局 ============
-  function startGame(level: number, theme: PieceTheme, rival: Character, flipBlack: boolean, tempoIdx = 1) {
+  /**
+   * @param handicap 让子局：对手（黑方）少几个马，以及固定的搜索深度；
+   *                 下完把胜负回给 onFinish，由定级阶梯决定升降档
+   */
+  function startGame(
+    level: number,
+    theme: PieceTheme,
+    rival: Character,
+    flipBlack: boolean,
+    tempoIdx = 1,
+    handicap?: { strip: number; depth: number; onFinish: (won: boolean) => void },
+  ) {
     const TEMPO = TEMPOS[Math.max(0, Math.min(TEMPOS.length - 1, tempoIdx))];
     const L = LEVELS[level];
     let board: Board = initialBoard();
+    // 让子：把黑方的马拿掉。让子是教练给学生定级最老实的办法——
+    // 让你两个马能赢、让一个马赢不了，水平就卡在这两档之间。
+    if (handicap?.strip) {
+      const spots: [number, number][] = [[1, 0], [7, 0]];
+      for (let i = 0; i < handicap.strip && i < spots.length; i++) {
+        const [hx, hy] = spots[i];
+        board[hy][hx] = null;
+      }
+    }
+
     let history: Board[] = [];
     /** 整盘的着法序列，复盘用。history 存的是局面，复盘要的是着法 */
     let moveLog: Move[] = [];
@@ -459,7 +493,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         // 再加一点随机，免得每一步都卡在同一个时刻，那样同样很机械。
         const t0 = performance.now();
         const wait = TEMPO.think ? TEMPO.think * (0.75 + Math.random() * 0.5) : 0;
-        requestMove(board, 'b', { maxDepth: L.depth, jitter: L.jitter, timeMs: L.timeMs }).then((m) => {
+        requestMove(board, 'b', { maxDepth: handicap?.depth ?? L.depth, jitter: handicap ? 0 : L.jitter, timeMs: handicap ? 2000 : L.timeMs }).then((m) => {
           if (over || myTurn !== aiSeq) return; // 期间悔棋/重开了，丢弃这次结果
           const rest = Math.max(0, wait - (performance.now() - t0));
           aiTimer = window.setTimeout(() => {
@@ -524,6 +558,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let lastWon = false;
     function showResult(playerWon: boolean) {
       lastWon = playerWon;
+      handicap?.onFinish(playerWon);
       if (playerWon) {
         sfxWinBig();
         setTimeout(() => say(pickLine(rival.lines.lose)), 500);

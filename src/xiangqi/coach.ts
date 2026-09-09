@@ -31,6 +31,9 @@ import {
   markQuizDone,
   daysSinceAssess,
   getGames,
+  LADDER,
+  getLadder,
+  recordLadder,
   guessEndgame,
   getEgGuesses,
   totalSolved,
@@ -67,7 +70,12 @@ const DIM_KIND: Record<Dim, PuzzleKind> = {
   opening: 'opening',
 };
 
-export function runCoach(root: HTMLElement, onExit: () => void): () => void {
+export function runCoach(
+  root: HTMLElement,
+  onExit: () => void,
+  /** 开一局让子定级棋。学棋模块自己不管对弈，交回对弈流程去下 */
+  startLadder?: (strip: number, depth: number, onFinish: (won: boolean) => void) => void,
+): () => void {
   const wrap = document.createElement('div');
   wrap.className = 'xq-coach';
   root.appendChild(wrap);
@@ -240,6 +248,11 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
         t: `📋 我的训练方案${daysSinceAssess() >= 28 ? '（该月测了）' : ''}`,
         d: '你现在什么水平、为什么输棋、这个月的目标、每周怎么排、怎么判断有没有进步——一页说完。',
         go: () => showProgram(),
+      },
+      {
+        t: `📏 让子定级 · ${LADDER[getLadder().rung].name}`,
+        d: '做题分有天花板，让子没有。跟引擎下让子棋，量的是你的实战棋力——这是教练给学生定级最老实的办法。',
+        go: () => showLadder(),
       },
       {
         t: '🗺️ 学习路线',
@@ -1315,6 +1328,78 @@ export function runCoach(root: HTMLElement, onExit: () => void): () => void {
       return;
     }
     startPractice(b.dim ?? weakestDim(getRatings()), b.count ?? 10, goNext, b.ratingBias ?? 40);
+  }
+
+  // ---------------- 让子定级 ----------------
+  /**
+   * 让子阶梯：**唯一没有天花板、而且量的是实战能力的读数**。
+   *
+   * 做题分有两个硬伤：一是受题库里最难那道题的限制，业 6 以上很快顶到上限；
+   * 二是它衡量的是"会不会做题"，而做题会做和实战下得出来是两回事。
+   * 教练历来的定级办法是让子——让你两个马能赢、让一个马赢不了，
+   * 水平就卡在这两档之间。让子让完了就往上加引擎深度，尺子可以一直延伸下去。
+   */
+  function showLadder() {
+    clear();
+    const st = getLadder();
+    const cur = LADDER[st.rung];
+    const here = st.log.filter((x) => x.rung === st.rung).slice(-3);
+    const wins = here.filter((x) => x.won).length;
+
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-report';
+    scr.innerHTML = `
+      <h1>让子定级</h1>
+      <div class="sub">跟引擎下让子棋，用"能赢到哪一档"量你的实战棋力</div>
+      <div class="xq-rank-big">${cur.name}<span>${cur.desc}</span></div>
+      <div class="xq-advice"><b>为什么要有这一项</b>
+        <p>做题分有两个硬伤：<b>受题库里最难那道题限制</b>（业 6 以上很快就顶到上限，
+        再练分也不动了），而且它量的是"会不会做题"——做题会做和实战下得出来是两回事。</p>
+        <p>让子这把尺子<b>没有上限</b>，量的也是实战能力。让你两个马能赢、让一个马赢不了，
+        水平就卡在这两档之间。这是教练给学生定级最老实的办法。</p>
+        <p class="dim">规则：在同一档<b>赢够两盘</b>才升档，连输两盘降一档。只赢一盘不算——
+        运气成分太大，真人教练看的也是稳不稳，不是偶尔赢一次。</p>
+      </div>`;
+
+    const list = document.createElement('div');
+    list.className = 'xq-stage-list';
+    LADDER.forEach((r, i) => {
+      const log = st.log.filter((x) => x.rung === i);
+      const el = document.createElement('div');
+      el.className = `xq-stage${i === st.rung ? ' cur' : ''}${i < st.rung ? ' done' : ''}`;
+      el.innerHTML = `
+        <div class="hd">${r.name}<span class="wk">约 ${r.approx} 分</span>
+          ${i < st.rung ? '<span class="ok">已通过</span>' : i === st.rung ? '<span class="now">当前</span>' : ''}</div>
+        <div class="goal">${r.desc}</div>
+        ${log.length ? `<div class="grad">战绩：${log.filter((x) => x.won).length} 胜 ${log.filter((x) => !x.won).length} 负</div>` : ''}`;
+      list.appendChild(el);
+    });
+    scr.appendChild(list);
+
+    const go = document.createElement('button');
+    go.className = 'btn';
+    go.textContent = `⚔️ 下一盘「${cur.name}」${wins ? `（这一档已赢 ${wins}/2）` : ''}`;
+    go.onclick = () => {
+      if (!startLadder) return;
+      startLadder(cur.strip, cur.depth, (won) => {
+        const r = recordLadder(won);
+        void r;
+      });
+    };
+    scr.appendChild(go);
+    if (!startLadder) {
+      const note = document.createElement('div');
+      note.className = 'xq-advice';
+      note.innerHTML = '<p class="dim">这一版还没接上对弈入口。</p>';
+      scr.appendChild(note);
+    }
+
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showHome;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
   }
 
   // ---------------- 我的训练方案 ----------------
