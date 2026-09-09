@@ -168,8 +168,8 @@ export const PIECE_THEMES: Record<PieceTheme, ThemeDef & { sideBlack: number; bo
     // 红方＝暖白玉，黑方＝墨玉（青碧），两副明显不同
     faceInner: '#fdf6e6',
     faceOuter: '#e8d5a8',
-    faceInnerBlack: '#eaf6ef',
-    faceOuterBlack: '#a8cfbc',
+    faceInnerBlack: '#f2fbf6',
+    faceOuterBlack: '#bcdfcd',
     side: 0xe6d3a4,
     bottom: 0xc8b184,
     sideBlack: 0x6fae94,
@@ -894,15 +894,39 @@ export class XiangqiScene {
   }
 
   /** 计算能容纳整个棋盘的相机位置（约 55° 俯角） */
+  /**
+   * 相机位置：让棋盘尽量占满屏幕。
+   *
+   * 【为什么要抠这几个数】用户反馈棋子上的字看不清。字号和对比度当然要改，
+   * 但**盘小才是根本**——原来在手机比例下棋盘只占屏幕高度的四成，
+   * 上下大片空着，棋子自然就小。而竖屏上是**宽度**把相机顶出去的
+   * （半宽 5.4 要求相机退到 26 个单位，纵深只要 11），所以边距每省一点，
+   * 整个盘就大一圈。
+   *
+   * 棋盘最外侧纵线到木框外沿约 0.95（棋子半径 0.45 + 框宽 0.5），
+   * 原来留了 1.4，纯属浪费。收到 1.0，再把俯角从 56° 压到 52°——
+   * 俯角越小盘在画面上越"立"，纵向占得越满。
+   */
   private fitCameraPos(): THREE.Vector3 {
     const aspect = window.innerWidth / window.innerHeight;
-    const halfW = ((COLS - 1) / 2) * CELL + 1.4; // 半宽 + 棋子/边距
-    const halfD = ((ROWS - 1) / 2) * CELL + 2.0;
+    const halfW = ((COLS - 1) / 2) * CELL + 0.95; // 半宽 + 棋子半径 + 木框
+    const halfD = ((ROWS - 1) / 2) * CELL + 1.2;
     const tanV = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
-    const distW = halfW / (tanV * aspect);
-    const distD = (halfD / tanV) * 0.78;
-    const dist = Math.max(distW, distD, 11);
-    const pitch = THREE.MathUtils.degToRad(56);
+    const pitch = THREE.MathUtils.degToRad(52);
+    /**
+     * ⚠️ 要按**离相机最近的那两个角**来算，不能按盘中心。
+     *
+     * 透视下近处那条边张得更开：盘中心刚好装下，近边的两个角就被切掉了
+     * ——我第一次收边距就是这么把底线两头的车切掉的。
+     * 近边的视深大约是 dist − halfD·cos(俯角)，横向可见半宽是 视深×tanV×宽高比，
+     * 让它不小于 halfW，反解出 dist 就是下面这个式子。
+     *
+     * 俯角也试过压到 45°：盘是更宽了，但远端那排黑子被透视压得更小，
+     * 反而更难认。52° 是"整盘不切边 + 两端棋子都够大"的折中。
+     */
+    const distW = halfW / (tanV * aspect) + halfD * Math.cos(pitch);
+    const distD = (halfD / tanV) * 0.82;
+    const dist = Math.max(distW, distD, 10);
     return new THREE.Vector3(0, Math.sin(pitch) * dist, Math.cos(pitch) * dist + 0.6);
   }
 
