@@ -1,6 +1,7 @@
 /** 象棋启动入口：开局设置（难度/棋子材质/对手）→ 玩家执红 vs AI 执黑 */
 import {
   applyMove,
+  cloneBoard,
   findKing,
   initialBoard,
   isInCheck,
@@ -12,7 +13,17 @@ import {
 import { disposeAi, requestMove, warmupAi } from './aiclient';
 import { runReview } from './review';
 import { runCoach } from './coach';
-import { isAssessed, getRatings, overallOf, rankOf, srsCount } from './save';
+import { renderGameList, renderHome, renderLevel } from './home';
+import { archiveFromBoard, listGames as listArchived, openGame, type ArchivedGame } from './archive';
+import {
+  HINT_LEVELS,
+  checkMove,
+  getHintLevel,
+  setHintLevel,
+  showCoachPrompt,
+  type HintLevel,
+} from './livecoach';
+import { initCoachProvider } from './llm';
 import { XiangqiScene, type PieceTheme } from './scene3d';
 import {
   isMuted,
@@ -51,11 +62,22 @@ const TEMPOS = [
   { id: 'slow', name: '沉稳', desc: '慢一些，像面对面下棋', slide: 0.34, think: 1600 },
 ] as const;
 
+/**
+ * 五档难度。
+ *
+ * 弱档**不是随机走棋**——随机走棋会走出人类绝不会走的怪棋，
+ * 陪练价值等于零，而且新手照着学会学坏。这里的做法是让引擎照常搜索，
+ * 但给评估函数加扰动（jitter）并压低层数：它仍然遵守全部棋规、仍然会
+ * 吃明显的子，只是**会看走眼**——和真正的初学者犯的错是同一类。
+ *
+ * 「专家」档留给以后接更强的引擎，现在不放空壳子占位。
+ */
 const LEVELS = [
-  { id: 0, name: '新手', desc: '会看走眼，适合练手', depth: 3, jitter: 110, timeMs: 300 },
-  { id: 1, name: '进阶', desc: '算 6 层，有来有回', depth: 6, jitter: 25, timeMs: 800 },
-  { id: 2, name: '高手', desc: '算 10 层，抓子抓杀', depth: 10, jitter: 0, timeMs: 1800 },
-  { id: 3, name: '大师', desc: '算 14 层，不留情面', depth: 14, jitter: 0, timeMs: 3500 },
+  { id: 0, name: '入门', desc: '刚学会走子，常看走眼', depth: 2, jitter: 200, timeMs: 200 },
+  { id: 1, name: '初级', desc: '会吃子，不太会算', depth: 4, jitter: 90, timeMs: 400 },
+  { id: 2, name: '中级', desc: '有基本战术，抓得住漏着', depth: 7, jitter: 20, timeMs: 900 },
+  { id: 3, name: '高级', desc: '算 10 层，抓子抓杀', depth: 10, jitter: 0, timeMs: 1800 },
+  { id: 4, name: '大师', desc: '算 14 层，不留情面', depth: 14, jitter: 0, timeMs: 3500 },
 ];
 
 const THEMES: { id: PieceTheme; name: string; emoji: string; desc: string }[] = [
@@ -73,6 +95,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   let setupEl: HTMLElement | null = null;
   let disposeCoach: (() => void) | null = null;
 
+  // 讲解器：配了后端就用后端（密钥留在后端，前端只发事实），没配就用离线模板。
+  // 离线模板不是降级方案——没有任何 API 也必须能完整学棋。
+  initCoachProvider(import.meta.env.VITE_COACH_API as string | undefined);
+
   const unlock = () => unlockAudio();
   window.addEventListener('pointerdown', unlock, { once: true });
 
@@ -85,66 +111,107 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     setupEl = null;
   };
 
-  // ============ 一级入口：下棋 还是 学棋 ============
-  function showModeMenu() {
+  // ============ 首页：规格里的五个入口 ============
+  //
+  // 首页不堆功能，每个入口下面挂的是**当前状态**而不是功能说明——
+  // 打开 App 第一秒就该知道今天该干什么，而不是自己在菜单里挑。
+  function showHome() {
     clearAll();
-    const rs = getRatings();
-    const overall = overallOf(rs);
-    const srs = srsCount();
-    const s = document.createElement('div');
-    s.className = 'screen xq-setup xq-modes';
-    setupEl = s;
-    s.innerHTML = `<h1>楚河汉界</h1><div class="sub">下棋练手，学棋涨分</div>`;
+    const dispose = renderHome(wrap, {
+      onPlay: () => showSetup(),
+      onTrainToday: () => openCoach('today'),
+      onPuzzles: () => openCoach('puzzles'),
+      onReview: (id) => showGameList(id),
+      onLevel: () => showLevel(),
+      onExit: () => onExit(false),
+    });
+    setupEl = { remove: dispose } as unknown as HTMLElement;
+  }
 
-    const list = document.createElement('div');
-    list.className = 'card-list';
-    const modes = [
-      {
-        t: '⚔️ 对弈',
-        d: '和 AI 下一盘完整的棋。下完可以复盘——引擎会逐手标出你哪里走坏了、该走什么。',
-        go: () => showSetup(),
-      },
-      {
-        t: '📚 学棋',
-        d: isAssessed()
-          ? `当前 ${rankOf(overall).name} · ${overall} 分。专项练习按你的水平出题${
-              srs.due ? `，今天还有 ${srs.due} 道错题要复习` : ''
-            }。`
-          : '先测一下水平（约 20 分钟），再按短板安排练什么。测评题会跟着你的表现自动调难度。',
-        go: () => {
-          clearAll();
-          disposeCoach = runCoach(wrap, showModeMenu, (strip, depth, onFinish) => {
-            // 让子定级的对局交回对弈流程：那边已经有完整的棋盘、复盘和结算
-            disposeCoach?.();
-            disposeCoach = null;
-            const lv = Math.max(0, Math.min(LEVELS.length - 1, depth >= 14 ? 3 : depth >= 10 ? 2 : 1));
-            startGame(
-              lv,
-              (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme,
-              CHARACTERS[Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length],
-              (localStorage.getItem('xq-facing') ?? 'duel') === 'duel',
-              Number(localStorage.getItem('xq-tempo') ?? 1),
-              { strip, depth, onFinish },
-            );
-          });
-        },
-      },
-    ];
-    for (const m of modes) {
-      const card = document.createElement('div');
-      card.className = 'card home-card';
-      card.innerHTML = `<div class="title">${m.t}</div><div class="desc">${m.d}</div>`;
-      card.onclick = m.go;
-      list.appendChild(card);
+  /** 打开学棋模块（测评 / 课程 / 题库都在里面） */
+  function openCoach(_entry: 'today' | 'puzzles') {
+    clearAll();
+    disposeCoach = runCoach(wrap, showHome, (strip, depth, onFinish) => {
+      // 让子定级的对局交回对弈流程：那边已经有完整的棋盘、复盘和结算
+      disposeCoach?.();
+      disposeCoach = null;
+      const lv = Math.max(0, Math.min(LEVELS.length - 1, depth >= 14 ? 4 : depth >= 10 ? 3 : 2));
+      startGame(
+        lv,
+        (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme,
+        CHARACTERS[Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length],
+        (localStorage.getItem('xq-facing') ?? 'duel') === 'duel',
+        Number(localStorage.getItem('xq-tempo') ?? 1),
+        { strip, depth, onFinish },
+      );
+    });
+  }
+
+  // ============ 最近棋局 ============
+  function showGameList(preferId?: string) {
+    clearAll();
+    const dispose = renderGameList(wrap, (g) => openArchivedReview(g), showHome);
+    setupEl = { remove: dispose } as unknown as HTMLElement;
+    // 首页那张"棋局复盘"卡片直接点进来时，自动打开最近一盘
+    if (preferId) {
+      const g = listArchived().find((x) => x.id === preferId);
+      if (g) openArchivedReview(g);
     }
-    s.appendChild(list);
+  }
 
-    const back = document.createElement('button');
-    back.className = 'btn ghost';
-    back.textContent = '← 返回合集首页';
-    back.onclick = () => onExit(false);
-    s.appendChild(back);
-    wrap.appendChild(s);
+  // ============ 我的水平 ============
+  function showLevel() {
+    clearAll();
+    const dispose = renderLevel(wrap, showHome, () => openCoach('today'));
+    setupEl = { remove: dispose } as unknown as HTMLElement;
+  }
+
+  /**
+   * 复盘一盘**存档里的**棋。
+   *
+   * 和对局结束后的复盘走的是同一套 runReview，区别只在于棋盘要自己造一个——
+   * 那时候场上有现成的 3D 棋盘，这里没有。两条路共用同一套分析和界面，
+   * 就不会出现"历史复盘和刚下完的复盘讲得不一样"这种事。
+   */
+  function openArchivedReview(g: ArchivedGame) {
+    const opened = openGame(g);
+    clearAll();
+    if (!opened) {
+      const bad = document.createElement('div');
+      bad.className = 'screen xq-setup';
+      bad.innerHTML = '<h1>这盘棋读不出来</h1><div class="sub">存档可能损坏了，换一盘看看。</div>';
+      const back = document.createElement('button');
+      back.className = 'btn ghost';
+      back.textContent = '← 返回';
+      back.onclick = () => showGameList();
+      bad.appendChild(back);
+      wrap.appendChild(bad);
+      setupEl = bad;
+      return;
+    }
+    const theme = (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme;
+    const scene = new XiangqiScene(wrap, () => {}, theme, (localStorage.getItem('xq-facing') ?? 'duel') === 'duel');
+    scene.syncBoard(opened.start);
+    const closeRv = runReview({
+      host: wrap,
+      scene,
+      startBoard: opened.start,
+      startColor: opened.startColor,
+      moves: opened.moves,
+      playerColor: g.side,
+      playerWon: g.result === 'win',
+      archiveId: g.id,
+      onClose: () => {
+        cleanupGame?.();
+        showGameList();
+      },
+    });
+    cleanupGame = () => {
+      closeRv();
+      scene.dispose();
+      disposeAi();
+      cleanupGame = null;
+    };
   }
 
   // ============ 开局设置界面 ============
@@ -156,6 +223,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let rival = Number(localStorage.getItem('xq-rival') ?? 2);
     let facing = (localStorage.getItem('xq-facing') ?? 'duel') as 'duel' | 'me';
     let tempo = Math.max(0, Math.min(TEMPOS.length - 1, Number(localStorage.getItem('xq-tempo') ?? 1)));
+    let hint: HintLevel = getHintLevel();
 
     const s = document.createElement('div');
     s.className = 'screen xq-setup';
@@ -269,6 +337,27 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       });
       s.appendChild(tRow);
 
+      // 教练模式：这是本产品和普通对弈软件最大的区别，所以放在"开始"上面
+      const hLabel = document.createElement('div');
+      hLabel.className = 'xq-sec';
+      hLabel.textContent = '教练模式';
+      s.appendChild(hLabel);
+      const hRow = document.createElement('div');
+      hRow.className = 'diff-row';
+      HINT_LEVELS.forEach((h) => {
+        const c = document.createElement('div');
+        c.className = 'card' + (hint === h.id ? ' selected' : '');
+        c.innerHTML = `<div class="title" style="justify-content:center">${h.name}</div>
+          <div class="desc" style="text-align:center">${h.desc}</div>`;
+        c.onclick = () => { hint = h.id; sfxTap(); render(); };
+        hRow.appendChild(c);
+      });
+      s.appendChild(hRow);
+      const hNote = document.createElement('div');
+      hNote.className = 'xq-note';
+      hNote.textContent = '教练不会替你走棋，也不拦着你——只在你要掉坑的时候说一句，走不走由你定。';
+      s.appendChild(hNote);
+
       const go = document.createElement('button');
       go.className = 'btn';
       go.textContent = '⚔️ 开始对弈';
@@ -278,6 +367,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         localStorage.setItem('xq-rival', String(rival));
         localStorage.setItem('xq-facing', facing);
         localStorage.setItem('xq-tempo', String(tempo));
+        setHintLevel(hint);
         s.remove();
         setupEl = null;
         startGame(level, theme, CHARACTERS[rival], facing === 'duel', tempo);
@@ -286,8 +376,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
       const back = document.createElement('button');
       back.className = 'btn ghost';
-      back.textContent = '← 返回';
-      back.onclick = () => showModeMenu();
+      back.textContent = '← 返回首页';
+      back.onclick = () => showHome();
       s.appendChild(back);
     };
     render();
@@ -319,6 +409,17 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         board[hy][hx] = null;
       }
     }
+    /**
+     * 这一局真正的起始局面。
+     *
+     * 让子局不是标准开局，所以"重开"和"复盘"都不能拿 initialBoard() 当起点：
+     * 重开会把让掉的马还给对手（定级立刻失真），复盘会把整盘棋摆在一个
+     * 根本没出现过的局面上重算一遍，逐手评分全是错的——而界面上完全看不出来，
+     * 用户只会觉得"这软件的复盘在胡说"。存一份快照，两处都用它。
+     */
+    const startSnapshot: Board = cloneBoard(board);
+    /** 教练模式的提示档，开局时读一次，对局中可以在 HUD 里改 */
+    let hintLevel: HintLevel = getHintLevel();
 
     let history: Board[] = [];
     /** 整盘的着法序列，复盘用。history 存的是局面，复盘要的是着法 */
@@ -332,6 +433,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let aiSeq = 0;
     let toastTimer = 0;
     let bubbleTimer = 0;
+    /** 教练提示条。悔棋 / 重开 / 退出时都要收掉，否则会挂在屏幕上 */
+    let closeCoachPrompt: (() => void) | null = null;
+    /** 这一局存进存档之后的 id，复盘算完要把结论回填到它身上 */
+    let archivedId: string | null = null;
 
     const scene = new XiangqiScene(wrap, (x, y) => onTap(x, y), theme, flipBlack);
     scene.setSlideSec(TEMPO.slide);
@@ -349,6 +454,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       <div class="xq-turn"><span id="xq-turn-dot"></span><span id="xq-turn-text">红方走棋</span></div>
       <div class="xq-actions">
         <button class="xq-btn" id="xq-mute">${isMuted() ? '🔇' : '🔊'}</button>
+        <button class="xq-btn" id="xq-hint">🧑‍🏫 ${HINT_LEVELS[hintLevel].name}</button>
         <button class="xq-btn" id="xq-undo">悔棋</button>
         <button class="xq-btn" id="xq-restart">重开</button>
       </div>`;
@@ -356,6 +462,14 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     (hud.querySelector('.xq-back') as HTMLButtonElement).onclick = () => showSetup();
     (hud.querySelector('#xq-undo') as HTMLButtonElement).onclick = () => undo();
     (hud.querySelector('#xq-restart') as HTMLButtonElement).onclick = () => restart();
+    // 教练档就地循环切换：对局中途想安静一会儿不该逼人退出去改设置
+    const hintBtn = hud.querySelector('#xq-hint') as HTMLButtonElement;
+    hintBtn.onclick = () => {
+      hintLevel = ((hintLevel + 1) % HINT_LEVELS.length) as HintLevel;
+      setHintLevel(hintLevel);
+      hintBtn.textContent = `🧑‍🏫 ${HINT_LEVELS[hintLevel].name}`;
+      showToast(`教练：${HINT_LEVELS[hintLevel].name} —— ${HINT_LEVELS[hintLevel].desc}`);
+    };
     const muteBtn = hud.querySelector('#xq-mute') as HTMLButtonElement;
     muteBtn.onclick = () => {
       setMuted(!isMuted());
@@ -426,7 +540,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         const moves = legalMoves(board, 'r').filter((m) => m.fx === selected!.x && m.fy === selected!.y);
         const mv = moves.find((m) => m.tx === x && m.ty === y);
         if (mv) {
-          doMove(mv);
+          tryMove(mv);
           return;
         }
       }
@@ -442,6 +556,43 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         selected = null;
         scene.select(null);
       }
+    }
+
+    /**
+     * 落子入口：先让教练看一眼。
+     *
+     * 教练**永远不替用户走棋**，也不禁止用户走。它只在你要掉坑的时候
+     * 说一句，然后把决定权还给你——"换一手"还是"就这么走"由你定。
+     * 坚持走错也照走，那一手会被复盘抓下来单独讲，印象比当场拦住深。
+     */
+    function tryMove(m: Move) {
+      const risk = checkMove(hintLevel, board, m, 'r');
+      if (!risk) {
+        doMove(m);
+        return;
+      }
+      busy = true; // 提示条开着的时候不接受别的点击
+      sfxAlert();
+      closeCoachPrompt?.();
+      closeCoachPrompt = showCoachPrompt({
+        host: wrap,
+        level: hintLevel,
+        before: board,
+        move: m,
+        me: 'r',
+        risk,
+        onProceed: () => {
+          closeCoachPrompt = null;
+          busy = false;
+          doMove(m);
+        },
+        onCancel: () => {
+          closeCoachPrompt = null;
+          busy = false;
+          selected = null;
+          scene.select(null);
+        },
+      });
     }
 
     function doMove(m: Move) {
@@ -509,6 +660,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     }
 
     function undo() {
+      closeCoachPrompt?.();
+      closeCoachPrompt = null;
       if (busy || history.length === 0) return;
       clearTimeout(aiTimer);
       aiSeq++; // 作废正在跑的搜索
@@ -531,10 +684,13 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     }
 
     function restart() {
+      closeCoachPrompt?.();
+      closeCoachPrompt = null;
+      archivedId = null;
       clearTimeout(aiTimer);
       aiSeq++;
       scene.setThinking(false);
-      board = initialBoard();
+      board = cloneBoard(startSnapshot); // 让子局要保留让掉的子
       history = [];
       moveLog = [];
       turn = 'r';
@@ -559,6 +715,16 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     function showResult(playerWon: boolean) {
       lastWon = playerWon;
       handicap?.onFinish(playerWon);
+      // 整盘存下来。存的是起始局面 + 着法序列，之后随时能翻回来复盘。
+      // 存档在复盘之前就要落地——用户可能直接关掉不复盘，那盘棋也不能丢。
+      if (moveLog.length >= 2 && !archivedId) {
+        archivedId = archiveFromBoard(startSnapshot, 'r', moveLog, {
+          side: 'r',
+          result: playerWon ? 'win' : 'loss',
+          level: handicap ? `让${handicap.strip}马` : L.name,
+          rival: rival.name,
+        });
+      }
       if (playerWon) {
         sfxWinBig();
         setTimeout(() => say(pickLine(rival.lines.lose)), 500);
@@ -590,7 +756,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       const back = document.createElement('button');
       back.className = 'btn ghost';
       back.textContent = '返回首页';
-      back.onclick = () => onExit(false);
+      back.onclick = () => showHome();
       s.appendChild(rv);
       s.appendChild(again);
       s.appendChild(chg);
@@ -608,11 +774,12 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       closeReview = runReview({
         host: wrap,
         scene,
-        startBoard: initialBoard(),
+        startBoard: cloneBoard(startSnapshot),
         startColor: 'r',
         moves: moveLog.slice(),
         playerColor: 'r',
         playerWon: lastWon,
+        archiveId: archivedId ?? undefined,
         onClose: () => {
           closeReview = null;
           resultEl?.classList.remove('xq-hidden');
@@ -638,6 +805,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     cleanupGame = () => {
       closeReview?.();
       closeReview = null;
+      closeCoachPrompt?.();
+      closeCoachPrompt = null;
       clearTimeout(aiTimer);
       clearTimeout(toastTimer);
       clearTimeout(bubbleTimer);
@@ -652,7 +821,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     };
   }
 
-  showModeMenu();
+  showHome();
 
   return () => {
     window.removeEventListener('pointerdown', unlock);
