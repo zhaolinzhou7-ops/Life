@@ -1,0 +1,949 @@
+/**
+ * AI 智能取名 · 样式
+ *
+ * 视觉定位：现代东方 + 极简 + 温润。
+ *
+ * 明确不要的东西：满屏金色、龙凤八卦、复杂古风底纹、发光的科技感边框、
+ * 大量装饰动画。这些会让产品看起来像街边算命摊，而用户在做的是一个要用
+ * 一辈子的决定。
+ *
+ * 要的东西：大留白、清楚的字号层级、卡片化信息、极少的线条、一个克制的
+ * 主色（黛青），名字本身用宋体撑起分量。手机优先，单手能用。
+ *
+ * 所有类名带 nm- 前缀，和仓库里其它游戏的全局样式完全隔离。
+ */
+
+.nm-app {
+  --paper: #f6f3ed;
+  --card: #fffdfa;
+  --ink: #2b2723;
+  --ink-2: #5d564e;
+  --ink-3: #938b80;
+  --line: #e7e1d7;
+  --line-2: #f0ebe2;
+  --dai: #3f5d59; /* 黛青，唯一的主色 */
+  --dai-soft: #eaf0ee;
+  --zhu: #a8452f; /* 朱砂，只用于风险提示 */
+  --gold: #9a7b3f;
+  --ok: #4e7a58;
+  --warn: #9a6b2f;
+
+  position: fixed;
+  inset: 0;
+  background: var(--paper);
+  color: var(--ink);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  user-select: text;
+  -webkit-user-select: text;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  overscroll-behavior: contain;
+}
+
+@media (prefers-color-scheme: dark) {
+  .nm-app {
+    --paper: #16181a;
+    --card: #1e2124;
+    --ink: #e8e4dd;
+    --ink-2: #b3ada4;
+    --ink-3: #847d74;
+    --line: #2c3033;
+    --line-2: #23272a;
+    --dai: #8fbdb4;
+    --dai-soft: #1f2d2b;
+    --zhu: #d98a72;
+    --gold: #c2a468;
+    --ok: #86b995;
+    --warn: #c9a15e;
+  }
+}
+
+.nm-app *,
+.nm-app *::before,
+.nm-app *::after {
+  box-sizing: border-box;
+}
+
+.nm-page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 0 20px calc(40px + env(safe-area-inset-bottom));
+  min-height: 100%;
+}
+
+/* ———————————————— 顶栏 ———————————————— */
+.nm-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  margin: 0 -20px 4px;
+  padding: env(safe-area-inset-top) 12px 0;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--line-2);
+}
+.nm-back {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 10px;
+  padding: 0 0 3px;
+}
+.nm-back:active {
+  background: var(--line-2);
+}
+.nm-topbar-title {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nm-topbar-right {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+}
+
+/* ———————————————— 首页 ———————————————— */
+.nm-home {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding-top: calc(12vh + env(safe-area-inset-top));
+  text-align: left;
+}
+.nm-seal {
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  background: var(--dai);
+  color: #fffdfa;
+  display: grid;
+  place-items: center;
+  font-family: 'Songti SC', 'STSong', 'SimSun', serif;
+  font-size: 24px;
+  margin-bottom: 22px;
+}
+.nm-home h1 {
+  font-family: 'Songti SC', 'STSong', 'SimSun', serif;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  margin: 0 0 14px;
+  line-height: 1.35;
+}
+.nm-home .nm-lede {
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1.85;
+  margin: 0 0 8px;
+  max-width: 30em;
+}
+.nm-home .nm-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin: 18px 0 0;
+}
+.nm-home-actions {
+  margin-top: auto;
+  padding-top: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.nm-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 26px 0 0;
+  flex-wrap: wrap;
+}
+.nm-step {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+.nm-step-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.nm-step-arrow {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* ———————————————— 按钮 ———————————————— */
+.nm-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 12px;
+  padding: 13px 18px;
+  font-size: 15px;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.08s ease, background 0.15s ease;
+}
+.nm-btn:active {
+  transform: scale(0.985);
+}
+.nm-btn.primary {
+  background: var(--dai);
+  border-color: var(--dai);
+  color: #fffdfa;
+}
+.nm-btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--dai);
+  padding: 10px 6px;
+}
+.nm-btn.small {
+  padding: 8px 14px;
+  font-size: 13.5px;
+  border-radius: 10px;
+}
+.nm-btn.block {
+  width: 100%;
+}
+.nm-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ———————————————— 表单 ———————————————— */
+.nm-field {
+  margin: 0 0 22px;
+}
+.nm-label {
+  font-size: 14.5px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.nm-hint {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+.nm-input,
+.nm-app textarea.nm-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1.6;
+  outline: none;
+  -webkit-appearance: none;
+}
+.nm-app textarea.nm-input {
+  resize: vertical;
+  min-height: 84px;
+}
+.nm-input:focus {
+  border-color: var(--dai);
+}
+.nm-input::placeholder {
+  color: var(--ink-3);
+}
+.nm-row {
+  display: flex;
+  gap: 10px;
+}
+.nm-row > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.nm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.nm-chips-row {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin: 0 -20px;
+  padding: 2px 20px 4px;
+}
+.nm-chips-row::-webkit-scrollbar {
+  display: none;
+}
+.nm-chips-row .nm-chip {
+  flex: 0 0 auto;
+}
+
+.nm-chip {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink-2);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.nm-chip.on {
+  background: var(--dai-soft);
+  border-color: var(--dai);
+  color: var(--dai);
+  font-weight: 600;
+}
+.nm-chip:active {
+  transform: scale(0.96);
+}
+
+.nm-progress {
+  display: flex;
+  gap: 5px;
+  margin: 14px 0 22px;
+}
+.nm-progress i {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.nm-progress i.on {
+  background: var(--dai);
+}
+
+.nm-stepnote {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin-bottom: 18px;
+}
+
+.nm-formfoot {
+  position: sticky;
+  bottom: 0;
+  margin: 26px -20px 0;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line-2);
+  display: flex;
+  gap: 10px;
+}
+.nm-formfoot .nm-btn {
+  flex: 1;
+}
+.nm-formfoot .nm-btn.ghost {
+  flex: 0 0 auto;
+}
+
+/* ———————————————— 结果卡片 ———————————————— */
+.nm-notice {
+  background: var(--dai-soft);
+  border: 1px solid color-mix(in srgb, var(--dai) 22%, transparent);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  margin: 0 0 16px;
+}
+.nm-notice b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.nm-notice ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+.nm-notice li {
+  margin: 3px 0;
+}
+
+.nm-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nm-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px 16px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.08s ease;
+}
+.nm-card:active {
+  transform: scale(0.992);
+}
+.nm-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.nm-name {
+  font-family: 'Songti SC', 'STSong', 'SimSun', serif;
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  line-height: 1.25;
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
+}
+.nm-py {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-top: 3px;
+  font-weight: 400;
+  letter-spacing: 1px;
+}
+.nm-fav {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 17px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.nm-fav.on {
+  color: var(--zhu);
+  border-color: color-mix(in srgb, var(--zhu) 35%, transparent);
+  background: color-mix(in srgb, var(--zhu) 8%, transparent);
+}
+.nm-oneline {
+  font-size: 13.5px;
+  color: var(--ink-2);
+  line-height: 1.75;
+  margin: 10px 0 0;
+}
+.nm-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 11px;
+  align-items: center;
+}
+.nm-tag {
+  font-size: 11.5px;
+  color: var(--ink-2);
+  background: var(--line-2);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+.nm-tag.src {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--gold);
+}
+.nm-tag.risk {
+  background: color-mix(in srgb, var(--zhu) 10%, transparent);
+  color: var(--zhu);
+}
+.nm-card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-2);
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.nm-card-foot .go {
+  color: var(--dai);
+  font-weight: 500;
+}
+
+/* ———————————————— 详情 ———————————————— */
+.nm-detail-hero {
+  padding: 18px 0 6px;
+}
+.nm-detail-hero .nm-name {
+  font-size: 44px;
+  letter-spacing: 6px;
+}
+.nm-detail-hero .nm-py {
+  font-size: 13px;
+  margin-top: 8px;
+}
+.nm-section {
+  margin: 26px 0 0;
+}
+.nm-section > h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+  letter-spacing: 2px;
+  margin: 0 0 10px;
+  text-transform: none;
+}
+.nm-prose {
+  font-size: 14.5px;
+  line-height: 1.85;
+  color: var(--ink-2);
+  margin: 0;
+}
+.nm-prose strong {
+  color: var(--ink);
+}
+.nm-quote {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: 0 12px 12px 0;
+  padding: 14px 16px;
+}
+.nm-quote .src {
+  font-size: 12.5px;
+  color: var(--gold);
+  margin-bottom: 8px;
+}
+.nm-quote .line {
+  font-family: 'Songti SC', 'STSong', 'SimSun', serif;
+  font-size: 16px;
+  line-height: 1.9;
+  color: var(--ink);
+  letter-spacing: 1px;
+}
+.nm-quote .note {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.75;
+  margin-top: 9px;
+}
+
+.nm-dim {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 9px 0;
+}
+.nm-dim-label {
+  flex: 0 0 44px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.nm-dim-track {
+  flex: 1;
+  height: 5px;
+  background: var(--line-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.nm-dim-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--ink-3);
+}
+.nm-dim-fill.lv-a { background: var(--ok); }
+.nm-dim-fill.lv-b { background: var(--dai); }
+.nm-dim-fill.lv-c { background: var(--warn); }
+.nm-dim-fill.lv-d { background: var(--zhu); }
+.nm-dim-level {
+  flex: 0 0 34px;
+  text-align: right;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.nm-dim-level.lv-a { color: var(--ok); }
+.nm-dim-level.lv-c { color: var(--warn); }
+.nm-dim-level.lv-d { color: var(--zhu); }
+
+.nm-notes {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.75;
+}
+.nm-notes li {
+  margin: 4px 0;
+}
+
+.nm-list-pro,
+.nm-list-con {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--ink-2);
+}
+.nm-list-pro li,
+.nm-list-con li {
+  padding-left: 20px;
+  position: relative;
+  margin: 7px 0;
+}
+.nm-list-pro li::before {
+  content: '·';
+  position: absolute;
+  left: 6px;
+  color: var(--ok);
+  font-weight: 700;
+}
+.nm-list-con li::before {
+  content: '·';
+  position: absolute;
+  left: 6px;
+  color: var(--warn);
+  font-weight: 700;
+}
+
+.nm-risk {
+  background: color-mix(in srgb, var(--zhu) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--zhu) 20%, transparent);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--ink-2);
+}
+.nm-risk ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.nm-risk li {
+  margin: 4px 0;
+}
+
+.nm-chars {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.nm-charcard {
+  flex: 1 1 140px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.nm-charcard .g {
+  font-family: 'Songti SC', 'STSong', 'SimSun', serif;
+  font-size: 30px;
+  line-height: 1.2;
+}
+.nm-charcard .m {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin: 4px 0 6px;
+}
+.nm-charcard .y {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.7;
+}
+
+.nm-disclaimer {
+  font-size: 12px;
+  color: var(--ink-3);
+  line-height: 1.8;
+  background: var(--line-2);
+  border-radius: 10px;
+  padding: 11px 13px;
+}
+
+/* ———————————————— 折叠 ———————————————— */
+.nm-collapse {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  overflow: hidden;
+}
+.nm-collapse-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: 13.5px;
+  padding: 13px 14px;
+  cursor: pointer;
+  text-align: left;
+}
+.nm-collapse-head i {
+  font-style: normal;
+  color: var(--ink-3);
+  font-size: 16px;
+}
+.nm-collapse-body {
+  padding: 0 14px 14px;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.8;
+}
+
+/* ———————————————— 对比表 ———————————————— */
+.nm-cmp-scroll {
+  overflow-x: auto;
+  margin: 0 -20px;
+  padding: 0 20px;
+  -webkit-overflow-scrolling: touch;
+}
+.nm-cmp {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
+  font-size: 13px;
+}
+.nm-cmp th,
+.nm-cmp td {
+  text-align: left;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line-2);
+  vertical-align: top;
+}
+.nm-cmp thead th {
+  position: sticky;
+  top: 0;
+  background: var(--paper);
+  z-index: 2;
+}
+.nm-cmp th.rowhead {
+  position: sticky;
+  left: 0;
+  background: var(--paper);
+  z-index: 1;
+  font-weight: 500;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  /* 「易用性」「独特性」这类三字标签要能一行放下，不然整列都在折行 */
+  width: 68px;
+  min-width: 68px;
+  white-space: nowrap;
+}
+.nm-cmp thead th.rowhead {
+  z-index: 3;
+}
+.nm-cmp td {
+  min-width: 152px;
+  max-width: 190px;
+  color: var(--ink-2);
+  line-height: 1.7;
+}
+.nm-cmp .cname {
+  font-family: 'Songti SC', 'STSong', 'SimSun', serif;
+  font-size: 20px;
+  letter-spacing: 2px;
+  color: var(--ink);
+}
+.nm-cmp .lvl {
+  font-weight: 600;
+}
+.nm-cmp .lvl.lv-a { color: var(--ok); }
+.nm-cmp .lvl.lv-b { color: var(--dai); }
+.nm-cmp .lvl.lv-c { color: var(--warn); }
+.nm-cmp .lvl.lv-d { color: var(--zhu); }
+
+/* ———————————————— 收藏 ———————————————— */
+.nm-fav-item {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 15px;
+}
+.nm-fav-item.picked {
+  border-color: var(--dai);
+  background: var(--dai-soft);
+}
+.nm-fav-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nm-fav-head .nm-name {
+  font-size: 22px;
+  letter-spacing: 2px;
+}
+.nm-note-input {
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  -webkit-appearance: none;
+}
+.nm-note-input:focus {
+  border-color: var(--dai);
+}
+.nm-pickbox {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid var(--line);
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: transparent;
+  padding: 0;
+}
+.nm-pickbox.on {
+  background: var(--dai);
+  border-color: var(--dai);
+  color: #fffdfa;
+}
+
+/* ———————————————— 骨架 / 空状态 ———————————————— */
+.nm-skel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nm-skel-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px 16px;
+}
+.nm-skel-name,
+.nm-skel-line {
+  background: linear-gradient(90deg, var(--line-2) 25%, var(--line) 37%, var(--line-2) 63%);
+  background-size: 400% 100%;
+  animation: nm-shimmer 1.4s ease infinite;
+  border-radius: 6px;
+}
+.nm-skel-name {
+  width: 108px;
+  height: 26px;
+  margin-bottom: 14px;
+}
+.nm-skel-line {
+  height: 11px;
+  margin: 7px 0;
+}
+.nm-skel-line.short {
+  width: 62%;
+}
+@keyframes nm-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+.nm-empty {
+  text-align: center;
+  padding: 56px 20px;
+}
+.nm-empty-mark {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.nm-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 7px;
+}
+.nm-empty-desc {
+  font-size: 13.5px;
+  color: var(--ink-3);
+  line-height: 1.75;
+  margin-bottom: 20px;
+  max-width: 24em;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.nm-toast {
+  position: fixed;
+  left: 50%;
+  /* 抬到底部动作条上方，别盖住「换一批」这类按钮 */
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(10px);
+  background: rgba(30, 28, 25, 0.93);
+  color: #fff;
+  font-size: 13.5px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 100;
+  max-width: 82vw;
+  text-align: center;
+}
+.nm-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ———————————————— 底部动作条 ———————————————— */
+.nm-actionbar {
+  position: sticky;
+  bottom: 0;
+  margin: 22px -20px 0;
+  padding: 11px 20px calc(11px + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line-2);
+  display: flex;
+  gap: 10px;
+}
+.nm-actionbar .nm-btn {
+  flex: 1;
+}
+
+/* 小屏：把名字和标题压一档，避免长名字撑破卡片 */
+@media (max-width: 360px) {
+  .nm-app { font-size: 14.5px; }
+  .nm-home h1 { font-size: 29px; letter-spacing: 2px; }
+  .nm-name { font-size: 24px; letter-spacing: 2px; }
+  .nm-detail-hero .nm-name { font-size: 36px; letter-spacing: 4px; }
+  .nm-page { padding-left: 16px; padding-right: 16px; }
+  .nm-topbar { margin-left: -16px; margin-right: -16px; }
+  .nm-chips-row { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
+  .nm-formfoot, .nm-actionbar { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
+}
