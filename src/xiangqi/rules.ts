@@ -192,8 +192,8 @@ export function findKing(b: Board, c: Color): [number, number] | null {
   return null;
 }
 
-/** 将帅对脸：同列且中间无子 */
-function kingsFacing(b: Board): boolean {
+/** 将帅对脸：同列且中间无子。教学层要单独判这一条，所以导出 */
+export function kingsFacing(b: Board): boolean {
   const rk = findKing(b, 'r');
   const bk = findKing(b, 'b');
   if (!rk || !bk || rk[0] !== bk[0]) return false;
@@ -204,7 +204,8 @@ function kingsFacing(b: Board): boolean {
   return true;
 }
 
-function pseudoMoves(b: Board, c: Color): Move[] {
+/** 伪合法着法：不检查走完之后自己会不会被将。教学层算兑子序列要用 */
+export function pseudoMoves(b: Board, c: Color): Move[] {
   const out: Move[] = [];
   for (let y = 0; y < ROWS; y++)
     for (let x = 0; x < COLS; x++) {
