@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { memStore } from './setup-dom';
-import { QUICK_ASKS, factsFor, type ChatContext } from '../src/xiangqi/chat';
+import { QUICK_ASKS, factsFor, quickAsks, type ChatContext } from '../src/xiangqi/chat';
 import { offlineText, verifyExplanation } from '../src/xiangqi/llm';
 import { archiveGame, clearArchive } from '../src/xiangqi/archive';
 import { initialBoard } from '../src/xiangqi/rules';
@@ -109,5 +109,42 @@ describe('回答必须站得住', () => {
     const t = offlineText(f);
     expect(t.length).toBeGreaterThan(0);
     expect(verifyExplanation(t, f).ok).toBe(true);
+  });
+});
+
+describe('教练要看得见这一局的结果——赢了的人不能被问"为什么我输了"', () => {
+  it('赢了的时候第一个问题问的是赢在哪', () => {
+    expect(quickAsks({ side: '红', stats: { total: 30, blunders: 0, mistakes: 0, avgLoss: 20, won: true } })[0]).toContain('赢');
+  });
+
+  it('输了的时候才问为什么输', () => {
+    expect(quickAsks({ side: '红', stats: { total: 30, blunders: 2, mistakes: 1, avgLoss: 300, won: false } })[0]).toContain('输');
+  });
+
+  it('不知道结果时问个中性的', () => {
+    const q = quickAsks({ side: '红' })[0];
+    expect(q).not.toContain('输');
+    expect(q).not.toContain('赢');
+  });
+
+  it('赢了却问"为什么我输了"，教练先把事实摆正而不是顺着答', () => {
+    const t = offlineText({
+      kind: 'ask',
+      side: '红',
+      question: '为什么我输了？',
+      stats: { total: 30, blunders: 0, mistakes: 0, avgLoss: 20, won: true },
+    });
+    expect(t).toContain('这一局你是赢的');
+  });
+
+  it('真输了就正常分析，不会莫名其妙来一句"你是赢的"', () => {
+    const t = offlineText({
+      kind: 'ask',
+      side: '红',
+      question: '为什么我输了？',
+      stats: { total: 30, blunders: 3, mistakes: 1, avgLoss: 320, won: false },
+    });
+    expect(t).not.toContain('你是赢的');
+    expect(t).toContain('3 手漏着');
   });
 });

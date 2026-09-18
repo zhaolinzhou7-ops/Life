@@ -14,6 +14,7 @@ import { disposeAi, requestMove, warmupAi } from './aiclient';
 import { runReview } from './review';
 import { runCoach } from './coach';
 import { renderGameList, renderHome, renderLevel } from './home';
+import { fromFen } from './notation';
 import { archiveFromBoard, listGames as listArchived, openGame, type ArchivedGame } from './archive';
 import {
   HINT_LEVELS,
@@ -417,7 +418,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
      * 根本没出现过的局面上重算一遍，逐手评分全是错的——而界面上完全看不出来，
      * 用户只会觉得"这软件的复盘在胡说"。存一份快照，两处都用它。
      */
-    const startSnapshot: Board = cloneBoard(board);
+    let startSnapshot: Board = cloneBoard(board);
     /** 教练模式的提示档，开局时读一次，对局中可以在 HUD 里改 */
     let hintLevel: HintLevel = getHintLevel();
 
@@ -454,7 +455,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       <div class="xq-turn"><span id="xq-turn-dot"></span><span id="xq-turn-text">红方走棋</span></div>
       <div class="xq-actions">
         <button class="xq-btn" id="xq-mute">${isMuted() ? '🔇' : '🔊'}</button>
-        <button class="xq-btn" id="xq-hint">🧑‍🏫 ${HINT_LEVELS[hintLevel].name}</button>
+        <button class="xq-btn" id="xq-hint" title="教练提示档位">🧑‍🏫${HINT_LEVELS[hintLevel].short}</button>
         <button class="xq-btn" id="xq-undo">悔棋</button>
         <button class="xq-btn" id="xq-restart">重开</button>
       </div>`;
@@ -467,7 +468,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     hintBtn.onclick = () => {
       hintLevel = ((hintLevel + 1) % HINT_LEVELS.length) as HintLevel;
       setHintLevel(hintLevel);
-      hintBtn.textContent = `🧑‍🏫 ${HINT_LEVELS[hintLevel].name}`;
+      hintBtn.textContent = `🧑‍🏫${HINT_LEVELS[hintLevel].short}`;
       showToast(`教练：${HINT_LEVELS[hintLevel].name} —— ${HINT_LEVELS[hintLevel].desc}`);
     };
     const muteBtn = hud.querySelector('#xq-mute') as HTMLButtonElement;
@@ -799,6 +800,43 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         moves: () => moveLog.slice(),
         board: () => board,
         review: () => openReview(),
+        /** 当前轮到谁 */
+        turn: () => turn,
+        /** 我方现在能走的所有着法，自动化测试拿它来随便走一手 */
+        legal: () => legalMoves(board, turn),
+        /**
+         * 直接摆一个局面。
+         *
+         * 加这个钩子是因为界面层有些东西只有摆特定局面才测得到——
+         * 教练模式要在"真的会送子"的那一手才弹提示，而从开局走到那种局面
+         * 要十几手，中间还要看对手怎么应，测试根本没法稳定复现。
+         * 生产构建里 import.meta.env.DEV 为 false，整块会被摇掉。
+         */
+        setBoard: (fen: string) => {
+          const parsed = fromFen(fen);
+          if (!parsed) return false;
+          // 和 undo/restart 一样，必须作废正在跑的搜索。
+          // 不然对手那边算的是**旧局面**的着法，等它算完回来就照着新棋盘走，
+          // 走出来的是一手风马牛不相及的棋，整局状态当场乱掉。
+          clearTimeout(aiTimer);
+          aiSeq++;
+          scene.setThinking(false);
+          closeCoachPrompt?.();
+          closeCoachPrompt = null;
+          board = parsed.board;
+          turn = parsed.toMove;
+          // 起始快照也要跟着换：复盘和重开都以它为准，不改的话
+          // 复盘会把这一局摆在一个从来没下过的局面上重算
+          startSnapshot = cloneBoard(board);
+          history = [];
+          moveLog = [];
+          over = false;
+          busy = false;
+          selected = null;
+          scene.syncBoard(board);
+          setTurnUI();
+          return true;
+        },
       };
     }
 

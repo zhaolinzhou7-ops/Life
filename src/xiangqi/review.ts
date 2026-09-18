@@ -97,7 +97,7 @@ export function runReview(opts: ReviewOpts): () => void {
 
     if (cursor < 0) {
       elPos.textContent = '开局';
-      elDetail.innerHTML = '<div class="xq-rv-empty">点左边任意一手，看看那步走得怎么样。</div>';
+      elDetail.innerHTML = '<div class="xq-rv-empty">点上面任意一手，看看那步走得怎么样。</div>';
       scene.select(null);
       renderList();
       return;

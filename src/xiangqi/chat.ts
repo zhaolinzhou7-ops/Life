@@ -30,13 +30,20 @@ export interface ChatContext {
   focus?: { round: number; played: string; best?: string; bestLine?: string[]; problem?: string; loss?: number };
 }
 
-/** 预置问题。新手不知道能问什么，给几个按钮比给一个输入框有用得多 */
-export const QUICK_ASKS = [
-  '为什么我输了？',
-  '这一步为什么错？',
-  '我这种错误是不是经常出现？',
-  '给我讲得简单一点',
-];
+/**
+ * 预置问题。新手不知道能问什么，给几个按钮比给一个输入框有用得多。
+ *
+ * **要跟着这一局的结果变**。赢了的人看到"为什么我输了？"会立刻觉得
+ * 这个教练根本没在看棋——一个不看棋的教练，说什么都没人信。
+ */
+export function quickAsks(ctx: ChatContext): string[] {
+  const won = ctx.stats?.won;
+  const first = won === true ? '这一局我赢在哪？' : won === false ? '为什么我输了？' : '这一局下得怎么样？';
+  return [first, '这一步为什么错？', '我这种错误是不是经常出现？', '给我讲得简单一点'];
+}
+
+/** 没有上下文时的默认问题（设置界面预览、测试用） */
+export const QUICK_ASKS = quickAsks({ side: '红' });
 
 /** 把上下文和问题组装成事实清单 */
 export function factsFor(ctx: ChatContext, question: string): Facts {
@@ -114,7 +121,7 @@ export function runChat(opts: ChatOpts): () => void {
     busy = false;
   }
 
-  QUICK_ASKS.forEach((q) => {
+  quickAsks(opts.getContext()).forEach((q) => {
     const b = document.createElement('button');
     b.className = 'xq-chat-chip';
     b.textContent = q;

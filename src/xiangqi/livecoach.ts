@@ -25,11 +25,13 @@ import { moveToText } from './notation';
 
 export type HintLevel = 0 | 1 | 2 | 3;
 
-export const HINT_LEVELS: { id: HintLevel; name: string; desc: string }[] = [
-  { id: 0, name: '关闭', desc: '安静对弈，什么都不提示' },
-  { id: 1, name: '轻提示', desc: '只说一句"这里有风险"，怎么回事自己想' },
-  { id: 2, name: '标准提示', desc: '说清楚是哪个子有危险（推荐）' },
-  { id: 3, name: '教学提示', desc: '说清楚，还能追问"为什么"' },
+export const HINT_LEVELS: { id: HintLevel; name: string; short: string; desc: string }[] = [
+  // short 是给对局 HUD 用的。那一行在 390px 的手机上要挤下退出、回合提示、
+  // 静音、教练、悔棋、重开六个东西，写全名会折行，折行之后按钮高度不齐，很难看。
+  { id: 0, name: '关闭', short: '关', desc: '安静对弈，什么都不提示' },
+  { id: 1, name: '轻提示', short: '轻', desc: '只说一句"这里有风险"，怎么回事自己想' },
+  { id: 2, name: '标准提示', short: '标', desc: '说清楚是哪个子有危险（推荐）' },
+  { id: 3, name: '教学提示', short: '教', desc: '说清楚，还能追问"为什么"' },
 ];
 
 const KEY = 'xq-hint-level';
@@ -100,23 +102,29 @@ export interface CoachPromptOpts {
  * 没有"知道了"这种只能确认的按钮——那等于强制用户接受教练的意见。
  * 教学提示档多一个"为什么？"，点开才讲道理，不点就不占屏幕。
  */
+/*
+ * 类名用 xq-tip 而不是 xq-coach：学棋模块（coach.ts）的整屏容器已经叫 .xq-coach 了，
+ * 那条规则里有 `inset: 0`。撞名之后 top:0 会从那条规则继承下来，和这里的 bottom
+ * 一起把提示条撑成满屏高；反过来这里的背景、边框、动画也会套到整个学棋界面上。
+ * 两边都毁，而且只有真的打开界面看才发现得了。
+ */
 export function showCoachPrompt(opts: CoachPromptOpts): () => void {
   const { host, level, before, move, me, risk } = opts;
   const el = document.createElement('div');
-  el.className = `xq-coach sev${risk.severity}`;
+  el.className = `xq-tip sev${risk.severity}`;
   el.innerHTML = `
-    <div class="xq-coach-body">
-      <span class="xq-coach-icon">${risk.severity >= 3 ? '⚠️' : '💡'}</span>
-      <span class="xq-coach-text">${warnText(level, risk)}</span>
+    <div class="xq-tip-body">
+      <span class="xq-tip-icon">${risk.severity >= 3 ? '⚠️' : '💡'}</span>
+      <span class="xq-tip-text">${warnText(level, risk)}</span>
     </div>
-    <div class="xq-coach-why"></div>
-    <div class="xq-coach-bar">
+    <div class="xq-tip-why"></div>
+    <div class="xq-tip-bar">
       ${level >= 3 ? '<button class="xq-btn" data-act="why">为什么？</button>' : ''}
       <button class="xq-btn" data-act="cancel">换一手</button>
       <button class="xq-btn primary" data-act="go">就这么走</button>
     </div>`;
   host.appendChild(el);
-  const elWhy = el.querySelector('.xq-coach-why') as HTMLElement;
+  const elWhy = el.querySelector('.xq-tip-why') as HTMLElement;
 
   let closed = false;
   const close = () => {

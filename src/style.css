@@ -1758,6 +1758,10 @@ canvas {
   padding: 6px 11px;
   font-size: 12px;
   cursor: pointer;
+  /* 对局 HUD 那一行现在有六个东西（退出/回合/静音/教练/悔棋/重开）。
+     不禁止折行的话，390px 的手机上"悔棋""重开"会各自折成两行，
+     按钮高度参差不齐，一眼就显得没做完。 */
+  white-space: nowrap;
 }
 .xq-btn:active {
   transform: scale(0.95);
@@ -3238,7 +3242,7 @@ canvas {
 
 /* ---------- 教练提示条 ---------- */
 /* 贴在屏幕下方：手机上拇指够得到，而且不挡棋盘中央 */
-.xq-coach {
+.xq-tip {
   position: fixed;
   left: 50%;
   bottom: calc(14px + env(safe-area-inset-bottom, 0px));
@@ -3250,15 +3254,15 @@ canvas {
   padding: 12px 14px;
   z-index: 60;
   box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
-  animation: xq-coach-in 0.18s ease-out;
+  animation: xq-tip-in 0.18s ease-out;
 }
-@keyframes xq-coach-in {
+@keyframes xq-tip-in {
   from { opacity: 0; transform: translate(-50%, 10px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
-.xq-coach.sev3 { border-color: rgba(224, 67, 58, 0.7); }
-.xq-coach.sev2 { border-color: rgba(232, 163, 61, 0.6); }
-.xq-coach-body {
+.xq-tip.sev3 { border-color: rgba(224, 67, 58, 0.7); }
+.xq-tip.sev2 { border-color: rgba(232, 163, 61, 0.6); }
+.xq-tip-body {
   display: flex;
   gap: 9px;
   align-items: flex-start;
@@ -3266,8 +3270,8 @@ canvas {
   line-height: 1.5;
   color: #f0e6d2;
 }
-.xq-coach-icon { font-size: 17px; flex: none; }
-.xq-coach-why {
+.xq-tip-icon { font-size: 17px; flex: none; }
+.xq-tip-why {
   display: none;
   margin-top: 9px;
   padding-top: 9px;
@@ -3277,14 +3281,14 @@ canvas {
   color: rgba(240, 230, 210, 0.82);
   white-space: pre-wrap;
 }
-.xq-coach-why.on { display: block; }
-.xq-coach-bar {
+.xq-tip-why.on { display: block; }
+.xq-tip-bar {
   display: flex;
   gap: 8px;
   margin-top: 11px;
 }
-.xq-coach-bar .xq-btn { flex: 1; }
-.xq-coach-bar .xq-btn.primary {
+.xq-tip-bar .xq-btn { flex: 1; }
+.xq-tip-bar .xq-btn.primary {
   background: linear-gradient(180deg, #d64034, #a8291f);
   border-color: rgba(255, 255, 255, 0.18);
   color: #fff;
@@ -3605,13 +3609,21 @@ canvas {
   text-align: center;
 }
 
+/* 窄屏上把 HUD 收紧一点，给六个按钮腾出位置 */
+@media (max-width: 400px) {
+  .xq-hud { gap: 4px; padding-left: 5px; padding-right: 5px; }
+  .xq-hud .xq-btn { padding: 6px 8px; }
+  .xq-turn { padding: 6px 9px; font-size: 12px; }
+  .xq-actions { gap: 4px; }
+}
+
 /* ---------- 窄屏适配 ---------- */
 /* 手机端优先：主要操作必须适合单手，面板一律贴底 */
 @media (max-width: 420px) {
   .xq-statgrid { grid-template-columns: repeat(2, 1fr); }
   .xq-home-strip b { font-size: 18px; }
-  .xq-coach-bar { flex-wrap: wrap; }
-  .xq-coach-bar .xq-btn { min-width: 30%; }
+  .xq-tip-bar { flex-wrap: wrap; }
+  .xq-tip-bar .xq-btn { min-width: 30%; }
   .xq-chat { max-height: 78vh; }
   .xq-dimrow .nm { width: 62px; font-size: 11.5px; }
 }

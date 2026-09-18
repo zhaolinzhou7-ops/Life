@@ -218,13 +218,22 @@ function answerOffline(f: Facts): string {
   // 问"为什么输"的写法太多了（为什么我输了 / 这局怎么输的 / 输在哪 / 为啥败），
   // 一条条列关键词一定会漏。改成"提到输赢 + 带疑问词"就稳得多。
   const asksWhy = has('为什么', '为啥', '怎么', '咋', '哪');
-  if (has('输', '败', '没赢') && asksWhy) {
+  if (has('输', '败', '没赢', '赢', '胜') && asksWhy) {
     const bits: string[] = [];
+    // 赢了的人问"为什么我输了"是界面按钮没跟上，不是他记错了。
+    // 这时候要先把事实摆正，再讲内容——顺着错的前提往下答，
+    // 等于告诉用户"这个教练没在看棋"。
+    if (f.stats?.won === true && has('输', '败', '没赢')) {
+      bits.push('先说一句：这一局你是赢的。');
+    }
     if (f.stats) {
+      const lost = f.stats.won === false;
       bits.push(
         f.stats.blunders > 0
-          ? `直接原因是这一局有 ${f.stats.blunders} 手漏着。`
-          : `你没有大漏子，是一点点被磨没的（平均每手亏 ${f.stats.avgLoss} 分）。`,
+          ? `${lost ? '直接原因是' : '不过'}这一局有 ${f.stats.blunders} 手漏着${lost ? '。' : '，赢下来有点侥幸。'}`
+          : f.stats.mistakes > 0
+            ? `没有大漏子，但有 ${f.stats.mistakes} 手明显失误（平均每手亏 ${f.stats.avgLoss} 分）。`
+            : `全程没有明显失误，平均每手只亏 ${f.stats.avgLoss} 分，下得很稳。`,
       );
     }
     if (f.problem) bits.push(f.problem);
