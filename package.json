@@ -10,13 +10,13 @@
     "data:check": "node_modules/.bin/esbuild tools/audit-data.ts --bundle --platform=node --format=esm --loader:.json=json --outfile=node_modules/.cache/audit.mjs && FAST=1 node node_modules/.cache/audit.mjs",
     "data:check:full": "node_modules/.bin/esbuild tools/audit-data.ts --bundle --platform=node --format=esm --loader:.json=json --outfile=node_modules/.cache/audit.mjs && node node_modules/.cache/audit.mjs",
     "check:openings": "node_modules/.bin/esbuild tools/check-openings.ts --bundle --platform=node --format=esm --loader:.json=json --outfile=node_modules/.cache/openings.mjs && node node_modules/.cache/openings.mjs",
-    "naming:check": "node_modules/.bin/esbuild tools/naming-check.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/naming.mjs && node node_modules/.cache/naming.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "test:ui": "node tests/ui/screens.mjs",
     "test:ui:coach": "node tests/ui/coach-flow.mjs",
-    "test:ui:entries": "node tests/ui/entries.mjs"
+    "test:ui:entries": "node tests/ui/entries.mjs",
+    "test:ui:naming": "node tests/ui/naming.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

@@ -1,30 +1,26 @@
 /**
- * 取名小程序 · 浏览器 UI 自测
+ * 取名小程序 · 界面走查。
  *
- * 跑法：
- *   npm run build && npx vite preview --port 4173 &
- *   npm i --no-save playwright-core        # 只在本地跑测试时装，不进依赖
- *   SCRATCH=/tmp/nm-shots node tools/naming-uitest.mjs
+ * 覆盖单元测试覆盖不到的那一半：真实窗口宽度下会不会错位、长文本会不会把
+ * 卡片撑破、加载/空/出错三种状态长什么样、深色模式、AI 网关挂掉时用户看到的
+ * 是不是一个空白页。截图写到 OUT 目录，出问题时看图比读日志快。
  *
- * 覆盖的是单测覆盖不到的那一半：真实窗口宽度下会不会错位、长文本会不会把
- * 卡片撑破、加载/空/出错三种状态长什么样、AI 网关挂掉时用户看到的是不是
- * 一个空白页。截图会写到 $SCRATCH/shots，出问题时直接看图比读日志快。
+ * 用法：npm run build && npm run preview，然后 node tests/ui/naming.mjs
+ * （和 screens.mjs 一样走 preview 构建；不依赖 DEV 钩子）
  */
-
-import { chromium } from 'playwright-core';
 import fs from 'fs';
+import { chromium } from 'playwright';
 
-const OUT = (process.env.SCRATCH || '/tmp/nm-shots') + '/shots';
+const BASE = process.env.BASE || 'http://localhost:4173/Life/';
+const OUT = process.env.OUT || 'node_modules/.cache/shots';
 fs.mkdirSync(OUT, { recursive: true });
-const BASE = 'http://localhost:4173/Life/';
-
 const errors = [];
 const results = [];
 function check(label, cond, detail = '') {
   results.push({ label, ok: !!cond, detail });
 }
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined });
 
 // 三种屏幕宽度：最窄的在售机型、主流、大屏
 const VIEWPORTS = [
@@ -48,7 +44,7 @@ for (const vp of VIEWPORTS) {
   await page.getByText('AI 智能取名', { exact: false }).first().click();
   await page.waitForSelector('.nm-app', { timeout: 5000 });
   await page.waitForTimeout(300);
-  await page.screenshot({ path: `${OUT}/${vp.name}-1-home.png` });
+  await page.screenshot({ path: `${OUT}/nm-${vp.name}-1-home.png` });
   check(`${vp.name} 首页渲染`, await page.locator('.nm-home h1').isVisible());
 
   // 横向溢出检查
@@ -64,7 +60,7 @@ for (const vp of VIEWPORTS) {
   // 进入表单
   await page.getByRole('button', { name: '开始取名' }).click();
   await page.waitForSelector('.nm-progress');
-  await page.screenshot({ path: `${OUT}/${vp.name}-2-form.png` });
+  await page.screenshot({ path: `${OUT}/nm-${vp.name}-2-form.png` });
   await overflow('表单页');
 
   // 空姓氏应当被拦住
@@ -76,18 +72,18 @@ for (const vp of VIEWPORTS) {
   await page.locator('.nm-input').first().fill('欧阳');
   await page.getByRole('button', { name: '女孩' }).click();
   await page.locator('textarea.nm-input').fill('希望文雅一点，不要太常见的名字');
-  await page.screenshot({ path: `${OUT}/${vp.name}-3-form-filled.png` });
+  await page.screenshot({ path: `${OUT}/nm-${vp.name}-3-form-filled.png` });
   await page.getByRole('button', { name: '生成名字' }).click();
 
   // 骨架屏
   await page.waitForSelector('.nm-skel-card', { timeout: 2000 }).catch(() => {});
-  await page.screenshot({ path: `${OUT}/${vp.name}-4-loading.png` });
+  await page.screenshot({ path: `${OUT}/nm-${vp.name}-4-loading.png` });
 
   await page.waitForSelector('.nm-card', { timeout: 10000 });
   await page.waitForTimeout(200);
   const cardCount = await page.locator('.nm-card').count();
   check(`${vp.name} 结果页出候选`, cardCount >= 8, `${cardCount} 个`);
-  await page.screenshot({ path: `${OUT}/${vp.name}-5-results.png`, fullPage: true });
+  await page.screenshot({ path: `${OUT}/nm-${vp.name}-5-results.png`, fullPage: true });
   await overflow('结果页');
 
   // 收藏
@@ -101,7 +97,7 @@ for (const vp of VIEWPORTS) {
   await page.locator('.nm-card').first().click();
   await page.waitForSelector('.nm-detail-hero', { timeout: 3000 });
   await page.waitForTimeout(200);
-  await page.screenshot({ path: `${OUT}/${vp.name}-6-detail.png`, fullPage: true });
+  await page.screenshot({ path: `${OUT}/nm-${vp.name}-6-detail.png`, fullPage: true });
   await overflow('详情页');
   const sections = await page.locator('.nm-section h3').allTextContents();
   check(`${vp.name} 详情页板块齐全`, sections.length >= 7, sections.join('/'));
@@ -112,7 +108,7 @@ for (const vp of VIEWPORTS) {
   await page.waitForSelector('.nm-card');
   await page.getByRole('button', { name: '收藏' }).first().click();
   await page.waitForSelector('.nm-fav-item', { timeout: 3000 });
-  await page.screenshot({ path: `${OUT}/${vp.name}-7-favorites.png`, fullPage: true });
+  await page.screenshot({ path: `${OUT}/nm-${vp.name}-7-favorites.png`, fullPage: true });
   await overflow('收藏页');
 
   // 备注
@@ -128,7 +124,7 @@ for (const vp of VIEWPORTS) {
   await page.locator('.nm-actionbar .nm-btn').click();
   await page.waitForSelector('.nm-cmp', { timeout: 3000 });
   await page.waitForTimeout(200);
-  await page.screenshot({ path: `${OUT}/${vp.name}-8-compare.png`, fullPage: true });
+  await page.screenshot({ path: `${OUT}/nm-${vp.name}-8-compare.png`, fullPage: true });
   const rows = await page.locator('.nm-cmp tbody tr').count();
   check(`${vp.name} 对比表行数`, rows >= 8, `${rows} 行`);
   // 对比表是横向滚动容器，页面本身不该溢出
@@ -146,7 +142,7 @@ for (const vp of VIEWPORTS) {
   await page.waitForSelector('.nm-home', { timeout: 3000 });
   await page.getByRole('button', { name: '设置' }).click();
   await page.waitForTimeout(300);
-  await page.screenshot({ path: `${OUT}/${vp.name}-9-settings.png`, fullPage: true });
+  await page.screenshot({ path: `${OUT}/nm-${vp.name}-9-settings.png`, fullPage: true });
   await overflow('设置页');
 
   await ctx.close();
@@ -168,7 +164,7 @@ for (const vp of VIEWPORTS) {
   await page.getByRole('button', { name: '生成名字' }).click();
   await page.waitForSelector('.nm-card', { timeout: 10000 });
   await page.waitForTimeout(200);
-  await page.screenshot({ path: `${OUT}/stress-320-longtext.png`, fullPage: true });
+  await page.screenshot({ path: `${OUT}/nm-stress-320-longtext.png`, fullPage: true });
   const o = await page.evaluate(() => ({ b: document.body.scrollWidth, w: window.innerWidth }));
   check('长文本 320px 无横向溢出', o.b <= o.w + 1, JSON.stringify(o));
   await ctx.close();
@@ -184,7 +180,7 @@ for (const vp of VIEWPORTS) {
   await page.waitForSelector('.nm-app');
   await page.getByRole('button', { name: '我的收藏' }).click();
   await page.waitForSelector('.nm-empty', { timeout: 3000 });
-  await page.screenshot({ path: `${OUT}/empty-favorites.png` });
+  await page.screenshot({ path: `${OUT}/nm-empty-favorites.png` });
   check('空收藏有空状态和下一步', await page.locator('.nm-empty .nm-btn').isVisible());
   await ctx.close();
 }
@@ -210,7 +206,7 @@ for (const vp of VIEWPORTS) {
   const notice = await page.locator('.nm-notice').innerText();
   check('AI 网关挂掉时降级到本地并说明', /本地引擎/.test(notice), notice.slice(0, 90));
   check('AI 失败时仍然出候选', (await page.locator('.nm-card').count()) >= 8);
-  await page.screenshot({ path: `${OUT}/api-fallback.png`, fullPage: true });
+  await page.screenshot({ path: `${OUT}/nm-api-fallback.png`, fullPage: true });
   await ctx.close();
 }
 
@@ -229,7 +225,7 @@ for (const vp of VIEWPORTS) {
   await page.getByText('AI 智能取名', { exact: false }).first().click();
   await page.waitForSelector('.nm-app');
   await page.waitForTimeout(300);
-  await page.screenshot({ path: `${OUT}/dark-1-home.png` });
+  await page.screenshot({ path: `${OUT}/nm-dark-1-home.png` });
 
   // 文字和背景的明暗关系必须是反的，不能两边都亮或者两边都暗
   const contrast = await page.evaluate(() => {
@@ -251,12 +247,12 @@ for (const vp of VIEWPORTS) {
   await page.getByRole('button', { name: '生成名字' }).click();
   await page.waitForSelector('.nm-card', { timeout: 10000 });
   await page.waitForTimeout(300);
-  await page.screenshot({ path: `${OUT}/dark-2-results.png` });
+  await page.screenshot({ path: `${OUT}/nm-dark-2-results.png` });
   check('深色模式下能出候选', (await page.locator('.nm-card').count()) >= 8);
   await page.locator('.nm-card').first().click();
   await page.waitForSelector('.nm-detail-hero');
   await page.waitForTimeout(300);
-  await page.screenshot({ path: `${OUT}/dark-3-detail.png`, fullPage: true });
+  await page.screenshot({ path: `${OUT}/nm-dark-3-detail.png`, fullPage: true });
   await ctx.close();
 }
 

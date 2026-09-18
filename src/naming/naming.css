@@ -87,6 +87,7 @@
   height: 52px;
   margin: 0 -20px 4px;
   padding: env(safe-area-inset-top) 12px 0;
+  background: var(--paper);
   background: color-mix(in srgb, var(--paper) 88%, transparent);
   backdrop-filter: saturate(180%) blur(12px);
   -webkit-backdrop-filter: saturate(180%) blur(12px);
@@ -261,7 +262,8 @@
   color: var(--ink);
   border-radius: 12px;
   padding: 12px 14px;
-  font-size: 15px;
+  /* 16px 不是审美选择：iOS Safari 聚焦更小字号的输入框会自动放大整页 */
+  font-size: 16px;
   font-family: inherit;
   line-height: 1.6;
   outline: none;
@@ -354,6 +356,7 @@
   bottom: 0;
   margin: 26px -20px 0;
   padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+  background: var(--paper);
   background: color-mix(in srgb, var(--paper) 92%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -371,7 +374,8 @@
 /* ———————————————— 结果卡片 ———————————————— */
 .nm-notice {
   background: var(--dai-soft);
-  border: 1px solid color-mix(in srgb, var(--dai) 22%, transparent);
+  border: 1px solid var(--line);
+  border-color: color-mix(in srgb, var(--dai) 22%, transparent);
   border-radius: 12px;
   padding: 12px 14px;
   font-size: 13px;
@@ -445,7 +449,9 @@
 }
 .nm-fav.on {
   color: var(--zhu);
+  border-color: var(--zhu);
   border-color: color-mix(in srgb, var(--zhu) 35%, transparent);
+  background: transparent;
   background: color-mix(in srgb, var(--zhu) 8%, transparent);
 }
 .nm-oneline {
@@ -474,6 +480,7 @@
   color: var(--gold);
 }
 .nm-tag.risk {
+  background: var(--line-2);
   background: color-mix(in srgb, var(--zhu) 10%, transparent);
   color: var(--zhu);
 }
@@ -629,8 +636,10 @@
 }
 
 .nm-risk {
+  background: var(--line-2);
   background: color-mix(in srgb, var(--zhu) 7%, transparent);
-  border: 1px solid color-mix(in srgb, var(--zhu) 20%, transparent);
+  border: 1px solid var(--line);
+  border-color: color-mix(in srgb, var(--zhu) 20%, transparent);
   border-radius: 12px;
   padding: 12px 14px;
   font-size: 13px;
@@ -806,7 +815,7 @@
   color: var(--ink);
   border-radius: 10px;
   padding: 9px 11px;
-  font-size: 13px;
+  font-size: 16px; /* 同上，防 iOS 聚焦放大 */
   font-family: inherit;
   outline: none;
   -webkit-appearance: none;
@@ -925,6 +934,7 @@
   bottom: 0;
   margin: 22px -20px 0;
   padding: 11px 20px calc(11px + env(safe-area-inset-bottom));
+  background: var(--paper);
   background: color-mix(in srgb, var(--paper) 92%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);

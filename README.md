@@ -60,7 +60,7 @@ https://zhaolinzhou7-ops.github.io/Life/
 这个产品最容易出的错不是崩溃，是**悄悄地说假话**。所以：
 
 - **出处只标真实原句。** 每个"有出处"的名字，它的每一个字都必须出现在所引的那一句原文里，
-  这条由 `npm run naming:check` 强制校验。查不到出处的一律写成"现代组合名"，绝不编来历。
+  这条由 `npm test` 里的断言强制校验。查不到出处的一律写成"现代组合名"，绝不编来历。
 - **不编重名数据。** 任何产品都拿不到公安户籍数据。这里只给"常见度：低/中/高"，
   并标明是基于近年用字趋势的估计。凡是告诉你"全国仅 3 人同名"的，那个数字是编的。
 - **不把命理当科学。** 五行八字是传统文化中的命名参考方法，不是经过现代科学验证的因果预测。
@@ -117,18 +117,17 @@ src/naming/
 ### 测试
 
 ```bash
-npm run naming:check      # 103 项断言：数据完整性 + 引擎行为约束
+npm test                        # 取名的 100 多条断言和其它应用的测试一起跑（tests/naming.test.ts）
 ```
 
 覆盖了空输入、缺出生时间、特殊字符、单姓复姓、三种性别、禁用字、指定字、辈分字两种位置、
 大量限制叠加、矛盾限制，以及那三条底线（不编出处、不编重名、不把命理当科学）。
 
-浏览器端的 UI 自测（真实窗口宽度、长文本、加载/空/出错三态、深色模式、AI 网关挂掉时的降级）：
+界面走查（真实窗口宽度、长文本、加载/空/出错三态、深色模式、AI 网关挂掉时的降级）：
 
 ```bash
-npm run build && npx vite preview --port 4173 &
-npm i --no-save playwright-core
-SCRATCH=/tmp/nm node tools/naming-uitest.mjs
+npm run build && npm run preview
+npm run test:ui:naming          # 320 / 390 / 768 三种宽度各走一遍全部页面
 ```
 
 ---
@@ -350,6 +349,7 @@ npm run test:watch  # 开发时监听模式
 # 界面走查（需要先起服务，另开一个终端）
 npm run build && npm run preview
 node tests/ui/screens.mjs      # 四种屏幕宽度走一遍主要界面
+node tests/ui/naming.mjs       # 取名：三种宽度走一遍全部页面 + 深色模式 + 网关失败降级
 
 npm run dev
 node tests/ui/coach-flow.mjs   # 教练模式 + 完整闭环（要 dev 构建，测试钩子只在 DEV 挂出）
