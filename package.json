@@ -11,7 +11,9 @@
     "data:check:full": "node_modules/.bin/esbuild tools/audit-data.ts --bundle --platform=node --format=esm --loader:.json=json --outfile=node_modules/.cache/audit.mjs && node node_modules/.cache/audit.mjs",
     "check:openings": "node_modules/.bin/esbuild tools/check-openings.ts --bundle --platform=node --format=esm --loader:.json=json --outfile=node_modules/.cache/openings.mjs && node node_modules/.cache/openings.mjs",
     "test:vocal": "node_modules/.bin/esbuild tools/vocal-test.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/vocal-test.mjs --external:@anthropic-ai/sdk --log-level=warning && node node_modules/.cache/vocal-test.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "fixtures": "node_modules/.bin/esbuild tools/make-fixture.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/make-fixture.mjs --log-level=warning && node node_modules/.cache/make-fixture.mjs",
+    "test:ui": "npm run fixtures && npm run build && node tools/ui-test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",

@@ -186,6 +186,7 @@ export function renderSettings(box: HTMLElement, ctx: Ctx): () => void {
     PRESETS.map((p) => ({ value: p.id, label: p.label })),
     s.provider.preset,
   );
+  presetSel.classList.add('v-provider-select');
   const detail = el('div');
 
   const renderProviderDetail = () => {

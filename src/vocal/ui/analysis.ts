@@ -143,16 +143,18 @@ export function renderAnalysis(box: HTMLElement, ctx: Ctx, sessionId: string): (
   }
 
   // ---------------------------------------------------------------- 对比图
-  wrap.appendChild(sectionTitle('目标音高 vs 你的实际音高'));
+  // 自由演唱没有目标旋律，标题和图例都不能还写「目标」——那是在暗示一个不存在的参照
+  wrap.appendChild(sectionTitle(ref ? '目标音高 vs 你的实际音高' : '你的音高曲线'));
   const chartCard = card();
   const chartView = makeCanvas(chartCard, 'v-canvas', 210);
   views.push(chartView);
   const legend = el('div', 'v-legend');
-  legend.innerHTML =
-    '<span><em style="background:var(--v-target)"></em>目标</span>' +
-    '<span><em style="background:var(--v-green)"></em>准（±50 音分内）</span>' +
-    '<span><em style="background:var(--v-yellow)"></em>有点偏</span>' +
-    '<span><em style="background:var(--v-red)"></em>明显偏</span>';
+  legend.innerHTML = ref
+    ? '<span><em style="background:var(--v-target)"></em>目标</span>' +
+      '<span><em style="background:var(--v-green)"></em>准（±50 音分内）</span>' +
+      '<span><em style="background:var(--v-yellow)"></em>有点偏</span>' +
+      '<span><em style="background:var(--v-red)"></em>明显偏</span>'
+    : '<span><em style="background:var(--v-accent)"></em>你唱的音高（这次没有目标旋律可比，所以不着色）</span>';
   legend.style.marginTop = '8px';
   chartCard.appendChild(legend);
   if (!frames.length) {
@@ -235,6 +237,7 @@ export function renderAnalysis(box: HTMLElement, ctx: Ctx, sessionId: string): (
     } else {
       nodeCard.appendChild(el('p', '', '这次没有明显跑掉的音。'));
     }
+    wrap.appendChild(nodeCard);
 
     function showDetail() {
       detailBox.innerHTML = '';
@@ -244,7 +247,16 @@ export function renderAnalysis(box: HTMLElement, ctx: Ctx, sessionId: string): (
       const rows: [string, string][] = [
         ['歌词', n.lyric || '（无词）'],
         ['目标音', midiToName(n.targetMidi)],
-        ['你唱的', n.sungMidi === null ? '没唱出来' : midiToName(n.sungMidi)],
+        [
+          '你唱的',
+          n.sungMidi === null
+            ? '没唱出来'
+            : // 唱低半音以内时，音名和目标是同一个，光看音名分辨不出来，
+              // 所以把方向直接标在旁边——这一页就是要回答「我唱高了还是唱低了」
+              `${midiToName(n.sungMidi)}${
+                n.cents !== null && Math.abs(n.cents) >= 25 ? (n.cents > 0 ? ' ↑ 偏高' : ' ↓ 偏低') : ''
+              }`,
+        ],
         [
           '音高偏差',
           n.cents === null
