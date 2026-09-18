@@ -12,7 +12,8 @@
     "check:openings": "node_modules/.bin/esbuild tools/check-openings.ts --bundle --platform=node --format=esm --loader:.json=json --outfile=node_modules/.cache/openings.mjs && node node_modules/.cache/openings.mjs",
     "test": "npm run mj:test",
     "mj:test": "node_modules/.bin/esbuild src/mjcoach/test/index.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/mjtest.mjs && node node_modules/.cache/mjtest.mjs",
-    "mj:sim": "node_modules/.bin/esbuild tools/mj-sim.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/mjsim.mjs && node node_modules/.cache/mjsim.mjs"
+    "mj:sim": "node_modules/.bin/esbuild tools/mj-sim.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/mjsim.mjs && node node_modules/.cache/mjsim.mjs",
+    "mj:why": "node_modules/.bin/esbuild tools/mj-why.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/mjwhy.mjs && node node_modules/.cache/mjwhy.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

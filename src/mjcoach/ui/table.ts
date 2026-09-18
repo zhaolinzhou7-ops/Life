@@ -18,7 +18,9 @@ import { decide, type AiLevel } from '../ai/players';
 import { analyzeDiscards, lossOf, severityOf } from '../analysis/efficiency';
 import { analyzeLack } from '../analysis/dingque';
 import { analyzeSwap } from '../analysis/swap';
-import { Recorder, type GameRecord } from '../replay/record';
+import { Recorder, type DecisionRecord, type GameRecord } from '../replay/record';
+import { clearInProgress, saveInProgress } from '../replay/inprogress';
+import { openGlossary } from './glossary';
 import { buildReport, type GameReport } from '../replay/analyze';
 import { compareDiscard, compareLack, compareSwap, extractFacts, seatName } from '../teach/facts';
 import { QUICK_QUESTIONS, getCoach } from '../teach/coach';
@@ -46,6 +48,8 @@ export interface TableOptions {
   onReview: (rec: GameRecord, report: GameReport) => void;
   /** 再来一局 */
   onAgain: () => void;
+  /** 接着上次没打完的牌局：把动作重放到中断处再继续 */
+  resume?: { actions: Action[]; decisions: DecisionRecord[]; startedAt: number };
 }
 
 const HERO = 0;
@@ -98,6 +102,7 @@ export function runTable(host: HTMLElement, opts: TableOptions): () => void {
     el('b', { text: '🎓 AI 教练' }),
     el('span.mc-pill', { text: coach.id === 'remote' ? '在线' : '本地' }),
     el('div.mc-spacer'),
+    el('button.mc-btn.sm.ghost', { text: '📖 术语', onclick: () => openGlossary(root) }),
     el('button.mc-btn.sm.ghost', { text: '收起', onclick: () => coachPanel.classList.remove('open') }),
   );
   const coachFoot = el('div.mc-coach-foot');
@@ -637,8 +642,33 @@ export function runTable(host: HTMLElement, opts: TableOptions): () => void {
   }
 
   // ---------- 主循环 ----------
+  /** 每走一步就把牌局存下来，刷新/误退之后能接着打 */
+  function autosave() {
+    saveInProgress({
+      configId: cfg.id, seed, aiLevel, mode,
+      actions: recorder.record.actions, decisions: recorder.record.decisions,
+      startedAt: recorder.record.startedAt,
+    });
+  }
+
   async function loop() {
     engine.start();
+    // 续打：把上次的动作原样重放。引擎是确定性的，重放出来就是当时那一局
+    if (opts.resume) {
+      try {
+        for (const a of opts.resume.actions) {
+          engine.apply(a);
+          recorder.onAction(a);
+        }
+        recorder.record.decisions.push(...opts.resume.decisions);
+        recorder.record.startedAt = opts.resume.startedAt;
+        toast(root, `已接上上次的牌局（第 ${engine.turnIndex} 手）`);
+      } catch {
+        // 重放不出来（比如规则改过了）：这局作废，从头开始，不能让用户卡在一个坏存档上
+        clearInProgress();
+        toast(root, '上次的牌局恢复失败，重新开一局');
+      }
+    }
     render();
     await sleep(320);
 
@@ -667,6 +697,7 @@ export function runTable(host: HTMLElement, opts: TableOptions): () => void {
         toast(root, `动作被规则引擎拒绝：${(e as Error).message}`);
         break;
       }
+      autosave();
       discardAnalysisCache = null;
       render();
       updateActions();
@@ -691,6 +722,7 @@ export function runTable(host: HTMLElement, opts: TableOptions): () => void {
 
   // ---------- 结算 ----------
   function finish() {
+    clearInProgress();
     const rec = recorder.finish(engine);
     const report = buildReport(rec);
     const overlay = el('div.mc-overlay');

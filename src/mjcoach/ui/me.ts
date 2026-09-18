@@ -9,8 +9,9 @@
 
 import { ERROR_INFO } from '../replay/analyze';
 import {
-  allSkills, loadProfile, recentPattern, resetProfile, summary, trainingPlan,
+  allSkills, exportAll, importAll, loadProfile, recentPattern, resetProfile, summary, trainingPlan,
 } from '../profile/store';
+import { openGlossary } from './glossary';
 import { clearGames, loadGames } from '../replay/record';
 import { el, richText, stars, topbar } from './common';
 
@@ -132,7 +133,36 @@ export function renderMe(o: MeOptions): void {
     el('p', { class: 'mc-muted', text: '所有学习数据只保存在这台设备的浏览器里，不会上传。' }),
   );
   const row = el('div.mc-row', { style: 'flex-wrap:wrap' });
+  // 换手机、清缓存之前先导出；导入会覆盖当前数据，所以要二次确认
+  const fileInput = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none' }) as HTMLInputElement;
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files?.[0];
+    if (!f) return;
+    f.text().then((text) => {
+      if (!confirm('导入会覆盖这台设备上现有的学习数据，确定吗？')) return;
+      const r = importAll(text);
+      alert(r.ok ? `导入成功：${r.games} 局牌谱和学习档案已恢复。` : `导入失败：${r.error}`);
+      if (r.ok) o.onChanged();
+    });
+  });
+  misc.appendChild(fileInput);
   row.append(
+    el('button.mc-btn.sm', {
+      text: '📖 术语表',
+      onclick: () => openGlossary(host),
+    }),
+    el('button.mc-btn.sm.ghost', {
+      text: '导出学习数据',
+      onclick: () => {
+        const blob = new Blob([exportAll()], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `mjcoach-${new Date().toLocaleDateString('sv')}.json`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      },
+    }),
+    el('button.mc-btn.sm.ghost', { text: '导入学习数据', onclick: () => fileInput.click() }),
     el('button.mc-btn.sm.ghost', {
       text: '清空牌局记录',
       onclick: () => {

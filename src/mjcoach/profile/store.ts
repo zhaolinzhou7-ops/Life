@@ -400,3 +400,36 @@ export function summary(p: Profile) {
     srsCount: p.srs.length,
   };
 }
+
+// ==================== 导出 / 导入 ====================
+
+/**
+ * 把学习数据整包导出。
+ * 数据只在这台设备的浏览器里，换手机、清缓存就没了——学了几个月的画像丢掉太可惜。
+ * 导出格式就是一份 JSON，不做加密：里面没有任何隐私，只有牌谱和统计。
+ */
+export function exportAll(): string {
+  const games = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('mjcoach-games-v1') ?? '[]');
+    } catch {
+      return [];
+    }
+  })();
+  return JSON.stringify({ app: 'mjcoach', version: 1, exportedAt: Date.now(), profile: loadProfile(), games });
+}
+
+/** 导入。会**覆盖**当前数据，调用方必须先让用户确认 */
+export function importAll(text: string): { ok: boolean; games: number; error?: string } {
+  try {
+    const o = JSON.parse(text) as { app?: string; profile?: Partial<Profile>; games?: unknown[] };
+    if (o.app !== 'mjcoach' || !o.profile) return { ok: false, games: 0, error: '这不是本软件导出的文件' };
+    const base = emptyProfile();
+    saveProfile({ ...base, ...o.profile, skills: { ...base.skills, ...(o.profile.skills ?? {}) } });
+    const games = Array.isArray(o.games) ? o.games : [];
+    localStorage.setItem('mjcoach-games-v1', JSON.stringify(games));
+    return { ok: true, games: games.length };
+  } catch (e) {
+    return { ok: false, games: 0, error: (e as Error).message };
+  }
+}

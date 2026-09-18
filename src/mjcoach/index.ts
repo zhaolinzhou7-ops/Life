@@ -11,6 +11,8 @@ import { listVariants, type RuleConfig } from './rules/config';
 import { randomSeed } from './rules/tiles';
 import type { AiLevel } from './ai/players';
 import { getGame, loadGames, saveGame, type GameRecord } from './replay/record';
+import { loadInProgress, type InProgressGame } from './replay/inprogress';
+import { AI_LEVELS } from './ai/players';
 import { buildReport, type GameReport } from './replay/analyze';
 import { recordGame } from './profile/store';
 import { el } from './ui/common';
@@ -60,7 +62,7 @@ export function bootMahjongCoach(app: HTMLElement, onExit: () => void): () => vo
     tabs.style.display = v ? '' : 'none';
   }
 
-  function go(next: Route, payload?: unknown) {
+  function go(next: Route, payload?: unknown): void {
     disposeTable?.();
     disposeTable = null;
     route = next;
@@ -75,6 +77,7 @@ export function bootMahjongCoach(app: HTMLElement, onExit: () => void): () => vo
         renderHome({
           host: body,
           onPlay: startGame,
+          onResume: resumeGame,
           onTrain: () => go('train'),
           onReview: (id) => openReview(id),
           onMe: () => go('me'),
@@ -82,10 +85,14 @@ export function bootMahjongCoach(app: HTMLElement, onExit: () => void): () => vo
         break;
 
       case 'play': {
-        const p = payload as { cfg: RuleConfig; level: AiLevel; mode: TeachMode } | undefined;
+        const p = payload as { cfg: RuleConfig; level: AiLevel; mode: TeachMode; resume?: InProgressGame } | undefined;
         const prefs = loadPrefs();
         if (!p) {
-          // 直接点底部「陪练」：用上次的设置开一局
+          // 直接点底部「陪练」：有没打完的就接着打，否则用上次的设置开一局
+          if (loadInProgress()) {
+            resumeGame();
+            return;
+          }
           const cfgs = listVariants();
           startGame(cfgs.find((c) => c.id === prefs.configId) ?? cfgs[0], prefs.level, prefs.mode);
           return;
@@ -94,7 +101,10 @@ export function bootMahjongCoach(app: HTMLElement, onExit: () => void): () => vo
           config: p.cfg,
           aiLevel: p.level,
           mode: p.mode,
-          seed: randomSeed(),
+          seed: p.resume ? p.resume.seed : randomSeed(),
+          resume: p.resume
+            ? { actions: p.resume.actions, decisions: p.resume.decisions, startedAt: p.resume.startedAt }
+            : undefined,
           onExit: () => go('home'),
           onSave: (rec, report) => {
             // 牌谱 + 学习数据都在这里落盘，用户点不点复盘都一样
@@ -140,6 +150,19 @@ export function bootMahjongCoach(app: HTMLElement, onExit: () => void): () => vo
   function startGame(cfg: RuleConfig, level: AiLevel, mode: TeachMode) {
     reviewTarget = null;
     go('play', { cfg, level, mode });
+  }
+
+  /** 接着上次没打完的那局 */
+  function resumeGame(): void {
+    const g = loadInProgress();
+    if (!g) {
+      go('home');
+      return;
+    }
+    const cfg = listVariants().find((c) => c.id === g.configId) ?? listVariants()[0];
+    const level = (AI_LEVELS as string[]).includes(g.aiLevel) ? (g.aiLevel as AiLevel) : 'novice';
+    reviewTarget = null;
+    go('play', { cfg, level, mode: g.mode as TeachMode, resume: g });
   }
 
   function openReview(id?: string) {

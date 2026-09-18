@@ -15,6 +15,7 @@ import {
 import { COURSES, judge, similarPuzzle, type Puzzle } from '../training/bank';
 import { buildDaily, buildLessonSet, loadDailyDone, markDailyDone } from '../training/daily';
 import { clear, el, richText, tileEl, topbar } from './common';
+import { openGlossary } from './glossary';
 
 export interface TrainOptions {
   host: HTMLElement;
@@ -34,6 +35,13 @@ export function renderTrain(o: TrainOptions): void {
   const s = summary(p);
   const daily = buildDaily(p);
   const done = loadDailyDone();
+
+  wrap.appendChild(
+    el('div.mc-row', { style: 'padding:6px 0 2px' },
+      el('span.mc-muted', { text: '教练说的词看不懂？' }),
+      el('button.mc-btn.sm.ghost', { text: '📖 术语表', onclick: () => openGlossary(host) }),
+    ),
+  );
 
   // ---------- 今日训练 ----------
   wrap.appendChild(el('div.mc-section', { text: '今日训练' }));

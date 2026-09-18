@@ -8,6 +8,7 @@ import { AI_LEVELS, AI_PROFILES, type AiLevel } from '../ai/players';
 import { ERROR_INFO } from '../replay/analyze';
 import { loadProfile, recentPattern, summary } from '../profile/store';
 import { loadGames } from '../replay/record';
+import { clearInProgress, loadInProgress } from '../replay/inprogress';
 import { buildDaily } from '../training/daily';
 import { el } from './common';
 import { TEACH_MODES, type TeachMode } from './table';
@@ -15,6 +16,7 @@ import { TEACH_MODES, type TeachMode } from './table';
 export interface HomeOptions {
   host: HTMLElement;
   onPlay: (cfg: RuleConfig, level: AiLevel, mode: TeachMode) => void;
+  onResume: () => void;
   onTrain: () => void;
   onReview: (gameId?: string) => void;
   onMe: () => void;
@@ -66,6 +68,42 @@ export function renderHome(o: HomeOptions): void {
       el('div', { style: 'color:var(--mc-muted);font-size:13.5px;margin-top:4px', text: '不是陪你打牌，是教你打对' }),
     ),
   );
+
+  // ---------- 没打完的牌局 ----------
+  const unfinished = loadInProgress();
+  if (unfinished) {
+    const card = el('div.mc-card', { style: 'border-color:var(--mc-accent)' });
+    card.append(
+      el('h3', { text: '▶ 上一局还没打完' }),
+      el('p', { text: `打到第 ${unfinished.actions.filter((a) => a.type === 'discard').length} 张牌时中断了，可以接着打。` }),
+      el('div.mc-row', {},
+        el('button.mc-btn.primary.sm', { text: '继续这一局', onclick: o.onResume }),
+        el('button.mc-btn.sm.ghost', {
+          text: '不要了',
+          onclick: () => {
+            clearInProgress();
+            o.host.innerHTML = '';
+            renderHome(o);
+          },
+        }),
+      ),
+    );
+    wrap.appendChild(card);
+  }
+
+  // ---------- 第一次来：给条路 ----------
+  if (s.games === 0 && s.trainingDone === 0) {
+    const card = el('div.mc-card');
+    card.append(
+      el('h3', { text: '👋 第一次来？建议这样开始' }),
+      el('p', { text: '1. 先到「训练」把「基础」三课做完，十分钟，认牌和规则就够用了。' }),
+      el('p', { text: '2. 回来选「新手」对手 + 「教练模式」打一局，每一步都可以问教练该打哪张、为什么。' }),
+      el('p', { text: '3. 打完看复盘。真正的学习从复盘开始，牌桌上只是练手。' }),
+      el('p', { class: 'mc-muted', text: '看不懂的词随时点教练面板里的「📖 术语」。' }),
+      el('button.mc-btn.sm', { text: '先去做基础课', onclick: o.onTrain }),
+    );
+    wrap.appendChild(card);
+  }
 
   // ---------- 开始陪练 ----------
   const playCard = el('div.mc-card');
