@@ -242,6 +242,7 @@ node tests/ui/screens.mjs      # 四种屏幕宽度走一遍主要界面
 
 npm run dev
 node tests/ui/coach-flow.mjs   # 教练模式 + 完整闭环（要 dev 构建，测试钩子只在 DEV 挂出）
+node tests/ui/entries.mjs      # 首页五个入口各自落到哪一屏
 ```
 
 测试覆盖：

@@ -73,11 +73,20 @@ const DIM_KIND: Record<Dim, PuzzleKind> = {
   opening: 'opening',
 };
 
+/**
+ * 进入学棋模块时直接落在哪一屏。
+ *
+ * 首页的「今日训练」和「战术训练」是两个不同的入口，点进来却看到同一个
+ * 菜单的话，用户会以为自己点错了。所以由调用方指定落点。
+ */
+export type CoachEntry = 'home' | 'today' | 'puzzles';
+
 export function runCoach(
   root: HTMLElement,
   onExit: () => void,
   /** 开一局让子定级棋。学棋模块自己不管对弈，交回对弈流程去下 */
   startLadder?: (strip: number, depth: number, onFinish: (won: boolean) => void) => void,
+  entry: CoachEntry = 'home',
 ): () => void {
   const wrap = document.createElement('div');
   wrap.className = 'xq-coach';
@@ -1957,8 +1966,13 @@ export function runCoach(
   }
 
   // 第一次进学棋先问一句水平——不然报出来的分你没有参照系
-  if (getDeclared()) showHome();
-  else askLevel(showHome);
+  const land = () => {
+    if (entry === 'today') showToday();
+    else if (entry === 'puzzles') showPickDim();
+    else showHome();
+  };
+  if (getDeclared()) land();
+  else askLevel(land);
 
   return () => {
     clear();

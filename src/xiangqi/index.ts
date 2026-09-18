@@ -12,7 +12,7 @@ import {
 } from './rules';
 import { disposeAi, requestMove, warmupAi } from './aiclient';
 import { runReview } from './review';
-import { runCoach } from './coach';
+import { runCoach, type CoachEntry } from './coach';
 import { renderGameList, renderHome, renderLevel } from './home';
 import { fromFen } from './notation';
 import { archiveFromBoard, listGames as listArchived, openGame, type ArchivedGame } from './archive';
@@ -129,8 +129,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     setupEl = { remove: dispose } as unknown as HTMLElement;
   }
 
-  /** 打开学棋模块（测评 / 课程 / 题库都在里面） */
-  function openCoach(_entry: 'today' | 'puzzles') {
+  /** 打开学棋模块（测评 / 课程 / 题库都在里面），直接落到对应的那一屏 */
+  function openCoach(entry: CoachEntry) {
     clearAll();
     disposeCoach = runCoach(wrap, showHome, (strip, depth, onFinish) => {
       // 让子定级的对局交回对弈流程：那边已经有完整的棋盘、复盘和结算
@@ -145,7 +145,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         Number(localStorage.getItem('xq-tempo') ?? 1),
         { strip, depth, onFinish },
       );
-    });
+    }, entry);
   }
 
   // ============ 最近棋局 ============
@@ -163,7 +163,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   // ============ 我的水平 ============
   function showLevel() {
     clearAll();
-    const dispose = renderLevel(wrap, showHome, () => openCoach('today'));
+    const dispose = renderLevel(wrap, showHome, () => openCoach('home'));
     setupEl = { remove: dispose } as unknown as HTMLElement;
   }
 

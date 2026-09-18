@@ -14,7 +14,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "test:ui": "node tests/ui/screens.mjs",
-    "test:ui:coach": "node tests/ui/coach-flow.mjs"
+    "test:ui:coach": "node tests/ui/coach-flow.mjs",
+    "test:ui:entries": "node tests/ui/entries.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"
