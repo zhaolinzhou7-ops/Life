@@ -614,8 +614,19 @@ const QUIZZES: QuizItem[] = [
 
 // ==================== 出题主入口 ====================
 
-/** 生成一道题。失败会自动换种子重试，最多 200 次 */
-export function makePuzzle(lesson: Lesson, seed: number, cfg: RuleConfig = VARIANT_CHENGDU): Puzzle | null {
+/**
+ * 生成一道题。失败会自动换种子重试，最多 200 次。
+ * difficulty 传了就覆盖课程自带的难度——难度自校准就是靠它把用户推到合适的档位。
+ */
+export function makePuzzle(
+  baseLesson: Lesson,
+  seed: number,
+  cfg: RuleConfig = VARIANT_CHENGDU,
+  difficulty?: 1 | 2 | 3,
+): Puzzle | null {
+  const lesson: Lesson = difficulty && difficulty !== baseLesson.difficulty
+    ? { ...baseLesson, difficulty }
+    : baseLesson;
   if (lesson.kind === 'quiz') {
     const pool = QUIZZES.filter((q) => q.lessonId === lesson.id);
     if (!pool.length) return null;
@@ -664,11 +675,16 @@ export function makePuzzle(lesson: Lesson, seed: number, cfg: RuleConfig = VARIA
 }
 
 /** 生成一整组题 */
-export function makeLessonSet(lesson: Lesson, seed: number, cfg: RuleConfig = VARIANT_CHENGDU): Puzzle[] {
+export function makeLessonSet(
+  lesson: Lesson,
+  seed: number,
+  cfg: RuleConfig = VARIANT_CHENGDU,
+  difficulty?: 1 | 2 | 3,
+): Puzzle[] {
   const out: Puzzle[] = [];
   const seen = new Set<string>();
   for (let i = 0; out.length < lesson.count && i < lesson.count * 12; i++) {
-    const p = makePuzzle(lesson, seed + i * 13, cfg);
+    const p = makePuzzle(lesson, seed + i * 13, cfg, difficulty);
     if (p && !seen.has(p.id)) {
       seen.add(p.id);
       out.push(p);

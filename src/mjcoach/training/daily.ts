@@ -19,7 +19,7 @@ import { analyzeDiscards } from '../analysis/efficiency';
 import { ERROR_INFO, type ErrorType } from '../replay/analyze';
 import { loadGames, rewind, type GameRecord, type DecisionRecord } from '../replay/record';
 import {
-  dueSrsCards, loadProfile, todayNum, trainingPlan, type Profile,
+  dueSrsCards, lessonLevel, loadProfile, todayNum, trainingPlan, type Profile,
 } from '../profile/store';
 import {
   ALL_LESSONS, makePuzzle, type Lesson, type Puzzle,
@@ -151,9 +151,11 @@ export function buildDaily(profile?: Profile): DailySet {
     const item = plan[planIdx % plan.length];
     planIdx++;
     const skill = p.skills[item.type];
-    const diff: 1 | 2 | 3 = skill.samples < 10 ? 1 : skill.errors / Math.max(1, skill.samples) > 0.3 ? 1 : 2;
-    const lesson = lessonFor(item.type, diff);
-    push(makePuzzle(lesson, day * 31 + guard * 7 + planIdx), item.reason);
+    // 先按实战表现挑一门课，再让这门课**自己校准过的难度**决定出多难
+    const seed: 1 | 2 | 3 = skill.samples < 10 ? 1 : skill.errors / Math.max(1, skill.samples) > 0.3 ? 1 : 2;
+    const lesson = lessonFor(item.type, seed);
+    const diff = lessonLevel(p, lesson.id, lesson.difficulty);
+    push(makePuzzle(lesson, day * 31 + guard * 7 + planIdx, VARIANT_CHENGDU, diff), item.reason);
   }
 
   // 主题：今天练得最多的那一类
@@ -167,19 +169,25 @@ export function buildDaily(profile?: Profile): DailySet {
 }
 
 /** 专项训练：指定一课，生成一组题 */
-export function buildLessonSet(lessonId: string, seed = Date.now() % 100000): { lesson: Lesson; puzzles: Puzzle[] } | null {
+export function buildLessonSet(
+  lessonId: string,
+  seed = Date.now() % 100000,
+  profile?: Profile,
+): { lesson: Lesson; puzzles: Puzzle[]; difficulty: 1 | 2 | 3 } | null {
   const lesson = ALL_LESSONS.find((l) => l.id === lessonId);
   if (!lesson) return null;
+  const p = profile ?? loadProfile();
+  const difficulty = lessonLevel(p, lesson.id, lesson.difficulty);
   const puzzles: Puzzle[] = [];
   const seen = new Set<string>();
   for (let i = 0; puzzles.length < lesson.count && i < lesson.count * 12; i++) {
-    const pz = makePuzzle(lesson, seed + i * 977, VARIANT_CHENGDU);
+    const pz = makePuzzle(lesson, seed + i * 977, VARIANT_CHENGDU, difficulty);
     if (pz && !seen.has(pz.id)) {
       seen.add(pz.id);
       puzzles.push(pz);
     }
   }
-  return { lesson, puzzles };
+  return { lesson, puzzles, difficulty };
 }
 
 /** 今日训练完成情况存在这里，同一天不重复要求做 */

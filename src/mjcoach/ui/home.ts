@@ -4,7 +4,7 @@
  */
 
 import { listVariants, type RuleConfig } from '../rules/config';
-import { AI_LEVELS, AI_PROFILES, type AiLevel } from '../ai/players';
+import { AI_LEVELS, AI_PROFILES, spreadLevels, type AiLevel } from '../ai/players';
 import { ERROR_INFO } from '../replay/analyze';
 import { loadProfile, recentPattern, summary } from '../profile/store';
 import { loadGames } from '../replay/record';
@@ -15,7 +15,7 @@ import { TEACH_MODES, type TeachMode } from './table';
 
 export interface HomeOptions {
   host: HTMLElement;
-  onPlay: (cfg: RuleConfig, level: AiLevel, mode: TeachMode) => void;
+  onPlay: (cfg: RuleConfig, levels: AiLevel[], mode: TeachMode) => void;
   onResume: () => void;
   onTrain: () => void;
   onReview: (gameId?: string) => void;
@@ -29,10 +29,12 @@ interface Prefs {
   configId: string;
   level: AiLevel;
   mode: TeachMode;
+  /** 三家水平是否错开。真实牌桌上三个人水平从来不一样 */
+  mix: boolean;
 }
 
 export function loadPrefs(): Prefs {
-  const base: Prefs = { configId: 'chengdu-xuezhan', level: 'novice', mode: 'light' };
+  const base: Prefs = { configId: 'chengdu-xuezhan', level: 'novice', mode: 'light', mix: false };
   try {
     const raw = localStorage.getItem(PREF_KEY);
     return raw ? { ...base, ...(JSON.parse(raw) as Partial<Prefs>) } : base;
@@ -173,6 +175,35 @@ export function renderHome(o: HomeOptions): void {
     ),
   );
 
+  // 三家水平错开：勾上之后对手变成「低一档 / 本档 / 高一档」
+  const levels = spreadLevels(prefs.level, prefs.mix);
+  const mixRow = el('div', {
+    style: 'display:flex;align-items:center;gap:9px;margin:-4px 0 12px;cursor:pointer',
+    onclick: () => {
+      savePrefs({ ...prefs, mix: !prefs.mix });
+      rerender();
+    },
+  });
+  mixRow.append(
+    el('span', {
+      style:
+        `width:17px;height:17px;flex:none;border-radius:5px;border:1px solid ${prefs.mix ? 'var(--mc-accent)' : 'var(--mc-line)'};` +
+        `background:${prefs.mix ? 'var(--mc-accent)' : 'transparent'};color:#06241a;font-size:12px;` +
+        'display:flex;align-items:center;justify-content:center;line-height:1',
+      text: prefs.mix ? '✓' : '',
+    }),
+    el('div', {},
+      el('div', { style: 'font-size:13.5px', text: '三家水平错开（更像真实牌桌）' }),
+      el('div', {
+        style: 'font-size:11.5px;color:var(--mc-muted);margin-top:1px',
+        text: prefs.mix
+          ? `下家 ${AI_PROFILES[levels[0]].name} · 对家 ${AI_PROFILES[levels[1]].name} · 上家 ${AI_PROFILES[levels[2]].name}`
+          : `三家都是${AI_PROFILES[prefs.level].name}`,
+      }),
+    ),
+  );
+  playCard.appendChild(mixRow);
+
   const cfg = listVariants().find((v) => v.id === prefs.configId) ?? listVariants()[0];
   playCard.appendChild(
     el('details', { style: 'margin-bottom:12px' },
@@ -190,7 +221,7 @@ export function renderHome(o: HomeOptions): void {
     el('button.mc-btn.primary', {
       style: 'width:100%',
       text: '上桌开打',
-      onclick: () => o.onPlay(cfg, prefs.level, prefs.mode),
+      onclick: () => o.onPlay(cfg, levels, prefs.mode),
     }),
   );
   wrap.appendChild(playCard);

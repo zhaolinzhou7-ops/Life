@@ -44,10 +44,26 @@ export interface TrainingStat {
   correct: number;
   /** 按题型分开统计 */
   byType: Partial<Record<ErrorType, { done: number; correct: number }>>;
+  /**
+   * 按「课」记的难度自校准状态。
+   * level 是一个 1~3 的浮点数，做对往上飘、做错往下掉，题目难度取它的四舍五入。
+   * 做成浮点是为了不抖：正确率 70% 上下时它会稳在某一档，不会一对一错来回跳。
+   */
+  byLesson: Partial<Record<string, { done: number; correct: number; level: number }>>;
   /** 连续练习天数 */
   streakDays: number;
   lastDay: string;
 }
+
+/**
+ * 难度自校准的两个步长。
+ * 做对涨得慢、做错掉得快（0.15 vs 0.25），是为了让它稳定在 **正确率 ~62%** 附近——
+ * 这是学习效果最好的区间：全对说明题太简单，学不到东西；一半以上做错会挫败。
+ * 数学上，level 不动的平衡点满足 p×0.15 = (1-p)×0.25，解出 p = 0.625。
+ */
+const LEVEL_UP = 0.15;
+const LEVEL_DOWN = 0.25;
+export const TARGET_ACCURACY = 0.625;
 
 export interface Profile {
   version: 1;
@@ -112,7 +128,7 @@ export function emptyProfile(): Profile {
     playSeconds: 0,
     skills: Object.fromEntries(ERROR_TYPES.map((t) => [t, emptySkill()])) as Record<ErrorType, SkillStat>,
     recent: [],
-    training: { done: 0, correct: 0, byType: {}, streakDays: 0, lastDay: '' },
+    training: { done: 0, correct: 0, byType: {}, byLesson: {}, streakDays: 0, lastDay: '' },
     srs: [],
     level: 1,
     exp: 0,
@@ -131,7 +147,7 @@ export function loadProfile(): Profile {
       ...base,
       ...p,
       skills: { ...base.skills, ...(p.skills ?? {}) },
-      training: { ...base.training, ...(p.training ?? {}) },
+      training: { ...base.training, ...(p.training ?? {}), byLesson: p.training?.byLesson ?? {} },
       recent: Array.isArray(p.recent) ? p.recent : [],
       srs: Array.isArray(p.srs) ? p.srs : [],
       achievements: Array.isArray(p.achievements) ? p.achievements : [],
@@ -196,8 +212,16 @@ export function recordGame(report: GameReport, extra: { dianpao: number; fan: nu
   return p;
 }
 
-/** 记一次训练作答 */
-export function recordTraining(type: ErrorType, correct: boolean): Profile {
+/**
+ * 记一次训练作答。
+ * 传了 lesson 就顺便调一次这一课的难度——这是「题库难度自校准」的全部实现：
+ * 不需要预先给题目标难度，用户的真实正确率会把难度推到合适的位置。
+ */
+export function recordTraining(
+  type: ErrorType,
+  correct: boolean,
+  lesson?: { id: string; baseDifficulty: number },
+): Profile {
   const p = loadProfile();
   p.training.done++;
   if (correct) p.training.correct++;
@@ -205,6 +229,14 @@ export function recordTraining(type: ErrorType, correct: boolean): Profile {
   bt.done++;
   if (correct) bt.correct++;
   p.training.byType[type] = bt;
+
+  if (lesson) {
+    const bl = p.training.byLesson[lesson.id] ?? { done: 0, correct: 0, level: lesson.baseDifficulty };
+    bl.done++;
+    if (correct) bl.correct++;
+    bl.level = Math.max(1, Math.min(3, bl.level + (correct ? LEVEL_UP : -LEVEL_DOWN)));
+    p.training.byLesson[lesson.id] = bl;
+  }
 
   const d = todayStr();
   if (p.training.lastDay !== d) {
@@ -216,6 +248,32 @@ export function recordTraining(type: ErrorType, correct: boolean): Profile {
   p.level = 1 + Math.floor(p.exp / 120);
   saveProfile(p);
   return p;
+}
+
+/**
+ * 这一课现在该出多难的题。
+ * 样本太少（<4 题）时不动，先用课程自己标的难度——
+ * 拿两三题的表现调难度，调的是噪声不是水平。
+ */
+export function lessonLevel(p: Profile, lessonId: string, baseDifficulty: number): 1 | 2 | 3 {
+  const bl = p.training.byLesson[lessonId];
+  if (!bl || bl.done < 4) return baseDifficulty as 1 | 2 | 3;
+  return Math.max(1, Math.min(3, Math.round(bl.level))) as 1 | 2 | 3;
+}
+
+/** 这一课的校准状态，界面上要让用户看见「现在给你出的是哪一档」 */
+export function lessonProgress(p: Profile, lessonId: string, baseDifficulty: number) {
+  const bl = p.training.byLesson[lessonId];
+  const level = lessonLevel(p, lessonId, baseDifficulty);
+  const accuracy = bl && bl.done ? bl.correct / bl.done : 0;
+  return {
+    done: bl?.done ?? 0,
+    correct: bl?.correct ?? 0,
+    accuracy,
+    level,
+    levelName: ['', '入门', '中等', '进阶'][level],
+    calibrated: !!bl && bl.done >= 4,
+  };
 }
 
 // ==================== 错题本 ====================

@@ -10,7 +10,7 @@ import { getVariant } from '../rules/config';
 import { SUIT_NAMES, suitOf, tilesName, type TileId } from '../rules/tiles';
 import { ERROR_INFO, type ErrorType } from '../replay/analyze';
 import {
-  addSrsCard, dueSrsCards, loadProfile, recordTraining, reviewSrsCard, summary,
+  addSrsCard, dueSrsCards, lessonProgress, loadProfile, recordTraining, reviewSrsCard, summary,
 } from '../profile/store';
 import { COURSES, judge, similarPuzzle, type Puzzle } from '../training/bank';
 import { buildDaily, buildLessonSet, loadDailyDone, markDailyDone } from '../training/daily';
@@ -107,7 +107,7 @@ export function renderTrain(o: TrainOptions): void {
     );
     const grid = el('div.mc-grid');
     for (const lesson of course.lessons) {
-      const acc = p.training.byType[lesson.type];
+      const prog = lessonProgress(p, lesson.id, lesson.difficulty);
       const btn = el('button.mc-btn', {
         style: 'text-align:left;padding:11px 12px',
         onclick: () => {
@@ -123,11 +123,13 @@ export function renderTrain(o: TrainOptions): void {
         el('div', { style: 'font-size:14px', text: lesson.title }),
         el('div', { style: 'font-size:11.5px;color:var(--mc-muted);margin-top:2px', text: lesson.desc }),
       );
-      if (acc) {
+      if (prog.done) {
         btn.appendChild(
           el('div', {
             style: 'font-size:11px;color:var(--mc-accent);margin-top:3px',
-            text: `已练 ${acc.done} 题 · 正确率 ${Math.round((acc.correct / Math.max(1, acc.done)) * 100)}%`,
+            text:
+              `已练 ${prog.done} 题 · 正确率 ${Math.round(prog.accuracy * 100)}%` +
+              (prog.calibrated ? ` · 当前难度「${prog.levelName}」` : ''),
           }),
         );
       }
@@ -138,7 +140,14 @@ export function renderTrain(o: TrainOptions): void {
   }
 
   wrap.appendChild(
-    el('div.mc-card', {}, el('p', { class: 'mc-muted', text: `累计做题 ${s.trainingDone} 道 · 正确率 ${s.trainingAccuracy}% · 连续练习 ${s.streakDays} 天` })),
+    el('div.mc-card', {},
+      el('p', { class: 'mc-muted', text: `累计做题 ${s.trainingDone} 道 · 正确率 ${s.trainingAccuracy}% · 连续练习 ${s.streakDays} 天` }),
+      el('p', {
+        class: 'mc-muted',
+        text: '题目难度会自己校准：做对了往难里出，做错了往回退，长期稳定在正确率 60% 出头——' +
+          '全对说明题太简单学不到东西，错太多又只会打击人。',
+      }),
+    ),
   );
 
   host.insertBefore(topbar('训练', `今日主题：${daily.theme}`, o.onBack), page);
@@ -301,7 +310,7 @@ export function renderTrain(o: TrainOptions): void {
         answered = true;
         const { correct } = judge(pz, given);
         if (correct) right++;
-        recordTraining(pz.type, correct);
+        recordTraining(pz.type, correct, { id: pz.lessonId, baseDifficulty: pz.difficulty });
         markDailyDone(pz.id);
         if (isReview) reviewSrsCard(pz.id, correct);
         else if (!correct) addSrsCard({ id: pz.id, type: pz.type, payload: { lessonId: pz.lessonId, seed: pz.seed } });

@@ -71,6 +71,22 @@ export const AI_PROFILES: Record<AiLevel, AiProfile> = {
 
 export const AI_LEVELS: AiLevel[] = ['beginner', 'novice', 'intermediate', 'advanced'];
 
+/**
+ * 三家对手的档位。
+ * 真实牌桌上三个人水平从来不一样，混搭比「三个克隆人」更像在打牌，
+ * 也更有教学价值：你会看到同一张牌，新手碰了、高手没碰。
+ * 混搭时取「低一档 / 本档 / 高一档」，越界就夹住。
+ */
+export function spreadLevels(level: AiLevel, mixed: boolean): AiLevel[] {
+  if (!mixed) return [level, level, level];
+  const i = AI_LEVELS.indexOf(level);
+  return [
+    AI_LEVELS[Math.max(0, i - 1)],
+    AI_LEVELS[i],
+    AI_LEVELS[Math.min(AI_LEVELS.length - 1, i + 1)],
+  ];
+}
+
 /** 每档的策略参数。只有这一张表控制差异，改起来一目了然 */
 interface Policy {
   /**

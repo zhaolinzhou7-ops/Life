@@ -14,7 +14,7 @@ import {
   Rng, SUIT_NAMES, suitOf, tileName, tilesName, toTiles,
   type TileId,
 } from '../rules/tiles';
-import { decide, type AiLevel } from '../ai/players';
+import { AI_PROFILES, decide, type AiLevel } from '../ai/players';
 import { analyzeDiscards, lossOf, severityOf } from '../analysis/efficiency';
 import { analyzeLack } from '../analysis/dingque';
 import { analyzeSwap } from '../analysis/swap';
@@ -38,7 +38,8 @@ export const TEACH_MODES: { id: TeachMode; name: string; desc: string }[] = [
 
 export interface TableOptions {
   config: RuleConfig;
-  aiLevel: AiLevel;
+  /** 三家对手的档位，依次对应下家 / 对家 / 上家 */
+  aiLevels: AiLevel[];
   mode: TeachMode;
   seed: number;
   onExit: () => void;
@@ -55,7 +56,7 @@ export interface TableOptions {
 const HERO = 0;
 
 export function runTable(host: HTMLElement, opts: TableOptions): () => void {
-  const { config: cfg, aiLevel, mode, seed } = opts;
+  const { config: cfg, aiLevels, mode, seed } = opts;
   let disposed = false;
   const alive = () => !disposed;
 
@@ -63,7 +64,7 @@ export function runTable(host: HTMLElement, opts: TableOptions): () => void {
   const rng = new Rng(seed ^ 0x5bf03635);
   const recorder = new Recorder({
     config: cfg, seed, heroSeat: HERO,
-    aiLevels: [aiLevel, aiLevel, aiLevel],
+    aiLevels: [...aiLevels],
     mode: TEACH_MODES.find((m) => m.id === mode)!.name,
   });
   const coach = getCoach();
@@ -185,6 +186,9 @@ export function runTable(host: HTMLElement, opts: TableOptions): () => void {
       const box = el(`div.mc-seat.${positions[d]}`);
       const plate = el(`div.mc-nameplate${engine.turn === seat && engine.phase !== 'over' ? '.active' : ''}`);
       plate.appendChild(el('span', { text: seatName(HERO, seat) }));
+      if (new Set(aiLevels).size > 1) {
+        plate.appendChild(el('span.mc-pill', { text: AI_PROFILES[aiLevels[seat - 1] ?? aiLevels[0]].name }));
+      }
       if (p.lack >= 0) plate.appendChild(el('span.mc-lackbadge', { text: `缺${SUIT_NAMES[p.lack]}` }));
       if (p.outOfPlay) plate.appendChild(el('span.mc-pill.warn', { text: '已胡' }));
       else if (engine.isTing(seat)) plate.appendChild(el('span.mc-pill.accent', { text: '听' }));
@@ -645,7 +649,7 @@ export function runTable(host: HTMLElement, opts: TableOptions): () => void {
   /** 每走一步就把牌局存下来，刷新/误退之后能接着打 */
   function autosave() {
     saveInProgress({
-      configId: cfg.id, seed, aiLevel, mode,
+      configId: cfg.id, seed, aiLevels: [...aiLevels], mode,
       actions: recorder.record.actions, decisions: recorder.record.decisions,
       startedAt: recorder.record.startedAt,
     });
@@ -685,7 +689,7 @@ export function runTable(host: HTMLElement, opts: TableOptions): () => void {
         // AI 思考的停顿：太快看不清发生了什么，太慢又烦
         await sleep(pend.kind === 'claim' ? 260 : 420);
         if (!alive()) return;
-        action = decide(aiLevel, engine, pend, rng);
+        action = decide(aiLevels[pend.seat - 1] ?? aiLevels[0], engine, pend, rng);
         centerHint = describeAi(action);
       }
 

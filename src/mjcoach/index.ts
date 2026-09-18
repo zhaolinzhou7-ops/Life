@@ -12,7 +12,7 @@ import { randomSeed } from './rules/tiles';
 import type { AiLevel } from './ai/players';
 import { getGame, loadGames, saveGame, type GameRecord } from './replay/record';
 import { loadInProgress, type InProgressGame } from './replay/inprogress';
-import { AI_LEVELS } from './ai/players';
+import { AI_LEVELS, spreadLevels } from './ai/players';
 import { buildReport, type GameReport } from './replay/analyze';
 import { recordGame } from './profile/store';
 import { el } from './ui/common';
@@ -85,7 +85,7 @@ export function bootMahjongCoach(app: HTMLElement, onExit: () => void): () => vo
         break;
 
       case 'play': {
-        const p = payload as { cfg: RuleConfig; level: AiLevel; mode: TeachMode; resume?: InProgressGame } | undefined;
+        const p = payload as { cfg: RuleConfig; levels: AiLevel[]; mode: TeachMode; resume?: InProgressGame } | undefined;
         const prefs = loadPrefs();
         if (!p) {
           // 直接点底部「陪练」：有没打完的就接着打，否则用上次的设置开一局
@@ -94,12 +94,12 @@ export function bootMahjongCoach(app: HTMLElement, onExit: () => void): () => vo
             return;
           }
           const cfgs = listVariants();
-          startGame(cfgs.find((c) => c.id === prefs.configId) ?? cfgs[0], prefs.level, prefs.mode);
+          startGame(cfgs.find((c) => c.id === prefs.configId) ?? cfgs[0], spreadLevels(prefs.level, prefs.mix), prefs.mode);
           return;
         }
         disposeTable = runTable(body, {
           config: p.cfg,
-          aiLevel: p.level,
+          aiLevels: p.levels,
           mode: p.mode,
           seed: p.resume ? p.resume.seed : randomSeed(),
           resume: p.resume
@@ -118,7 +118,7 @@ export function bootMahjongCoach(app: HTMLElement, onExit: () => void): () => vo
             reviewTarget = { rec, report };
             go('review');
           },
-          onAgain: () => startGame(p.cfg, p.level, p.mode),
+          onAgain: () => startGame(p.cfg, p.levels, p.mode),
         });
         break;
       }
@@ -147,9 +147,9 @@ export function bootMahjongCoach(app: HTMLElement, onExit: () => void): () => vo
     }
   }
 
-  function startGame(cfg: RuleConfig, level: AiLevel, mode: TeachMode) {
+  function startGame(cfg: RuleConfig, levels: AiLevel[], mode: TeachMode) {
     reviewTarget = null;
-    go('play', { cfg, level, mode });
+    go('play', { cfg, levels, mode });
   }
 
   /** 接着上次没打完的那局 */
@@ -160,9 +160,9 @@ export function bootMahjongCoach(app: HTMLElement, onExit: () => void): () => vo
       return;
     }
     const cfg = listVariants().find((c) => c.id === g.configId) ?? listVariants()[0];
-    const level = (AI_LEVELS as string[]).includes(g.aiLevel) ? (g.aiLevel as AiLevel) : 'novice';
+    const levels = (g.aiLevels ?? []).map((l) => ((AI_LEVELS as string[]).includes(l) ? (l as AiLevel) : 'novice'));
     reviewTarget = null;
-    go('play', { cfg, level, mode: g.mode as TeachMode, resume: g });
+    go('play', { cfg, levels: levels.length === 3 ? levels : ['novice', 'novice', 'novice'], mode: g.mode as TeachMode, resume: g });
   }
 
   function openReview(id?: string) {

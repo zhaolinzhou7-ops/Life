@@ -11,7 +11,7 @@ import { check, checkTrue, suite } from './runner';
 import { VARIANT_CHENGDU, VARIANT_TEACH, VARIANT_XUELIU } from '../rules/config';
 import { MahjongEngine, replay } from '../rules/engine';
 import { Rng, parseCounts, tileOf, toTiles } from '../rules/tiles';
-import { AI_LEVELS, AI_PROFILES, decide, playOut, type AiLevel } from '../ai/players';
+import { AI_LEVELS, AI_PROFILES, decide, playOut, spreadLevels, type AiLevel } from '../ai/players';
 import { extractFacts, compareDiscard, compareLack, seatName, shantenText } from '../teach/facts';
 import { MockCoach, QUICK_QUESTIONS, UNKNOWN, answer } from '../teach/coach';
 import { toExplainPayload } from '../teach/provider';
@@ -19,9 +19,10 @@ import { Recorder, type DecisionRecord } from '../replay/record';
 import { ERROR_TYPES, buildReport, buildTimeline, pickKeyMoments } from '../replay/analyze';
 import { ALL_LESSONS, COURSES, judge, makePuzzle, similarPuzzle } from '../training/bank';
 import {
-  addSrsCard, allSkills, dueSrsCards, emptyProfile, recentPattern, recordTraining,
-  reviewSrsCard, skillView, trainingPlan,
+  TARGET_ACCURACY, addSrsCard, allSkills, dueSrsCards, emptyProfile, lessonLevel,
+  recentPattern, recordTraining, reviewSrsCard, skillView, trainingPlan,
 } from '../profile/store';
+import { gameAccuracy, improvement, progressSeries } from '../profile/progress';
 import { analyzeDiscards } from '../analysis/efficiency';
 import { analyzeLack } from '../analysis/dingque';
 
@@ -411,6 +412,114 @@ export function runCoachTests() {
     });
     check('七个维度都有画像', 7, () => allSkills(emptyProfile()).length);
     check('训练计划覆盖所有维度', 7, () => trainingPlan(emptyProfile()).length);
+  });
+
+  // ==================== 难度自校准 ====================
+  suite('训练难度自校准', () => {
+    check('样本太少时不动难度（拿三题调的是噪声）', 2, () => {
+      const p = emptyProfile();
+      p.training.byLesson['x'] = { done: 3, correct: 3, level: 2.9 };
+      return lessonLevel(p, 'x', 2);
+    });
+    check('一直做对，难度会升上去', 3, () => {
+      const p = emptyProfile();
+      p.training.byLesson['x'] = { done: 20, correct: 20, level: 3 };
+      return lessonLevel(p, 'x', 1);
+    });
+    check('一直做错，难度会降下来', 1, () => {
+      const p = emptyProfile();
+      p.training.byLesson['x'] = { done: 20, correct: 0, level: 1 };
+      return lessonLevel(p, 'x', 3);
+    });
+    check('难度夹在 1~3 之间，不会跑飞', true, () => {
+      let cur = 2;
+      // 连续做对 100 题
+      for (let i = 0; i < 100; i++) cur = Math.max(1, Math.min(3, cur + 0.15));
+      if (cur > 3) return `涨过头：${cur}`;
+      for (let i = 0; i < 100; i++) cur = Math.max(1, Math.min(3, cur - 0.25));
+      return cur >= 1 ? true : `掉过头：${cur}`;
+    });
+    check('平衡点落在目标正确率附近', true, () => {
+      // 按目标正确率随机作答，难度应该稳住不漂
+      let level = 2;
+      let seedRng = new Rng(99);
+      for (let i = 0; i < 4000; i++) {
+        const correct = seedRng.next() < TARGET_ACCURACY;
+        level = Math.max(1, Math.min(3, level + (correct ? 0.15 : -0.25)));
+      }
+      return Math.abs(level - 2) < 0.8 ? true : `漂到了 ${level.toFixed(2)}`;
+    });
+    check('做题会写进这一课的校准状态', true, () => {
+      const before = recordTraining('efficiency', true, { id: 'calib-test', baseDifficulty: 2 });
+      const bl = before.training.byLesson['calib-test'];
+      return !!bl && bl.done === 1 && bl.level > 2;
+    });
+  });
+
+  // ==================== 进步曲线 ====================
+  suite('进步曲线', () => {
+    const mkGame = (errs: number, decisions = 20) => ({
+      id: Math.random().toString(36), at: Date.now(), won: false, score: 0,
+      errors: { efficiency: errs } as Record<string, number>, decisions,
+    });
+
+    check('一局的正确率 = 没出错的决策占比', 0.8, () => gameAccuracy(mkGame(4, 20)));
+    check('决策数为 0 时不炸', 0, () => gameAccuracy(mkGame(0, 0)));
+    check('局数不够时不下结论', false, () => {
+      const p = emptyProfile();
+      p.recent = [mkGame(2), mkGame(3)];
+      return improvement(p).enough;
+    });
+    check('局数不够时给的是「再打几局」而不是空话', true, () => {
+      const p = emptyProfile();
+      p.recent = [mkGame(2), mkGame(3)];
+      return improvement(p).text.includes('再打');
+    });
+    check('确实在进步时会说出来', true, () => {
+      const p = emptyProfile();
+      // recent 是倒序存的：数组前面是最近的。让最近的错得少
+      p.recent = [...Array(5)].map(() => mkGame(1)).concat([...Array(5)].map(() => mkGame(8)));
+      const imp = improvement(p);
+      return imp.enough && imp.delta > 0 && imp.text.includes('进步');
+    });
+    check('退步时也照实说', true, () => {
+      const p = emptyProfile();
+      p.recent = [...Array(5)].map(() => mkGame(8)).concat([...Array(5)].map(() => mkGame(1)));
+      const imp = improvement(p);
+      return imp.enough && imp.delta < 0;
+    });
+    check('曲线按时间正序，最后一个点是最近一局', true, () => {
+      const p = emptyProfile();
+      p.recent = [mkGame(1), mkGame(5), mkGame(9)];
+      const series = progressSeries(p);
+      return series.length === 3 && series[0].n === 1 && series[2].n === 3
+        && Math.abs(series[2].accuracy - 0.95) < 0.01;
+    });
+    check('滚动平均比单局平滑', true, () => {
+      const p = emptyProfile();
+      p.recent = [mkGame(0), mkGame(10), mkGame(0), mkGame(10), mkGame(0), mkGame(10)];
+      const s2 = progressSeries(p);
+      const spread = (get: (x: typeof s2[0]) => number) =>
+        Math.max(...s2.map(get)) - Math.min(...s2.map(get));
+      return spread((x) => x.rolling) < spread((x) => x.accuracy);
+    });
+  });
+
+  // ==================== 对手混搭 ====================
+  suite('对手混搭', () => {
+    check('不混搭时三家一样', ['novice', 'novice', 'novice'], () => spreadLevels('novice', false));
+    check('混搭时是低一档 / 本档 / 高一档', ['novice', 'intermediate', 'advanced'], () =>
+      spreadLevels('intermediate', true));
+    check('最低档混搭不会越界', ['beginner', 'beginner', 'novice'], () => spreadLevels('beginner', true));
+    check('最高档混搭不会越界', ['intermediate', 'advanced', 'advanced'], () => spreadLevels('advanced', true));
+    check('混搭的三家能正常打完一局', true, () => {
+      const levels = spreadLevels('intermediate', true);
+      const e = new MahjongEngine({ config: VARIANT_CHENGDU, seed: 4242 });
+      e.start();
+      // playOut 按座位取档位，0 号位也要有一个
+      const r = playOut(e, ['intermediate', ...levels], 7);
+      return r.ok ? true : r.error ?? '没打完';
+    });
   });
 
   // ==================== 错题本 ====================

@@ -14,7 +14,7 @@ import type { DecisionRecord } from './record';
 export interface InProgressGame {
   configId: string;
   seed: number;
-  aiLevel: string;
+  aiLevels: string[];
   mode: string;
   actions: Action[];
   decisions: DecisionRecord[];

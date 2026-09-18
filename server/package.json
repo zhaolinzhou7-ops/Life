@@ -1,0 +1,14 @@
+{
+  "name": "mjcoach-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "四川麻将 AI 教练的后端转发示例：把 API Key 挡在前端之外",
+  "scripts": {
+    "start": "node coach-server.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
+    "zod": "^3.24.0"
+  }
+}

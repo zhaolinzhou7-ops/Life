@@ -12,6 +12,8 @@ import {
   allSkills, exportAll, importAll, loadProfile, recentPattern, resetProfile, summary, trainingPlan,
 } from '../profile/store';
 import { openGlossary } from './glossary';
+import { ROLL_WINDOW, improvement, progressSeries } from '../profile/progress';
+import { trendChart } from './chart';
 import { clearGames, loadGames } from '../replay/record';
 import { el, richText, stars, topbar } from './common';
 
@@ -54,6 +56,39 @@ export function renderMe(o: MeOptions): void {
     stat(s.streakDays, '连续练习天'),
   );
   wrap.appendChild(grid);
+
+  // ---------- 进步曲线 ----------
+  // 画像回答「我哪里弱」，这里回答「我比以前强了没」——后者才是留得住人的东西
+  wrap.appendChild(el('div.mc-section', { text: '进步曲线' }));
+  const trendCard = el('div.mc-card');
+  const imp = improvement(p);
+  trendCard.appendChild(
+    el('h3', { text: imp.enough ? `决策正确率：${Math.round(imp.recent * 100)}%` : '进步曲线' }),
+  );
+  trendCard.appendChild(el('p', { text: imp.text }));
+  trendCard.appendChild(trendChart({ points: progressSeries(p), window: ROLL_WINDOW }));
+  if (imp.bySkill.length) {
+    trendCard.appendChild(
+      el('p', { class: 'mc-muted', style: 'margin-top:10px', text: '变化最明显的几项：' }),
+    );
+    for (const b of imp.bySkill) {
+      trendCard.appendChild(
+        el('div', {
+          style: `font-size:13px;color:${b.delta > 0 ? 'var(--mc-accent)' : 'var(--mc-warn)'}`,
+          text: `${b.delta > 0 ? '↑' : '↓'} ${b.text}`,
+        }),
+      );
+    }
+  }
+  trendCard.appendChild(
+    el('p', {
+      class: 'mc-muted',
+      style: 'margin-top:10px',
+      text: '为什么看正确率不看胜率：麻将单局运气太大，胜率要几百局才有意义；' +
+        '「这局里有多少步是最优解」十几局就能看出趋势，而且它才是我们教的东西。',
+    }),
+  );
+  wrap.appendChild(trendCard);
 
   // ---------- 错误画像 ----------
   wrap.appendChild(el('div.mc-section', { text: '错误画像' }));
