@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - claude/entertainment-software-ideas-nvm3h5
-      - claude/ai-chess-coach-mvp-kyzv6n
       - main
   workflow_dispatch:
 
