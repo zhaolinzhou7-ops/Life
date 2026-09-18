@@ -192,8 +192,14 @@ function buildFindings(
   }
 
   // ---- 高音区偏低（最常见也最要紧的问题） ----
+  //
+  // 关键是「高音**特别**低」，而不是「高音也低」。如果整首歌都低 50 音分，
+  // 那故事是「整体偏低」，高音只是跟着一起低——这时候报「高音上不去」
+  // 会把用户引到错误的练习上（他该练的是建立音高目标，不是高音技巧）。
+  // 所以要求高音比整体倾向再低 20 音分以上，才算高音区自己的问题。
   const hi = intonation.highNotes;
-  if (hi.score !== null && hi.raw !== null && hi.raw < -30) {
+  const overallBias = intonation.bias ?? 0;
+  if (hi.score !== null && hi.raw !== null && hi.raw < -30 && hi.raw < overallBias - 20) {
     const hiNotes = ref
       ? notes.filter((n) => n.cents !== null && n.cents < -30 && n.targetMidi >= (intonation.range?.comfortHi ?? 0) - 2)
       : [];

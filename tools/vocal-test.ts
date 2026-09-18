@@ -13,6 +13,10 @@ import { midiToFreq, freqToMidi, midiToName } from '../src/vocal/dsp/notes';
 import { analyzePerformance } from '../src/vocal/analysis/performance';
 import { buildReference, SONG_BY_ID } from '../src/vocal/songs/library';
 import type { Finding, Reference } from '../src/vocal/analysis/types';
+import { ruleFeedback } from '../src/vocal/ai/rules';
+import { validateFeedback, getCoachFeedback } from '../src/vocal/ai/coach';
+import { EXERCISE_BY_ID, EXERCISES } from '../src/vocal/training/exercises';
+import { DEFAULT_CONFIG } from '../src/vocal/ai/provider';
 
 // ---------------------------------------------------------------- 测试框架
 
@@ -25,6 +29,13 @@ function describe(name: string, fn: () => void) {
   group = name;
   console.log(`\n\x1b[1m${name}\x1b[0m`);
   fn();
+}
+
+/** describe 的异步版本：有 await 的测试组用它，在顶层 await 调用 */
+async function describeAsync(name: string, fn: () => Promise<void>) {
+  group = name;
+  console.log(`\n\x1b[1m${name}\x1b[0m`);
+  await fn();
 }
 
 function ok(cond: boolean, name: string, detail = '') {
@@ -403,6 +414,12 @@ describe('整首分析 · 高音区偏低', () => {
   ok(hi.score !== null && (hi.raw ?? 0) < -40, '高音指标反映了这件事', hi.why);
   // 低音区没动，所以整体偏差应该明显小于高音区偏差
   ok(Math.abs(report.intonation.bias ?? 0) < 60, '没有把高音的问题摊到整首歌上', `整体 bias ${report.intonation.bias}`);
+
+  // 反过来：整首都偏低时，故事是「整体偏低」而不是「高音上不去」——
+  // 这两者对应完全不同的练习，弄反了会把用户带沟里
+  const allFlat = analyzePerformance(singReference(buildReference(star), { bias: -50 }), SR, buildReference(star)).report;
+  ok(allFlat.findings[0].kind === 'flat', '整体偏低时首要问题是「整体偏低」', allFlat.findings[0].title);
+  ok(!kinds(allFlat.findings).includes('highNoteFlat'), '不把整体偏低误报成高音问题');
 });
 
 describe('整首分析 · 长音不稳', () => {
@@ -560,6 +577,138 @@ describe('分段与乐句', () => {
   const up3 = buildReference(star, { transpose: 3 });
   const base = buildReference(star);
   ok(up3.notes[0].midi - base.notes[0].midi === 3, '移调正确作用到目标音高');
+});
+
+
+
+// ---------------------------------------------------------------- AI 教练层
+
+describe('内置教练（规则引擎）', () => {
+  const ref = buildReference(star);
+  const cases: [string, SingOpts][] = [
+    ['唱得准', {}],
+    ['整体偏低', { bias: -50 }],
+    ['整体偏高', { bias: 55 }],
+    ['高音偏低', { highBias: -80 }],
+    ['长音飘', { drift: 90 }],
+    ['漏唱', { missRate: 0.35, seed: 3 }],
+    ['节奏乱', { timeJitter: 0.18, seed: 9 }],
+  ];
+
+  for (const [name, opts] of cases) {
+    const { report } = analyzePerformance(singReference(ref, opts), SR, ref);
+    const fb = ruleFeedback(report);
+    const parts = [fb.good, fb.problem, fb.why, fb.goal];
+    ok(parts.every((p) => p.trim().length > 6), `${name}：五段式都有实质内容`);
+    ok(/\d/.test(fb.problem), `${name}：问题里带具体数字`, fb.problem.slice(0, 46));
+    ok(/\d/.test(fb.goal), `${name}：目标可验证`, fb.goal.slice(0, 46));
+    ok(fb.drills.length >= 1, `${name}：至少给一条练习`, fb.drills.map((d) => d.name).join('、'));
+    ok(fb.drills.every((d) => EXERCISE_BY_ID.has(d.exerciseId)), `${name}：练习 ID 都真实存在`);
+    ok(fb.drills.every((d) => d.reason.length > 4), `${name}：每条练习都说明了为什么给你`);
+  }
+
+  // 反废话：规则引擎自己也不许说套话
+  const banned = ['很有潜力', '非常不错', '继续努力', '感情很丰富', '情绪很到位', '未来可期', '加油'];
+  let dirty = 0;
+  for (const [, opts] of cases) {
+    const { report } = analyzePerformance(singReference(ref, opts), SR, ref);
+    const fb = ruleFeedback(report);
+    const all = [fb.good, fb.problem, fb.why, fb.goal, ...fb.drills.map((d) => d.reason)].join('');
+    if (banned.some((b) => all.includes(b))) dirty++;
+  }
+  ok(dirty === 0, '规则引擎的输出里没有一句套话');
+
+  // 高音问题应该推高音类练习
+  const hi = analyzePerformance(singReference(buildReference(amazing), { highBias: -85 }), SR, buildReference(amazing)).report;
+  const hiFb = ruleFeedback(hi);
+  ok(hiFb.drills.some((d) => EXERCISE_BY_ID.get(d.exerciseId)?.kind === 'high'), '高音问题推的是高音类练习',
+    hiFb.drills.map((d) => `${d.name}(${EXERCISE_BY_ID.get(d.exerciseId)?.kind})`).join('、'));
+
+  // 节奏问题应该推节奏类练习
+  const rh = analyzePerformance(singReference(ref, { timeJitter: 0.2, seed: 4 }), SR, ref).report;
+  const rhFb = ruleFeedback(rh);
+  ok(rhFb.drills.some((d) => EXERCISE_BY_ID.get(d.exerciseId)?.kind === 'rhythm'), '节奏问题推的是节奏类练习',
+    rhFb.drills.map((d) => `${d.name}(${EXERCISE_BY_ID.get(d.exerciseId)?.kind})`).join('、'));
+});
+
+describe('AI 输出校验（反废话闸门）', () => {
+  const good = {
+    good: '副歌那 8 个音有 82% 落在容差内。',
+    problem: '高音区平均低了 64 音分。',
+    why: '一到高音就本能加音量、把喉咙挤紧，声带反而振不上去。',
+    drills: [{ exerciseId: 'high-soft', minutes: 4, reason: '用小音量先把位置找对。' }],
+    goal: '下次把高音区平均偏差从 64 音分压到 35 音分以内。',
+  };
+  ok(validateFeedback(good, 'test').ok, '合格的输出能通过');
+
+  const v = validateFeedback(good, 'test');
+  ok(v.feedback?.drills[0].name === EXERCISE_BY_ID.get('high-soft')!.name, '练习 ID 被解析成真实练习');
+
+  ok(!validateFeedback({ ...good, good: '' }, 't').ok, '缺字段 → 打回');
+  ok(!validateFeedback({ ...good, problem: '你的高音有点不稳' }, 't').ok, '问题里没数字 → 打回');
+  ok(!validateFeedback({ ...good, goal: '下次唱得更好一些' }, 't').ok, '目标不可验证 → 打回');
+  ok(!validateFeedback({ ...good, drills: [] }, 't').ok, '没有练习 → 打回');
+  ok(!validateFeedback({ ...good, drills: [{ exerciseId: 'not-a-real-id', minutes: 3 }] }, 't').ok,
+    '编造的练习 ID → 打回');
+  ok(!validateFeedback('一段普通文字', 't').ok, '不是对象 → 打回');
+
+  for (const phrase of ['很有潜力', '继续努力', '感情很丰富', '情绪很到位', '非常不错', '未来可期']) {
+    const bad = { ...good, why: `你唱得${phrase}，` + good.why };
+    const r = validateFeedback(bad, 't');
+    ok(!r.ok, `套话「${phrase}」被拦下`, r.reason);
+  }
+
+  // 多余的练习会被裁掉，不合法的被丢弃但其余保留
+  const mixed = validateFeedback(
+    { ...good, drills: [{ exerciseId: 'fake', minutes: 3 }, { exerciseId: 'scale-major', minutes: 5, reason: '练半音关系' }] },
+    't',
+  );
+  ok(mixed.ok && mixed.feedback!.drills.length === 1, '丢掉假 ID，保留真 ID',
+    mixed.feedback?.drills.map((d) => d.name).join('、'));
+});
+
+await describeAsync('AI 不可用时的兜底', async () => {
+  const ref = buildReference(star);
+  const { report } = analyzePerformance(singReference(ref, { bias: -45 }), SR, ref);
+
+  {
+    // Mock 模式：不联网也要给出完整反馈
+    const fb = await getCoachFeedback(report, [], DEFAULT_CONFIG);
+    ok(fb.good && fb.problem && fb.why && fb.goal && fb.drills.length > 0, 'Mock 模式给出完整五段式');
+    ok(fb.source.includes('内置'), '标明来源是内置教练', fb.source);
+
+    // 配了一个连不上的地址：必须优雅回退，不能把错误抛给界面
+    const broken = await getCoachFeedback(report, [], {
+      preset: 'custom',
+      kind: 'openai' as const,
+      baseUrl: 'http://127.0.0.1:1/v1',
+      model: 'nope',
+      apiKey: 'x',
+    });
+    ok(broken.drills.length > 0 && !!broken.goal, '接口挂了照样有完整反馈');
+    ok(!!broken.fallbackReason, '说明了为什么回退', broken.fallbackReason?.slice(0, 50));
+  }
+});
+
+describe('练习目录', () => {
+  ok(EXERCISES.length >= 14, `练习数量充足（${EXERCISES.length} 条）`);
+  const kinds = new Set(EXERCISES.map((e) => e.kind));
+  ok(['pitch', 'rhythm', 'high', 'stability'].every((k) => kinds.has(k as never)), '四大类都有');
+  ok(EXERCISES.every((e) => e.how.length > 10 && e.why.length > 10 && e.pitfall.length > 8),
+    '每条练习都写清了怎么做/为什么/易错点');
+  ok(new Set(EXERCISES.map((e) => e.id)).size === EXERCISES.length, '练习 ID 不重复');
+  ok(EXERCISES.every((e) => e.minutes > 0 && e.minutes <= 10), '单条练习时长合理');
+  // 气息类不得声称在测气息
+  const stability = EXERCISES.filter((e) => e.kind === 'stability');
+  ok(stability.length >= 3, '稳定性类练习齐全');
+  // 断言的是「不下断言」，不是「不提这个词」——
+  // 写「这个指标不等于肺活量」恰恰是对的，不该被判违规
+  const claims = /(测|检测|分析)(出|量)?(你的)?(气息|肺活量|声带|横膈膜)|气息支撑不足|声带闭合(不好|不全)|你的肺活量/;
+  const offenders = EXERCISES.filter((e) => claims.test(e.why + e.goal + e.how + e.pitfall));
+  ok(offenders.length === 0, '没有任何一条声称能测量气息或声带状况',
+    offenders.map((e) => e.name).join('、'));
+  ok(stability.some((e) => /不等于|测不了|不做这个判断|可观测/.test(e.why + e.goal)),
+    '稳定性类练习明确说明了「测的是代理指标」');
 });
 
 
