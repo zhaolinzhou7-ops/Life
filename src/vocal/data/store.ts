@@ -226,6 +226,12 @@ interface StoredClip {
   sampleRate: number;
   /** 16bit PCM，比 Float32 省一半空间，回放和复盘都够用 */
   pcm: ArrayBuffer;
+  /**
+   * 用户明确点了「保存这次录音」。
+   * 这类录音不受保留策略影响——显式操作不该被默认设置悄悄推翻，
+   * 要删得由用户自己来删。
+   */
+  pinned?: boolean;
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -256,12 +262,20 @@ function fromPcm16(buf: ArrayBuffer): Float32Array {
   return out;
 }
 
-/** 保存一段录音。只有用户主动点「保存」才会走到这里 */
-export async function saveAudio(id: string, samples: Float32Array, sampleRate: number): Promise<void> {
+/**
+ * 保存一段录音。
+ * @param pinned true 表示这是用户手动点「保存」留下的，不受保留策略清理
+ */
+export async function saveAudio(
+  id: string,
+  samples: Float32Array,
+  sampleRate: number,
+  pinned = false,
+): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
-    const clip: StoredClip = { id, at: Date.now(), sampleRate, pcm: toPcm16(samples) };
+    const clip: StoredClip = { id, at: Date.now(), sampleRate, pcm: toPcm16(samples), pinned };
     tx.objectStore(STORE).put(clip);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error('保存录音失败'));
@@ -292,7 +306,7 @@ export async function deleteAudio(id: string): Promise<void> {
   db.close();
 }
 
-export async function listAudioIds(): Promise<{ id: string; at: number; bytes: number }[]> {
+export async function listAudioIds(): Promise<{ id: string; at: number; bytes: number; pinned: boolean }[]> {
   try {
     const db = await openDb();
     const all = await new Promise<StoredClip[]>((resolve, reject) => {
@@ -302,7 +316,7 @@ export async function listAudioIds(): Promise<{ id: string; at: number; bytes: n
       req.onerror = () => reject(req.error);
     });
     db.close();
-    return all.map((c) => ({ id: c.id, at: c.at, bytes: c.pcm.byteLength }));
+    return all.map((c) => ({ id: c.id, at: c.at, bytes: c.pcm.byteLength, pinned: !!c.pinned }));
   } catch {
     return [];
   }
@@ -319,6 +333,7 @@ export async function pruneAudio(): Promise<number> {
   const days = keepAudio === 'days7' ? 7 : keepAudio === 'days30' ? 30 : null;
   let removed = 0;
   for (const c of clips) {
+    if (c.pinned) continue; // 用户手动留下的，不动
     const expired =
       keepAudio === 'never' || (days !== null && Date.now() - c.at > days * 86400_000);
     if (expired) {

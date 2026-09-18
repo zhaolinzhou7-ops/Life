@@ -508,7 +508,8 @@ export function renderAnalysis(box: HTMLElement, ctx: Ctx, sessionId: string): (
     audioActs.appendChild(
       btn('💾 保存这次录音', 'v-btn', async () => {
         const rec = fromMemory!.recording;
-        await saveAudio(sessionId, rec.samples, rec.sampleRate);
+        // pinned：这是用户明确要留的，不受「录音保留策略」自动清理
+        await saveAudio(sessionId, rec.samples, rec.sampleRate, true);
         setSessionAudioFlag(sessionId, true);
         ctx.refresh();
       }),

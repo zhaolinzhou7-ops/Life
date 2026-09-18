@@ -54,12 +54,35 @@ class VocalRecorder extends AudioWorkletProcessor {
 registerProcessor('vocal-recorder', VocalRecorder);
 `;
 
+/**
+ * Worklet 模块每个 AudioContext 只能注册一次——第二次 registerProcessor
+ * 同名会抛错。训练模式里每一步都要 start/stop 一次录音，所以必须缓存这个 Promise，
+ * 否则从第二步起就会一路降级到 ScriptProcessor。
+ */
+let workletReady: Promise<void> | null = null;
+
+function ensureWorklet(ctx: AudioContext): Promise<void> {
+  if (!workletReady) {
+    const url = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }));
+    workletReady = ctx
+      .audioWorklet.addModule(url)
+      .finally(() => URL.revokeObjectURL(url));
+    // 失败就把缓存清掉，下次还能再试一次（也可能一直失败，那就走降级路径）
+    workletReady.catch(() => {
+      workletReady = null;
+    });
+  }
+  return workletReady;
+}
+
 export class Recorder {
   private chunks: Float32Array[] = [];
   private total = 0;
   private recording = false;
   private startTime = 0;
   private node: AudioWorkletNode | ScriptProcessorNode | null = null;
+  /** 0 增益的接地节点：Worklet/ScriptProcessor 必须接到图上才会被调度 */
+  private sink: GainNode | null = null;
   private onLimit: (() => void) | null = null;
 
   private constructor(
@@ -140,10 +163,13 @@ export class Recorder {
       }
     };
 
+    const sink = this.ctx.createGain();
+    sink.gain.value = 0;
+    sink.connect(this.ctx.destination);
+    this.sink = sink;
+
     try {
-      await this.ctx.audioWorklet.addModule(
-        URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' })),
-      );
+      await ensureWorklet(this.ctx);
       const node = new AudioWorkletNode(this.ctx, 'vocal-recorder');
       node.port.onmessage = (e: MessageEvent) => {
         const d = e.data as { type: string; chunk?: Float32Array; time?: number };
@@ -151,19 +177,14 @@ export class Recorder {
         else if (d.type === 'data' && d.chunk) push(d.chunk);
       };
       this.source.connect(node);
-      // Worklet 必须接到图上才会被调度；接到 0 增益的节点上，不会真的出声
-      const sink = this.ctx.createGain();
-      sink.gain.value = 0;
-      node.connect(sink).connect(this.ctx.destination);
+      node.connect(sink);
       this.node = node;
     } catch {
-      // 降级路径：ScriptProcessor 虽已废弃，但兜底最稳
+      // 降级路径：ScriptProcessor 虽已废弃，但至今所有浏览器都还支持，兜底最稳
       const node = this.ctx.createScriptProcessor(4096, 1, 1);
       node.onaudioprocess = (e) => push(new Float32Array(e.inputBuffer.getChannelData(0)));
       this.source.connect(node);
-      const sink = this.ctx.createGain();
-      sink.gain.value = 0;
-      node.connect(sink).connect(this.ctx.destination);
+      node.connect(sink);
       this.node = node;
     }
   }
@@ -181,6 +202,10 @@ export class Recorder {
       if ('port' in this.node) this.node.port.onmessage = null;
       else (this.node as ScriptProcessorNode).onaudioprocess = null;
       this.node = null;
+    }
+    if (this.sink) {
+      this.sink.disconnect();
+      this.sink = null;
     }
     const samples = new Float32Array(this.total);
     let o = 0;

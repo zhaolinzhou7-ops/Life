@@ -84,8 +84,15 @@ export function renderHistory(box: HTMLElement, ctx: Ctx): () => void {
     if (!clips.length) return;
     audioBox.appendChild(sectionTitle('本地录音'));
     const c = card();
+    const pinned = clips.filter((c) => c.pinned).length;
     c.appendChild(
-      el('p', '', `这台设备上存了 ${clips.length} 段录音。不需要了随时可以全部删掉。`),
+      el(
+        'p',
+        '',
+        `这台设备上存了 ${clips.length} 段录音` +
+          (pinned ? `，其中 ${pinned} 段是你手动保留的（不受保留策略自动清理）` : '') +
+          '。不需要了随时可以全部删掉。',
+      ),
     );
     c.appendChild(
       btn('🗑 删除全部录音（保留指标记录）', 'v-btn danger', async () => {

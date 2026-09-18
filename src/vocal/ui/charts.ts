@@ -269,7 +269,10 @@ export function drawRoll(view: View, o: RollOpts): void {
     if (active) currentTarget = n.midi;
     g.fillStyle = active ? 'rgba(77,159,255,0.5)' : 'rgba(107,122,141,0.3)';
     g.beginPath();
-    g.roundRect(x0, yy - barH / 2, x1 - x0, barH, 3);
+    // roundRect 在较老的 Safari 上没有；缺了就退回直角矩形，
+    // 不能让一个圆角把整块卷帘画不出来
+    if (typeof g.roundRect === 'function') g.roundRect(x0, yy - barH / 2, x1 - x0, barH, 3);
+    else g.rect(x0, yy - barH / 2, x1 - x0, barH);
     g.fill();
     if (active) {
       g.strokeStyle = C.accent;
