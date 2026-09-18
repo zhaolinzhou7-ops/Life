@@ -1,0 +1,933 @@
+/*
+ * 麻将教练的样式，全部限定在 .mc-root 里，不影响仓库里其它几个游戏。
+ *
+ * 视觉方向：学习软件 + 现代麻将，不是棋牌室。
+ * 具体就是：深色但不黑、留白足够、一个克制的玉绿色做主色，
+ * 没有满屏金色、没有花哨动画、没有一堆挤在一起的按钮。
+ * 牌面用 CSS 画，不用图片——教学软件里牌面清楚比拟真重要。
+ */
+
+.mc-root {
+  --mc-bg: #0f141b;
+  --mc-surface: #161e27;
+  --mc-surface2: #1d2833;
+  --mc-surface3: #253241;
+  --mc-line: #2b3846;
+  --mc-text: #e9eef4;
+  --mc-text2: #aab6c4;
+  --mc-muted: #7d8a99;
+  --mc-accent: #34c08d;
+  --mc-accent-dim: #1f6f53;
+  --mc-warn: #dfa94f;
+  --mc-danger: #e0695b;
+  --mc-info: #5aa4e0;
+  --mc-wan: #e0695b;
+  --mc-tiao: #38b07a;
+  --mc-tong: #5a9ede;
+  --mc-radius: 14px;
+  --mc-shadow: 0 4px 18px rgba(0, 0, 0, 0.36);
+
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--mc-bg);
+  color: var(--mc-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mc-root *,
+.mc-root *::before,
+.mc-root *::after {
+  box-sizing: border-box;
+}
+
+/* ---------- 页面骨架 ---------- */
+
+.mc-page {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+}
+
+.mc-page-wide {
+  max-width: 780px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.mc-topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+  background: var(--mc-surface);
+  border-bottom: 1px solid var(--mc-line);
+}
+
+.mc-topbar h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.mc-topbar .mc-sub {
+  font-size: 12px;
+  color: var(--mc-muted);
+}
+
+.mc-spacer {
+  flex: 1;
+}
+
+/* ---------- 底部导航 ---------- */
+
+.mc-tabs {
+  flex: none;
+  display: flex;
+  background: var(--mc-surface);
+  border-top: 1px solid var(--mc-line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.mc-tab {
+  flex: 1;
+  border: 0;
+  background: none;
+  color: var(--mc-muted);
+  padding: 8px 2px 7px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  transition: color 0.15s;
+}
+
+.mc-tab i {
+  font-style: normal;
+  font-size: 19px;
+  line-height: 1.1;
+}
+
+.mc-tab.on {
+  color: var(--mc-accent);
+}
+
+/* ---------- 通用控件 ---------- */
+
+.mc-btn {
+  border: 1px solid var(--mc-line);
+  background: var(--mc-surface2);
+  color: var(--mc-text);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.08s;
+}
+
+.mc-btn:active {
+  transform: scale(0.97);
+}
+
+.mc-btn.primary {
+  background: var(--mc-accent);
+  border-color: var(--mc-accent);
+  color: #06241a;
+  font-weight: 600;
+}
+
+.mc-btn.ghost {
+  background: transparent;
+}
+
+.mc-btn.sm {
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+
+.mc-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mc-card {
+  background: var(--mc-surface);
+  border: 1px solid var(--mc-line);
+  border-radius: var(--mc-radius);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.mc-card h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.mc-card p {
+  margin: 0 0 8px;
+  color: var(--mc-text2);
+  font-size: 14px;
+}
+
+.mc-card p:last-child {
+  margin-bottom: 0;
+}
+
+.mc-section {
+  margin: 20px 0 10px;
+  font-size: 13px;
+  color: var(--mc-muted);
+  letter-spacing: 1px;
+}
+
+.mc-section:first-child {
+  margin-top: 4px;
+}
+
+.mc-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.mc-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.mc-pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--mc-surface3);
+  color: var(--mc-text2);
+}
+
+.mc-pill.accent {
+  background: rgba(52, 192, 141, 0.16);
+  color: var(--mc-accent);
+}
+
+.mc-pill.warn {
+  background: rgba(223, 169, 79, 0.16);
+  color: var(--mc-warn);
+}
+
+.mc-pill.danger {
+  background: rgba(224, 105, 91, 0.16);
+  color: var(--mc-danger);
+}
+
+.mc-muted {
+  color: var(--mc-muted);
+  font-size: 13px;
+}
+
+.mc-empty {
+  text-align: center;
+  color: var(--mc-muted);
+  padding: 44px 20px;
+  font-size: 14px;
+  line-height: 1.9;
+}
+
+.mc-empty b {
+  display: block;
+  color: var(--mc-text2);
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+
+/* ---------- 牌 ---------- */
+
+.mc-tile {
+  --tw: 34px;
+  position: relative;
+  width: var(--tw);
+  height: calc(var(--tw) * 1.38);
+  border-radius: calc(var(--tw) * 0.16);
+  background: linear-gradient(170deg, #fdfdfa 0%, #eceee6 100%);
+  border: 1px solid #c9ccc0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 -2px 0 rgba(0, 0, 0, 0.07);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  cursor: default;
+  user-select: none;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+
+.mc-tile .r {
+  font-size: calc(var(--tw) * 0.52);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+
+.mc-tile .s {
+  font-size: calc(var(--tw) * 0.3);
+  line-height: 1.2;
+  opacity: 0.88;
+  font-weight: 600;
+}
+
+.mc-tile.wan { color: var(--mc-wan); }
+.mc-tile.tiao { color: var(--mc-tiao); }
+.mc-tile.tong { color: var(--mc-tong); }
+
+.mc-tile.clickable {
+  cursor: pointer;
+}
+
+.mc-tile.clickable:active {
+  transform: translateY(1px);
+}
+
+.mc-tile.sel {
+  transform: translateY(-11px);
+  box-shadow: 0 8px 14px rgba(0, 0, 0, 0.42);
+}
+
+.mc-tile.picked {
+  outline: 2px solid var(--mc-accent);
+  outline-offset: 1px;
+  transform: translateY(-7px);
+}
+
+.mc-tile.dim {
+  opacity: 0.4;
+}
+
+.mc-tile.back {
+  background: linear-gradient(170deg, #2f6d55 0%, #1e4a39 100%);
+  border-color: #17392c;
+}
+
+.mc-tile.mark-best::after,
+.mc-tile.mark-bad::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+}
+
+.mc-tile.mark-best::after { background: var(--mc-accent); }
+.mc-tile.mark-bad::after { background: var(--mc-danger); }
+
+.mc-tile.tiny { --tw: 21px; }
+.mc-tile.small { --tw: 26px; }
+.mc-tile.big { --tw: 42px; }
+
+.mc-tiles {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 牌桌 ---------- */
+
+.mc-table {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background:
+    radial-gradient(ellipse at 50% 42%, #1b4a3a 0%, #133429 58%, #0f2620 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+/*
+ * 牌桌用三行网格：对家一行，上家/牌墙/下家一行，我的手牌在网格外的底部。
+ * 早先用绝对定位，手机上中间空一大块，而且对家的名牌会和顶部按钮叠在一起。
+ */
+.mc-seats {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(64px, 1fr) minmax(104px, 1.15fr) minmax(64px, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 4px;
+  padding: 46px 6px 6px;
+  position: relative;
+}
+
+.mc-seat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mc-seat-top {
+  grid-area: 1 / 1 / 2 / 4;
+  align-items: center;
+}
+
+.mc-seat-left {
+  grid-area: 2 / 1 / 3 / 2;
+  align-items: flex-start;
+}
+
+.mc-seat-right {
+  grid-area: 2 / 3 / 3 / 4;
+  align-items: flex-end;
+}
+
+/* 自己的牌河：真人桌上看得见，学员更需要看得见（现物、打过什么都靠它） */
+.mc-seat-me {
+  grid-area: 3 / 1 / 4 / 4;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.mc-nameplate {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(8, 18, 15, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.mc-nameplate.active {
+  border-color: var(--mc-accent);
+  box-shadow: 0 0 0 1px rgba(52, 192, 141, 0.35);
+}
+
+.mc-nameplate .sc {
+  color: var(--mc-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-nameplate .sc.neg {
+  color: var(--mc-danger);
+}
+
+.mc-lackbadge {
+  font-size: 10.5px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(224, 105, 91, 0.2);
+  color: #ffb3a9;
+}
+
+/* 牌河：教学上最有价值的公开信息，给它足够位置，但不许把桌子撑破 */
+.mc-river {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 8px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  max-height: 100%;
+}
+
+.mc-river::-webkit-scrollbar { display: none; }
+
+.mc-seat-top .mc-river { max-width: 100%; }
+.mc-seat-left .mc-river,
+.mc-seat-right .mc-river { max-width: 100%; }
+
+.mc-seat-hand {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.mc-center {
+  grid-area: 2 / 2 / 3 / 3;
+  align-self: center;
+  justify-self: center;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  pointer-events: none;
+  max-width: 100%;
+}
+
+.mc-center .wall {
+  font-size: 26px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.1;
+}
+
+.mc-center .hint {
+  margin-top: 6px;
+  color: var(--mc-accent);
+  font-size: 13px;
+  min-height: 19px;
+}
+
+/* ---------- 我的手牌区 ---------- */
+
+.mc-hand-area {
+  flex: none;
+  background: rgba(10, 16, 14, 0.92);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+}
+
+.mc-myinfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--mc-text2);
+  margin-bottom: 7px;
+  flex-wrap: wrap;
+}
+
+.mc-hand {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  justify-content: center;
+  padding-top: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+/* 14 张 + 摸进来的那张要在一屏里放得下，所以按屏宽算牌的大小 */
+.mc-hand .mc-tile {
+  --tw: min(38px, calc((100vw - 44px) / 14.6));
+}
+
+.mc-hand::-webkit-scrollbar {
+  display: none;
+}
+
+.mc-hand .gap {
+  width: 12px;
+  flex: none;
+}
+
+.mc-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 9px;
+  min-height: 0;
+}
+
+.mc-act {
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  background: var(--mc-surface3);
+  color: var(--mc-text);
+}
+
+.mc-act.hu { background: linear-gradient(135deg, #e8b13f, #d9822b); color: #2a1a00; }
+.mc-act.gang { background: #b3653f; color: #fff; }
+.mc-act.peng { background: #3f6fb3; color: #fff; }
+.mc-act.pass { background: var(--mc-surface2); color: var(--mc-text2); }
+
+/* ---------- 教练面板 ---------- */
+
+.mc-coach {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 72%;
+  background: var(--mc-surface);
+  border-top: 1px solid var(--mc-line);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 26px rgba(0, 0, 0, 0.44);
+  display: flex;
+  flex-direction: column;
+  transform: translateY(101%);
+  transition: transform 0.22s ease;
+  z-index: 30;
+}
+
+.mc-coach.open {
+  transform: translateY(0);
+}
+
+.mc-coach-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid var(--mc-line);
+}
+
+.mc-coach-head b {
+  font-size: 15px;
+}
+
+.mc-coach-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--mc-text2);
+}
+
+.mc-coach-body strong {
+  color: var(--mc-text);
+}
+
+.mc-coach-foot {
+  flex: none;
+  padding: 8px 14px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--mc-line);
+}
+
+.mc-quickq {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 7px;
+  scrollbar-width: none;
+}
+
+.mc-quickq::-webkit-scrollbar { display: none; }
+
+.mc-quickq button {
+  flex: none;
+  border: 1px solid var(--mc-line);
+  background: var(--mc-surface2);
+  color: var(--mc-text2);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mc-ask {
+  display: flex;
+  gap: 8px;
+}
+
+.mc-ask input {
+  flex: 1;
+  min-width: 0;
+  background: var(--mc-surface2);
+  border: 1px solid var(--mc-line);
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: var(--mc-text);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.mc-ask input:focus {
+  outline: none;
+  border-color: var(--mc-accent);
+}
+
+.mc-chatline {
+  margin-bottom: 12px;
+}
+
+.mc-chatline .who {
+  font-size: 12px;
+  color: var(--mc-muted);
+  margin-bottom: 2px;
+}
+
+.mc-chatline.me .who { color: var(--mc-info); }
+.mc-chatline.coach .who { color: var(--mc-accent); }
+
+/* 「这一步值得再考虑」提示条：不拦人，只提醒 */
+.mc-nudge {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  background: rgba(30, 40, 51, 0.97);
+  border: 1px solid var(--mc-warn);
+  border-radius: 12px;
+  padding: 11px 13px;
+  z-index: 25;
+  box-shadow: var(--mc-shadow);
+}
+
+.mc-nudge .t {
+  font-size: 14px;
+  margin-bottom: 9px;
+  color: var(--mc-warn);
+}
+
+.mc-nudge .mc-row {
+  justify-content: flex-end;
+}
+
+/* ---------- 复盘 ---------- */
+
+.mc-timeline {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--mc-line);
+  border-radius: 10px;
+  background: var(--mc-surface);
+}
+
+.mc-tl-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+  cursor: pointer;
+  color: var(--mc-text2);
+}
+
+.mc-tl-item:last-child { border-bottom: 0; }
+.mc-tl-item.on { background: var(--mc-surface3); color: var(--mc-text); }
+.mc-tl-item .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: transparent; }
+.mc-tl-item .idx { color: var(--mc-muted); font-size: 11px; min-width: 26px; }
+
+.mc-moment {
+  border-left: 3px solid var(--mc-line);
+  padding-left: 12px;
+  margin-bottom: 16px;
+}
+
+.mc-moment h4 {
+  margin: 0 0 6px;
+  font-size: 14.5px;
+}
+
+.mc-moment .vs {
+  display: flex;
+  gap: 16px;
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+
+.mc-moment .vs > div {
+  font-size: 13px;
+}
+
+.mc-moment .vs .lbl {
+  color: var(--mc-muted);
+  font-size: 12px;
+  margin-bottom: 3px;
+}
+
+.mc-moment .why {
+  font-size: 13.5px;
+  color: var(--mc-text2);
+  margin-top: 6px;
+}
+
+.mc-moment .simple {
+  margin-top: 7px;
+  padding: 8px 10px;
+  background: var(--mc-surface2);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--mc-text2);
+}
+
+/* ---------- 训练 ---------- */
+
+.mc-quiz-prompt {
+  font-size: 15px;
+  line-height: 1.75;
+  margin-bottom: 14px;
+  white-space: pre-wrap;
+}
+
+.mc-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.mc-choice {
+  border: 1px solid var(--mc-line);
+  background: var(--mc-surface2);
+  color: var(--mc-text);
+  border-radius: 11px;
+  padding: 12px 14px;
+  font-size: 14.5px;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.mc-choice:hover { border-color: var(--mc-accent-dim); }
+.mc-choice.right { border-color: var(--mc-accent); background: rgba(52, 192, 141, 0.12); }
+.mc-choice.wrong { border-color: var(--mc-danger); background: rgba(224, 105, 91, 0.12); }
+
+.mc-verdict {
+  border-radius: 12px;
+  padding: 13px;
+  margin-top: 14px;
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.mc-verdict.right { background: rgba(52, 192, 141, 0.1); border: 1px solid var(--mc-accent-dim); }
+.mc-verdict.wrong { background: rgba(224, 105, 91, 0.09); border: 1px solid rgba(224, 105, 91, 0.4); }
+
+.mc-verdict b { color: var(--mc-text); }
+
+.mc-progress {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--mc-surface3);
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.mc-progress i {
+  display: block;
+  height: 100%;
+  background: var(--mc-accent);
+  transition: width 0.3s;
+}
+
+/* ---------- 我的 ---------- */
+
+.mc-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--mc-line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.mc-stat {
+  background: var(--mc-surface);
+  padding: 13px 8px;
+  text-align: center;
+}
+
+.mc-stat .v {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-stat .k {
+  font-size: 11.5px;
+  color: var(--mc-muted);
+  margin-top: 2px;
+}
+
+.mc-skill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.mc-skill:last-child { border-bottom: 0; }
+
+.mc-skill .nm { width: 74px; flex: none; font-size: 14px; }
+.mc-skill .stars { color: var(--mc-warn); letter-spacing: 1px; font-size: 13px; flex: none; }
+.mc-skill .cm { flex: 1; font-size: 12px; color: var(--mc-muted); text-align: right; }
+
+/* ---------- 结算 ---------- */
+
+/*
+ * 结算/做题的全屏层。做成不透明而不是半透明毛玻璃：
+ * 背后的内容透出来会让人分心，而且和全局的 ✕ 叠在一起会出现两个关闭按钮。
+ */
+.mc-overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--mc-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  z-index: 60;
+  overflow-y: auto;
+  padding: calc(16px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom));
+}
+
+.mc-result-title {
+  text-align: center;
+  font-size: 26px;
+  font-weight: 700;
+  margin: 12px 0 4px;
+}
+
+.mc-result-title.win { color: var(--mc-warn); }
+
+.mc-scores {
+  margin: 14px 0;
+}
+
+.mc-score-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--mc-line);
+  font-size: 14px;
+}
+
+.mc-score-row.hero { background: rgba(52, 192, 141, 0.07); }
+.mc-score-row .nm { width: 52px; flex: none; }
+.mc-score-row .tags { flex: 1; color: var(--mc-muted); font-size: 12.5px; }
+.mc-score-row .sc { font-variant-numeric: tabular-nums; font-weight: 600; }
+.mc-score-row .sc.pos { color: var(--mc-accent); }
+.mc-score-row .sc.neg { color: var(--mc-danger); }
+
+/* ---------- 大屏适配 ---------- */
+
+@media (min-width: 720px) {
+  .mc-tile { --tw: 40px; }
+  .mc-hand .mc-tile { --tw: min(46px, calc((100vw - 60px) / 15)); }
+  .mc-coach { left: auto; right: 0; width: 400px; max-height: 100%; top: 0; border-radius: 16px 0 0 16px; transform: translateX(101%); }
+  .mc-coach.open { transform: translateX(0); }
+}
+
+@media (max-height: 560px) {
+  .mc-tile { --tw: 28px; }
+  .mc-hand { padding-top: 10px; }
+}

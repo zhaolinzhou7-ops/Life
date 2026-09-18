@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "data:check": "node_modules/.bin/esbuild tools/audit-data.ts --bundle --platform=node --format=esm --loader:.json=json --outfile=node_modules/.cache/audit.mjs && FAST=1 node node_modules/.cache/audit.mjs",
     "data:check:full": "node_modules/.bin/esbuild tools/audit-data.ts --bundle --platform=node --format=esm --loader:.json=json --outfile=node_modules/.cache/audit.mjs && node node_modules/.cache/audit.mjs",
-    "check:openings": "node_modules/.bin/esbuild tools/check-openings.ts --bundle --platform=node --format=esm --loader:.json=json --outfile=node_modules/.cache/openings.mjs && node node_modules/.cache/openings.mjs"
+    "check:openings": "node_modules/.bin/esbuild tools/check-openings.ts --bundle --platform=node --format=esm --loader:.json=json --outfile=node_modules/.cache/openings.mjs && node node_modules/.cache/openings.mjs",
+    "test": "npm run mj:test",
+    "mj:test": "node_modules/.bin/esbuild src/mjcoach/test/index.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/mjtest.mjs && node node_modules/.cache/mjtest.mjs",
+    "mj:sim": "node_modules/.bin/esbuild tools/mj-sim.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/mjsim.mjs && node node_modules/.cache/mjsim.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

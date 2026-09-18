@@ -50,6 +50,12 @@ async function launchMahjong() {
   });
 }
 
+async function launchMahjongCoach() {
+  clear();
+  const { bootMahjongCoach } = await import('./mjcoach/index');
+  dispose = bootMahjongCoach(app, showHome);
+}
+
 function showHome() {
   clear();
   const screen = document.createElement('div');
@@ -62,6 +68,12 @@ function showHome() {
   list.className = 'card-list';
 
   const games = [
+    {
+      title: '🎓 四川麻将 · AI 学习教练',
+      desc: '不是陪你打牌，是教你打对：定缺/换三张有讲解，每局自动复盘找出关键失误，按你的弱项出题训练。',
+      go: launchMahjongCoach,
+      tag: 'NEW',
+    },
     {
       title: '🀄 四川麻将 · 血战到底',
       desc: '3D 麻将桌实景，定缺、碰杠、自摸血战到底，和 3 个 AI 打一圈。',
