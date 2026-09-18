@@ -32,6 +32,12 @@ async function launchSing() {
   dispose = bootSing(app, showHome);
 }
 
+async function launchVocal() {
+  clear();
+  const { bootVocal } = await import('./vocal/index');
+  dispose = bootVocal(app, showHome);
+}
+
 async function launchXiangqi() {
   clear();
   const { bootXiangqi } = await import('./xiangqi/index');
@@ -62,6 +68,12 @@ function showHome() {
   list.className = 'card-list';
 
   const games = [
+    {
+      title: '🎧 AI 唱歌教练 · 学唱歌',
+      desc: '唱一遍，告诉你哪里不好、为什么不好、接下来练什么。音准/节奏/音域逐项分析，逐音复盘，专项训练，进步曲线。',
+      go: launchVocal,
+      tag: 'NEW',
+    },
     {
       title: '🀄 四川麻将 · 血战到底',
       desc: '3D 麻将桌实景，定缺、碰杠、自摸血战到底，和 3 个 AI 打一圈。',

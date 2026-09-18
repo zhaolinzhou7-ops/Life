@@ -19,6 +19,9 @@ export interface SessionSummary {
   highNotes: number | null;
   rangeLo: number | null;
   rangeHi: number | null;
+  /** 舒适音域（去掉最极端 10% 后的范围），比绝对音域更能代表可用音域 */
+  comfortLo: number | null;
+  comfortHi: number | null;
   longestNoteSec: number;
   dynamicRangeDb: number;
   /** 本次最突出问题的类型，用于统计「常见问题」 */
@@ -45,6 +48,8 @@ export function summarize(r: PerformanceReport, id: string, hasAudio: boolean): 
     highNotes: r.intonation.highNotes.score,
     rangeLo: r.intonation.range?.lo ?? null,
     rangeHi: r.intonation.range?.hi ?? null,
+    comfortLo: r.intonation.range?.comfortLo ?? null,
+    comfortHi: r.intonation.range?.comfortHi ?? null,
     longestNoteSec: r.voice.longestNoteSec,
     dynamicRangeDb: r.voice.dynamicRangeDb,
     topFinding: r.findings[0]?.kind ?? null,

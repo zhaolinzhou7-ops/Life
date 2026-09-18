@@ -11,7 +11,7 @@
  */
 
 import { FFT, autocorrelation } from './fft';
-import { freqToMidi } from './notes';
+import { freqToMidi, midiToFreq } from './notes';
 import { downsampleTo, highpass } from './resample';
 
 /** 音高检测用的内部采样率：人声基频不超过 1.2kHz，16k 完全够且快 */
@@ -28,6 +28,14 @@ const CLARITY_STRONG = 0.72;
 const CLARITY_WEAK = 0.5;
 /** 绝对音量地板（约 -48 dBFS）。比这还小的基本是环境底噪 */
 const RMS_FLOOR = 0.004;
+
+/** 单帧检测结果，实时路径用 */
+export interface PitchResult {
+  f0: number;
+  midi: number;
+  clarity: number;
+  rms: number;
+}
 
 export interface PitchFrame {
   /** 帧中心时间（秒） */
@@ -293,4 +301,74 @@ function smoothMidi(frames: PitchFrame[]): void {
     out[i] = median(w);
   }
   for (let i = 0; i < frames.length; i++) if (frames[i].voiced) frames[i].midi = out[i];
+}
+
+/**
+ * 实时音高检测器。
+ *
+ * 和 trackPitch 的区别：那个是离线整段分析（可以前后看、可以修八度、可以中值滤波），
+ * 这个是「只有过去、没有未来」的逐帧检测，用于跟唱时的实时显示。
+ * 实时路径不降采样——直接在原始采样率上做，省掉重采样的延迟，
+ * 而且 60fps 下一次 4096 点 FFT 的开销可以忽略。
+ *
+ * 界面上的实时读数会比事后分析略糙，这是它该有的样子：
+ * 最终结论以离线分析为准，这点在产品需求里也是明确的。
+ */
+export class LiveDetector {
+  private fft: FFT;
+  private scratch: { re: Float64Array; im: Float64Array };
+  private ac: Float64Array;
+  private nsdf: Float64Array;
+  private prefix: Float64Array;
+  private win: number;
+  /** 上一帧的结果，用来做轻微的时间平滑 */
+  private last = 0;
+
+  constructor(
+    private sampleRate: number,
+    win = 2048,
+  ) {
+    this.win = win;
+    const fftSize = 1 << Math.ceil(Math.log2(win * 2));
+    this.fft = new FFT(fftSize);
+    this.scratch = { re: new Float64Array(fftSize), im: new Float64Array(fftSize) };
+    this.ac = new Float64Array(win);
+    this.nsdf = new Float64Array(win);
+    this.prefix = new Float64Array(win + 1);
+  }
+
+  /** 检测一帧。buf 长度需 >= 构造时的 win */
+  detect(buf: Float32Array): PitchResult | null {
+    const x = buf.length === this.win ? buf : buf.subarray(buf.length - this.win);
+    let s = 0;
+    for (let i = 0; i < this.win; i++) s += x[i] * x[i];
+    const rms = Math.sqrt(s / this.win);
+    if (rms < RMS_FLOOR) {
+      this.last = 0;
+      return null;
+    }
+    const r = frameF0(x, this.sampleRate, this.fft, this.ac, this.nsdf, this.prefix, this.scratch);
+    if (r.f0 <= 0 || r.clarity < CLARITY_WEAK) {
+      this.last = 0;
+      return null;
+    }
+    let midi = freqToMidi(r.f0);
+    // 八度守门：实时没有邻域可参考，但可以跟上一帧比。
+    // 相邻两帧真跳一个八度是极少见的，跳了多半是检测错了。
+    if (this.last > 0 && Math.abs(midi - this.last) > 10) {
+      for (const cand of [midi - 12, midi + 12]) {
+        if (Math.abs(cand - this.last) < 4) {
+          midi = cand;
+          break;
+        }
+      }
+    }
+    // 轻度平滑：只吃掉抖动，不拖慢真实的音高变化
+    this.last = this.last > 0 && Math.abs(midi - this.last) < 2 ? this.last * 0.4 + midi * 0.6 : midi;
+    return { f0: midiToFreq(this.last), midi: this.last, clarity: r.clarity, rms };
+  }
+
+  reset() {
+    this.last = 0;
+  }
 }
