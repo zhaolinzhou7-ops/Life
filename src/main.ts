@@ -41,6 +41,12 @@ async function launchXiangqi() {
   });
 }
 
+async function launchNaming() {
+  clear();
+  const { bootNaming } = await import('./naming/index');
+  dispose = bootNaming(app, showHome);
+}
+
 async function launchMahjong() {
   clear();
   const { bootMahjong } = await import('./mahjong/index');
@@ -62,6 +68,12 @@ function showHome() {
   list.className = 'card-list';
 
   const games = [
+    {
+      title: '✒️ AI 智能取名',
+      desc: '给孩子取个名字：说清你想要什么，从音律、寓意、字形、出处到日常好不好用逐项筛过，只给少量真正值得考虑的。',
+      go: launchNaming,
+      tag: 'NEW',
+    },
     {
       title: '🀄 四川麻将 · 血战到底',
       desc: '3D 麻将桌实景，定缺、碰杠、自摸血战到底，和 3 个 AI 打一圈。',
