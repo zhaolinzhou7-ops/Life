@@ -17,6 +17,7 @@ import { ruleFeedback } from '../src/vocal/ai/rules';
 import { validateFeedback, getCoachFeedback } from '../src/vocal/ai/coach';
 import { EXERCISE_BY_ID, EXERCISES } from '../src/vocal/training/exercises';
 import { DEFAULT_CONFIG } from '../src/vocal/ai/provider';
+import { SR, rng, voiceSample, singReference, type SingOpts } from './fake-singer';
 
 // ---------------------------------------------------------------- 测试框架
 
@@ -55,15 +56,6 @@ function near(actual: number, expect: number, tol: number, name: string, unit = 
 }
 
 // ---------------------------------------------------------------- 合成音频
-
-const SR = 48000; // 模拟真实麦克风采样率
-
-/** 类人声的激励：谐波按 1/k 衰减，比纯正弦更接近真嗓子，也更难测 */
-function voiceSample(phase: number, harmonics = 14): number {
-  let v = 0;
-  for (let k = 1; k <= harmonics; k++) v += Math.sin(phase * k) / k;
-  return v * 0.5;
-}
 
 interface ToneOpts {
   /** 起始 MIDI 音高 */
@@ -105,12 +97,8 @@ function silence(sec: number, sr = SR): Float32Array {
 function noise(sec: number, amp = 0.02, sr = SR): Float32Array {
   const n = Math.round(sec * sr);
   const out = new Float32Array(n);
-  let seed = 12345;
-  for (let i = 0; i < n; i++) {
-    // 固定种子的线性同余，保证测试可复现
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    out[i] = ((seed / 0x7fffffff) * 2 - 1) * amp;
-  }
+  const rand = rng(12345);
+  for (let i = 0; i < n; i++) out[i] = (rand() * 2 - 1) * amp;
   return out;
 }
 
@@ -293,84 +281,6 @@ describe('音高检测 · 性能', () => {
 
 // ---------------------------------------------------------------- 模拟演唱
 
-/** 可复现的伪随机，保证测试每次跑出同样的结果 */
-function rng(seed: number) {
-  let x = seed;
-  return () => {
-    x = (x * 1103515245 + 12345) & 0x7fffffff;
-    return x / 0x7fffffff;
-  };
-}
-
-interface SingOpts {
-  /** 整体音高偏移（音分），正 = 唱高 */
-  bias?: number;
-  /** 高音区额外偏移（音分），只作用于最高的 20% 音符 */
-  highBias?: number;
-  /** 每个音的随机音高误差幅度（音分） */
-  pitchJitter?: number;
-  /** 起音统一延迟（秒） */
-  delay?: number;
-  /** 起音随机抖动幅度（秒，±） */
-  timeJitter?: number;
-  /** 比例为 lateRate 的音符额外晚 lateBy 秒 */
-  lateRate?: number;
-  lateBy?: number;
-  /** 漏唱比例 */
-  missRate?: number;
-  /** 长音内部音高漂移幅度（音分） */
-  drift?: number;
-  /** 音量 */
-  amp?: number;
-  seed?: number;
-}
-
-/** 按参考旋律「唱」一遍，可注入各种典型毛病 */
-function singReference(ref: Reference, o: SingOpts = {}): Float32Array {
-  const sr = SR;
-  const total = Math.round((ref.totalSec + 1) * sr);
-  const buf = new Float32Array(total);
-  const rand = rng(o.seed ?? 7);
-  const amp = o.amp ?? 0.28;
-
-  const pitches = ref.notes.map((n) => n.midi).sort((a, b) => a - b);
-  const hiThresh = pitches[Math.floor(pitches.length * 0.8)] ?? 999;
-
-  for (const note of ref.notes) {
-    if (o.missRate && rand() < o.missRate) continue;
-
-    let cents = o.bias ?? 0;
-    if (o.highBias && note.midi >= hiThresh) cents += o.highBias;
-    if (o.pitchJitter) cents += (rand() * 2 - 1) * o.pitchJitter;
-
-    let start = note.start + (o.delay ?? 0);
-    if (o.timeJitter) start += (rand() * 2 - 1) * o.timeJitter;
-    if (o.lateRate && rand() < o.lateRate) start += o.lateBy ?? 0.25;
-    // 唱满时值的 88%，留一点换气空档，和真人唱法一致
-    const dur = note.dur * 0.88;
-    if (start < 0) start = 0;
-
-    const from = Math.round(start * sr);
-    const len = Math.round(dur * sr);
-    let phase = 0;
-    let driftVal = 0;
-    for (let i = 0; i < len; i++) {
-      const idx = from + i;
-      if (idx >= total) break;
-      if (o.drift) {
-        // 慢速随机游走，模拟长音撑不住往下掉/飘
-        driftVal += (rand() * 2 - 1) * o.drift * 0.004;
-        driftVal = Math.max(-o.drift, Math.min(o.drift, driftVal));
-      }
-      const m = note.midi + (cents + driftVal) / 100;
-      phase += (2 * Math.PI * midiToFreq(m)) / sr;
-      const fade = Math.min(1, i / (0.025 * sr), (len - i) / (0.025 * sr));
-      buf[idx] += amp * fade * voiceSample(phase);
-    }
-  }
-  return buf;
-}
-
 const star = SONG_BY_ID.get('star')!;
 const amazing = SONG_BY_ID.get('amazing')!;
 
@@ -449,10 +359,14 @@ describe('节奏分析', () => {
   ok((rd.timing.score ?? 0) >= 70, '扣掉系统偏移后节奏分不受牵连', `节奏 ${rd.timing.score}，why: ${rd.timing.why.slice(0, 50)}`);
   ok(rd.timing.why.includes('设备延迟') || Math.abs(rd.systematicOffset * 1000) <= 120, '大偏移会提示可能是设备延迟');
 
-  // 2) 忽快忽慢
-  const jitter = analyzePerformance(singReference(ref, { timeJitter: 0.16, seed: 11 }), SR, ref).report;
-  ok((jitter.rhythm!.steadiness.raw ?? 0) > 60, '抖动大时离散度显著上升', `±${jitter.rhythm!.steadiness.raw} 毫秒`);
-  ok(kinds(jitter.findings).includes('unsteady'), '识别出节奏忽快忽慢');
+  // 2) 忽快忽慢：门槛两侧都要测，免得写出一个一有抖动就报警的检测器
+  const mild = analyzePerformance(singReference(ref, { timeJitter: 0.16, seed: 11 }), SR, ref).report;
+  ok((mild.rhythm!.steadiness.raw ?? 0) > 45, '中等抖动时离散度上升', `±${mild.rhythm!.steadiness.raw} 毫秒`);
+  ok(!kinds(mild.findings).includes('unsteady'), '中等抖动不至于报「忽快忽慢」（门槛不乱响）');
+
+  const wild = analyzePerformance(singReference(ref, { timeJitter: 0.3, seed: 11 }), SR, ref).report;
+  ok((wild.rhythm!.steadiness.raw ?? 0) > 70, '大幅抖动时离散度显著更高', `±${wild.rhythm!.steadiness.raw} 毫秒`);
+  ok(kinds(wild.findings).includes('unsteady'), '识别出节奏忽快忽慢');
 
   // 3) 部分音拖拍
   // 校准过延迟的用户：可以放心地说「你拖拍了」

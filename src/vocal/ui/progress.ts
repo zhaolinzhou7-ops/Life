@@ -94,6 +94,7 @@ export function renderProgress(box: HTMLElement, ctx: Ctx): () => void {
         if (pt.accuracy !== null) bits.push(`音准 ${pt.accuracy}`);
         if (pt.rhythm !== null) bits.push(`节奏 ${pt.rhythm}`);
         if (pt.stability !== null) bits.push(`稳 ${pt.stability}`);
+        if (pt.high !== null) bits.push(`高音 ${pt.high}`);
         if (pt.rangeSpan !== null) bits.push(`音域 ${pt.rangeSpan}`);
         r.innerHTML = bits.join('<br>') || '—';
         row.appendChild(r);

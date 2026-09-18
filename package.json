@@ -13,7 +13,8 @@
     "test:vocal": "node_modules/.bin/esbuild tools/vocal-test.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/vocal-test.mjs --external:@anthropic-ai/sdk --log-level=warning && node node_modules/.cache/vocal-test.mjs",
     "typecheck": "tsc --noEmit",
     "fixtures": "node_modules/.bin/esbuild tools/make-fixture.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/make-fixture.mjs --log-level=warning && node node_modules/.cache/make-fixture.mjs",
-    "test:ui": "npm run fixtures && npm run build && node tools/ui-test.mjs"
+    "test:ui": "npm run fixtures && npm run build && node tools/ui-test.mjs",
+    "acceptance": "node_modules/.bin/esbuild tools/acceptance.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/acceptance.mjs --external:@anthropic-ai/sdk --log-level=warning && node node_modules/.cache/acceptance.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",

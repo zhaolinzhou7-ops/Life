@@ -253,6 +253,7 @@ export interface Milestone {
   accuracy: number | null;
   rhythm: number | null;
   stability: number | null;
+  high: number | null;
   rangeSpan: number | null;
 }
 
@@ -276,6 +277,7 @@ export function milestones(refId?: string): { points: Milestone[]; summary: stri
     accuracy: series[i].accuracy,
     rhythm: series[i].rhythm,
     stability: series[i].stability,
+    high: series[i].high,
     rangeSpan: series[i].rangeSpan,
   }));
 
@@ -290,6 +292,7 @@ export function milestones(refId?: string): { points: Milestone[]; summary: stri
   cmp(first.accuracy, last.accuracy, '音准');
   cmp(first.rhythm, last.rhythm, '节奏');
   cmp(first.stability, last.stability, '稳定性');
+  cmp(first.high, last.high, '高音');
   if (first.rangeSpan !== null && last.rangeSpan !== null) {
     const d = last.rangeSpan - first.rangeSpan;
     if (Math.abs(d) >= 2) bits.push(`音域${d > 0 ? '宽了' : '窄了'} ${Math.abs(d)} 个半音`);
