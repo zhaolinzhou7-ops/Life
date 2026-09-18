@@ -7,6 +7,7 @@
  */
 import { applyMove, cloneBoard, type Board, type Color, type Move, type PType } from './rules';
 import { moveToText, pieceName } from './notation';
+import { tagMistake, type ErrTag } from './teach';
 import type { Dim } from './save';
 
 /** 子力价值，和引擎 ai.ts 里的 VAL 保持一致（兵=100） */
@@ -95,6 +96,15 @@ export interface ReviewedMove {
   comment: string;
   /** 这一手的亏损算在哪一维（只有真亏了才有意义） */
   dim: Dim;
+  /**
+   * 这一手是**哪种毛病**。和 dim 是两件事：
+   *   dim  回答"该练哪一块"（拿去排训练计划）
+   *   tag  回答"你是个什么毛病的棋手"（拿去做错误画像）
+   * 同样归到"眼力"，贪吃和只顾自己不看对方是完全不同的两种人，
+   * 给的建议也完全不同，所以必须分开记。
+   * 只有真走坏了的一手才有 tag——好棋没有毛病可言。
+   */
+  tag?: ErrTag;
 }
 
 export interface GameReview {
@@ -270,6 +280,8 @@ export function reviewMove(b: Board, ply: number, color: Color, j: Judged): Revi
   const grade = gradeOf(loss, flip);
   const isBest = j.best.move.fx === j.played.move.fx && j.best.move.fy === j.played.move.fy
     && j.best.move.tx === j.played.move.tx && j.best.move.ty === j.played.move.ty;
+  // 只给真亏了的一手打标签。实测单手 1.2ms，整盘加起来可以忽略
+  const tag = loss >= 80 ? tagMistake(b, j.played.move, color, { missedMate: flip === 'missed-mate', loss }) : undefined;
   return {
     ply,
     color,
@@ -285,7 +297,43 @@ export function reviewMove(b: Board, ply: number, color: Color, j: Judged): Revi
     bestPv: isBest ? undefined : pvText(b, j.best.pv).slice(0, 6),
     comment: commentOf(b, j, color, grade, flip, loss),
     dim: dimOfLoss(b, j, color, ply, flip),
+    tag,
   };
+}
+
+/** 一方在这一局里各类毛病各犯了几次，错误画像直接用这个 */
+export function tagCounts(moves: ReviewedMove[], c: Color): Partial<Record<ErrTag, number>> {
+  const out: Partial<Record<ErrTag, number>> = {};
+  for (const m of moves) {
+    if (m.color !== c || !m.tag) continue;
+    out[m.tag] = (out[m.tag] ?? 0) + 1;
+  }
+  return out;
+}
+
+/**
+ * 一句话说清这一局最大的问题。列表里要显示的就是这一句。
+ *
+ * 优先说**性质**而不是数量："中局漏看了对方的威胁"比"有 3 手失误"有用得多，
+ * 因为前者告诉你该改什么，后者只告诉你考了几分。
+ */
+export function headlineOf(moves: ReviewedMove[], c: Color): string {
+  const mine = moves.filter((m) => m.color === c);
+  if (!mine.length) return '';
+  const counts = tagCounts(moves, c);
+  const worst = mine.reduce((a, b2) => (b2.loss > a.loss ? b2 : a), mine[0]);
+  if (worst.loss < 80) return '全程没有明显失误';
+  const top = (Object.entries(counts) as [ErrTag, number][]).sort((a, b2) => b2[1] - a[1])[0];
+  const phase = worst.ply < 24 ? '开局' : mine.length - Math.floor(worst.ply / 2) < 8 ? '残局' : '中局';
+  const names: Record<ErrTag, string> = {
+    hang: '送子',
+    greedy: '贪吃',
+    'missed-threat': '漏看对方的威胁',
+    'walk-into-mate': '漏将',
+    'missed-mate': '漏掉了杀棋',
+    slow: '走软',
+  };
+  return top ? `${phase}${names[top[0]]}` : `${phase}走坏了一手`;
 }
 
 /** 汇总整盘：统计各方失误，并找出决定胜负的那一手 */

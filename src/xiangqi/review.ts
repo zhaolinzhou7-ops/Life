@@ -8,13 +8,17 @@ import type { Board, Color, Move } from './rules';
 import { applyMove } from './rules';
 import { requestReview } from './aiclient';
 import {
+  headlineOf,
   reviewMove,
   summarize,
+  tagCounts,
   GRADE_LABEL,
   GRADE_COLOR,
   type GameReview,
   type ReviewedMove,
 } from './analysis';
+import { setGameReview } from './archive';
+import { runChat, type ChatContext } from './chat';
 import type { XiangqiScene } from './scene3d';
 import { toFen } from './notation';
 import { addOwnPuzzle, recordGame } from './save';
@@ -33,11 +37,16 @@ export interface ReviewOpts {
   playerColor: Color;
   /** 这一局你赢了没有；用来记进对局统计 */
   playerWon?: boolean;
+  /**
+   * 这一局在存档里的 id。复盘算完之后把结论回填过去，
+   * 首页的"最近棋局"才能显示"这盘错在哪"，而不是只有一个日期。
+   */
+  archiveId?: string;
   onClose: () => void;
 }
 
 export function runReview(opts: ReviewOpts): () => void {
-  const { host, scene, startBoard, startColor, moves, playerColor, playerWon, onClose } = opts;
+  const { host, scene, startBoard, startColor, moves, playerColor, playerWon, archiveId, onClose } = opts;
 
   // 每一手走之前的局面，导航时直接取用
   const boards: Board[] = [startBoard];
@@ -59,6 +68,7 @@ export function runReview(opts: ReviewOpts): () => void {
     <div class="xq-rv-head">
       <b>复盘</b>
       <span class="xq-rv-progress">分析中 0/${moves.length}</span>
+      <button class="xq-rv-ask" title="问教练">🧑‍🏫 问教练</button>
       <button class="xq-rv-fold" title="收起/展开">▾</button>
       <button class="xq-rv-close">✕</button>
     </div>
@@ -87,7 +97,7 @@ export function runReview(opts: ReviewOpts): () => void {
 
     if (cursor < 0) {
       elPos.textContent = '开局';
-      elDetail.innerHTML = '<div class="xq-rv-empty">点左边任意一手，看看那步走得怎么样。</div>';
+      elDetail.innerHTML = '<div class="xq-rv-empty">点上面任意一手，看看那步走得怎么样。</div>';
       scene.select(null);
       renderList();
       return;
@@ -173,6 +183,47 @@ export function runReview(opts: ReviewOpts): () => void {
     close();
     onClose();
   };
+
+  /**
+   * 问教练。上下文取的是**当前选中的那一手**——
+   * 用户点着第 12 回合问"这一步为什么错"，答的必须是第 12 回合那一手，
+   * 而不是整局的总结。所以这里传的是一个取值函数，不是快照。
+   */
+  let closeChat: (() => void) | null = null;
+  (panel.querySelector('.xq-rv-ask') as HTMLButtonElement).onclick = () => {
+    if (closeChat) {
+      closeChat();
+      closeChat = null;
+      return;
+    }
+    closeChat = runChat({
+      host,
+      getContext: (): ChatContext => {
+        const me = report?.stats[playerColor];
+        const wi = report?.worst[playerColor] ?? -1;
+        const w = wi >= 0 ? report!.moves[wi] : null;
+        const cur = cursor >= 0 ? reviewed[cursor] : null;
+        return {
+          side: playerColor === 'r' ? '红' : '黑',
+          stats: me ? { ...me, won: playerWon } : undefined,
+          problem: w ? w.comment : undefined,
+          focus: cur
+            ? {
+                round: Math.floor(cur.ply / 2) + 1,
+                played: cur.text,
+                best: cur.bestText,
+                bestLine: cur.bestPv,
+                problem: cur.comment,
+                loss: cur.loss,
+              }
+            : undefined,
+        };
+      },
+      onClose: () => {
+        closeChat = null;
+      },
+    });
+  };
   // 面板在手机上会挡住红方底线，收起后只留点评和翻页，棋盘完整可见
   const foldBtn = panel.querySelector('.xq-rv-fold') as HTMLButtonElement;
   foldBtn.onclick = () => {
@@ -212,6 +263,21 @@ export function runReview(opts: ReviewOpts): () => void {
    */
   function harvest(rep: GameReview) {
     const me = rep.stats[playerColor];
+    // 把这一局的结论回填到存档：首页列表、错误画像、出题全靠它
+    if (archiveId) {
+      const wi = rep.worst[playerColor];
+      const w = wi >= 0 ? rep.moves[wi] : null;
+      setGameReview(archiveId, {
+        blunders: me.blunders,
+        mistakes: me.mistakes,
+        avgLoss: me.avgLoss,
+        tags: tagCounts(rep.moves, playerColor),
+        worstPly: w?.ply,
+        worstText: w?.text,
+        worstLoss: w?.loss,
+        headline: headlineOf(rep.moves, playerColor),
+      });
+    }
     recordGame({
       won: !!playerWon,
       blunders: me.blunders,
@@ -251,6 +317,8 @@ export function runReview(opts: ReviewOpts): () => void {
 
   function close() {
     cancel();
+    closeChat?.();
+    closeChat = null;
     panel.remove();
     scene.select(null);
     scene.syncBoard(boards[boards.length - 1]);
