@@ -47,6 +47,15 @@ async function launchNaming() {
   dispose = bootNaming(app, showHome);
 }
 
+async function launchDoudizhu() {
+  clear();
+  const { bootDoudizhu } = await import('./doudizhu/index');
+  dispose = bootDoudizhu(app, (restart) => {
+    if (restart) launchDoudizhu();
+    else showHome();
+  });
+}
+
 async function launchMahjong() {
   clear();
   const { bootMahjong } = await import('./mahjong/index');
@@ -72,6 +81,12 @@ function showHome() {
       title: '✒️ AI 智能取名',
       desc: '给孩子取个名字：说清你想要什么，从音律、寓意、字形、出处到日常好不好用逐项筛过，只给少量真正值得考虑的。',
       go: launchNaming,
+      tag: 'NEW',
+    },
+    {
+      title: '🃏 斗地主 · 单人对战',
+      desc: '一个人加两个 AI，叫地主、抢底牌、飞机炸弹全都有。AI 会记牌、会配合队友，三档难度。',
+      go: launchDoudizhu,
       tag: 'NEW',
     },
     {
