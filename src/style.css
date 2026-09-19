@@ -1260,6 +1260,28 @@ canvas {
     radial-gradient(ellipse at 50% -10%, rgba(64, 196, 255, 0.16), transparent 55%),
     radial-gradient(ellipse at 85% 105%, rgba(255, 170, 60, 0.1), transparent 50%),
     radial-gradient(circle at 50% 20%, #1b3a52 0%, #0c141d 70%);
+
+  /*
+   * 合集里的应用只会越来越多，卡片列表迟早比屏幕高。
+   *
+   * .screen 用的是 justify-content: center，而在**可滚动的** flex 容器里，
+   * 居中溢出的那部分会跑到滚动区域的上方——滑到顶也够不着，最上面那张卡片
+   * 直接点不开。320px 的手机上加到第七张就会撞上。
+   *
+   * 这里用一对 auto margin 的伪元素代替居中：有富余空间时它们把空间吃掉，
+   * 效果和居中一样；空间不够时 auto 自动塌成 0，内容从顶部开始正常滚动。
+   */
+  justify-content: flex-start;
+  padding-top: calc(env(safe-area-inset-top) + 18px);
+  padding-bottom: calc(env(safe-area-inset-bottom) + 18px);
+}
+.home-screen::before {
+  content: '';
+  margin-block-end: auto;
+}
+.home-screen::after {
+  content: '';
+  margin-block-start: auto;
 }
 .home-screen h1 {
   font-size: 34px;

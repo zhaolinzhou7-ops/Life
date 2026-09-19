@@ -47,6 +47,12 @@ async function launchNaming() {
   dispose = bootNaming(app, showHome);
 }
 
+async function launchEnglish() {
+  clear();
+  const { bootEnglish } = await import('./english/index');
+  dispose = bootEnglish(app, showHome);
+}
+
 async function launchMahjong() {
   clear();
   const { bootMahjong } = await import('./mahjong/index');
@@ -68,6 +74,12 @@ function showHome() {
   list.className = 'card-list';
 
   const games = [
+    {
+      title: '🦜 AI 儿童英语学习伙伴',
+      desc: '4~12 岁英语启蒙：每天一个 10~15 分钟的小任务，学词、听故事、玩游戏、和 AI 说几句。会记住孩子哪里不会，自动安排复习。带家长端。',
+      go: launchEnglish,
+      tag: 'NEW',
+    },
     {
       title: '✒️ AI 智能取名',
       desc: '给孩子取个名字：说清你想要什么，从音律、寓意、字形、出处到日常好不好用逐项筛过，只给少量真正值得考虑的。',

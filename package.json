@@ -16,7 +16,8 @@
     "test:ui": "node tests/ui/screens.mjs",
     "test:ui:coach": "node tests/ui/coach-flow.mjs",
     "test:ui:entries": "node tests/ui/entries.mjs",
-    "test:ui:naming": "node tests/ui/naming.mjs"
+    "test:ui:naming": "node tests/ui/naming.mjs",
+    "test:ui:english": "node tests/ui/english.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"
