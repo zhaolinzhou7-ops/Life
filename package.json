@@ -16,7 +16,9 @@
     "test:ui": "node tests/ui/screens.mjs",
     "test:ui:coach": "node tests/ui/coach-flow.mjs",
     "test:ui:entries": "node tests/ui/entries.mjs",
-    "test:ui:naming": "node tests/ui/naming.mjs"
+    "test:ui:naming": "node tests/ui/naming.mjs",
+    "dd:sim": "node_modules/.bin/esbuild tools/doudizhu-sim.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/ddsim.mjs && node node_modules/.cache/ddsim.mjs",
+    "test:ui:doudizhu": "node tests/ui/doudizhu.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"
