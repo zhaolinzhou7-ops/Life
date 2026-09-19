@@ -47,6 +47,12 @@ async function launchNaming() {
   dispose = bootNaming(app, showHome);
 }
 
+async function launchCoach() {
+  clear();
+  const { bootCoach } = await import('./coach/index');
+  dispose = bootCoach(app, showHome);
+}
+
 async function launchMahjong() {
   clear();
   const { bootMahjong } = await import('./mahjong/index');
@@ -68,6 +74,12 @@ function showHome() {
   list.className = 'card-list';
 
   const games = [
+    {
+      title: '🗣️ AI 英语教练',
+      desc: '给学了很多年却开不了口的成年人：先测出你到底卡在哪，再每天 10~30 分钟，练到能用英语把事办成。',
+      go: launchCoach,
+      tag: 'NEW',
+    },
     {
       title: '✒️ AI 智能取名',
       desc: '给孩子取个名字：说清你想要什么，从音律、寓意、字形、出处到日常好不好用逐项筛过，只给少量真正值得考虑的。',
