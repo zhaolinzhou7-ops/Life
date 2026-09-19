@@ -25,7 +25,9 @@ import {
   type HintLevel,
 } from './livecoach';
 import { initCoachProvider } from './llm';
-import { XiangqiScene, type PieceTheme } from './scene3d';
+import { BoardView } from './boardview';
+import { PIECE_VALUE, inPieces } from './teach';
+import { moveToText, pieceName } from './notation';
 import {
   isMuted,
   setMuted,
@@ -81,12 +83,6 @@ const LEVELS = [
   { id: 4, name: '大师', desc: '算 14 层，不留情面', depth: 14, jitter: 0, timeMs: 3500 },
 ];
 
-const THEMES: { id: PieceTheme; name: string; emoji: string; desc: string }[] = [
-  { id: 'jade', name: '和田玉', emoji: '💚', desc: '温润通透，金线刻字' },
-  { id: 'wood', name: '紫檀木', emoji: '🟤', desc: '古朴厚重，传统手感' },
-  { id: 'porcelain', name: '青花瓷', emoji: '🔷', desc: '洁白釉面，靛蓝刻痕' },
-];
-
 export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void): () => void {
   const wrap = document.createElement('div');
   wrap.className = 'xq-root';
@@ -139,9 +135,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       const lv = Math.max(0, Math.min(LEVELS.length - 1, depth >= 14 ? 4 : depth >= 10 ? 3 : 2));
       startGame(
         lv,
-        (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme,
         CHARACTERS[Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length],
-        (localStorage.getItem('xq-facing') ?? 'duel') === 'duel',
         Number(localStorage.getItem('xq-tempo') ?? 1),
         { strip, depth, onFinish },
       );
@@ -190,8 +184,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       setupEl = bad;
       return;
     }
-    const theme = (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme;
-    const scene = new XiangqiScene(wrap, () => {}, theme, (localStorage.getItem('xq-facing') ?? 'duel') === 'duel');
+    const scene = new BoardView(wrap, () => {}, g.side === 'b');
     scene.syncBoard(opened.start);
     const closeRv = runReview({
       host: wrap,
@@ -220,9 +213,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     clearAll();
 
     let level = Number(localStorage.getItem('xq-level') ?? 1);
-    let theme = (localStorage.getItem('xq-theme') ?? 'jade') as PieceTheme;
     let rival = Number(localStorage.getItem('xq-rival') ?? 2);
-    let facing = (localStorage.getItem('xq-facing') ?? 'duel') as 'duel' | 'me';
     let tempo = Math.max(0, Math.min(TEMPOS.length - 1, Number(localStorage.getItem('xq-tempo') ?? 1)));
     let hint: HintLevel = getHintLevel();
 
@@ -231,7 +222,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     setupEl = s;
 
     const render = () => {
-      s.innerHTML = `<h1>楚河汉界</h1><div class="sub">选对手 · 定难度 · 挑棋子</div>`;
+      s.innerHTML = `<h1>楚河汉界</h1><div class="sub">选对手 · 定难度 · 定教练</div>`;
 
       // 对手
       const rivalLabel = document.createElement('div');
@@ -283,44 +274,6 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       });
       s.appendChild(lvRow);
 
-      // 棋子材质
-      const thLabel = document.createElement('div');
-      thLabel.className = 'xq-sec';
-      thLabel.textContent = '棋子材质';
-      s.appendChild(thLabel);
-      const thRow = document.createElement('div');
-      thRow.className = 'diff-row';
-      THEMES.forEach((T) => {
-        const card = document.createElement('div');
-        card.className = 'card' + (T.id === theme ? ' selected' : '');
-        card.innerHTML = `<div class="title" style="justify-content:center">${T.emoji} ${T.name}</div>
-          <div class="desc" style="text-align:center">${T.desc}</div>`;
-        card.onclick = () => {
-          theme = T.id;
-          sfxTap();
-          render();
-        };
-        thRow.appendChild(card);
-      });
-      s.appendChild(thRow);
-
-      // 棋子朝向
-      const fLabel = document.createElement('div');
-      fLabel.className = 'xq-sec';
-      fLabel.textContent = '棋子朝向';
-      s.appendChild(fLabel);
-      const fRow = document.createElement('div');
-      fRow.className = 'diff-row';
-      ([['duel', '对坐摆放', '黑方字朝对面，像真人对弈'], ['me', '全部朝我', '双方字都朝你，方便识读']] as const).forEach(([id, nm, ds]) => {
-        const card = document.createElement('div');
-        card.className = 'card' + (facing === id ? ' selected' : '');
-        card.innerHTML = `<div class="title" style="justify-content:center">${nm}</div>
-          <div class="desc" style="text-align:center">${ds}</div>`;
-        card.onclick = () => { facing = id; sfxTap(); render(); };
-        fRow.appendChild(card);
-      });
-      s.appendChild(fRow);
-
       // 动画速度
       const tLabel = document.createElement('div');
       tLabel.className = 'xq-sec';
@@ -364,14 +317,12 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       go.textContent = '⚔️ 开始对弈';
       go.onclick = () => {
         localStorage.setItem('xq-level', String(level));
-        localStorage.setItem('xq-theme', theme);
         localStorage.setItem('xq-rival', String(rival));
-        localStorage.setItem('xq-facing', facing);
         localStorage.setItem('xq-tempo', String(tempo));
         setHintLevel(hint);
         s.remove();
         setupEl = null;
-        startGame(level, theme, CHARACTERS[rival], facing === 'duel', tempo);
+        startGame(level, CHARACTERS[rival], tempo);
       };
       s.appendChild(go);
 
@@ -392,9 +343,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
    */
   function startGame(
     level: number,
-    theme: PieceTheme,
     rival: Character,
-    flipBlack: boolean,
     tempoIdx = 1,
     handicap?: { strip: number; depth: number; onFinish: (won: boolean) => void },
   ) {
@@ -439,7 +388,17 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     /** 这一局存进存档之后的 id，复盘算完要把结论回填到它身上 */
     let archivedId: string | null = null;
 
-    const scene = new XiangqiScene(wrap, (x, y) => onTap(x, y), theme, flipBlack);
+    /**
+     * 棋盘和托盘装在同一个纵向容器里，整组垂直居中。
+     *
+     * 手机屏比棋盘高，留白是躲不掉的；但留白**平均分在上下**看起来是设计，
+     * 全挤在中间一条缝里看起来就是没做完。所以不单独定位这两块，
+     * 让它们作为一个整体居中。
+     */
+    const play = document.createElement('div');
+    play.className = 'xq-play';
+    wrap.appendChild(play);
+    const scene = new BoardView(play, (x, y) => onTap(x, y));
     scene.setSlideSec(TEMPO.slide);
     scene.syncBoard(board);
     // 先把搜索线程热起来，别让第一步的回手慢一大截
@@ -488,6 +447,69 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     info.innerHTML = `<b>${rival.name}</b><span>${L.name} · ${rival.style}</span>`;
     rivalBox.appendChild(info);
     wrap.appendChild(rivalBox);
+
+    /**
+     * 吃子托盘 + 棋谱。
+     *
+     * 手机屏比棋盘高得多，棋盘再怎么放大也只能占中间一块，上下必然空着。
+     * 与其空着，不如放这两样**下棋的人真的会看**的东西：
+     *   吃子对比 —— 一眼知道自己是赚是亏，这是判断该兑子还是该避战的依据
+     *   棋谱     —— 对着记谱学棋是基本功，而且回看"刚才那几手"很常用
+     * 这也是原来 3D 版本一直缺的：盘面之外什么信息都没有。
+     */
+    const tray = document.createElement('div');
+    tray.className = 'xq-tray';
+    tray.innerHTML = `
+      <div class="xq-tray-row" data-side="b"><span class="who">对方吃掉</span><span class="pcs"></span></div>
+      <div class="xq-tray-row" data-side="r"><span class="who">你吃掉</span><span class="pcs"></span><span class="bal"></span></div>
+      <div class="xq-log"></div>`;
+    play.appendChild(tray);
+    const elLog = tray.querySelector('.xq-log') as HTMLElement;
+
+    /** 对比起始局面，数出双方各被吃了哪些子 */
+    function refreshTray() {
+      const count = (b: Board, c: 'r' | 'b') => {
+        const m = new Map<string, number>();
+        for (const row of b) for (const p of row) if (p && p.c === c) m.set(p.t, (m.get(p.t) ?? 0) + 1);
+        return m;
+      };
+      let bal = 0;
+      for (const side of ['r', 'b'] as const) {
+        const was = count(startSnapshot, side);
+        const now = count(board, side);
+        const lost: string[] = [];
+        let v = 0;
+        for (const [t, n] of was) {
+          const gone = n - (now.get(t) ?? 0);
+          for (let i = 0; i < gone; i++) lost.push(pieceName(t as never, side));
+          v += gone * PIECE_VALUE[t as never];
+        }
+        bal += side === 'b' ? v : -v;
+        const row = tray.querySelector(`.xq-tray-row[data-side="${side}"]`) as HTMLElement;
+        const pcs = row.querySelector('.pcs') as HTMLElement;
+        pcs.innerHTML = lost.length
+          ? lost.map((n) => `<i class="${side}">${n}</i>`).join('')
+          : '<span class="none">还没吃到子</span>';
+      }
+      const elBal = tray.querySelector('.bal') as HTMLElement;
+      // 正数=你赚，用"多一个马"这种说法，比裸分数好懂
+      elBal.textContent = bal === 0 ? '子力均等' : bal > 0 ? `你多 ${inPieces(bal)}` : `你少 ${inPieces(-bal)}`;
+      elBal.className = `bal ${bal > 0 ? 'up' : bal < 0 ? 'down' : ''}`;
+    }
+
+    /** 棋谱：一行横着滚，永远把最新一手滚到眼前 */
+    function refreshLog() {
+      let cur: Board = startSnapshot;
+      const parts: string[] = [];
+      moveLog.forEach((m, i) => {
+        const txt = moveToText(cur, m);
+        if (i % 2 === 0) parts.push(`<b>${i / 2 + 1}.</b>`);
+        parts.push(`<span class="${i % 2 === 0 ? 'r' : 'b'}">${txt}</span>`);
+        cur = applyMove(cur, m);
+      });
+      elLog.innerHTML = parts.length ? parts.join('') : '<span class="none">棋谱会显示在这里</span>';
+      elLog.scrollLeft = elLog.scrollWidth;
+    }
 
     const bubble = document.createElement('div');
     bubble.className = 'xq-bubble hidden';
@@ -582,6 +604,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         move: m,
         me: 'r',
         risk,
+        ply: moveLog.length,
+        board: scene,
         onProceed: () => {
           closeCoachPrompt = null;
           busy = false;
@@ -614,6 +638,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         busy = false;
         afterMove();
       });
+      refreshTray();
+      refreshLog();
       setTurnUI(turn === 'b');
     }
 
@@ -677,6 +703,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       selected = null;
       resultEl?.remove();
       resultEl = null;
+      refreshTray();
+      refreshLog();
+      scene.setLastMove(moveLog.length ? moveLog[moveLog.length - 1] : null);
       scene.setSlideSec(TEMPO.slide);
     scene.syncBoard(board);
     // 先把搜索线程热起来，别让第一步的回手慢一大截
@@ -705,6 +734,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     // 先把搜索线程热起来，别让第一步的回手慢一大截
     warmupAi(board, 'b');
       scene.dealIn();
+      scene.setLastMove(null);
+      refreshTray();
+      refreshLog();
       setTurnUI();
       setTimeout(() => say(pickLine(rival.lines.greet)), 500);
     }
@@ -790,6 +822,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       });
     }
 
+    refreshTray();
+    refreshLog();
     setTurnUI();
 
     // 开发期测试钩子：3D 棋盘靠射线拾取，自动化测试没法算出格子的屏幕坐标，
@@ -855,6 +889,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       rivalBox.remove();
       bubble.remove();
       toast.remove();
+      play.remove();
       resultEl?.remove();
     };
   }

@@ -28,7 +28,16 @@ export type ExplainKind =
   /** 当前局面有什么风险（教练模式的"为什么？"） */
   | 'risk-why'
   /** 自由提问 */
-  | 'ask';
+  | 'ask'
+  /**
+   * 深度解读一手棋。
+   *
+   * 和 move-bad 的区别不是长短，是**看问题的层次**：move-bad 回答
+   * "这一手掉了什么坑"，move-deep 回答"这一手在做什么、全局上值不值、
+   * 还有什么更好的选择、为什么那个更好"。学棋的人要的是后者——
+   * 只被告知"你的马会被吃"，下次换个子照样会被吃。
+   */
+  | 'move-deep';
 
 /**
  * 交给讲解层的事实清单。
@@ -69,6 +78,23 @@ export interface Facts {
   question?: string;
   /** 用户想要多简单的讲法 */
   tone?: 'plain' | 'normal';
+
+  // ── 以下是深度解读用的字段，全部由 deepcoach.ts 算出来 ──
+  /** 这一手在做什么，一句话 */
+  intent?: string;
+  /** 这一手为什么值得做（意图对应的棋理） */
+  intentWhy?: string[];
+  /** 全局影响，每条都带真实数字 */
+  global?: { tone: 'good' | 'bad' | 'flat'; label: string; text: string }[];
+  /** 候选走法：更好的几手各自想干什么 */
+  candidates?: { text: string; idea: string; behind: number; gap: string; line: string[] }[];
+  /** 现在是开局/中局/残局 */
+  stage?: '开局' | '中局' | '残局';
+  /** 这个阶段的通用棋理。**要和上面由局面算出来的结论分开讲**，
+   *  混在一起用户分不清哪句是针对他这盘棋的 */
+  principles?: string[];
+  /** 对方接下来的计划（主变） */
+  oppPlan?: string[];
 }
 
 export interface CoachProvider {
@@ -118,6 +144,13 @@ export function verifyExplanation(text: string, f: Facts): { ok: boolean; bad: s
   add(f.problem);
   f.bestLine?.forEach(add);
   f.hanging?.forEach((h) => add(h.by));
+  add(f.intent);
+  f.global?.forEach((g) => add(g.text));
+  f.oppPlan?.forEach(add);
+  f.candidates?.forEach((c) => {
+    add(c.text);
+    c.line.forEach(add);
+  });
   const bad = [...new Set(movesIn(text))].filter((m) => !allowed.has(m));
   return { ok: bad.length === 0, bad };
 }
@@ -199,10 +232,65 @@ export function offlineText(f: Facts): string {
       return bits.join('');
     }
 
+    case 'move-deep':
+      return deepText(f);
+
     case 'ask':
     default:
       return answerOffline(f);
   }
+}
+
+/**
+ * 深度解读的排版。
+ *
+ * 分段是有讲究的，顺序就是一个人该有的思考顺序：
+ *   我这步在干什么 → 全局上它带来了什么 → 代价是什么
+ *   → 还有什么选择、各自想干什么 → 这个阶段的通用道理
+ *
+ * 最后一段单独标成「这个阶段的道理」，因为它**不是从这一局算出来的**。
+ * 不标出来的话，用户会把通用棋理当成对他这一手的针对性点评，
+ * 下次遇到不适用的局面还照着做。
+ */
+function deepText(f: Facts): string {
+  const P: string[] = [];
+  const you = f.side === '红' ? '红方' : '黑方';
+
+  if (f.intent) P.push(`**这一步在做什么**\n${f.intent}`);
+
+  if (f.global?.length) {
+    const lines = f.global.map((g) => `${g.tone === 'good' ? '✅' : g.tone === 'bad' ? '⚠️' : '·'} **${g.label}**：${g.text}`);
+    P.push(`**走完这一手，局面即时的变化**\n${lines.join('\n')}`);
+  }
+
+  if (f.problem) P.push(`**问题在哪**\n${f.problem}`);
+  else if (f.grade === '好棋' || f.grade === '不错') P.push(`**这一手站得住**\n引擎也认可，可以放心走。`);
+
+  if (f.oppPlan?.length) P.push(`**对方接下来打算**\n${f.oppPlan.join('　')}`);
+
+  if (f.candidates?.length) {
+    const lines = f.candidates.map((c, i) => {
+      const line = c.line.length ? `\n　　后续：${c.line.join('　')}` : '';
+      return `${i + 1}. **${c.text}** —— ${c.idea}${i === 0 ? '　← 引擎首选' : c.gap}${line}`;
+    });
+    P.push(`**更好的选择**\n${lines.join('\n')}`);
+  }
+
+  if (f.intentWhy?.length) {
+    // 这一手不好的时候，还把它的意图逐条夸一遍会自相矛盾。
+    // 实际情况往往是"想法没错，代价没算清"，说清楚这一点比只说"错了"有用得多。
+    const bad = !!f.problem;
+    P.push(
+      `**你这手的想法**${bad ? '（想法本身不一定错，问题多半出在时机和代价上）' : ''}\n${f.intentWhy.join('\n')}`,
+    );
+  }
+
+  if (f.principles?.length) {
+    P.push(`**${f.stage ?? ''}阶段的通用道理**（不是针对这一手，是这个阶段都适用）\n${f.principles.map((x) => `· ${x}`).join('\n')}`);
+  }
+
+  if (!P.length) return `${you}这一手看不出明显问题，也没有特别出彩的地方。`;
+  return P.join('\n\n');
 }
 
 /**

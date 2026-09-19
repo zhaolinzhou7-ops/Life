@@ -2,7 +2,7 @@
  * 搜索线程的调用封装：能起 Worker 就用 Worker，起不来（老浏览器 / 沙箱限制）
  * 就退回主线程同步计算，保证功能永远可用。
  */
-import { bestMove, judgeMove, type SearchOpts } from './ai';
+import { analyze, bestMove, judgeMove, type MoveScore, type SearchOpts } from './ai';
 import { applyMove, type Board, type Color, type Move } from './rules';
 import type { Judged } from './analysis';
 
@@ -11,13 +11,15 @@ let seq = 0;
 const pending = new Map<number, (m: Move | null) => void>();
 /** 复盘是流式的：每算完一手回一次 onStep，全部算完回 onDone */
 const reviews = new Map<number, { onStep: ReviewStep; onDone: () => void }>();
+const analyses = new Map<number, (r: MoveScore[]) => void>();
 let workerBroken = false;
 
 export type ReviewStep = (ply: number, color: Color, board: Board, judged: Judged | null) => void;
 
 interface WorkerMsg {
   id: number;
-  kind?: 'review-step' | 'review-done';
+  kind?: 'review-step' | 'review-done' | 'analysis';
+  moves?: MoveScore[];
   move?: Move | null;
   ply?: number;
   color?: Color;
@@ -34,6 +36,12 @@ function ensureWorker(): Worker | null {
       const d = e.data;
       if (d.kind === 'review-step') {
         reviews.get(d.id)?.onStep(d.ply!, d.color!, d.board!, d.judged ?? null);
+        return;
+      }
+      if (d.kind === 'analysis') {
+        const cb = analyses.get(d.id);
+        analyses.delete(d.id);
+        cb?.(d.moves ?? []);
         return;
       }
       if (d.kind === 'review-done') {
@@ -55,6 +63,8 @@ function ensureWorker(): Worker | null {
       pending.clear();
       for (const [, r] of reviews) r.onDone();
       reviews.clear();
+      for (const [, cb] of analyses) cb([]);
+      analyses.clear();
       worker?.terminate();
       worker = null;
     };
@@ -160,10 +170,44 @@ export function requestReview(
   };
 }
 
+/**
+ * 求候选着法：教练解释"还有哪几手更好"要用。
+ *
+ * 和 requestMove 一样，Worker 起不来就退回主线程同步算。
+ * 这条通道**允许慢**——用户是主动点了"为什么"才触发的，等一两秒是可以接受的，
+ * 换来的是一个能讲得清楚的答案。
+ */
+export function requestAnalysis(board: Board, color: Color, opts: SearchOpts): Promise<MoveScore[]> {
+  const w = ensureWorker();
+  if (!w) return Promise.resolve(analyze(board, color, opts).moves.slice(0, 8));
+  const id = ++seq;
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (r: MoveScore[]) => {
+      if (done) return;
+      done = true;
+      resolve(r);
+    };
+    const guard = window.setTimeout(() => {
+      if (analyses.has(id)) {
+        analyses.delete(id);
+        // 超时就别再等了，退回一个空表；上层会只讲静态事实，不会卡在"分析中"
+        finish([]);
+      }
+    }, opts.timeMs + 6000);
+    analyses.set(id, (r) => {
+      clearTimeout(guard);
+      finish(r);
+    });
+    w.postMessage({ kind: 'analyze', id, board, color, opts });
+  });
+}
+
 export function disposeAi() {
   worker?.terminate();
   worker = null;
   pending.clear();
   reviews.clear();
+  analyses.clear();
   workerBroken = false;
 }

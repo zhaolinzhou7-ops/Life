@@ -132,6 +132,23 @@ await page.waitForTimeout(6000);
 ok('复盘面板打开', await page.locator('.xq-rv').count() > 0);
 await page.screenshot({ path: `${OUT}/c7-review.png` });
 
+// 复盘里的深度解读
+const hasDeep = await page.locator('.xq-rv-deep').count() > 0;
+ok('复盘里有「从全局讲讲这一手」', hasDeep);
+if (hasDeep) {
+  await page.locator('.xq-rv-deep').first().click();
+  for (let i = 0; i < 40; i++) {
+    const t = await page.locator('.xq-rv-deepbox').textContent();
+    if (t && t.includes('这一步在做什么')) break;
+    await page.waitForTimeout(500);
+  }
+  const deep = (await page.locator('.xq-rv-deepbox').textContent()) ?? '';
+  note('深度解读：' + deep.slice(0, 90));
+  ok('深度解读讲到了这一步在做什么', deep.includes('这一步在做什么'));
+  ok('深度解读给了这个阶段的道理', deep.includes('通用道理'));
+  await page.screenshot({ path: `${OUT}/c7b-review-deep.png` });
+}
+
 // 问教练
 await page.locator('.xq-rv-ask').click();
 await page.waitForTimeout(600);

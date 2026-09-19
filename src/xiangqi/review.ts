@@ -19,7 +19,10 @@ import {
 } from './analysis';
 import { setGameReview } from './archive';
 import { runChat, type ChatContext } from './chat';
-import type { XiangqiScene } from './scene3d';
+import { deepFacts } from './deepcoach';
+import { explain } from './llm';
+import { mdToHtml } from './livecoach';
+import type { BoardView } from './boardview';
 import { toFen } from './notation';
 import { addOwnPuzzle, recordGame } from './save';
 
@@ -29,7 +32,7 @@ const REVIEW_TIME = 1500;
 
 export interface ReviewOpts {
   host: HTMLElement;
-  scene: XiangqiScene;
+  scene: BoardView;
   startBoard: Board;
   startColor: Color;
   moves: Move[];
@@ -120,7 +123,9 @@ export function runReview(opts: ReviewOpts): () => void {
         ${m.loss > 30 ? `<span class="xq-rv-loss">亏 ${m.loss}</span>` : ''}
       </div>
       <div class="xq-rv-comment">${m.comment}</div>
-      ${m.bestPv ? `<div class="xq-rv-pv"><span>正确下法</span>${m.bestPv.join(' ')}</div>` : ''}`;
+      ${m.bestPv ? `<div class="xq-rv-pv"><span>正确下法</span>${m.bestPv.join(' ')}</div>` : ''}
+      <button class="xq-rv-deep" data-deep="${cursor}">🔍 从全局讲讲这一手</button>
+      <div class="xq-rv-deepbox"></div>`;
     renderList();
   }
 
@@ -170,7 +175,44 @@ export function runReview(opts: ReviewOpts): () => void {
   }
 
   // ---- 事件 ----
+  /**
+   * 深度解读。
+   *
+   * 和上面那句一句话点评是两个层次：点评回答"这手掉了什么坑"，
+   * 深度解读回答"这手在做什么、全局上值不值、还有什么更好的、为什么"。
+   * 它要现跑一次搜索（一两秒），所以做成按需展开而不是一进来就算——
+   * 一盘六十手全算一遍要一分多钟，没人等得了。
+   */
+  async function showDeep(i: number) {
+    const m = reviewed[i];
+    const box = panel.querySelector('.xq-rv-deepbox') as HTMLElement | null;
+    const btn = panel.querySelector(`[data-deep="${i}"]`) as HTMLButtonElement | null;
+    if (!m || !box || !btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = '分析中…';
+    box.classList.add('on');
+    box.textContent = '正在从全局算这一步的得失…';
+    try {
+      const facts = await deepFacts(boards[i], m.move, m.color, {
+        ply: m.ply,
+        grade: GRADE_LABEL[m.grade],
+        loss: m.loss,
+      });
+      box.innerHTML = mdToHtml(await explain(facts));
+      btn.textContent = '🔍 已展开';
+    } catch {
+      box.textContent = '这一手的深度分析没算出来，上面的点评仍然有效。';
+      btn.disabled = false;
+      btn.textContent = '🔍 重试';
+    }
+  }
+
   panel.addEventListener('click', (e) => {
+    const deep = (e.target as HTMLElement).closest('[data-deep]') as HTMLElement | null;
+    if (deep) {
+      void showDeep(Number(deep.dataset.deep));
+      return;
+    }
     const el = (e.target as HTMLElement).closest('[data-i]') as HTMLElement | null;
     if (el) {
       goto(Number(el.dataset.i));

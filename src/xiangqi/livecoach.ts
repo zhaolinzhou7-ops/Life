@@ -21,6 +21,7 @@
 import type { Board, Color, Move } from './rules';
 import { moveRisk, type MoveRisk } from './teach';
 import { explain, type Facts } from './llm';
+import { deepFacts } from './deepcoach';
 import { moveToText } from './notation';
 
 export type HintLevel = 0 | 1 | 2 | 3;
@@ -93,6 +94,18 @@ export interface CoachPromptOpts {
   onProceed: () => void;
   /** 用户改主意，收回这一手 */
   onCancel: () => void;
+  /** 第几手，用来判开局/中局/残局 */
+  ply?: number;
+  /**
+   * 棋盘。有它就能把话**画在盘上**：危险的子圈出来，对方的惩罚着法画成箭头。
+   *
+   * 这一条比多讲一百个字都管用——"你的车会被吃"是抽象的，
+   * 一条从对方车指向你的车的红箭头是具体的，看一眼就懂，而且记得住。
+   */
+  board?: {
+    setArrows(a: { fx: number; fy: number; tx: number; ty: number; color?: string }[]): void;
+    select(sel: { x: number; y: number } | null, moves?: { x: number; y: number; capture?: boolean }[]): void;
+  };
 }
 
 /**
@@ -125,11 +138,17 @@ export function showCoachPrompt(opts: CoachPromptOpts): () => void {
     </div>`;
   host.appendChild(el);
   const elWhy = el.querySelector('.xq-tip-why') as HTMLElement;
+  // 把危险画到盘上：受威胁的子圈红，对方吃它的那一手画成红箭头
+  if (opts.board && risk.punish) {
+    opts.board.setArrows([{ ...risk.punish, color: 'rgba(224,67,58,0.92)' }]);
+    if (risk.spot) opts.board.select(null);
+  }
 
   let closed = false;
   const close = () => {
     if (closed) return;
     closed = true;
+    opts.board?.setArrows([]); // 提示条收掉，盘上的箭头也要一起收
     el.remove();
   };
 
@@ -147,29 +166,47 @@ export function showCoachPrompt(opts: CoachPromptOpts): () => void {
       return;
     }
     if (act === 'why') {
-      elWhy.textContent = '…';
+      // 深度解读要跑一次搜索（约一两秒），必须先把状态摆出来，
+      // 不然用户会以为按钮没反应，连点好几下
+      const btn = el.querySelector('[data-act="why"]') as HTMLButtonElement | null;
+      if (btn) {
+        if (btn.disabled) return;
+        btn.disabled = true;
+        btn.textContent = '分析中…';
+      }
+      elWhy.textContent = '正在从全局算这一步的得失…';
       elWhy.classList.add('on');
-      // 讲解层只拿事实，不拿棋盘——它编不出盘上没有的着法
-      const facts: Facts = {
-        kind: 'risk-why',
-        side: me === 'r' ? '红' : '黑',
-        played: moveToText(before, move),
-        problem: risk.detail,
-        punish: risk.punish ? moveToText(applyForText(before, move), risk.punish) : undefined,
-      };
-      elWhy.textContent = await explain(facts);
+      try {
+        // 事实全部由规则和引擎算出来，模型只负责讲成人话
+        const facts = await deepFacts(before, move, me, { ply: opts.ply });
+        elWhy.innerHTML = mdToHtml(await explain(facts));
+      } catch {
+        // 搜索出问题也要有话说：退回静态事实，至少把代价讲清楚
+        const fallback: Facts = {
+          kind: 'risk-why',
+          side: me === 'r' ? '红' : '黑',
+          played: moveToText(before, move),
+          problem: risk.detail,
+        };
+        elWhy.innerHTML = mdToHtml(await explain(fallback));
+      }
+      if (btn) btn.textContent = '已展开';
     }
   });
 
   return close;
 }
 
-/** 惩罚着法的记谱要在"走完我这一手之后"的局面上算，否则记谱会错 */
-function applyForText(b: Board, m: Move): Board {
-  const nb = b.map((row) => row.slice());
-  nb[m.ty][m.tx] = nb[m.fy][m.fx];
-  nb[m.fy][m.fx] = null;
-  return nb;
+/**
+ * 极简 Markdown → HTML。
+ *
+ * 讲解层输出的是带 **粗体** 和换行的纯文本，直接塞进 textContent 会把
+ * 星号原样显示出来，塞进 innerHTML 又有注入风险。所以这里**先转义再只放行
+ * 粗体和换行**——讲解内容里本来就不该出现别的标记。
+ */
+export function mdToHtml(text: string): string {
+  const esc = text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
+  return esc.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
 }
 
 /**

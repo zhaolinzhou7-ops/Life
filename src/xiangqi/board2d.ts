@@ -11,8 +11,21 @@
 import { COLS, ROWS, type Board, type Color, type Move, type PType } from './rules';
 import { pieceName } from './notation';
 
-const RED = '#a51e0c';
-const BLACK = '#141d24';
+/**
+ * 棋子颜色。
+ *
+ * 原来的 #a51e0c / #141d24 偏暗，在木色盘面上"陷"进去，隔一臂远看
+ * 红黑两方要凑近才分得清。现在两边都提亮提纯：红往正红走、黑往蓝黑走，
+ * 色相拉开之后**不用读字也能一眼分出敌我**，这在快速扫盘时最要紧。
+ */
+const RED = '#c8201a';
+const BLACK = '#15283a';
+
+/** 棋子面的底色。红黑用两种极轻微不同的色温，进一步帮助一眼区分 */
+const FACE: Record<Color, [string, string, string]> = {
+  r: ['#fff6e2', '#f6e3bd', '#dcc298'],
+  b: ['#f6f2ea', '#e8e3d6', '#cdc6b4'],
+};
 
 export interface Mark {
   x: number;
@@ -33,6 +46,8 @@ export interface Board2DOpts {
   /** true = 黑方在下（执黑时用） */
   flip?: boolean;
   onTap?: (x: number, y: number) => void;
+  /** 画纵线号。新手照着棋谱学的时候没有这个根本对不上 */
+  coords?: boolean;
 }
 
 export class Board2D {
@@ -42,7 +57,14 @@ export class Board2D {
   private marks: Mark[] = [];
   private arrows: Arrow[] = [];
   private flip: boolean;
+  private coords: boolean;
   private onTap?: (x: number, y: number) => void;
+  /** 上一手棋。不标出来的话，对手走完你根本不知道他动了哪个子 */
+  private last: Move | null = null;
+  /** 正在被将的老将位置，画成跳动的红圈 */
+  private check: { x: number; y: number } | null = null;
+  /** 将军圈的呼吸相位 */
+  private pulse = 0;
 
   /** 静态层缓存：木纹 + 格线 + 河界，只跟尺寸有关 */
   private bgCv: HTMLCanvasElement | null = null;
@@ -59,6 +81,7 @@ export class Board2D {
 
   constructor(parent: HTMLElement, opts: Board2DOpts = {}) {
     this.flip = !!opts.flip;
+    this.coords = opts.coords !== false;
     this.onTap = opts.onTap;
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'xq-b2d';
@@ -78,6 +101,7 @@ export class Board2D {
   setFlip(f: boolean) {
     if (this.flip === f) return;
     this.flip = f;
+    this.bgCv = null; // 纵线号跟着翻面变，静态层要重画
     this.dirty = true;
   }
   setMarks(marks: Mark[]) {
@@ -91,6 +115,18 @@ export class Board2D {
   clearMarks() {
     this.marks = [];
     this.arrows = [];
+    this.dirty = true;
+  }
+
+  /** 标出上一手是从哪走到哪 */
+  setLastMove(m: Move | null) {
+    this.last = m;
+    this.dirty = true;
+  }
+
+  /** 标出被将的老将；传 null 取消 */
+  setCheck(at: { x: number; y: number } | null) {
+    this.check = at;
     this.dirty = true;
   }
 
@@ -149,7 +185,8 @@ export class Board2D {
     this.canvas.height = Math.round(r.height * dpr);
     this.g.setTransform(dpr, 0, 0, dpr, 0, 0);
     // 棋盘 8 格宽 × 9 格高，四周留出半格多的边距
-    this.cell = Math.min(r.width / (COLS + 0.9), r.height / (ROWS + 0.6));
+    // 上下各多留 0.35 格给纵线号，否则号会被裁掉
+    this.cell = Math.min(r.width / (COLS + 0.9), r.height / (ROWS + 1.2));
     this.ox = (r.width - (COLS - 1) * this.cell) / 2;
     this.oy = (r.height - (ROWS - 1) * this.cell) / 2;
     this.bgCv = null;
@@ -286,6 +323,28 @@ export class Board2D {
     for (const gy of [3, 6]) for (const gx of [0, 2, 4, 6, 8]) tick(gx, gy);
     for (const [gx, gy] of [[1, 2], [7, 2], [1, 7], [7, 7]]) tick(gx, gy);
 
+    // 纵线号。
+    //
+    // 中文记谱是"炮二平五"这种，二和五指的是**纵线号**，而且红黑各数各的：
+    // 红方从右往左数一~九，黑方从左往右数 1~9。不把号标在盘边上，
+    // 新手拿着棋谱根本对不上位置——这是学棋软件最不该省的一样东西。
+    if (this.coords) {
+      const CN = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.font = `${Math.round(c * 0.26)}px system-ui, sans-serif`;
+      for (let x = 0; x < COLS; x++) {
+        const gx = this.flip ? COLS - 1 - x : x;
+        const px = x0 + gx * c;
+        // 下方标自己这一方的号，上方标对方的
+        const bottomIsRed = !this.flip;
+        g.fillStyle = 'rgba(122,84,48,0.85)';
+        g.fillText(bottomIsRed ? CN[COLS - 1 - x] : String(x + 1), px, y1 + c * 0.42);
+        g.fillStyle = 'rgba(122,84,48,0.6)';
+        g.fillText(bottomIsRed ? String(x + 1) : CN[COLS - 1 - x], px, y0 - c * 0.42);
+      }
+    }
+
     // 楚河汉界
     g.fillStyle = 'rgba(80,50,22,0.72)';
     g.font = `${Math.round(c * 0.62)}px "STKaiti","KaiTi","Songti SC",serif`;
@@ -327,7 +386,8 @@ export class Board2D {
     g.shadowColor = 'rgba(0,0,0,0.42)';
     g.shadowBlur = 4;
     g.shadowOffsetY = 2;
-    g.fillStyle = '#f0dcb4';
+    const face = FACE[c];
+    g.fillStyle = face[1];
     g.beginPath();
     g.arc(cx, cy, r, 0, Math.PI * 2);
     g.fill();
@@ -335,9 +395,9 @@ export class Board2D {
 
     // 象牙面：斜向渐变做出圆盘的受光
     const grd = g.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
-    grd.addColorStop(0, '#fdf0d6');
-    grd.addColorStop(0.55, '#f0dcb4');
-    grd.addColorStop(1, '#d8bf93');
+    grd.addColorStop(0, face[0]);
+    grd.addColorStop(0.55, face[1]);
+    grd.addColorStop(1, face[2]);
     g.fillStyle = grd;
     g.beginPath();
     g.arc(cx, cy, r, 0, Math.PI * 2);
@@ -351,9 +411,9 @@ export class Board2D {
     g.arc(cx, cy, r * 0.98, 0, Math.PI * 2);
     g.stroke();
     g.strokeStyle = col;
-    g.lineWidth = Math.max(1.2, r * 0.06);
+    g.lineWidth = Math.max(1.5, r * 0.075);
     g.beginPath();
-    g.arc(cx, cy, r * 0.86, 0, Math.PI * 2);
+    g.arc(cx, cy, r * 0.85, 0, Math.PI * 2);
     g.stroke();
 
     /**
@@ -373,7 +433,7 @@ export class Board2D {
     g.font = `700 ${Math.round(r * 1.24)}px "STKaiti","KaiTi","Songti SC",serif`;
     g.lineJoin = 'round';
     g.miterLimit = 2;
-    g.strokeStyle = '#fdf0d6';
+    g.strokeStyle = face[0];
     g.lineWidth = Math.max(2, r * 0.20);
     g.strokeText(label, cx, cy);
     g.strokeStyle = 'rgba(60,38,14,0.45)';
@@ -393,6 +453,11 @@ export class Board2D {
     // 容器一开始可能还没布局（宽高为 0），量到尺寸变化就重新算一次
     const r = this.canvas.getBoundingClientRect();
     if (Math.abs(r.width - this.w) > 1 || Math.abs(r.height - this.h) > 1) this.resize();
+    // 将军圈要呼吸，这段时间必须每帧重画；其余时候保持"脏了才画"
+    if (this.check) {
+      this.pulse += 0.06;
+      this.dirty = true;
+    }
     if (!this.dirty) return;
     this.dirty = false;
     this.draw();
@@ -408,6 +473,28 @@ export class Board2D {
 
     const c = this.cell;
     const spriteR = c * 0.44 + 4;
+
+    // 上一手：起点画空心方框、终点画实心底色。
+    // 这是对局里最容易被忽略却最有用的一条信息——没有它，对手走完之后
+    // 你得把整个棋盘和记忆比对一遍才知道他动了什么。
+    if (this.last) {
+      for (const [lx, ly, solid] of [
+        [this.last.fx, this.last.fy, 0],
+        [this.last.tx, this.last.ty, 1],
+      ] as const) {
+        const [px, py] = this.px(lx, ly);
+        const r = c * 0.44;
+        g.save();
+        g.strokeStyle = 'rgba(64,132,224,0.85)';
+        g.fillStyle = 'rgba(64,132,224,0.20)';
+        g.lineWidth = Math.max(2, c * 0.05);
+        g.beginPath();
+        g.rect(px - r, py - r, r * 2, r * 2);
+        if (solid) g.fill();
+        g.stroke();
+        g.restore();
+      }
+    }
 
     // 标记画在棋子下面，不挡字
     for (const mk of this.marks) {
@@ -434,6 +521,19 @@ export class Board2D {
         const [px, py] = this.px(x, y);
         g.drawImage(this.sprite(p.t, p.c), px - spriteR, py - spriteR, spriteR * 2, spriteR * 2);
       }
+    }
+
+    // 将军：老将脚下一圈跳动的红光
+    if (this.check) {
+      const [px, py] = this.px(this.check.x, this.check.y);
+      const t = (Math.sin(this.pulse) + 1) / 2;
+      g.save();
+      g.strokeStyle = `rgba(226,58,46,${0.55 + t * 0.45})`;
+      g.lineWidth = Math.max(2.5, c * 0.07);
+      g.beginPath();
+      g.arc(px, py, c * (0.5 + t * 0.09), 0, Math.PI * 2);
+      g.stroke();
+      g.restore();
     }
 
     // 教学箭头画在最上层

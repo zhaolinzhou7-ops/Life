@@ -112,16 +112,36 @@ canvas {
   color: var(--accent2);
 }
 
+/*
+ * 选项行。
+ *
+ * 原来是 flex 平分：四个选项在手机上刚好，加到五个（难度补了"入门"档）
+ * 之后每张卡只剩七十来像素，"初级"两个字被挤成上下两行，说明文字更是
+ * 一行一两个字，整片看着像坏了。
+ *
+ * 改成自动换行的网格：每张卡至少 96px，放不下就换行。
+ * 手机上五个难度排成 3+2，字不再竖着掉下来。
+ */
 .diff-row {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
   width: 100%;
   max-width: 460px;
   margin-top: 14px;
 }
 .diff-row .card {
-  flex: 1;
   text-align: center;
+  padding: 10px 6px;
+}
+.diff-row .card .title {
+  font-size: 14px;
+  white-space: nowrap;
+}
+.diff-row .card .desc {
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 3px;
 }
 
 .btn {
@@ -3627,3 +3647,189 @@ canvas {
   .xq-chat { max-height: 78vh; }
   .xq-dimrow .nm { width: 62px; font-size: 11.5px; }
 }
+
+/* ---------- 对局用的正视 2D 棋盘 ---------- */
+/*
+ * 手机屏比 9×10 的棋盘高得多，棋盘无论怎么放大都只能占中间一条，
+ * 上下必然留白。所以不硬撑棋盘，而是把下方那块空地让给吃子托盘和棋谱——
+ * 那两样是下棋的人真的会看的东西。
+ */
+.xq-play {
+  position: absolute;
+  top: 50px;
+  left: 0;
+  right: 0;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 6px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  min-height: 0;
+}
+.xq-boardwrap {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  transition: filter 0.3s ease;
+}
+/* 画布比例要和 board2d 里算格子用的除数一致（宽 COLS+0.9、高 ROWS+1.2），
+   否则画布内部还会再letterbox 一次，白白浪费一圈。 */
+.xq-boardwrap canvas {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 9.9 / 11.2;
+  max-height: 100%;
+}
+.xq-boardwrap canvas {
+  width: 100%;
+  height: 100%;
+}
+/* 对手思考时棋盘稍微压暗一点，让人知道在等什么，又不至于看不清 */
+.xq-boardwrap.thinking {
+  filter: brightness(0.9) saturate(0.95);
+}
+
+/* 复盘面板打开时，棋盘让出下半屏，托盘藏起来 */
+.xq-root:has(.xq-rv) .xq-play { bottom: 48vh; }
+.xq-root:has(.xq-rv.mini) .xq-play { bottom: 28vh; }
+.xq-root:has(.xq-rv) .xq-tray { display: none; }
+
+/* ---------- 吃子托盘 + 棋谱 ---------- */
+.xq-tray {
+  flex: none;
+  padding: 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 12;
+}
+.xq-tray-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+.xq-tray-row .who {
+  flex: none;
+  font-size: 11px;
+  color: rgba(240, 230, 210, 0.42);
+  width: 52px;
+}
+.xq-tray-row .pcs {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-width: 0;
+}
+.xq-tray-row .pcs i {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 18px;
+  width: 18px;
+  height: 18px;
+  text-align: center;
+  border-radius: 50%;
+  background: #f2e3c4;
+  font-family: "STKaiti", "KaiTi", serif;
+  font-weight: 700;
+}
+.xq-tray-row .pcs i.r { color: #c8201a; }
+.xq-tray-row .pcs i.b { color: #15283a; background: #e8e3d6; }
+.xq-tray-row .pcs .none {
+  font-size: 11px;
+  color: rgba(240, 230, 210, 0.22);
+}
+.xq-tray-row .bal {
+  flex: none;
+  font-size: 11.5px;
+  color: rgba(240, 230, 210, 0.5);
+}
+.xq-tray-row .bal.up { color: #6fe09a; }
+.xq-tray-row .bal.down { color: #ef7a72; }
+.xq-log {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 12px;
+  scrollbar-width: none;
+}
+.xq-log::-webkit-scrollbar { display: none; }
+.xq-log b {
+  color: rgba(240, 230, 210, 0.3);
+  font-weight: 400;
+  font-size: 11px;
+}
+.xq-log span.r { color: #ee8a80; }
+.xq-log span.b { color: #9fc4e8; }
+.xq-log .none { color: rgba(240, 230, 210, 0.25); }
+
+@media (max-height: 700px) {
+  /* 矮屏（横屏手机、小平板）先保棋盘，棋谱条收起来 */
+  .xq-log { display: none; }
+  .xq-tray { gap: 2px; }
+}
+
+/* ---------- 深度解读 ---------- */
+.xq-rv-deep {
+  margin-top: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 200, 80, 0.3);
+  background: rgba(255, 200, 80, 0.09);
+  color: #f5d78e;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.xq-rv-deep:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+.xq-rv-deepbox {
+  display: none;
+  margin-top: 8px;
+  padding: 11px 13px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+  line-height: 1.85;
+  color: rgba(240, 230, 210, 0.9);
+}
+.xq-rv-deepbox.on { display: block; }
+.xq-rv-deepbox b { color: #f5d78e; }
+/* 教练提示条里的深度解读同一套排版 */
+/*
+ * 深度解读一展开就是一大段，如果任它长下去会把整个棋盘压到屏幕外——
+ * 而这段话讲的就是盘上的事，看不见盘等于白讲。所以：
+ * 提示条封顶，内容超了自己滚；同时把棋盘顶到上方，保证盘面完整可见。
+ */
+.xq-tip {
+  display: flex;
+  flex-direction: column;
+  max-height: 56vh;
+}
+.xq-tip-why {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.xq-tip-why b { color: #f5d78e; }
+.xq-root:has(.xq-tip-why.on) .xq-play {
+  justify-content: flex-start;
+  bottom: 58vh;
+}
+/* 读解说的时候，头像和吃子托盘都不重要，把空间全让给棋盘 */
+.xq-root:has(.xq-tip-why.on) .xq-tray,
+.xq-root:has(.xq-tip-why.on) .xq-rivalbox,
+.xq-root:has(.xq-tip-why.on) .xq-bubble { display: none; }

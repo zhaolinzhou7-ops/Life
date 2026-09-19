@@ -6,7 +6,7 @@
  * 除了对局求解，复盘也走这里：一盘 60 手要逐手搜索约 5 秒，同样不能占着主线程，
  * 而且复盘是**边算边出结果**的——每judge完一手就回一条，界面可以立刻显示进度。
  */
-import { think, judgeMove, type SearchOpts } from './ai';
+import { analyze, think, judgeMove, type SearchOpts } from './ai';
 import { applyMove, type Board, type Color, type Move } from './rules';
 
 export interface ThinkRequest {
@@ -29,7 +29,19 @@ export interface ReviewRequest {
   opts: SearchOpts;
 }
 
-export type AiRequest = ThinkRequest | ReviewRequest;
+/**
+ * 候选着法请求：教练要回答"还有哪几手更好、各自想干什么"，
+ * 光有一个最佳着法不够，得把前几名连分数带主变一起拿回来。
+ */
+export interface AnalyzeRequest {
+  kind: 'analyze';
+  id: number;
+  board: Board;
+  color: Color;
+  opts: SearchOpts;
+}
+
+export type AiRequest = ThinkRequest | ReviewRequest | AnalyzeRequest;
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 
@@ -48,6 +60,14 @@ self.onmessage = (e: MessageEvent<AiRequest>) => {
       c = other(c);
     }
     post({ id, kind: 'review-done' });
+    return;
+  }
+
+  if (e.data.kind === 'analyze') {
+    const { id, board, color, opts } = e.data;
+    const a = analyze(board, color, opts);
+    // 只回前八名，整张表（四十多手）传过去没人看，还占带宽
+    post({ id, kind: 'analysis', moves: a.moves.slice(0, 8), depth: a.depth });
     return;
   }
 
