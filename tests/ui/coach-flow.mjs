@@ -104,20 +104,40 @@ const clickThrough = async () => {
 /** 等轮回红方。固定 sleep 不靠谱——AI 想多久取决于难度和机器快慢 */
 const waitMyTurn = async (want) => {
   for (let i = 0; i < 60; i++) {
-    const st = await page.evaluate(() => ({ t: window.__xq.turn(), n: window.__xq.moves().length }));
-    if (st.t === 'r' && st.n >= want) return true;
+    // 连 busy 一起等：动画没播完时界面已经说"轮到你走"了，
+    // 这时候点下去会进待处理队列，测试要等真正可以操作再动手
+    const st = await page.evaluate(() => ({
+      t: window.__xq.turn(), n: window.__xq.moves().length, busy: window.__xq.state().busy,
+    }));
+    if (st.t === 'r' && !st.busy && st.n >= want) return true;
     if (await page.locator('.xq-result').count()) return true;
     await page.waitForTimeout(500);
   }
   return false;
 };
-await page.evaluate(() => { window.__xq.tap(0, 6); window.__xq.tap(4, 6); });
-await page.waitForTimeout(700);
-await clickThrough();
+/** 走一手并等它真的落到盘上；教练拦下来就点"就这么走" */
+const playMove = async (fx, fy, tx, ty, label) => {
+  const before = await page.evaluate(() => window.__xq.moves().length);
+  await page.evaluate(([a, b2, c, d]) => { window.__xq.tap(a, b2); window.__xq.tap(c, d); }, [fx, fy, tx, ty]);
+  await page.waitForTimeout(600);
+  await clickThrough();
+  for (let i = 0; i < 40; i++) {
+    if ((await page.evaluate(() => window.__xq.moves().length)) > before) return true;
+    await page.waitForTimeout(400);
+  }
+  const st = await page.evaluate(() => ({
+    ...window.__xq.state(),
+    n: window.__xq.moves().length,
+    fen: window.__xq.fen(),
+    dests: window.__xq.legal().filter((m) => m.fx === 4 && m.fy === 6).map((m) => `${m.tx},${m.ty}`).join(' '),
+    tip: !!document.querySelector('.xq-tip'),
+  }));
+  note(`${label} 没落子：${JSON.stringify(st)}`);
+  return false;
+};
+ok('第一手落盘', await playMove(0, 6, 4, 6, '车平四路'));
 ok('黑方应将后轮回红方', await waitMyTurn(2));
-await page.evaluate(() => { window.__xq.tap(4, 6); window.__xq.tap(4, 3); });
-await page.waitForTimeout(900);
-await clickThrough();
+ok('第二手落盘（吃掉垫子成杀）', await playMove(4, 6, 4, 3, '车吃垫子'));
 await page.waitForTimeout(2500);
 note('走完 ' + await page.evaluate(() => window.__xq.moves().length) + ' 手，轮到 ' + await page.evaluate(() => window.__xq.turn()));
 ok('对局结束出结算页', await page.locator('.xq-result').count() > 0);

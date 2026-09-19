@@ -464,6 +464,8 @@ export interface DeepOpts {
   /** 等级标签，如「失误」 */
   grade?: string;
   loss?: number;
+  /** 这个局面现成的引擎分析。有就直接用，不必再搜一次 */
+  analysis?: { move: Move; score: number; pv: Move[] }[] | null;
 }
 
 /**
@@ -493,6 +495,8 @@ export async function deepFacts(before: Board, m: Move, me: Color, opts: DeepOpt
       opts.judged.best.move.fx === m.fx && opts.judged.best.move.fy === m.fy &&
       opts.judged.best.move.tx === m.tx && opts.judged.best.move.ty === m.ty;
     if (!same) scored.push(opts.judged.played);
+  } else if (opts.analysis?.length) {
+    scored = opts.analysis;
   } else {
     scored = await requestAnalysis(before, me, DEEP);
   }
@@ -520,6 +524,28 @@ export async function deepFacts(before: Board, m: Move, me: Color, opts: DeepOpt
     3,
   );
 
+  /**
+   * 不丢子但位置差的一手，也要说得出"差在哪"。
+   *
+   * 这是用户抱怨"只盯着少子"的正面回答：引擎说这手亏了分，静态兑子却
+   * 找不到任何被吃的子——那说明亏的是**位置**。这时候拿最佳着法的全局收益
+   * 和你这手一比，差别就出来了，而且每一条都是数出来的。
+   */
+  let positional: string | undefined;
+  if (!risk && scored.length) {
+    const bestMv = scored[0].move;
+    const isBest = bestMv.fx === m.fx && bestMv.fy === m.fy && bestMv.tx === m.tx && bestMv.ty === m.ty;
+    const gap = Math.max(0, Math.min(2000, scored[0].score - (played?.score ?? scored[0].score)));
+    if (!isBest && gap >= 120) {
+      const mine = new Set(globalNotes(before, m, me).filter((g) => g.tone === 'good').map((g) => g.label));
+      const theirs = globalNotes(before, bestMv, me).filter((g) => g.tone === 'good' && !mine.has(g.label));
+      const head = `这一手没有直接丢子，问题在位置上：引擎认为它比 ${moveToText(before, bestMv)} 差约${inPieces(gap)}。`;
+      positional = theirs.length
+        ? `${head}差别在于 ${moveToText(before, bestMv)} 能做到而这一手做不到的事——${theirs.map((t) => t.text).join(' ')}`
+        : `${head}它没有创造新的威胁，也没有改善你的子力位置，等于让对方白得一步。`;
+    }
+  }
+
   const why = intents
     .filter((i) => i !== 'quiet')
     .map((i) => `· **${INTENT_INFO[i].name}**：${INTENT_INFO[i].why}`);
@@ -534,7 +560,7 @@ export async function deepFacts(before: Board, m: Move, me: Color, opts: DeepOpt
     intent: intentText(before, m, me, intents),
     intentWhy: why.length ? why : undefined,
     global: globalNotes(before, m, me),
-    problem: risk?.detail,
+    problem: risk?.detail ?? positional,
     punish: risk?.punish ? moveToText(after, risk.punish) : undefined,
     candidates: better.length
       ? better.map((c) => ({ text: c.text, idea: c.idea, behind: c.behind, gap: c.gap, line: c.line }))

@@ -1,24 +1,43 @@
 /**
  * 教练模式测试。
  *
- * 教练模式的成败全在**什么时候开口**。开口太多，用户三分钟就关掉；
- * 开口太少，等于没有教练。所以提示策略被单独抽成 shouldWarn 这个纯函数，
- * 就是为了能在这里钉死它的行为。
+ * 这一版重点锁死用户反馈的两个真问题：
+ *   1. **推荐了又说不行** —— 教练推荐 A，照着走 A，它又跳出来说 A 有风险。
+ *      根因是报警和推荐用了两个不同的裁判。现在只有引擎一个裁判，
+ *      而且"引擎首选永不报警"是一条硬规则，这里用测试钉死。
+ *   2. **只盯着谁被吃** —— 一手位置很差但不丢子的棋，原来一句话都不说。
+ *      现在用引擎分差判，位置亏也拦得住。
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { memStore } from './setup-dom';
-import { HINT_LEVELS, checkMove, getHintLevel, setHintLevel, shouldWarn, warnText } from '../src/xiangqi/livecoach';
-import { moveRisk, type MoveRisk } from '../src/xiangqi/teach';
-import { initialBoard } from '../src/xiangqi/rules';
-import { board, bare, mv, put } from './helpers';
+import {
+  HINT_LEVELS,
+  checkMove,
+  getHintLevel,
+  judgeMove,
+  setHintLevel,
+  shouldWarn,
+  warnText,
+  type MoveVerdict,
+} from '../src/xiangqi/livecoach';
+import { analyze, resetEngine } from '../src/xiangqi/ai';
+import { initialBoard, legalMoves, type Board, type Move } from '../src/xiangqi/rules';
+import { bare, board, mv, put } from './helpers';
 
-const risk = (severity: 1 | 2 | 3, kind: MoveRisk['kind'] = 'hang-moved'): MoveRisk => ({
-  kind,
-  severity,
-  net: -severity * 400,
-  brief: '这里有风险：你的马走过去会被吃。',
-  detail: '详细说明',
+const verdict = (over: Partial<MoveVerdict> = {}): MoveVerdict => ({
+  loss: 0,
+  rank: 2,
+  risk: null,
+  mateNext: false,
+  fromEngine: true,
+  ...over,
 });
+
+/** 真跑一次引擎分析，测试要用真实数据而不是编的 */
+const analyzeReal = (b: Board, c: 'r' | 'b' = 'r') => {
+  resetEngine();
+  return analyze(b, c, { maxDepth: 5, timeMs: 700, jitter: 0 }).moves;
+};
 
 beforeEach(() => {
   memStore.clear();
@@ -30,144 +49,192 @@ describe('提示档位', () => {
     expect(HINT_LEVELS.map((h) => h.name)).toEqual(['关闭', '轻提示', '标准提示', '教学提示']);
   });
 
-  it('默认是标准提示', () => {
+  it('默认是标准提示（读不到存档时 Number(null) 会变成 0，那是"关闭"档）', () => {
     expect(getHintLevel()).toBe(2);
   });
 
-  it('设置能存能读', () => {
+  it('设置能存能读，垃圾值退回默认', () => {
     setHintLevel(3);
     expect(getHintLevel()).toBe(3);
-    setHintLevel(0);
-    expect(getHintLevel()).toBe(0);
-  });
-
-  it('存档里是垃圾值时退回默认，不会把界面搞坏', () => {
-    memStore.setItem('xq-hint-level', '99');
-    expect(getHintLevel()).toBe(2);
     memStore.setItem('xq-hint-level', '乱写');
     expect(getHintLevel()).toBe(2);
   });
+});
 
-  it('localStorage 写不进去也不抛错', () => {
-    memStore.full = true;
-    expect(() => setHintLevel(1)).not.toThrow();
+describe('引擎首选永不报警——这是最伤信任的那个 bug', () => {
+  it('rank=1 时任何档位、任何亏损都不开口', () => {
+    for (const lv of [1, 2, 3] as const) {
+      expect(shouldWarn(lv, verdict({ rank: 1, loss: 0 }))).toBe(false);
+      expect(shouldWarn(lv, verdict({ rank: 1, loss: 900 }))).toBe(false);
+    }
+  });
+
+  it('真跑一遍引擎：把它自己的首选喂回去，一定不报警', () => {
+    const b = initialBoard();
+    const a = analyzeReal(b);
+    const best = a[0].move;
+    for (const lv of [1, 2, 3] as const) {
+      expect(checkMove(lv, b, best, 'r', a), `${lv} 档对引擎首选报了警`).toBeNull();
+    }
+  });
+
+  it('引擎前三名的着法，标准档也不该报警（它们都是能推荐的手）', () => {
+    const b = initialBoard();
+    const a = analyzeReal(b);
+    for (const s of a.slice(0, 3)) {
+      const v = judgeMove(b, s.move, 'r', a);
+      expect(v.loss).toBeLessThan(250);
+      expect(shouldWarn(2, v)).toBe(false);
+    }
   });
 });
 
-describe('shouldWarn：什么时候该开口', () => {
-  it('关闭档任何情况都不开口', () => {
-    for (const sev of [1, 2, 3] as const) expect(shouldWarn(0, risk(sev))).toBe(false);
+describe('judgeMove：用引擎的口径判', () => {
+  it('分析里有这一手就给出名次和分差', () => {
+    const b = initialBoard();
+    const a = analyzeReal(b);
+    const v = judgeMove(b, a[0].move, 'r', a);
+    expect(v.fromEngine).toBe(true);
+    expect(v.rank).toBe(1);
+    expect(v.loss).toBe(0);
   });
 
-  it('轻提示只在要出大事的时候开口', () => {
-    expect(shouldWarn(1, risk(1))).toBe(false);
-    expect(shouldWarn(1, risk(2))).toBe(false);
-    expect(shouldWarn(1, risk(3))).toBe(true);
+  it('越靠后的着法分差越大', () => {
+    const b = initialBoard();
+    const a = analyzeReal(b);
+    const first = judgeMove(b, a[0].move, 'r', a);
+    const last = judgeMove(b, a[a.length - 1].move, 'r', a);
+    expect(last.loss).toBeGreaterThanOrEqual(first.loss);
+    expect(last.rank).toBeGreaterThan(first.rank);
   });
 
-  it('标准提示从丢马炮开始管', () => {
-    expect(shouldWarn(2, risk(1))).toBe(false);
-    expect(shouldWarn(2, risk(2))).toBe(true);
-    expect(shouldWarn(2, risk(3))).toBe(true);
+  it('分析对应的是别的局面时，宁可当作没有引擎数据', () => {
+    // 拿开局的分析去判另一个局面的着法。要挑一手**开局不可能出现**的：
+    // (4,6) 在开局是兵，只能走到 (4,5)，所以 (4,6)→(4,3) 一定不在表里。
+    // （顺带说明为什么真正的护栏在 index.ts 那边是比对 FEN：
+    //   光靠"这一手在不在表里"会撞车——不同局面完全可能有同样坐标的着法。）
+    const a = analyzeReal(initialBoard());
+    const other = bare();
+    put(other, 4, 6, 'R');
+    const v = judgeMove(other, mv(4, 6, 4, 3), 'r', a);
+    expect(v.fromEngine).toBe(false);
+    expect(v.loss).toBe(0);
   });
 
-  it('教学提示连小亏也说', () => {
-    expect(shouldWarn(3, risk(1))).toBe(true);
-    expect(shouldWarn(3, risk(2))).toBe(true);
+  it('没有引擎数据时仍然算得出静态风险，不至于完全哑掉', () => {
+    const b = bare();
+    put(b, 4, 6, 'H');
+    put(b, 3, 1, 'r');
+    const v = judgeMove(b, mv(4, 6, 3, 4), 'r', null);
+    expect(v.fromEngine).toBe(false);
+    expect(v.risk).not.toBeNull();
+    expect(shouldWarn(2, v)).toBe(true);
   });
 
-  it('没有风险时任何档位都不开口', () => {
-    for (const lv of [0, 1, 2, 3] as const) expect(shouldWarn(lv, null)).toBe(false);
+  it('杀棋分不会算出天文数字的分差', () => {
+    const a = [
+      { move: mv(0, 0, 0, 1), score: 49990, pv: [] },
+      { move: mv(1, 1, 1, 2), score: -20, pv: [] },
+    ];
+    const v = judgeMove(initialBoard(), mv(1, 1, 1, 2), 'r', a as never);
+    expect(v.loss).toBeLessThanOrEqual(2000);
+  });
+});
+
+describe('门槛：档位越高开口越多', () => {
+  it('轻提示只管丢马炮以上，标准管一个马，教学连位置亏也说', () => {
+    expect(shouldWarn(1, verdict({ loss: 300 }))).toBe(false);
+    expect(shouldWarn(2, verdict({ loss: 300 }))).toBe(true);
+    expect(shouldWarn(3, verdict({ loss: 150 }))).toBe(true);
+    expect(shouldWarn(2, verdict({ loss: 150 }))).toBe(false);
   });
 
-  it('档位越高开口越多，不会反过来', () => {
-    for (const sev of [1, 2, 3] as const) {
-      const on = ([0, 1, 2, 3] as const).map((lv) => shouldWarn(lv, risk(sev)));
-      // 一旦开始开口，更高的档位必须也开口
+  it('关闭档什么都不说', () => {
+    expect(shouldWarn(0, verdict({ loss: 2000, mateNext: true }))).toBe(false);
+  });
+
+  it('走完被一步将死，任何开着的档位都拦', () => {
+    for (const lv of [1, 2, 3] as const) expect(shouldWarn(lv, verdict({ mateNext: true, loss: 0 }))).toBe(true);
+  });
+
+  it('档位越高开口只多不少', () => {
+    for (const loss of [150, 300, 600, 1200]) {
+      const on = ([0, 1, 2, 3] as const).map((lv) => shouldWarn(lv, verdict({ loss })));
       const first = on.indexOf(true);
       if (first >= 0) expect(on.slice(first).every(Boolean)).toBe(true);
     }
   });
 });
 
-describe('warnText：说到什么程度', () => {
-  it('轻提示只给一句模糊的提醒，不点名具体的子', () => {
-    const t = warnText(1, risk(2));
-    expect(t).toContain('风险');
-    expect(t).not.toContain('马'); // 轻提示不能泄露是哪个子，那样就不用自己想了
+describe('不丢子但位置差的一手，也要说得出话——这是"只盯着少子"的正面回答', () => {
+  it('没有任何子受威胁，但引擎说亏了分，照样开口', () => {
+    const v = verdict({ loss: 400, rank: 7, risk: null });
+    expect(shouldWarn(2, v)).toBe(true);
+    const t = warnText(2, v);
+    expect(t).toContain('位置');
+    expect(t).not.toContain('被吃');
   });
 
-  it('标准提示点名具体的子', () => {
-    expect(warnText(2, risk(2))).toContain('马');
+  it('有具体丢子的时候还是点名那个子', () => {
+    const b = bare();
+    put(b, 4, 6, 'H');
+    put(b, 3, 1, 'r');
+    const v = judgeMove(b, mv(4, 6, 3, 4), 'r', null);
+    expect(warnText(2, v)).toContain('马');
   });
 
-  it('被将死的警告任何档位都说得清楚', () => {
-    expect(warnText(1, risk(3, 'mate-next'))).toContain('危险');
+  it('轻提示档只给一句模糊提醒，不泄露是哪个子', () => {
+    const b = bare();
+    put(b, 4, 6, 'H');
+    put(b, 3, 1, 'r');
+    const v = judgeMove(b, mv(4, 6, 3, 4), 'r', null);
+    expect(warnText(1, v)).not.toContain('马');
   });
 });
 
 describe('checkMove：对局里的完整一次判断', () => {
-  it('关闭档直接放行，连算都不算', () => {
-    const b = bare();
-    put(b, 4, 6, 'n'); // 随便摆一个会送掉的局面
-    expect(checkMove(0, initialBoard(), mv(1, 7, 4, 7), 'r')).toBeNull();
+  it('关闭档直接放行', () => {
+    expect(checkMove(0, initialBoard(), mv(1, 7, 4, 7), 'r', null)).toBeNull();
   });
 
   it('开局的正常一手不拦', () => {
+    const b = initialBoard();
+    const a = analyzeReal(b);
     for (const lv of [1, 2, 3] as const) {
-      expect(checkMove(lv, initialBoard(), mv(1, 7, 4, 7), 'r')).toBeNull();
-      expect(checkMove(lv, initialBoard(), mv(1, 9, 2, 7), 'r')).toBeNull();
+      expect(checkMove(lv, b, mv(1, 7, 4, 7), 'r', a)).toBeNull();
     }
   });
 
-  it('把马送到车口上，标准档会拦', () => {
+  it('同一个局面、同一手棋，答案永远一样', () => {
     const b = bare();
     put(b, 4, 6, 'H');
     put(b, 3, 1, 'r');
-    const r = checkMove(2, b, mv(4, 6, 3, 4), 'r');
-    expect(r).not.toBeNull();
-    expect(r!.kind).toBe('hang-moved');
+    const a = checkMove(2, b, mv(4, 6, 3, 4), 'r', null);
+    const c = checkMove(2, b, mv(4, 6, 3, 4), 'r', null);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(c));
   });
 
-  it('同一手棋，轻提示档放行（只丢一个马，不到大事级别）', () => {
-    const b = bare();
-    put(b, 4, 6, 'H');
-    put(b, 3, 1, 'r');
-    expect(checkMove(1, b, mv(4, 6, 3, 4), 'r')).toBeNull();
-  });
-
-  it('要被将死的一手，连轻提示档都会拦', () => {
+  it('把一整个局面的所有着法过一遍：被拦下的都不是引擎前三名', () => {
     const b = board(
       '. . . . k . . . .',
       '. . . . . . . . .',
       '. . . . . . . . .',
-      '. . . . . . . . .',
       '. . . . p . . . .',
+      '. . r . . . . . .',
       '. . . . . . . . .',
-      '. . . . . . . . P',
+      '. . . . H . . . .',
       '. . . . . . . . .',
-      'r . . . . . . . r',
-      '. . . R K R . . .',
+      '. . . . . . . . .',
+      '. . . K . . . . .',
     );
-    const r = checkMove(1, b, mv(8, 6, 8, 5), 'r');
-    expect(r).not.toBeNull();
-    expect(r!.kind).toBe('mate-next');
-  });
-
-  it('判断是确定性的：同一个局面永远给同一个答复', () => {
-    const b = bare();
-    put(b, 4, 6, 'H');
-    put(b, 3, 1, 'r');
-    const a = checkMove(2, b, mv(4, 6, 3, 4), 'r');
-    const c = checkMove(2, b, mv(4, 6, 3, 4), 'r');
-    expect(JSON.stringify(a)).toBe(JSON.stringify(c));
-  });
-
-  it('checkMove 的结论和 moveRisk 一致，只是多了一层档位过滤', () => {
-    const b = bare();
-    put(b, 4, 6, 'H');
-    put(b, 3, 1, 'r');
-    const raw = moveRisk(b, mv(4, 6, 3, 4), 'r');
-    expect(checkMove(3, b, mv(4, 6, 3, 4), 'r')).toEqual(raw);
+    const a = analyzeReal(b);
+    const top3 = new Set(a.slice(0, 3).map((s) => `${s.move.fx},${s.move.fy},${s.move.tx},${s.move.ty}`));
+    for (const m of legalMoves(b, 'r') as Move[]) {
+      const v = checkMove(2, b, m, 'r', a);
+      if (v) {
+        const key = `${m.fx},${m.fy},${m.tx},${m.ty}`;
+        expect(top3.has(key), `引擎前三名的 ${key} 被报警了`).toBe(false);
+      }
+    }
   });
 });

@@ -39,6 +39,14 @@ export interface PuzzleOpts {
   timeLimit?: number;
   /** 答完之后点"继续"触发 */
   onDone: (r: PuzzleResult) => void;
+  /**
+   * 中途退出。
+   *
+   * 原来没有这个：一旦开始十道题的练习，不答完十道就出不去——
+   * 顶上只有题号，底下只有提示和跳过。用户想走的时候只能刷新页面。
+   * 任何会占满屏幕的流程都必须留一个出口，这是底线。
+   */
+  onExit?: () => void;
 }
 
 export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): () => void {
@@ -67,6 +75,7 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
 
   wrap.innerHTML = `
     <div class="xq-tr-top">
+      ${opts.onExit ? '<button class="xq-tr-quit" title="退出练习">← 退出</button>' : ''}
       <span class="xq-tr-cap">${opts.caption ?? ''}</span>
       <span class="xq-tr-ask">${KIND_PROMPT[puzzle.kind]}${
         puzzle.mateIn ? `（${puzzle.mateIn * 2 - 1} 步杀）` : ''
@@ -78,6 +87,8 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     <div class="xq-tr-fb"></div>
     <div class="xq-tr-bar"></div>`;
 
+  const elQuit = wrap.querySelector('.xq-tr-quit') as HTMLButtonElement | null;
+  if (elQuit) elQuit.onclick = () => opts.onExit!();
   const elBoard = wrap.querySelector('.xq-tr-board') as HTMLElement;
   const elFb = wrap.querySelector('.xq-tr-fb') as HTMLElement;
   const elBar = wrap.querySelector('.xq-tr-bar') as HTMLElement;

@@ -137,6 +137,13 @@ export function runCoach(
       list.appendChild(el);
     }
     scr.appendChild(list);
+    // 这一屏原来没有返回键。它是进学棋看到的第一屏，没有出口就等于
+    // 一进来就被关在里面——用户反馈的"练习模式退不出去"就是从这儿开始的。
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 先不测，返回';
+    back.onclick = onExit;
+    scr.appendChild(back);
     wrap.appendChild(scr);
   }
 
@@ -818,6 +825,8 @@ export function runCoach(
     disposeScreen = runPuzzle(host, p, {
       caption,
       allowHint,
+      // 练习中途随时能走。答不完不让退是最容易把人逼走的设计
+      onExit: () => showHome(),
       onDone: (r) => {
         // 用了提示不算做对：算对了会把评分虚抬，下次出的题就偏难
         const ok = r.correct && !r.usedHint;

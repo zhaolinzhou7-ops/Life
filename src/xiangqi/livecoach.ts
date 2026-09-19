@@ -19,7 +19,9 @@
  * 而且同一个局面永远给同一个答复。
  */
 import type { Board, Color, Move } from './rules';
-import { moveRisk, type MoveRisk } from './teach';
+import { inPieces, mateInOne, moveRisk, other, type MoveRisk } from './teach';
+import { applyMove } from './rules';
+import type { MoveScore } from './ai';
 import { explain, type Facts } from './llm';
 import { deepFacts } from './deepcoach';
 import { moveToText } from './notation';
@@ -63,23 +65,101 @@ export function setHintLevel(v: HintLevel) {
 }
 
 /**
- * 这个级别该不该为这条风险出声。
+ * 一手棋的判读。
  *
- * 门槛按级别抬高：轻提示只管"要出大事"的，教学提示连小亏也讲。
- * 这一条单独抽成函数是为了能测——提示策略是产品的核心体验，
- * 不能藏在一堆 DOM 操作中间。
+ * **这是整个教练最关键的一次重构。**
+ *
+ * 之前有两个互相独立的裁判：报警用静态兑子（teach.moveRisk），
+ * 推荐用搜索引擎（analyze）。两个裁判看的东西不一样，于是出了两个真问题：
+ *
+ *   1. 报警永远只会说"你哪个子会被吃"——因为静态兑子只认这件事。
+ *      一手位置很差但不丢子的棋，它一句话都不说。这就是"只盯着少子、
+ *      没有全局考虑"。
+ *   2. 教练推荐了 A，用户照着走 A，静态兑子又跳出来说 A 有风险。
+ *      因为引擎看得深，知道那个子被吃之后有更好的后续；静态兑子看不到。
+ *      推荐完又打自己脸，这是最伤信任的一种 bug。
+ *
+ * 现在只留一个裁判：**引擎**。报警和推荐来自同一次分析、同一个排序，
+ * 所以"推荐了又说不行"在结构上不可能发生。
+ * 静态兑子降级为**解释工具**——引擎说这手亏了之后，用它说清亏在哪个子上。
  */
-export function shouldWarn(level: HintLevel, risk: MoveRisk | null): boolean {
-  if (!risk || level === 0) return false;
-  if (level === 1) return risk.severity >= 3; // 只在要丢车或被将死的时候开口
-  if (level === 2) return risk.severity >= 2; // 丢马炮以上
-  return risk.severity >= 1; // 教学档：亏一个兵也说
+export interface MoveVerdict {
+  /** 比引擎首选差多少分（兵=100）。引擎没算出来时为 0 */
+  loss: number;
+  /** 在所有合法着法里排第几，1 = 引擎首选。0 = 不知道 */
+  rank: number;
+  /** 引擎首选 */
+  best?: MoveScore;
+  /** 你这一手的引擎读数 */
+  played?: MoveScore;
+  /** 具体亏在哪个子上（静态兑子算的，只作解释用） */
+  risk: MoveRisk | null;
+  /** 走完之后对方一步就能将死 */
+  mateNext: boolean;
+  /** 引擎分析到底有没有拿到。没拿到时只能退回静态判断，准确度低一档 */
+  fromEngine: boolean;
+}
+
+const sameMove = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
+
+export function judgeMove(before: Board, m: Move, me: Color, analysis: MoveScore[] | null): MoveVerdict {
+  const risk = moveRisk(before, m, me);
+  const after = applyMove(before, m);
+  const mateNext = !!mateInOne(after, other(me));
+
+  if (!analysis || !analysis.length) {
+    return { loss: 0, rank: 0, risk, mateNext, fromEngine: false };
+  }
+  const idx = analysis.findIndex((s) => sameMove(s.move, m));
+  const best = analysis[0];
+  const played = idx >= 0 ? analysis[idx] : undefined;
+  // 找不到这一手说明分析对应的是**另一个局面**（用户在分析回来之前又走了一手）。
+  // 这种时候宁可当作没有引擎数据，也不能拿错局面的分数去判——那比不判更糟。
+  //
+  // 注意这只是第二道保险：不同局面完全可能有坐标相同的着法，光靠"在不在表里"
+  // 拦不住。真正的护栏在调用方——落子前比对局面的 FEN，对不上就不用这份分析。
+  if (!played) return { loss: 0, rank: 0, risk, mateNext, fromEngine: false };
+
+  // 杀棋分是四万多，直接相减会得出天文数字，截到一个车的两倍就够表达"输定了"
+  const raw = best.score - played.score;
+  const loss = Math.max(0, Math.min(2000, raw));
+  return { loss, rank: idx + 1, best, played, risk, mateNext, fromEngine: true };
+}
+
+/**
+ * 这个级别该不该开口。
+ *
+ * 门槛用**引擎分差**衡量，不再用"哪个子会被吃"。这样一手位置很差但不丢子的棋
+ * 也会被拦下来——那正是用户说的"要从全局看"。
+ *
+ * 第一条铁律：**引擎自己的首选，永远不报警**。
+ * 这一条单独写在最前面，因为"推荐了又说不行"是最伤信任的 bug，
+ * 它必须在结构上不可能发生，而不是靠调阈值去躲。
+ */
+const LOSS_GATE: Record<HintLevel, number> = { 0: Infinity, 1: 500, 2: 250, 3: 120 };
+
+export function shouldWarn(level: HintLevel, v: MoveVerdict | null): boolean {
+  if (!v || level === 0) return false;
+  if (v.mateNext) return true; // 走完被一步将死，任何档位都要拦
+  if (v.fromEngine) {
+    if (v.rank === 1) return false; // 引擎首选，绝不报警
+    return v.loss >= LOSS_GATE[level];
+  }
+  // 引擎数据没拿到：退回静态判断，门槛按严重程度
+  if (!v.risk) return false;
+  return v.risk.severity >= (level === 1 ? 3 : level === 2 ? 2 : 1);
 }
 
 /** 这个级别该说到什么程度 */
-export function warnText(level: HintLevel, risk: MoveRisk): string {
-  if (level === 1) return risk.kind === 'mate-next' ? '小心，这一步之后有危险。' : '这里似乎有战术风险。';
-  return risk.kind === 'mate-next' ? risk.brief : risk.brief;
+export function warnText(level: HintLevel, v: MoveVerdict): string {
+  if (v.mateNext) return level === 1 ? '小心，这一步之后有危险。' : '小心，走完这一步对方就能把你将死。';
+  if (level === 1) return '这里似乎有更好的选择。';
+  // 有具体丢子就说子，没有就说这是位置上的亏——后者正是原来完全说不出口的那一类
+  if (v.risk) return v.risk.brief;
+  if (v.fromEngine && v.loss >= 120) {
+    return `这一手不算错棋，但比最好的下法差了约${inPieces(v.loss)}——问题不在丢子，在位置。`;
+  }
+  return '这里有风险。';
 }
 
 export interface CoachPromptOpts {
@@ -89,13 +169,15 @@ export interface CoachPromptOpts {
   before: Board;
   move: Move;
   me: Color;
-  risk: MoveRisk;
+  verdict: MoveVerdict;
   /** 用户坚持走这一手 */
   onProceed: () => void;
   /** 用户改主意，收回这一手 */
   onCancel: () => void;
   /** 第几手，用来判开局/中局/残局 */
   ply?: number;
+  /** 这个局面的引擎分析。深度解读直接复用，不必再搜一次 */
+  analysis?: MoveScore[] | null;
   /**
    * 棋盘。有它就能把话**画在盘上**：危险的子圈出来，对方的惩罚着法画成箭头。
    *
@@ -122,13 +204,15 @@ export interface CoachPromptOpts {
  * 两边都毁，而且只有真的打开界面看才发现得了。
  */
 export function showCoachPrompt(opts: CoachPromptOpts): () => void {
-  const { host, level, before, move, me, risk } = opts;
+  const { host, level, before, move, me, verdict } = opts;
   const el = document.createElement('div');
-  el.className = `xq-tip sev${risk.severity}`;
+  // 严重程度：被将死 > 丢车 > 丢马炮 > 其它
+  const sev = verdict.mateNext || verdict.loss >= 900 ? 3 : verdict.loss >= 420 || verdict.risk?.severity === 2 ? 2 : 1;
+  el.className = `xq-tip sev${sev}`;
   el.innerHTML = `
     <div class="xq-tip-body">
-      <span class="xq-tip-icon">${risk.severity >= 3 ? '⚠️' : '💡'}</span>
-      <span class="xq-tip-text">${warnText(level, risk)}</span>
+      <span class="xq-tip-icon">${sev >= 3 ? '⚠️' : '💡'}</span>
+      <span class="xq-tip-text">${warnText(level, verdict)}</span>
     </div>
     <div class="xq-tip-why"></div>
     <div class="xq-tip-bar">
@@ -139,9 +223,9 @@ export function showCoachPrompt(opts: CoachPromptOpts): () => void {
   host.appendChild(el);
   const elWhy = el.querySelector('.xq-tip-why') as HTMLElement;
   // 把危险画到盘上：受威胁的子圈红，对方吃它的那一手画成红箭头
-  if (opts.board && risk.punish) {
-    opts.board.setArrows([{ ...risk.punish, color: 'rgba(224,67,58,0.92)' }]);
-    if (risk.spot) opts.board.select(null);
+  if (opts.board && verdict.risk?.punish) {
+    opts.board.setArrows([{ ...verdict.risk.punish, color: 'rgba(224,67,58,0.92)' }]);
+    opts.board.select(null);
   }
 
   let closed = false;
@@ -178,7 +262,7 @@ export function showCoachPrompt(opts: CoachPromptOpts): () => void {
       elWhy.classList.add('on');
       try {
         // 事实全部由规则和引擎算出来，模型只负责讲成人话
-        const facts = await deepFacts(before, move, me, { ply: opts.ply });
+        const facts = await deepFacts(before, move, me, { ply: opts.ply, analysis: opts.analysis });
         elWhy.innerHTML = mdToHtml(await explain(facts));
       } catch {
         // 搜索出问题也要有话说：退回静态事实，至少把代价讲清楚
@@ -186,7 +270,7 @@ export function showCoachPrompt(opts: CoachPromptOpts): () => void {
           kind: 'risk-why',
           side: me === 'r' ? '红' : '黑',
           played: moveToText(before, move),
-          problem: risk.detail,
+          problem: verdict.risk?.detail,
         };
         elWhy.innerHTML = mdToHtml(await explain(fallback));
       }
@@ -215,8 +299,14 @@ export function mdToHtml(text: string): string {
  * 对局代码只要调这一个函数：给它一手棋，它决定要不要拦、怎么说。
  * 返回 null = 放行，直接走。
  */
-export function checkMove(level: HintLevel, before: Board, move: Move, me: Color): MoveRisk | null {
+export function checkMove(
+  level: HintLevel,
+  before: Board,
+  move: Move,
+  me: Color,
+  analysis: MoveScore[] | null,
+): MoveVerdict | null {
   if (level === 0) return null;
-  const risk = moveRisk(before, move, me);
-  return shouldWarn(level, risk) ? risk : null;
+  const v = judgeMove(before, move, me, analysis);
+  return shouldWarn(level, v) ? v : null;
 }

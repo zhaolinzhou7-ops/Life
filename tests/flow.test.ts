@@ -19,7 +19,7 @@ import { bestMove, judgeMove, resetEngine } from '../src/xiangqi/ai';
 import { headlineOf, reviewMove, summarize, tagCounts } from '../src/xiangqi/analysis';
 import { archiveFromBoard, clearArchive, getGame, listGames, openGame, setGameReview } from '../src/xiangqi/archive';
 import { buildProfile, trainingFocus } from '../src/xiangqi/insight';
-import { checkMove, getHintLevel } from '../src/xiangqi/livecoach';
+import { checkMove, getHintLevel, warnText } from '../src/xiangqi/livecoach';
 import { factsFor } from '../src/xiangqi/chat';
 import { offlineText, verifyExplanation } from '../src/xiangqi/llm';
 import { DIM_INFO } from '../src/xiangqi/save';
@@ -97,17 +97,18 @@ describe('用户A：完全新手，很多棋规都不知道', () => {
       '. . . . . . . . .',
       '. . . . K . . . .',
     );
-    const risk = checkMove(2, b, mv(4, 6, 3, 4), 'r');
-    expect(risk).not.toBeNull();
-    // 新手读得懂：不出现"牵制""兑子""先手"这类他还不认识的词
+    // 传 null 表示引擎分析还没回来——这种时候教练也必须拦得住，
+    // 不能因为后台还在算就放人掉坑
+    const v = checkMove(2, b, mv(4, 6, 3, 4), 'r', null);
+    expect(v).not.toBeNull();
+    const words = `${warnText(2, v!)} ${v!.risk?.detail ?? ''}`;
     for (const jargon of ['牵制', '兑子', '先手', '闪击', '子力价值', '局面评估']) {
-      expect(risk!.brief).not.toContain(jargon);
-      expect(risk!.detail).not.toContain(jargon);
+      expect(words).not.toContain(jargon);
     }
-    // 而且必须说清楚"谁吃你什么"
-    expect(risk!.detail).toContain('马');
-    expect(risk!.detail).toContain('吃');
+    expect(words).toContain('马');
+    expect(words).toContain('吃');
   });
+
 
   it('教练只提醒，不替他走——被拦下的那一手仍然是合法的，走不走由他定', () => {
     const b = board(
@@ -123,7 +124,7 @@ describe('用户A：完全新手，很多棋规都不知道', () => {
       '. . . . K . . . .',
     );
     const m = mv(4, 6, 3, 4);
-    expect(checkMove(2, b, m, 'r')).not.toBeNull();
+    expect(checkMove(2, b, m, 'r', null)).not.toBeNull();
     // 规则层面这一手完全合法，教练无权禁止
     expect(legalMoves(b, 'r').some((x) => x.fx === m.fx && x.fy === m.fy && x.tx === m.tx && x.ty === m.ty)).toBe(true);
   });

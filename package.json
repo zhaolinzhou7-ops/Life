@@ -14,9 +14,11 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "test:ui": "node tests/ui/screens.mjs",
-    "test:ui:coach": "node tests/ui/coach-flow.mjs",
+    "test:ui:coach": "node tests/ui/deep-coach.mjs",
     "test:ui:entries": "node tests/ui/entries.mjs",
-    "test:ui:naming": "node tests/ui/naming.mjs"
+    "test:ui:naming": "node tests/ui/naming.mjs",
+    "test:ui:reach": "node tests/ui/reach.mjs",
+    "test:ui:consistency": "node tests/ui/coach-consistency.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

@@ -47,11 +47,29 @@ canvas {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: env(safe-area-inset-top) 20px env(safe-area-inset-bottom);
+  /*
+   * safe center：内容放得下就居中，放不下就退回从顶部排。
+   *
+   * 原来是 center。纵向 flex 容器一旦内容超高，居中会让内容**从上方也溢出**，
+   * 而滚动条到顶了仍然够不着——上半截（标题、前几张卡）永远点不到。
+   * 这正是"按钮跑到屏幕外面点不到"的第一个根因。
+   */
+  justify-content: safe center;
+  padding: calc(env(safe-area-inset-top) + 12px) 20px calc(env(safe-area-inset-bottom) + 16px);
   background: radial-gradient(circle at 50% 20%, #1b3a52 0%, #0c141d 70%);
   z-index: 30;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+/*
+ * 第二个根因：flex 子元素默认 flex-shrink:1。内容一超高，每一块都被压扁，
+ * 里面的文字撑出自己的盒子，卡片和按钮在视觉上叠在一起——
+ * 体检里那一堆"被 desc 盖住""被 btn 盖住"全是这么来的。
+ * 一律不许压缩，超了就老老实实滚。
+ */
+.screen > * {
+  flex-shrink: 0;
+  max-width: 100%;
 }
 
 .screen h1 {
@@ -3833,3 +3851,17 @@ canvas {
 .xq-root:has(.xq-tip-why.on) .xq-tray,
 .xq-root:has(.xq-tip-why.on) .xq-rivalbox,
 .xq-root:has(.xq-tip-why.on) .xq-bubble { display: none; }
+
+/* 做题界面的退出键：任何占满屏幕的流程都必须留一个出口 */
+.xq-tr-quit {
+  flex: none;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  color: rgba(240, 230, 210, 0.85);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.xq-tr-quit:active { background: rgba(255, 255, 255, 0.14); }

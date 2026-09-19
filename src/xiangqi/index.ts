@@ -10,7 +10,8 @@ import {
   type Board,
   type Move,
 } from './rules';
-import { disposeAi, requestMove, warmupAi } from './aiclient';
+import { disposeAi, requestAnalysis, requestMove, warmupAi } from './aiclient';
+import type { MoveScore } from './ai';
 import { runReview } from './review';
 import { runCoach, type CoachEntry } from './coach';
 import { renderGameList, renderHome, renderLevel } from './home';
@@ -27,7 +28,7 @@ import {
 import { initCoachProvider } from './llm';
 import { BoardView } from './boardview';
 import { PIECE_VALUE, inPieces } from './teach';
-import { moveToText, pieceName } from './notation';
+import { moveToText, pieceName, toFen } from './notation';
 import {
   isMuted,
   setMuted,
@@ -44,8 +45,22 @@ import {
 } from '../gamesfx';
 import { CHARACTERS, avatarCanvas, pickLine, type Character } from '../characters';
 
-// 深度是实测能跑到的层数（引擎约 140 万节点/秒），不是名义上限。
-// jitter 是评估扰动，只给低难度用来模拟"看走眼"，高难度必须为 0。
+/**
+ * 难度档。
+ *
+ * **说明里写的层数是实测值，不是 depth 这个字段。**
+ * 这两个数原来对不上：表里写 depth 14、说明写"算 14 层"，
+ * 实测在 3.5 秒预算里只跑到 9 层——真正卡住搜索的是时间不是深度上限。
+ * 对着用户吹一个做不到的数字，比档位少两档更糟。
+ *
+ * 实测（中局局面，本机约 55 万节点/秒）：
+ *     200ms → 3 层    400ms → 4 层    900ms → 7 层   1800ms → 8 层
+ *    3500ms → 9 层   7000ms → 10 层  14000ms → 11 层
+ * 每多一层大约要两倍时间，所以顶上两档必须老实告诉用户"它会想很久"。
+ *
+ * jitter 是评估扰动，只给低难度用来模拟"看走眼"；中级以上必须为 0，
+ * 否则它会走出人类不会走的怪棋，陪练价值反而下降。
+ */
 
 /**
  * 对局节奏。
@@ -76,11 +91,13 @@ const TEMPOS = [
  * 「专家」档留给以后接更强的引擎，现在不放空壳子占位。
  */
 const LEVELS = [
-  { id: 0, name: '入门', desc: '刚学会走子，常看走眼', depth: 2, jitter: 200, timeMs: 200 },
+  { id: 0, name: '入门', desc: '刚学会走子，常看走眼', depth: 3, jitter: 200, timeMs: 200 },
   { id: 1, name: '初级', desc: '会吃子，不太会算', depth: 4, jitter: 90, timeMs: 400 },
-  { id: 2, name: '中级', desc: '有基本战术，抓得住漏着', depth: 7, jitter: 20, timeMs: 900 },
-  { id: 3, name: '高级', desc: '算 10 层，抓子抓杀', depth: 10, jitter: 0, timeMs: 1800 },
-  { id: 4, name: '大师', desc: '算 14 层，不留情面', depth: 14, jitter: 0, timeMs: 3500 },
+  { id: 2, name: '中级', desc: '有基本战术，抓得住漏着', depth: 8, jitter: 20, timeMs: 900 },
+  { id: 3, name: '高级', desc: '算 8 层，抓子抓杀', depth: 12, jitter: 0, timeMs: 1800 },
+  { id: 4, name: '大师', desc: '算 9 层，不留情面', depth: 16, jitter: 0, timeMs: 3500 },
+  { id: 5, name: '特级大师', desc: '算 10 层，每步想 7 秒', depth: 20, jitter: 0, timeMs: 7000 },
+  { id: 6, name: '棋王', desc: '算 11 层以上，每步想 14 秒，有耐心再选', depth: 24, jitter: 0, timeMs: 14000 },
 ];
 
 export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void): () => void {
@@ -212,7 +229,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   function showSetup() {
     clearAll();
 
-    let level = Number(localStorage.getItem('xq-level') ?? 1);
+    let level = Math.max(0, Math.min(LEVELS.length - 1, Number(localStorage.getItem('xq-level') ?? 1) || 0));
     let rival = Number(localStorage.getItem('xq-rival') ?? 2);
     let tempo = Math.max(0, Math.min(TEMPOS.length - 1, Number(localStorage.getItem('xq-tempo') ?? 1)));
     let hint: HintLevel = getHintLevel();
@@ -348,7 +365,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     handicap?: { strip: number; depth: number; onFinish: (won: boolean) => void },
   ) {
     const TEMPO = TEMPOS[Math.max(0, Math.min(TEMPOS.length - 1, tempoIdx))];
-    const L = LEVELS[level];
+    // 夹一下：存档里可能留着旧版本的档位号。越界会让 L 变成 undefined，
+    // 然后在读 L.depth 的时候整局白屏——为了省一行防御而白屏不值得。
+    const L = LEVELS[Math.max(0, Math.min(LEVELS.length - 1, level))];
     let board: Board = initialBoard();
     // 让子：把黑方的马拿掉。让子是教练给学生定级最老实的办法——
     // 让你两个马能赢、让一个马赢不了，水平就卡在这两档之间。
@@ -387,6 +406,38 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let closeCoachPrompt: (() => void) | null = null;
     /** 这一局存进存档之后的 id，复盘算完要把结论回填到它身上 */
     let archivedId: string | null = null;
+    /**
+     * 当前局面的引擎分析，以及它对应的是哪个局面。
+     *
+     * 轮到你走的时候就在后台把这个局面算好——**你想棋的那几秒是白送的算力**。
+     * 等你落子时结果早就在手里，教练能立刻用引擎的口径判这一手好不好，
+     * 而不是只能拿静态兑子看看有没有子被吃。
+     */
+    let analysis: MoveScore[] | null = null;
+    let analysisFor = '';
+    let analysisSeq = 0;
+
+    /** 轮到玩家时启动分析。教练档关着就不算，省电 */
+    function prefetchAnalysis() {
+      if (hintLevel === 0 || over) {
+        analysis = null;
+        return;
+      }
+      const key = toFen(board, 'r');
+      if (analysisFor === key && analysis) return;
+      analysis = null;
+      analysisFor = key;
+      const seq = ++analysisSeq;
+      // 预算压得比较短是有原因的：Worker 是单线程的，这份分析没算完之前
+      // 对手的搜索排在它后面。多数人想一手棋不止一秒，900ms 基本算得完，
+      // 又不会在你秒落子的时候把对手的回手也拖慢。
+      requestAnalysis(board, 'r', { maxDepth: 8, timeMs: 900, jitter: 0 }).then((r) => {
+        // 期间悔棋/重开/又走了一手，这份结果就作废了。
+        // 拿错局面的分数去判一手棋，比不判更糟。
+        if (seq !== analysisSeq) return;
+        analysis = r;
+      });
+    }
 
     /**
      * 棋盘和托盘装在同一个纵向容器里，整组垂直居中。
@@ -429,6 +480,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       setHintLevel(hintLevel);
       hintBtn.textContent = `🧑‍🏫${HINT_LEVELS[hintLevel].short}`;
       showToast(`教练：${HINT_LEVELS[hintLevel].name} —— ${HINT_LEVELS[hintLevel].desc}`);
+      if (turn === 'r') prefetchAnalysis(); // 刚开教练，立刻把当前局面算上
     };
     const muteBtn = hud.querySelector('#xq-mute') as HTMLButtonElement;
     muteBtn.onclick = () => {
@@ -539,25 +591,57 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       toastTimer = window.setTimeout(() => toast.classList.remove('show'), 1500);
     };
 
+    /**
+     * 思考读秒。
+     *
+     * 顶上两档每步要想七秒到十四秒。没有任何变化的"思考中…"挂十几秒，
+     * 用户会以为软件卡死了——高难度档最容易因此被误判成 bug。
+     */
+    let thinkTimer = 0;
+    let thinkStart = 0;
     const setTurnUI = (thinking = false) => {
       const dot = hud.querySelector('#xq-turn-dot') as HTMLElement;
       const txt = hud.querySelector('#xq-turn-text') as HTMLElement;
       if (!dot || !txt) return;
       dot.className = turn === 'r' ? 'red' : 'black';
-      txt.textContent = over
-        ? '对局结束'
-        : thinking
-          ? `${rival.name}思考中…`
-          : turn === 'r'
-            ? '轮到你走棋'
-            : `${rival.name}走棋`;
+      clearInterval(thinkTimer);
+      if (over) {
+        txt.textContent = '对局结束';
+        return;
+      }
+      if (!thinking) {
+        txt.textContent = turn === 'r' ? '轮到你走棋' : `${rival.name}走棋`;
+        return;
+      }
+      thinkStart = Date.now();
+      const tick = () => {
+        const sec = Math.floor((Date.now() - thinkStart) / 1000);
+        // 两秒以内不显示数字，免得快档一闪一闪的
+        txt.textContent = sec >= 2 ? `${rival.name}思考中… ${sec}s` : `${rival.name}思考中…`;
+      };
+      tick();
+      thinkTimer = window.setInterval(tick, 500);
     };
 
     setTimeout(() => say(pickLine(rival.lines.greet)), 700);
 
     // ---- 流程 ----
+    /**
+     * 落子动画还没播完时收到的点击，先存起来，播完再补上。
+     *
+     * 对手走完之后有一小段落子动画，这期间 busy 还是 true，但 HUD 已经
+     * 显示"轮到你走棋"了。手快的人这一下点击会被**悄无声息地吃掉**——
+     * 界面说该你走，你点了却没反应，只能再点一次。
+     * 这种吃输入的毛病最招人烦，而且完全看不出是 bug，只会觉得"这软件不跟手"。
+     */
+    let pendingTap: { x: number; y: number } | null = null;
+
     function onTap(x: number, y: number) {
-      if (busy || over || turn !== 'r') return;
+      if (over || turn !== 'r') return;
+      if (busy) {
+        pendingTap = { x, y };
+        return;
+      }
       const p = board[y][x];
       if (selected) {
         const moves = legalMoves(board, 'r').filter((m) => m.fx === selected!.x && m.fy === selected!.y);
@@ -589,8 +673,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
      * 坚持走错也照走，那一手会被复盘抓下来单独讲，印象比当场拦住深。
      */
     function tryMove(m: Move) {
-      const risk = checkMove(hintLevel, board, m, 'r');
-      if (!risk) {
+      const verdict = checkMove(hintLevel, board, m, 'r', analysisFor === toFen(board, 'r') ? analysis : null);
+      if (!verdict) {
         doMove(m);
         return;
       }
@@ -603,9 +687,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         before: board,
         move: m,
         me: 'r',
-        risk,
+        verdict,
         ply: moveLog.length,
         board: scene,
+        analysis: analysisFor === toFen(board, 'r') ? analysis : null,
         onProceed: () => {
           closeCoachPrompt = null;
           busy = false;
@@ -637,6 +722,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         } else sfxKnock();
         busy = false;
         afterMove();
+        // 动画期间攒下的那一下点击，现在补上
+        const p = pendingTap;
+        pendingTap = null;
+        if (p && !busy && !over && turn === 'r') onTap(p.x, p.y);
       });
       refreshTray();
       refreshLog();
@@ -682,6 +771,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         });
       } else {
         setTurnUI();
+        prefetchAnalysis(); // 轮到你了，趁你想棋先把这个局面算好
         if (Math.random() < 0.14) say(pickLine(rival.lines.taunt));
       }
     }
@@ -689,6 +779,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     function undo() {
       closeCoachPrompt?.();
       closeCoachPrompt = null;
+      pendingTap = null;
       if (busy || history.length === 0) return;
       clearTimeout(aiTimer);
       aiSeq++; // 作废正在跑的搜索
@@ -705,6 +796,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       resultEl = null;
       refreshTray();
       refreshLog();
+      analysisSeq++; // 作废在跑的分析：它算的是悔棋之前那个局面
+      prefetchAnalysis();
       scene.setLastMove(moveLog.length ? moveLog[moveLog.length - 1] : null);
       scene.setSlideSec(TEMPO.slide);
     scene.syncBoard(board);
@@ -716,6 +809,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     function restart() {
       closeCoachPrompt?.();
       closeCoachPrompt = null;
+      pendingTap = null;
       archivedId = null;
       clearTimeout(aiTimer);
       aiSeq++;
@@ -737,6 +831,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       scene.setLastMove(null);
       refreshTray();
       refreshLog();
+      analysisSeq++;
+      prefetchAnalysis();
       setTurnUI();
       setTimeout(() => say(pickLine(rival.lines.greet)), 500);
     }
@@ -825,6 +921,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     refreshTray();
     refreshLog();
     setTurnUI();
+    prefetchAnalysis();
 
     // 开发期测试钩子：3D 棋盘靠射线拾取，自动化测试没法算出格子的屏幕坐标，
     // 这里把内部动作直接暴露出来。生产构建里 import.meta.env.DEV 为 false，整块会被摇掉。
@@ -838,6 +935,13 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         turn: () => turn,
         /** 我方现在能走的所有着法，自动化测试拿它来随便走一手 */
         legal: () => legalMoves(board, turn),
+        /** 把一手棋转成中文记谱，测试拿它和教练的推荐对字符串 */
+        textOf: (m: Move) => moveToText(board, m),
+        /** 当前的引擎分析有没有就绪，测试用它避免抢跑 */
+        analysisReady: () => analysisFor === toFen(board, 'r') && !!analysis,
+        /** 内部状态，排查"点了没反应"用 */
+        state: () => ({ busy, over, turn, selected, tip: !!closeCoachPrompt }),
+        fen: () => toFen(board, turn),
         /**
          * 直接摆一个局面。
          *
@@ -880,6 +984,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       closeCoachPrompt?.();
       closeCoachPrompt = null;
       clearTimeout(aiTimer);
+      clearInterval(thinkTimer);
       clearTimeout(toastTimer);
       clearTimeout(bubbleTimer);
       stopBgm();
