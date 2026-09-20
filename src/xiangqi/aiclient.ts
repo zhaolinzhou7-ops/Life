@@ -179,7 +179,7 @@ export function requestReview(
  */
 export function requestAnalysis(board: Board, color: Color, opts: SearchOpts): Promise<MoveScore[]> {
   const w = ensureWorker();
-  if (!w) return Promise.resolve(analyze(board, color, opts).moves.slice(0, 8));
+  if (!w) return Promise.resolve(analyze(board, color, opts).moves);
   const id = ++seq;
   return new Promise((resolve) => {
     let done = false;

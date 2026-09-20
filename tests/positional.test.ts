@@ -33,9 +33,12 @@ describe('不丢子但位置差的一手，教练也要说得出话', () => {
 
     // 深度解读要给出"差在哪"，而不是一句"这手不好"
     const facts = await deepFacts(b, target!.move, 'r', { ply: 4, analysis: a });
-    expect(facts.problem, '位置亏必须有说法').toBeTruthy();
-    expect(facts.problem).toContain('位置');
-    expect(facts.candidates?.length).toBeGreaterThan(0);
+    // 不丢子的一手没有"具体会发生什么"可讲，但**梯次和名次必须有**——
+    // 那正是"从全局看"该给的东西：这个局面有哪些选择、你排第几
+    expect(facts.tiers!.length).toBeGreaterThan(3);
+    expect(facts.place, '必须查得到自己这一手排第几').toBeTruthy();
+    expect(facts.place!.rank).toBeGreaterThan(1);
+    expect(facts.reason, '要说清首选好在哪').toBeTruthy();
     const text = offlineText(facts);
     expect(verifyExplanation(text, facts).ok).toBe(true);
   }, 60000);

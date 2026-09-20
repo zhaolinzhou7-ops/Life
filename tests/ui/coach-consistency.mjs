@@ -37,11 +37,12 @@ ok('送车会被拦下', await page.locator('.xq-tip').count() > 0);
 await page.locator('[data-act="why"]').click();
 for (let i = 0; i < 40; i++) {
   const t = await page.locator('.xq-tip-why').textContent();
-  if (t && t.includes('引擎首选')) break;
+  if (t && t.includes('走法梯次')) break;
   await page.waitForTimeout(500);
 }
 const why = (await page.locator('.xq-tip-why').textContent()) ?? '';
-const m = why.match(/更好的选择\s*1\.\s*([^\s—]+)/);
+// 梯次表第一行就是最优：「最优　车五进五　　将军、吃子…」
+const m = why.match(/最优[\s　]*([前后中]?[车車马馬炮砲兵卒相象士仕帅將将帥][一二三四五六七八九1-9]?[进進退平][一二三四五六七八九1-9])/);
 const best = m ? m[1] : null;
 note('教练推荐的首选：' + (best ?? '（没读到）'));
 ok('给出了首选着法', !!best);

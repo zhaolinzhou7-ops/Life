@@ -29,6 +29,7 @@ import {
 import { PIECE_VALUE, hangingPieces, inPieces, mateInOne, moveRisk, other, seeAt, type Hanging } from './teach';
 import { moveToText, pieceName } from './notation';
 import { requestAnalysis } from './aiclient';
+import { TIER_INFO, intentNames, placeInTiers, rankMoves, tierTable } from './tiers';
 import type { Facts } from './llm';
 
 // ───────────────────────── 一手棋的意图 ─────────────────────────
@@ -453,8 +454,14 @@ export const PHASE_PRINCIPLE: Record<Phase, string[]> = {
 
 // ───────────────────────── 组装成讲解层要的事实清单 ─────────────────────────
 
-/** 深度解读用多深的搜索。用户是主动点了"为什么"才触发的，等一两秒换一个讲得清的答案，值 */
-const DEEP = { maxDepth: 7, timeMs: 1600, jitter: 0 };
+/**
+ * 深度解读用多深的搜索。
+ *
+ * 用户是主动点了"为什么"才触发的，等三四秒换一份**靠谱的**梯次表和主变，
+ * 这笔买卖是划算的。之前给 1.6 秒，排出来的名次和主变都不够稳——
+ * "对手的预测全是错的"有一半原因在这里。
+ */
+const DEEP = { maxDepth: 64, timeMs: 4000, jitter: 0 };
 
 export interface DeepOpts {
   /** 第几手（从 0 开始），用来判开局/中局/残局 */
@@ -483,7 +490,6 @@ export interface DeepOpts {
 export async function deepFacts(before: Board, m: Move, me: Color, opts: DeepOpts = {}): Promise<Facts> {
   const ply = opts.ply ?? 0;
   const stage = phaseOf(before, ply);
-  const intents = intentsOf(before, m, me);
   const risk = moveRisk(before, m, me);
   const after = applyMove(before, m);
 
@@ -516,57 +522,38 @@ export async function deepFacts(before: Board, m: Move, me: Color, opts: DeepOpt
     });
   }
 
-  // 候选里把用户实走的这一手剔掉——"更好的选择"里列着他刚走的那手很奇怪
-  const better = describeCandidates(
-    before,
-    me,
-    scored.filter((s) => !(s.move.fx === m.fx && s.move.fy === m.fy && s.move.tx === m.tx && s.move.ty === m.ty)),
-    3,
-  );
-
-  /**
-   * 不丢子但位置差的一手，也要说得出"差在哪"。
-   *
-   * 这是用户抱怨"只盯着少子"的正面回答：引擎说这手亏了分，静态兑子却
-   * 找不到任何被吃的子——那说明亏的是**位置**。这时候拿最佳着法的全局收益
-   * 和你这手一比，差别就出来了，而且每一条都是数出来的。
-   */
-  let positional: string | undefined;
-  if (!risk && scored.length) {
-    const bestMv = scored[0].move;
-    const isBest = bestMv.fx === m.fx && bestMv.fy === m.fy && bestMv.tx === m.tx && bestMv.ty === m.ty;
-    const gap = Math.max(0, Math.min(2000, scored[0].score - (played?.score ?? scored[0].score)));
-    if (!isBest && gap >= 120) {
-      const mine = new Set(globalNotes(before, m, me).filter((g) => g.tone === 'good').map((g) => g.label));
-      const theirs = globalNotes(before, bestMv, me).filter((g) => g.tone === 'good' && !mine.has(g.label));
-      const head = `这一手没有直接丢子，问题在位置上：引擎认为它比 ${moveToText(before, bestMv)} 差约${inPieces(gap)}。`;
-      positional = theirs.length
-        ? `${head}差别在于 ${moveToText(before, bestMv)} 能做到而这一手做不到的事——${theirs.map((t) => t.text).join(' ')}`
-        : `${head}它没有创造新的威胁，也没有改善你的子力位置，等于让对方白得一步。`;
-    }
-  }
-
-  const why = intents
-    .filter((i) => i !== 'quiet')
-    .map((i) => `· **${INTENT_INFO[i].name}**：${INTENT_INFO[i].why}`);
+  // 走法梯次：这个局面一共有哪些选择、各自什么档次。
+  // 这是"从全局看"的正面回答——下棋是在一堆候选里挑，不是在对错之间挑。
+  const ranked = rankMoves(before, me, scored);
+  const place = placeInTiers(ranked, m);
+  const bestMv = scored[0]?.move;
+  const bestIsPlayed =
+    bestMv && bestMv.fx === m.fx && bestMv.fy === m.fy && bestMv.tx === m.tx && bestMv.ty === m.ty;
 
   return {
     kind: 'move-deep',
     side: me === 'r' ? '红' : '黑',
     round: Math.floor(ply / 2) + 1,
     played: moveToText(before, m),
+    best: bestMv && !bestIsPlayed ? moveToText(before, bestMv) : undefined,
     grade: opts.grade,
     loss: opts.loss,
-    intent: intentText(before, m, me, intents),
-    intentWhy: why.length ? why : undefined,
-    global: globalNotes(before, m, me),
-    problem: risk?.detail ?? positional,
+    tiers: ranked.length ? tierTable(ranked, m) : undefined,
+    place: place ? { rank: place.rank, tier: TIER_INFO[place.tier].name, gap: place.gap } : undefined,
+    /*
+     * 和首选的差别，用**意图**讲，不用分项差。
+     *
+     * 试过拿两手的分项相减，两版都不成立：和"走之前"比，会把一手
+     * 吃了兵要赔炮的坏棋夸成"净赚子力"；和"首选的主变末端"比，
+     * 两条变化长度不同、轮到谁走也不同，减出来的数没有可比性，
+     * 于是又把引擎首选描述成"净亏子力"。
+     * 意图是纯规则算的，不依赖比较基准，说出来永远成立。
+     */
+    reason: bestMv && !bestIsPlayed ? intentNames(before, bestMv, me) || undefined : undefined,
+    bestReason: undefined,
+    problem: risk?.detail,
     punish: risk?.punish ? moveToText(after, risk.punish) : undefined,
-    candidates: better.length
-      ? better.map((c) => ({ text: c.text, idea: c.idea, behind: c.behind, gap: c.gap, line: c.line }))
-      : undefined,
     oppPlan: oppPlan.length ? oppPlan : undefined,
     stage: stage === 'opening' ? '开局' : stage === 'middle' ? '中局' : '残局',
-    principles: PHASE_PRINCIPLE[stage],
   };
 }

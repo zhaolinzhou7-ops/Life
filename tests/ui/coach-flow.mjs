@@ -80,10 +80,18 @@ const hasWhy = await page.locator('[data-act="why"]').count() > 0;
 ok('教学提示档有「为什么？」按钮', hasWhy);
 if (hasWhy) {
   await page.locator('[data-act="why"]').click();
-  await page.waitForTimeout(1200);
+  // 深度解读要现跑一次四秒的搜索，固定等 1.2 秒是不够的——
+  // 等到梯次表真的出来为止
+  const t0 = Date.now();
+  for (let i = 0; i < 60; i++) {
+    const t = await page.locator('.xq-tip-why').textContent();
+    if (t && t.includes('走法梯次')) break;
+    await page.waitForTimeout(500);
+  }
+  note(`深度解读用了 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   const why = (await page.locator('.xq-tip-why').textContent() ?? '').trim();
   note('为什么的回答：' + why.slice(0, 120));
-  ok('「为什么」给出了实质解释', why.length > 20);
+  ok('「为什么」给出了走法梯次', why.includes('走法梯次') && why.length > 60);
   await page.screenshot({ path: `${OUT}/c5-why.png`, fullPage: false });
 }
 
@@ -159,13 +167,13 @@ if (hasDeep) {
   await page.locator('.xq-rv-deep').first().click();
   for (let i = 0; i < 40; i++) {
     const t = await page.locator('.xq-rv-deepbox').textContent();
-    if (t && t.includes('这一步在做什么')) break;
+    if (t && t.includes('走法梯次')) break;
     await page.waitForTimeout(500);
   }
   const deep = (await page.locator('.xq-rv-deepbox').textContent()) ?? '';
   note('深度解读：' + deep.slice(0, 90));
-  ok('深度解读讲到了这一步在做什么', deep.includes('这一步在做什么'));
-  ok('深度解读给了这个阶段的道理', deep.includes('通用道理'));
+  ok('深度解读给出了走法梯次', deep.includes('走法梯次'));
+  ok('深度解读说清了自己这一手排第几', /排第 \d+/.test(deep));
   await page.screenshot({ path: `${OUT}/c7b-review-deep.png` });
 }
 

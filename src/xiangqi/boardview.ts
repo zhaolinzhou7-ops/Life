@@ -68,7 +68,7 @@ export class BoardView {
       this.board = applyMove(this.board, m);
       this.view.setBoard(this.board);
     }
-    this.view.setLastMove(m);
+    this.view.setLastMove(m, true); // 对局里淡出，别让蓝框一直挂在盘上
     this.view.setMarks([]);
     if (this.slideMs <= 0) {
       requestAnimationFrame(() => onDone());
@@ -108,8 +108,8 @@ export class BoardView {
     this.view.setFlip(f);
   }
 
-  setLastMove(m: Move | null) {
-    this.view.setLastMove(m);
+  setLastMove(m: Move | null, fade = true) {
+    this.view.setLastMove(m, fade);
   }
 
   setArrows(arrows: { fx: number; fy: number; tx: number; ty: number; color?: string }[]) {

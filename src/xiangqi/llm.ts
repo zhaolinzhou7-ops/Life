@@ -88,6 +88,14 @@ export interface Facts {
   global?: { tone: 'good' | 'bad' | 'flat'; label: string; text: string }[];
   /** 候选走法：更好的几手各自想干什么 */
   candidates?: { text: string; idea: string; behind: number; gap: string; line: string[] }[];
+  /** 走法梯次表：这个局面一共有哪些选择、各自什么档次 */
+  tiers?: string[];
+  /** 你这一手在梯次里排第几、什么档 */
+  place?: { rank: number; tier: string; gap: number };
+  /** 你这一手在棋理上做了什么（来自评估分项） */
+  reason?: string;
+  /** 首选那一手在棋理上做了什么 */
+  bestReason?: string;
   /** 现在是开局/中局/残局 */
   stage?: '开局' | '中局' | '残局';
   /** 这个阶段的通用棋理。**要和上面由局面算出来的结论分开讲**，
@@ -151,6 +159,9 @@ export function verifyExplanation(text: string, f: Facts): { ok: boolean; bad: s
     add(c.text);
     c.line.forEach(add);
   });
+  f.tiers?.forEach(add);
+  add(f.reason);
+  add(f.bestReason);
   const bad = [...new Set(movesIn(text))].filter((m) => !allowed.has(m));
   return { ok: bad.length === 0, bad };
 }
@@ -254,42 +265,41 @@ export function offlineText(f: Facts): string {
  */
 function deepText(f: Facts): string {
   const P: string[] = [];
-  const you = f.side === '红' ? '红方' : '黑方';
 
-  if (f.intent) P.push(`**这一步在做什么**\n${f.intent}`);
-
-  if (f.global?.length) {
-    const lines = f.global.map((g) => `${g.tone === 'good' ? '✅' : g.tone === 'bad' ? '⚠️' : '·'} **${g.label}**：${g.text}`);
-    P.push(`**走完这一手，局面即时的变化**\n${lines.join('\n')}`);
+  // ① 先给梯次。下棋是在一堆候选里选，不是在对错之间选——
+  //    先看清全局有哪些选择，再谈自己这一手排第几。
+  if (f.tiers?.length) {
+    P.push(`**这个局面的走法梯次**（引擎排序，越靠上越好）\n${f.tiers.join('\n')}`);
   }
 
-  if (f.problem) P.push(`**问题在哪**\n${f.problem}`);
-  else if (f.grade === '好棋' || f.grade === '不错') P.push(`**这一手站得住**\n引擎也认可，可以放心走。`);
-
-  if (f.oppPlan?.length) P.push(`**对方接下来打算**\n${f.oppPlan.join('　')}`);
-
-  if (f.candidates?.length) {
-    const lines = f.candidates.map((c, i) => {
-      const line = c.line.length ? `\n　　后续：${c.line.join('　')}` : '';
-      return `${i + 1}. **${c.text}** —— ${c.idea}${i === 0 ? '　← 引擎首选' : c.gap}${line}`;
-    });
-    P.push(`**更好的选择**\n${lines.join('\n')}`);
+  // ② 你这一手落在哪一档
+  if (f.place) {
+    // "就是首选"只能看名次，不能看分差——同分的着法可能有好几手，
+    // 上一版按分差判，于是出现了"排第 7，就是首选"这种自相矛盾的话
+    const gap =
+      f.place.rank === 1
+        ? '就是引擎的首选'
+        : f.place.gap === 0
+          ? '和首选同分'
+          : f.place.gap >= 9999
+            ? '首选能成杀，这一手不能'
+            : `比首选落后 ${f.place.gap} 分`;
+    P.push(`**你走的 ${f.played ?? ''}：${f.place.tier}**　排第 ${f.place.rank}，${gap}。`);
+  } else if (f.played) {
+    P.push(`**你走的：${f.played}**`);
   }
 
-  if (f.intentWhy?.length) {
-    // 这一手不好的时候，还把它的意图逐条夸一遍会自相矛盾。
-    // 实际情况往往是"想法没错，代价没算清"，说清楚这一点比只说"错了"有用得多。
-    const bad = !!f.problem;
-    P.push(
-      `**你这手的想法**${bad ? '（想法本身不一定错，问题多半出在时机和代价上）' : ''}\n${f.intentWhy.join('\n')}`,
-    );
+  // ③ 棋理上的差别——用评估分项讲，不是"分数少了多少"
+  if (f.reason) {
+    P.push(`**首选好在哪**\n${f.best ?? '首选'} 做到的是：${f.reason}。`);
   }
 
-  if (f.principles?.length) {
-    P.push(`**${f.stage ?? ''}阶段的通用道理**（不是针对这一手，是这个阶段都适用）\n${f.principles.map((x) => `· ${x}`).join('\n')}`);
-  }
+  // ④ 具体的战术代价（有就说，没有不硬凑）
+  if (f.problem) P.push(`**具体会发生什么**\n${f.problem}`);
 
-  if (!P.length) return `${you}这一手看不出明显问题，也没有特别出彩的地方。`;
+  if (f.oppPlan?.length) P.push(`**接下来的下法**\n${f.oppPlan.join('　')}`);
+
+  if (!P.length) return `${f.side}方这一手看不出明显问题。`;
   return P.join('\n\n');
 }
 

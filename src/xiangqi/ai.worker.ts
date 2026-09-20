@@ -66,8 +66,11 @@ self.onmessage = (e: MessageEvent<AiRequest>) => {
   if (e.data.kind === 'analyze') {
     const { id, board, color, opts } = e.data;
     const a = analyze(board, color, opts);
-    // 只回前八名，整张表（四十多手）传过去没人看，还占带宽
-    post({ id, kind: 'analysis', moves: a.moves.slice(0, 8), depth: a.depth });
+    // **整张表都回**。界面只显示前几档，但用户走的那一手必须能查到名次——
+    // 只回前几名的话，他走了一手排第三十的棋，教练就只能说"不在前几名里"，
+    // 连排第几、差多少都说不出来，而那正是他最想知道的。
+    // 一个局面四十来手，连主变一起传过去也就几十 KB，不值得为此省。
+    post({ id, kind: 'analysis', moves: a.moves, depth: a.depth });
     return;
   }
 

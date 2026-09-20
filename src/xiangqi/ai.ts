@@ -418,26 +418,206 @@ function unmakeMove(m: number, ply: number) {
 }
 
 // ---------------- 评估 ----------------
+/**
+ * 局面评估。
+ *
+ * **这是整个产品水平的天花板。**
+ * 之前这里只有「子力 + 位置表 + 士象守家 12 分」，别的一概不看。
+ * 后果不是"棋力差一点"，而是：
+ *   - 引擎在安静局面里基本是瞎走，因为所有不吃子的着法在它眼里一样
+ *   - 主变（"对方接下来会走什么"）不可信，因为叶子结点的判断只有子力
+ *   - 教练能说的"全局"只剩下我另外手写的那几条（过河 +X 分之类），
+ *     那不是棋理，那是凑数
+ *
+ * 所以这里按真实的象棋要素重写。每一项都是象棋书里会讲的东西：
+ *   马腿   —— 被蹩死的马几乎等于没有，这是象棋和国际象棋最不一样的地方之一
+ *   车路   —— 车的价值几乎全在"通不通"，闷在家里的车不如一个过河兵
+ *   炮架   —— 炮没有架子就是哑炮；空头炮（正对老将中间无子）威力极大
+ *   将帅   —— 士象是否齐全、有没有被直线火力照住
+ *   兵卒   —— 过河兵价值翻倍，到底线的兵能参与杀棋
+ *
+ * 分项累加到 T[] 里，教练层可以拿到**分项差值**，据此说人话：
+ * "这一手之后你的马被蹩住了、对方的车通了一条直线"——
+ * 这才是从象棋本身出发的解释，而不是"分数少了 30"。
+ */
+
+/** 评估分项。顺序要和 TERM_NAMES 对上 */
+export const TERM_NAMES = ['子力', '位置', '马', '车', '炮', '将帅', '兵卒'] as const;
+const T_MAT = 0, T_PST = 1, T_HORSE = 2, T_ROOK = 3, T_CANNON = 4, T_KING = 5, T_PAWN = 6;
+const T = new Int32Array(7);
+/** 上一次 evaluate() 的分项（红方视角）。只给教练层读，搜索不碰 */
+export const lastTerms = new Int32Array(7);
+
+/**
+ * 只用「子力 + 位置表」评估，也就是这次重写之前的老口径。
+ *
+ * 留这个开关是为了能做 A/B 对局：新评估到底有没有让棋力变强，
+ * 必须让新旧两版在同样的时间预算下真打一场才算数，不能凭感觉说"应该更强"。
+ * 生产路径永远是 false，热路径上只多一次布尔判断。
+ */
+let simpleEval = false;
+export function setSimpleEval(on: boolean) {
+  simpleEval = on;
+}
+
+/** 这一格在 side 方的敌境（过河了吗）。side: 0=红 1=黑 */
+const crossed = (i: number, blk: boolean) => (blk ? py(i) >= 5 : py(i) <= 4);
+
 function evaluate(): number {
-  let s = 0;
+  T.fill(0);
+  let rk = -1;
+  let bk = -1;
+
+  // ── 第一遍：子力、位置表、找到两个老将 ──
   for (let i = 0; i < SQ; i++) {
     const p = bd[i];
     if (p === 0) continue;
     const t = p & 7;
     const blk = isBlack(p);
-    let v = VAL[t];
-    const tb = PST[t];
-    if (tb) v += tb[blk ? MIRROR[i] : i];
-    if (t === A || t === E) {
-      const y = py(i);
-      const yy = blk ? ROWS - 1 - y : y;
-      if (yy >= 7) v += 12; // 士象守家
+    if (t === K) {
+      if (blk) bk = i;
+      else rk = i;
+      continue;
     }
-    s += blk ? -v : v;
+    const sgn = blk ? -1 : 1;
+    T[T_MAT] += sgn * VAL[t];
+    const tb = PST[t];
+    if (tb) T[T_PST] += sgn * tb[blk ? MIRROR[i] : i];
   }
-  // 返回「红方视角」分数
-  return s;
+
+  if (simpleEval) {
+    lastTerms.set(T);
+    return T[T_MAT] + T[T_PST];
+  }
+
+  // ── 第二遍：位置要素 ──
+  for (let i = 0; i < SQ; i++) {
+    const p = bd[i];
+    if (p === 0) continue;
+    const t = p & 7;
+    const blk = isBlack(p);
+    const sgn = blk ? -1 : 1;
+    const x = px(i);
+    const y = py(i);
+    const ek = blk ? rk : bk; // 敌方老将
+
+    switch (t) {
+      case A:
+      case E: {
+        // 士象守在家里才有意义，跑出去的士象不算防守力量
+        const yy = blk ? ROWS - 1 - y : y;
+        if (yy >= 7) T[T_KING] += sgn * 14;
+        break;
+      }
+
+      case H: {
+        /*
+         * 马腿。四条腿被堵几条，直接决定这只马还剩多少价值。
+         * 象棋里一只被蹩死的马是**负资产**：它占着格子、需要保护、还走不动。
+         * 这一项是整个评估里最便宜也最重要的补充——四次数组读换来
+         * 引擎终于知道"别把马堵死"。
+         */
+        let legs = 0;
+        if (y + 1 < ROWS && bd[i + COLS] === 0) legs++;
+        if (y - 1 >= 0 && bd[i - COLS] === 0) legs++;
+        if (x + 1 < COLS && bd[i + 1] === 0) legs++;
+        if (x - 1 >= 0 && bd[i - 1] === 0) legs++;
+        T[T_HORSE] += sgn * (legs * 18 - 36); // 四条腿全通 +36，全堵 -36
+        // 卧槽马 / 挂角马：跳到敌方九宫边上的马是杀棋的主力
+        if (ek >= 0) {
+          const d = Math.abs(px(ek) - x) + Math.abs(py(ek) - y);
+          if (d <= 3 && crossed(i, blk)) T[T_HORSE] += sgn * 30;
+        }
+        break;
+      }
+
+      case R: {
+        /*
+         * 车路。车的价值几乎全在"通不通"——闷在家里的车不如一个过河兵。
+         * 这里直接数它能走多少格（这也是最准确的"车活不活"指标），
+         * 外加两个象棋里特别重要的位置：肋道（三、五路，直通九宫）和沉底。
+         */
+        let mob = 0;
+        for (const d of [1, -1, COLS, -COLS]) {
+          let j = i + d;
+          // 横向移动要防止跨行：用行号判断
+          while (j >= 0 && j < SQ && !(Math.abs(d) === 1 && py(j) !== y)) {
+            mob++;
+            if (bd[j] !== 0) break;
+            j += d;
+          }
+        }
+        T[T_ROOK] += sgn * mob * 3;
+        if (x === 3 || x === 5) T[T_ROOK] += sgn * 20; // 肋道车
+        const backRank = blk ? 9 : 0;
+        if (y === backRank) T[T_ROOK] += sgn * 25; // 沉底车，配合炮马做杀
+        break;
+      }
+
+      case C: {
+        /*
+         * 炮。没有架子的炮是哑炮，有架子且正对老将的炮是杀器。
+         * 空头炮（和敌方老将同一直线、中间一个子都没有）在象棋里
+         * 是压倒性的优势——对方等于被按住脖子，什么都不敢动。
+         */
+        if (ek >= 0 && px(ek) === x) {
+          let between = 0;
+          const step = py(ek) > y ? COLS : -COLS;
+          for (let j = i + step; j !== ek; j += step) if (bd[j] !== 0) between++;
+          if (between === 0) T[T_CANNON] += sgn * 75; // 空头炮
+          else if (between === 1) T[T_CANNON] += sgn * 40; // 架好了，随时可以打
+        }
+        if (x === 4) T[T_CANNON] += sgn * 15; // 中炮
+        const eBack = blk ? 9 : 0;
+        if (y === eBack) T[T_CANNON] += sgn * 18; // 沉底炮
+        break;
+      }
+
+      case P: {
+        // 过河兵价值大增，越靠近底线越值钱；中路的兵比边兵有用
+        if (crossed(i, blk)) {
+          const adv = blk ? y - 4 : 5 - y;
+          T[T_PAWN] += sgn * (20 + adv * 8);
+          if (x >= 3 && x <= 5) T[T_PAWN] += sgn * 10;
+        }
+        break;
+      }
+    }
+  }
+
+  // ── 将帅安全：自己那一路被敌方重子照着，很危险 ──
+  for (const [kp, blk] of [[rk, false], [bk, true]] as const) {
+    if (kp < 0) continue;
+    const sgn = blk ? -1 : 1;
+    const kx = px(kp);
+    let danger = 0;
+    // 老将所在直线上，敌方的车/炮各算一份威胁（中间隔几个子决定紧迫程度）
+    for (let y = 0; y < ROWS; y++) {
+      const j = y * COLS + kx;
+      const q = bd[j];
+      if (q === 0 || j === kp) continue;
+      if (isBlack(q) === blk) continue;
+      const qt = q & 7;
+      if (qt === R || qt === C) {
+        let between = 0;
+        const lo = Math.min(j, kp) + COLS;
+        const hi = Math.max(j, kp);
+        for (let m = lo; m < hi; m += COLS) if (bd[m] !== 0) between++;
+        if (qt === R && between === 0) danger += 40;
+        else if (qt === C && between === 1) danger += 35;
+        else if (between <= 1) danger += 12;
+      }
+    }
+    T[T_KING] -= sgn * danger;
+  }
+
+  const total = simpleEval
+    ? T[T_MAT] + T[T_PST]
+    : T[T_MAT] + T[T_PST] + T[T_HORSE] + T[T_ROOK] + T[T_CANNON] + T[T_KING] + T[T_PAWN];
+  lastTerms.set(T);
+  return total;
 }
+
 /** 走子方视角的评估 */
 const evalSide = () => (side === 0 ? evaluate() : -evaluate());
 
@@ -882,6 +1062,16 @@ export function resetEngine() {
 export function evaluatePosition(b: Board): number {
   load(b, 'r');
   return evaluate();
+}
+
+/**
+ * 分项估值（红方为正）。教练层用它说人话：
+ * 不是"这一手少了 30 分"，而是"你的马被蹩住了、对方的车通了一条线"。
+ */
+export function evaluateTerms(b: Board): Int32Array {
+  load(b, 'r');
+  evaluate();
+  return Int32Array.from(lastTerms);
 }
 
 /**

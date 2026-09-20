@@ -18,6 +18,10 @@ import { pieceName } from './notation';
  * 红黑两方要凑近才分得清。现在两边都提亮提纯：红往正红走、黑往蓝黑走，
  * 色相拉开之后**不用读字也能一眼分出敌我**，这在快速扫盘时最要紧。
  */
+/** 上一手标记：亮多久、多久淡完 */
+const LAST_HOLD_MS = 1400;
+const LAST_FADE_MS = 2400;
+
 const RED = '#c8201a';
 const BLACK = '#15283a';
 
@@ -61,6 +65,16 @@ export class Board2D {
   private onTap?: (x: number, y: number) => void;
   /** 上一手棋。不标出来的话，对手走完你根本不知道他动了哪个子 */
   private last: Move | null = null;
+  /** 上一手是什么时候标上去的，用来做淡出 */
+  private lastAt = 0;
+  /**
+   * 上一手标记要不要淡出。
+   *
+   * 对局里要淡出：那两个蓝框的作用是"让你看见对方刚走了什么"，
+   * 看见了就该让路——一直挂在盘上，越积越花，看棋盘时总被它抢注意力。
+   * 复盘里不淡出：那边是逐手翻看，标记必须一直在。
+   */
+  private lastFade = false;
   /** 正在被将的老将位置，画成跳动的红圈 */
   private check: { x: number; y: number } | null = null;
   /** 将军圈的呼吸相位 */
@@ -118,9 +132,11 @@ export class Board2D {
     this.dirty = true;
   }
 
-  /** 标出上一手是从哪走到哪 */
-  setLastMove(m: Move | null) {
+  /** 标出上一手是从哪走到哪。fade = 对局模式，两秒后自动淡去 */
+  setLastMove(m: Move | null, fade = false) {
     this.last = m;
+    this.lastAt = performance.now();
+    this.lastFade = fade;
     this.dirty = true;
   }
 
@@ -458,6 +474,8 @@ export class Board2D {
       this.pulse += 0.06;
       this.dirty = true;
     }
+    // 上一手标记正在淡出的这两秒要持续重绘
+    if (this.last && this.lastFade && performance.now() - this.lastAt < LAST_FADE_MS) this.dirty = true;
     if (!this.dirty) return;
     this.dirty = false;
     this.draw();
@@ -478,21 +496,32 @@ export class Board2D {
     // 这是对局里最容易被忽略却最有用的一条信息——没有它，对手走完之后
     // 你得把整个棋盘和记忆比对一遍才知道他动了什么。
     if (this.last) {
-      for (const [lx, ly, solid] of [
-        [this.last.fx, this.last.fy, 0],
-        [this.last.tx, this.last.ty, 1],
-      ] as const) {
-        const [px, py] = this.px(lx, ly);
-        const r = c * 0.44;
-        g.save();
-        g.strokeStyle = 'rgba(64,132,224,0.85)';
-        g.fillStyle = 'rgba(64,132,224,0.20)';
-        g.lineWidth = Math.max(2, c * 0.05);
-        g.beginPath();
-        g.rect(px - r, py - r, r * 2, r * 2);
-        if (solid) g.fill();
-        g.stroke();
-        g.restore();
+      // 对局里两秒淡出，复盘里常驻
+      let alpha = 1;
+      if (this.lastFade) {
+        const t = performance.now() - this.lastAt;
+        alpha = t >= LAST_FADE_MS ? 0 : t <= LAST_HOLD_MS ? 1 : 1 - (t - LAST_HOLD_MS) / (LAST_FADE_MS - LAST_HOLD_MS);
+      }
+      if (alpha > 0.01) {
+        for (const [lx, ly, solid] of [
+          [this.last.fx, this.last.fy, 0],
+          [this.last.tx, this.last.ty, 1],
+        ] as const) {
+          const [px, py] = this.px(lx, ly);
+          const r = c * 0.42;
+          g.save();
+          // 比原来轻很多：细线、不填色，只在终点留一点淡淡的底
+          g.strokeStyle = `rgba(96,156,232,${0.55 * alpha})`;
+          g.lineWidth = Math.max(1.5, c * 0.035);
+          g.beginPath();
+          g.rect(px - r, py - r, r * 2, r * 2);
+          if (solid) {
+            g.fillStyle = `rgba(96,156,232,${0.10 * alpha})`;
+            g.fill();
+          }
+          g.stroke();
+          g.restore();
+        }
       }
     }
 

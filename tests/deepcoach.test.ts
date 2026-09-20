@@ -229,14 +229,16 @@ describe('deepFacts：完整的一份解读', () => {
   it('开局一手棋，该有的段落都有，而且不编着法', async () => {
     const f = await deepFacts(initialBoard(), mv(1, 7, 4, 7), 'r', { ply: 0 });
     expect(f.kind).toBe('move-deep');
-    expect(f.intent).toContain('炮');
     expect(f.stage).toBe('开局');
-    expect(f.principles!.length).toBeGreaterThan(0);
-    expect(f.global!.length).toBeGreaterThan(0);
+    // 梯次表是这一版的核心：用户要看的是"这个局面有哪些选择、各排第几"
+    expect(f.tiers!.length).toBeGreaterThan(3);
+    expect(f.place, '自己走的那一手必须能查到名次').toBeTruthy();
 
     const text = offlineText(f);
-    expect(text).toContain('这一步在做什么');
-    expect(text).toContain('通用道理');
+    expect(text).toContain('走法梯次');
+    expect(text).toContain('你走的');
+    // 套话已经删掉了：用户说那些"前期应该怎样"的笼统话没用
+    expect(text).not.toContain('通用道理');
     // 最要紧的一条：整段话里不许出现这个局面上不存在的着法
     expect(verifyExplanation(text, f).ok, 'AI 讲解里出现了编造的着法').toBe(true);
   }, 40000);
@@ -256,7 +258,7 @@ describe('deepFacts：完整的一份解读', () => {
     expect(f.problem).toBeTruthy();
     expect(f.problem).toContain('马');
     const text = offlineText(f);
-    expect(text).toContain('问题在哪');
+    expect(text).toContain('具体会发生什么');
     expect(verifyExplanation(text, f).ok).toBe(true);
   }, 40000);
 });

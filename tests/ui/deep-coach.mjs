@@ -31,11 +31,18 @@ await page.locator('[data-act="why"]').click();
 for (let i=0;i<40;i++){ const t = await page.locator('.xq-tip-why').textContent(); if (t && t.includes('这一步在做什么')) break; await page.waitForTimeout(500); }
 const why = (await page.locator('.xq-tip-why').textContent()) ?? '';
 console.log('\n--- 教练的回答 ---\n' + why.slice(0, 700) + '\n---\n');
-ok('讲了这一步在做什么', why.includes('这一步在做什么'));
-ok('讲了全局的即时变化', why.includes('即时的变化'));
-ok('给了更好的选择', why.includes('更好的选择'));
-ok('讲了这个阶段的通用道理', why.includes('通用道理'));
+ok('给出了走法梯次', why.includes('走法梯次'));
+ok('说清了自己这一手排第几', /排第 \d+/.test(why));
+ok('说清了首选好在哪', why.includes('首选好在哪'));
 ok('回答足够长（不是一句话打发）', why.length > 200);
+// 用户明确说过那些"前期应该怎样"的笼统话没用，删掉之后不许回来
+ok('没有笼统套话', !why.includes('通用道理'));
+// 梯次不能全是"最优"——那等于没分档
+const tiers = (why.match(/最优/g) || []).length;
+ok(`梯次有区分度（最优只出现 ${tiers} 次）`, tiers <= 2);
+// 自相矛盾检查：说了"就是首选"就不该同时排在第二名以后
+const m2 = why.match(/排第 (\d+)，(就是引擎的首选)?/);
+if (m2 && m2[2]) ok('说"就是首选"时名次确实是第 1', m2[1] === '1');
 await page.screenshot({ path: `${OUT}/deep-why.png` });
 
 await b.close();
