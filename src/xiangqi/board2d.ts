@@ -578,13 +578,19 @@ export class Board2D {
     const len = Math.hypot(dx, dy) || 1;
     const ux = dx / len;
     const uy = dy / len;
-    const r = this.cell * 0.42;
-    // 两端各让开一个棋子的半径，箭头不压在字上
-    const ax = sx + ux * r;
-    const ay = sy + uy * r;
-    const bx = tx - ux * r * 0.7;
-    const by = ty - uy * r * 0.7;
-    const head = this.cell * 0.26;
+    /*
+     * 两端各让开一个棋子的半径，箭头不压在字上。
+     *
+     * 但**让开的量要跟着距离缩**：走一格的棋（比如炮平一路）全长只有
+     * 一个 cell，两头各切掉 0.42 之后剩不下什么，箭头等于没画——
+     * 而恰恰是这种短距离的着法最需要标出来，因为肉眼很难注意到。
+     */
+    const trim = Math.min(this.cell * 0.42, len * 0.32);
+    const ax = sx + ux * trim;
+    const ay = sy + uy * trim;
+    const bx = tx - ux * trim * 0.7;
+    const by = ty - uy * trim * 0.7;
+    const head = Math.min(this.cell * 0.26, len * 0.34);
 
     g.save();
     g.strokeStyle = ar.color ?? 'rgba(46,160,90,0.9)';

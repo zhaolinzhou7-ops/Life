@@ -13,7 +13,14 @@ describe('不丢子但位置差的一手，教练也要说得出话', () => {
     for (const m of [[1,7,4,7],[7,2,4,2],[1,9,2,7],[7,0,6,2]] as const) {
       b = applyMove(b, { fx: m[0], fy: m[1], tx: m[2], ty: m[3] });
     }
-    const a = analyze(b, 'r', { maxDepth: 6, timeMs: 1500, jitter: 0 }).moves;
+    /*
+     * 深度封顶、时间给足。
+     *
+     * 反过来（时间封顶）在测试里是不可复现的：整套测试并行跑的时候 CPU
+     * 被抢，同样 1.5 秒有时搜到 6 层有时只到 4 层，算出来的分差跟着变，
+     * 于是这条用例时红时绿。要断言分数，就必须让**深度**是那个约束条件。
+     */
+    const a = analyze(b, 'r', { maxDepth: 5, timeMs: 30000, jitter: 0 }).moves;
 
     // 找一手：静态兑子看不出任何问题（不丢子），但引擎认为明显差
     const target = a.find((s) => {
@@ -46,7 +53,7 @@ describe('不丢子但位置差的一手，教练也要说得出话', () => {
   it('引擎首选在任何档位都不会被拦——照着推荐走不该挨骂', () => {
     resetEngine();
     const b = initialBoard();
-    const a = analyze(b, 'r', { maxDepth: 5, timeMs: 900, jitter: 0 }).moves;
+    const a = analyze(b, 'r', { maxDepth: 4, timeMs: 30000, jitter: 0 }).moves;
     for (const lv of [1, 2, 3] as const) {
       expect(shouldWarn(lv, judgeMove(b, a[0].move, 'r', a))).toBe(false);
     }
@@ -55,7 +62,7 @@ describe('不丢子但位置差的一手，教练也要说得出话', () => {
   it('整盘局面扫一遍：凡是被拦下的，引擎分差都真的够大', () => {
     resetEngine();
     const b = initialBoard();
-    const a = analyze(b, 'r', { maxDepth: 5, timeMs: 900, jitter: 0 }).moves;
+    const a = analyze(b, 'r', { maxDepth: 4, timeMs: 30000, jitter: 0 }).moves;
     for (const m of legalMoves(b, 'r')) {
       const v = judgeMove(b, m, 'r', a);
       if (shouldWarn(2, v) && v.fromEngine && !v.mateNext) {

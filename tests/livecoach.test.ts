@@ -36,7 +36,9 @@ const verdict = (over: Partial<MoveVerdict> = {}): MoveVerdict => ({
 /** 真跑一次引擎分析，测试要用真实数据而不是编的 */
 const analyzeReal = (b: Board, c: 'r' | 'b' = 'r') => {
   resetEngine();
-  return analyze(b, c, { maxDepth: 5, timeMs: 700, jitter: 0 }).moves;
+  // 深度封顶、时间给足：时间封顶的话并行跑测试时 CPU 被抢，
+  // 搜到的层数每次不一样，分数跟着变，断言就会时红时绿
+  return analyze(b, c, { maxDepth: 4, timeMs: 30000, jitter: 0 }).moves;
 };
 
 beforeEach(() => {

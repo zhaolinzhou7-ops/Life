@@ -8,6 +8,7 @@ import {
   legalMoves,
   statusAfter,
   type Board,
+  type Color,
   type Move,
 } from './rules';
 import { disposeAi, requestAnalysis, requestMove, warmupAi } from './aiclient';
@@ -26,6 +27,7 @@ import {
   type HintLevel,
 } from './livecoach';
 import { initCoachProvider } from './llm';
+import { askBest, showBestHint } from './besthint';
 import { BoardView } from './boardview';
 import { PIECE_VALUE, inPieces } from './teach';
 import { moveToText, pieceName, toFen } from './notation';
@@ -213,6 +215,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let rival = Number(localStorage.getItem('xq-rival') ?? 2);
     let tempo = Math.max(0, Math.min(TEMPOS.length - 1, Number(localStorage.getItem('xq-tempo') ?? 1)));
     let hint: HintLevel = getHintLevel();
+    let sidePick = (localStorage.getItem('xq-side') ?? 'r') as 'r' | 'b' | 'x';
 
     const s = document.createElement('div');
     s.className = 'screen xq-setup';
@@ -288,6 +291,27 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       });
       s.appendChild(tRow);
 
+      // 执哪一方
+      const sideLabel = document.createElement('div');
+      sideLabel.className = 'xq-sec';
+      sideLabel.textContent = '你执哪一方';
+      s.appendChild(sideLabel);
+      const sideRow = document.createElement('div');
+      sideRow.className = 'diff-row';
+      ([
+        ['r', '执红先行', '红方先走，主动权在你'],
+        ['b', '执黑后行', '让对手先出招，练应对'],
+        ['x', '随机', '每局开始时掷一次'],
+      ] as const).forEach(([id, nm, ds]) => {
+        const c = document.createElement('div');
+        c.className = 'card' + (sidePick === id ? ' selected' : '');
+        c.innerHTML = `<div class="title" style="justify-content:center">${nm}</div>
+          <div class="desc" style="text-align:center">${ds}</div>`;
+        c.onclick = () => { sidePick = id; sfxTap(); render(); };
+        sideRow.appendChild(c);
+      });
+      s.appendChild(sideRow);
+
       // 教练模式：这是本产品和普通对弈软件最大的区别，所以放在"开始"上面
       const hLabel = document.createElement('div');
       hLabel.className = 'xq-sec';
@@ -317,9 +341,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         localStorage.setItem('xq-rival', String(rival));
         localStorage.setItem('xq-tempo', String(tempo));
         setHintLevel(hint);
+        localStorage.setItem('xq-side', sidePick);
         s.remove();
         setupEl = null;
-        startGame(level, CHARACTERS[rival], tempo);
+        const myColor: Color = sidePick === 'x' ? (Math.random() < 0.5 ? 'r' : 'b') : sidePick;
+        startGame(level, CHARACTERS[rival], tempo, undefined, myColor);
       };
       s.appendChild(go);
 
@@ -343,7 +369,19 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     rival: Character,
     tempoIdx = 1,
     handicap?: { strip: number; depth: number; onFinish: (won: boolean) => void },
+    /** 你执哪一方。不传默认执红 */
+    myColor: Color = 'r',
   ) {
+    /**
+     * 你执哪一方、对手执哪一方。
+     *
+     * 整个对局流程原来把"我"写死成红方，红方永远先行、永远在棋盘下方。
+     * 现在这两个变量是唯一的真相来源，下面所有判断都从它们出发——
+     * 留任何一处写死的 'r'，执黑时就会出现"轮到你走棋但点不动"这种鬼问题。
+     */
+    const me: Color = myColor;
+    const foe: Color = me === 'r' ? 'b' : 'r';
+
     const TEMPO = TEMPOS[Math.max(0, Math.min(TEMPOS.length - 1, tempoIdx))];
     // 夹一下：存档里可能留着旧版本的档位号。越界会让 L 变成 undefined，
     // 然后在读 L.depth 的时候整局白屏——为了省一行防御而白屏不值得。
@@ -352,7 +390,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     // 让子：把黑方的马拿掉。让子是教练给学生定级最老实的办法——
     // 让你两个马能赢、让一个马赢不了，水平就卡在这两档之间。
     if (handicap?.strip) {
-      const spots: [number, number][] = [[1, 0], [7, 0]];
+      // 让子拿掉的是**对手**的马，对手不一定是黑方
+      const spots: [number, number][] = foe === 'b' ? [[1, 0], [7, 0]] : [[1, 9], [7, 9]];
       for (let i = 0; i < handicap.strip && i < spots.length; i++) {
         const [hx, hy] = spots[i];
         board[hy][hx] = null;
@@ -373,7 +412,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let history: Board[] = [];
     /** 整盘的着法序列，复盘用。history 存的是局面，复盘要的是着法 */
     let moveLog: Move[] = [];
-    let turn: 'r' | 'b' = 'r';
+    /** 红方永远先行，这是棋规；执黑时就是对手先走 */
+    let turn: Color = 'r';
     let busy = false;
     let over = false;
     let selected: { x: number; y: number } | null = null;
@@ -387,6 +427,14 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     /** 这一局存进存档之后的 id，复盘算完要把结论回填到它身上 */
     let archivedId: string | null = null;
     /**
+     * 这一局用了几次求助。
+     *
+     * 要记下来，而且要如实告诉用户。用引擎的最优解走出来的棋，
+     * 拿去算"你的水平提高了"是自欺欺人——学棋软件最不该做的就是
+     * 帮用户伪造进步。
+     */
+    let hintsUsed = 0;
+    /**
      * 当前局面的引擎分析，以及它对应的是哪个局面。
      *
      * 轮到你走的时候就在后台把这个局面算好——**你想棋的那几秒是白送的算力**。
@@ -399,11 +447,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
     /** 轮到玩家时启动分析。教练档关着就不算，省电 */
     function prefetchAnalysis() {
-      if (hintLevel === 0 || over) {
+      if (hintLevel === 0 || over || turn !== me) {
         analysis = null;
         return;
       }
-      const key = toFen(board, 'r');
+      const key = toFen(board, me);
       if (analysisFor === key && analysis) return;
       analysis = null;
       analysisFor = key;
@@ -411,7 +459,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       // 预算压得比较短是有原因的：Worker 是单线程的，这份分析没算完之前
       // 对手的搜索排在它后面。多数人想一手棋不止一秒，900ms 基本算得完，
       // 又不会在你秒落子的时候把对手的回手也拖慢。
-      requestAnalysis(board, 'r', { maxDepth: 8, timeMs: 900, jitter: 0 }).then((r) => {
+      requestAnalysis(board, me, { maxDepth: 8, timeMs: 900, jitter: 0 }).then((r) => {
         // 期间悔棋/重开/又走了一手，这份结果就作废了。
         // 拿错局面的分数去判一手棋，比不判更糟。
         if (seq !== analysisSeq) return;
@@ -429,11 +477,13 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     const play = document.createElement('div');
     play.className = 'xq-play';
     wrap.appendChild(play);
-    const scene = new BoardView(play, (x, y) => onTap(x, y));
+    // 执黑时把棋盘转过来，让自己这一方永远在下方——这是所有棋类软件的惯例，
+    // 也是唯一符合"坐在棋盘这一侧"直觉的摆法
+    const scene = new BoardView(play, (x, y) => onTap(x, y), me === 'b');
     scene.setSlideSec(TEMPO.slide);
     scene.syncBoard(board);
     // 先把搜索线程热起来，别让第一步的回手慢一大截
-    warmupAi(board, 'b');
+    warmupAi(board, foe);
     scene.dealIn();
     startBgm('guqin');
 
@@ -445,6 +495,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       <div class="xq-turn"><span id="xq-turn-dot"></span><span id="xq-turn-text">红方走棋</span></div>
       <div class="xq-actions">
         <button class="xq-btn" id="xq-mute">${isMuted() ? '🔇' : '🔊'}</button>
+        <button class="xq-btn" id="xq-best" title="问最优解：告诉我这一步该走哪">🔍</button>
         <button class="xq-btn" id="xq-hint" title="教练提示档位">🧑‍🏫${HINT_LEVELS[hintLevel].short}</button>
         <button class="xq-btn" id="xq-undo">悔棋</button>
         <button class="xq-btn" id="xq-restart">重开</button>
@@ -453,6 +504,63 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     (hud.querySelector('.xq-back') as HTMLButtonElement).onclick = () => showSetup();
     (hud.querySelector('#xq-undo') as HTMLButtonElement).onclick = () => undo();
     (hud.querySelector('#xq-restart') as HTMLButtonElement).onclick = () => restart();
+    /**
+     * 求助：告诉我这一步最优解。
+     *
+     * 用的是最高档的搜索预算，所以要等几秒。这段时间按钮要变成"算…"，
+     * 并且不能重复点——重复点会同时排好几个搜索进 Worker，
+     * 后面的对局回手会被它们堵住。
+     */
+    let closeBest: (() => void) | null = null;
+    let bestBusy = false;
+    /** 求助的请求序号，用来丢弃迟到的结果 */
+    let bestSeq = 0;
+    const bestBtn = hud.querySelector('#xq-best') as HTMLButtonElement;
+    bestBtn.onclick = async () => {
+      if (closeBest) {
+        bestSeq++; // 作废在跑的那次求助
+        closeBest();
+        return;
+      }
+      if (bestBusy || over) return;
+      if (turn !== me) {
+        showToast('等对手走完再问');
+        return;
+      }
+      bestBusy = true;
+      bestBtn.textContent = '…';
+      hintsUsed++;
+      const token = ++bestSeq;
+      const panel = showBestHint({
+        host: wrap,
+        board: scene,
+        onClose: () => {
+          closeBest = null;
+          bestBtn.textContent = '🔍';
+        },
+      });
+      closeBest = () => {
+        panel.close();
+        closeBest = null;
+        bestBtn.textContent = '🔍';
+      };
+      const snapshot = toFen(board, turn);
+      try {
+        const r = await askBest(board, me);
+        // 算的过程中如果面板被关了、或者已经走了别的棋，这份结果就作废——
+        // 拿上一个局面的"最优解"画在新盘面上是彻头彻尾的误导
+        if (token === bestSeq && toFen(board, turn) === snapshot) panel.update(r);
+        else closeBest?.();
+      } catch {
+        closeBest?.();
+        showToast('这一手没算出来，再试一次');
+      }
+      bestBusy = false;
+      // 用序号判面板还在不在，别去判 closeBest：它刚在上面被赋过值，
+      // TypeScript 会认定它一定非空，而实际上回调可能已经把它清掉了
+      if (token === bestSeq) bestBtn.textContent = '✕';
+    };
+
     // 教练档就地循环切换：对局中途想安静一会儿不该逼人退出去改设置
     const hintBtn = hud.querySelector('#xq-hint') as HTMLButtonElement;
     hintBtn.onclick = () => {
@@ -460,7 +568,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       setHintLevel(hintLevel);
       hintBtn.textContent = `🧑‍🏫${HINT_LEVELS[hintLevel].short}`;
       showToast(`教练：${HINT_LEVELS[hintLevel].name} —— ${HINT_LEVELS[hintLevel].desc}`);
-      if (turn === 'r') prefetchAnalysis(); // 刚开教练，立刻把当前局面算上
+      if (turn === me) prefetchAnalysis(); // 刚开教练，立刻把当前局面算上
     };
     const muteBtn = hud.querySelector('#xq-mute') as HTMLButtonElement;
     muteBtn.onclick = () => {
@@ -492,8 +600,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     const tray = document.createElement('div');
     tray.className = 'xq-tray';
     tray.innerHTML = `
-      <div class="xq-tray-row" data-side="b"><span class="who">对方吃掉</span><span class="pcs"></span></div>
-      <div class="xq-tray-row" data-side="r"><span class="who">你吃掉</span><span class="pcs"></span><span class="bal"></span></div>
+      <div class="xq-tray-row" data-side="${foe}"><span class="who">对方吃掉</span><span class="pcs"></span></div>
+      <div class="xq-tray-row" data-side="${me}"><span class="who">你吃掉</span><span class="pcs"></span><span class="bal"></span></div>
       <div class="xq-log"></div>`;
     play.appendChild(tray);
     const elLog = tray.querySelector('.xq-log') as HTMLElement;
@@ -506,7 +614,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         return m;
       };
       let bal = 0;
-      for (const side of ['r', 'b'] as const) {
+      for (const side of [me, foe] as const) {
         const was = count(startSnapshot, side);
         const now = count(board, side);
         const lost: string[] = [];
@@ -516,7 +624,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           for (let i = 0; i < gone; i++) lost.push(pieceName(t as never, side));
           v += gone * PIECE_VALUE[t as never];
         }
-        bal += side === 'b' ? v : -v;
+        // side 这一方被吃掉了 v 分：是对方的损失就算我赚
+        bal += side === foe ? v : -v;
         const row = tray.querySelector(`.xq-tray-row[data-side="${side}"]`) as HTMLElement;
         const pcs = row.querySelector('.pcs') as HTMLElement;
         pcs.innerHTML = lost.length
@@ -590,7 +699,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         return;
       }
       if (!thinking) {
-        txt.textContent = turn === 'r' ? '轮到你走棋' : `${rival.name}走棋`;
+        txt.textContent = turn === me ? '轮到你走棋' : `${rival.name}走棋`;
         return;
       }
       thinkStart = Date.now();
@@ -617,24 +726,24 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let pendingTap: { x: number; y: number } | null = null;
 
     function onTap(x: number, y: number) {
-      if (over || turn !== 'r') return;
+      if (over || turn !== me) return;
       if (busy) {
         pendingTap = { x, y };
         return;
       }
       const p = board[y][x];
       if (selected) {
-        const moves = legalMoves(board, 'r').filter((m) => m.fx === selected!.x && m.fy === selected!.y);
+        const moves = legalMoves(board, me).filter((m) => m.fx === selected!.x && m.fy === selected!.y);
         const mv = moves.find((m) => m.tx === x && m.ty === y);
         if (mv) {
           tryMove(mv);
           return;
         }
       }
-      if (p && p.c === 'r') {
+      if (p && p.c === me) {
         selected = { x, y };
         sfxTap();
-        const moves = legalMoves(board, 'r').filter((m) => m.fx === x && m.fy === y);
+        const moves = legalMoves(board, me).filter((m) => m.fx === x && m.fy === y);
         scene.select(
           selected,
           moves.map((m) => ({ x: m.tx, y: m.ty, capture: !!board[m.ty][m.tx] })),
@@ -653,7 +762,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
      * 坚持走错也照走，那一手会被复盘抓下来单独讲，印象比当场拦住深。
      */
     function tryMove(m: Move) {
-      const verdict = checkMove(hintLevel, board, m, 'r', analysisFor === toFen(board, 'r') ? analysis : null);
+      bestSeq++;
+      closeBest?.();
+      const verdict = checkMove(hintLevel, board, m, me, analysisFor === toFen(board, me) ? analysis : null);
       if (!verdict) {
         doMove(m);
         return;
@@ -666,11 +777,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         level: hintLevel,
         before: board,
         move: m,
-        me: 'r',
+        me,
         verdict,
         ply: moveLog.length,
         board: scene,
-        analysis: analysisFor === toFen(board, 'r') ? analysis : null,
+        analysis: analysisFor === toFen(board, me) ? analysis : null,
         onProceed: () => {
           closeCoachPrompt = null;
           busy = false;
@@ -705,11 +816,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         // 动画期间攒下的那一下点击，现在补上
         const p = pendingTap;
         pendingTap = null;
-        if (p && !busy && !over && turn === 'r') onTap(p.x, p.y);
+        if (p && !busy && !over && turn === me) onTap(p.x, p.y);
       });
       refreshTray();
       refreshLog();
-      setTurnUI(turn === 'b');
+      setTurnUI(turn === foe);
     }
 
     function afterMove() {
@@ -727,10 +838,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         if (k) scene.flashCheck(k[0], k[1]);
         showToast('将军！');
         sfxAlert();
-        if (turn === 'r') say(pickLine(rival.lines.check ?? ['将军']));
+        if (turn === me) say(pickLine(rival.lines.check ?? ['将军']));
         else speak('将军');
       }
-      if (turn === 'b') {
+      if (turn === foe) {
         setTurnUI(true);
         // 搜索在 Worker 里跑，主线程继续放动画；思考期间对手头像有呼吸光效
         const myTurn = ++aiSeq;
@@ -740,7 +851,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         // 再加一点随机，免得每一步都卡在同一个时刻，那样同样很机械。
         const t0 = performance.now();
         const wait = TEMPO.think ? TEMPO.think * (0.75 + Math.random() * 0.5) : 0;
-        requestMove(board, 'b', { maxDepth: handicap?.depth ?? L.depth, jitter: handicap ? 0 : L.jitter, timeMs: handicap ? 2000 : L.timeMs }).then((m) => {
+        requestMove(board, foe, { maxDepth: handicap?.depth ?? L.depth, jitter: handicap ? 0 : L.jitter, timeMs: handicap ? 2000 : L.timeMs }).then((m) => {
           if (over || myTurn !== aiSeq) return; // 期间悔棋/重开了，丢弃这次结果
           const rest = Math.max(0, wait - (performance.now() - t0));
           aiTimer = window.setTimeout(() => {
@@ -757,6 +868,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     }
 
     function undo() {
+      bestSeq++;
+      closeBest?.();
       closeCoachPrompt?.();
       closeCoachPrompt = null;
       pendingTap = null;
@@ -764,12 +877,13 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       clearTimeout(aiTimer);
       aiSeq++; // 作废正在跑的搜索
       scene.setThinking(false);
-      const steps = turn === 'r' ? 2 : 1;
+      // 退到轮回自己为止：轮到自己就退两手（自己+对手），否则退一手
+      const steps = turn === me ? 2 : 1;
       for (let i = 0; i < steps && history.length > 0; i++) {
         board = history.pop()!;
         moveLog.pop();
       }
-      turn = 'r';
+      turn = me;
       over = false;
       selected = null;
       resultEl?.remove();
@@ -782,11 +896,14 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       scene.setSlideSec(TEMPO.slide);
     scene.syncBoard(board);
     // 先把搜索线程热起来，别让第一步的回手慢一大截
-    warmupAi(board, 'b');
+    warmupAi(board, foe);
       setTurnUI();
     }
 
     function restart() {
+      bestSeq++;
+      closeBest?.();
+      hintsUsed = 0;
       closeCoachPrompt?.();
       closeCoachPrompt = null;
       pendingTap = null;
@@ -797,7 +914,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       board = cloneBoard(startSnapshot); // 让子局要保留让掉的子
       history = [];
       moveLog = [];
-      turn = 'r';
+      turn = 'r'; // 红方先行是棋规，和你执哪一方无关
       over = false;
       busy = false;
       selected = null;
@@ -806,7 +923,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       scene.setSlideSec(TEMPO.slide);
     scene.syncBoard(board);
     // 先把搜索线程热起来，别让第一步的回手慢一大截
-    warmupAi(board, 'b');
+    warmupAi(board, foe);
       scene.dealIn();
       scene.setLastMove(null);
       refreshTray();
@@ -828,7 +945,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       // 存档在复盘之前就要落地——用户可能直接关掉不复盘，那盘棋也不能丢。
       if (moveLog.length >= 2 && !archivedId) {
         archivedId = archiveFromBoard(startSnapshot, 'r', moveLog, {
-          side: 'r',
+          side: me,
           result: playerWon ? 'win' : 'loss',
           level: handicap ? `让${handicap.strip}马` : L.name,
           rival: rival.name,
@@ -846,7 +963,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       s.innerHTML = `
         <div class="xq-result-badge ${playerWon ? 'win' : 'lose'}">${playerWon ? '绝杀' : '败'}</div>
         <h1 style="color:${playerWon ? '#ffd76e' : '#ef5350'}">${playerWon ? '绝杀 · 红方胜' : `${rival.name} 胜`}</h1>
-        <div class="sub">${playerWon ? `${rival.name}已被将死（${L.name}难度）` : '你的帅被将死了，再来一局？'}</div>`;
+        <div class="sub">${playerWon ? `${rival.name}已被将死（${L.name}难度）` : '你被将死了，再来一局？'}</div>
+        ${hintsUsed > 0 ? `<div class="xq-usedhint">这一局用了 ${hintsUsed} 次求助——照着引擎走出来的棋不算你的水平，复盘的时候心里有个数。</div>` : ''}`;
       // 复盘排在最前面：下完一盘最该做的是先看自己错在哪，而不是立刻再开一局
       const rv = document.createElement('button');
       rv.className = 'btn';
@@ -886,7 +1004,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         startBoard: cloneBoard(startSnapshot),
         startColor: 'r',
         moves: moveLog.slice(),
-        playerColor: 'r',
+        playerColor: me,
         playerWon: lastWon,
         archiveId: archivedId ?? undefined,
         onClose: () => {
@@ -900,8 +1018,14 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
     refreshTray();
     refreshLog();
-    setTurnUI();
+    setTurnUI(turn !== me);
     prefetchAnalysis();
+    /*
+     * 执黑时红方先行，开局这一手得由对手走。
+     * 原来的流程只有"我走完 → afterMove → 轮到对手"这一条路径，
+     * 开局没人触发，执黑就会卡在空棋盘上谁也不动。
+     */
+    if (turn !== me) setTimeout(() => afterMove(), 400);
 
     // 开发期测试钩子：3D 棋盘靠射线拾取，自动化测试没法算出格子的屏幕坐标，
     // 这里把内部动作直接暴露出来。生产构建里 import.meta.env.DEV 为 false，整块会被摇掉。
@@ -918,7 +1042,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         /** 把一手棋转成中文记谱，测试拿它和教练的推荐对字符串 */
         textOf: (m: Move) => moveToText(board, m),
         /** 当前的引擎分析有没有就绪，测试用它避免抢跑 */
-        analysisReady: () => analysisFor === toFen(board, 'r') && !!analysis,
+        analysisReady: () => analysisFor === toFen(board, me) && !!analysis,
         /** 内部状态，排查"点了没反应"用 */
         state: () => ({ busy, over, turn, selected, tip: !!closeCoachPrompt }),
         fen: () => toFen(board, turn),

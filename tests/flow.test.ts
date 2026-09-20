@@ -18,7 +18,7 @@ import { applyMove, initialBoard, legalMoves, statusAfter, type Board, type Colo
 import { bestMove, judgeMove, resetEngine } from '../src/xiangqi/ai';
 import { headlineOf, reviewMove, summarize, tagCounts } from '../src/xiangqi/analysis';
 import { archiveFromBoard, clearArchive, getGame, listGames, openGame, setGameReview } from '../src/xiangqi/archive';
-import { buildProfile, trainingFocus } from '../src/xiangqi/insight';
+import { behaviourOf, buildProfile, trainingFocus } from '../src/xiangqi/insight';
 import { checkMove, getHintLevel, warnText } from '../src/xiangqi/livecoach';
 import { factsFor } from '../src/xiangqi/chat';
 import { offlineText, verifyExplanation } from '../src/xiangqi/llm';
@@ -392,5 +392,40 @@ describe('整套闭环：实战 → 找问题 → 出题 → 训练 → 再实�
     // 7. 教练回答基于以上全部真实数据，且不编棋
     const f = factsFor({ side: '红', stats: { ...rep.stats.r, won: result === 'win' } }, '我最近常犯什么错？');
     expect(verifyExplanation(offlineText(f), f).ok).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+describe('执黑也要走得通——整条链路原来都假设"我"是红方', () => {
+  it('执黑下一盘：存档、复盘、行为统计都按黑方算', () => {
+    // 红方（对手）先行
+    const { moves } = playGame((b) => bestMove(b, 'r', 2, 0, 50) ?? legalMoves(b, 'r')[0], { maxPlies: 20 });
+    const id = archiveFromBoard(initialBoard(), 'r', moves, {
+      side: 'b', // 我执黑
+      result: 'loss',
+      level: '中级',
+    });
+    const g = getGame(id)!;
+    expect(g.side).toBe('b');
+
+    // 起手方仍然是红（棋规），但"我"是黑方
+    const opened = openGame(g)!;
+    expect(opened.startColor).toBe('r');
+
+    // 行为统计要从黑方视角数
+    const bh = behaviourOf(opened.start, opened.moves, opened.startColor, 'b');
+    const rh = behaviourOf(opened.start, opened.moves, opened.startColor, 'r');
+    expect(bh.plies + rh.plies).toBe(moves.length);
+    // 黑方后行，手数最多和红方一样多
+    expect(bh.plies).toBeLessThanOrEqual(rh.plies);
+  });
+
+  it('执黑的复盘按黑方视角挑"你最该改的一手"', () => {
+    const { moves } = playGame((b) => bestMove(b, 'r', 1, 200, 40) ?? legalMoves(b, 'r')[0], { maxPlies: 20 });
+    const rep = reviewGame(initialBoard(), moves);
+    // 黑方的统计只数黑方走的手
+    const blackPlies = rep.moves.filter((m) => m.color === 'b').length;
+    expect(rep.stats.b.total).toBe(blackPlies);
+    if (rep.worst.b >= 0) expect(rep.moves[rep.worst.b].color).toBe('b');
   });
 });

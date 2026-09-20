@@ -21,7 +21,8 @@
     "test:ui:doudizhu": "node tests/ui/doudizhu.mjs",
     "test:ui:deep": "node tests/ui/deep-coach.mjs",
     "test:ui:reach": "node tests/ui/reach.mjs",
-    "test:ui:consistency": "node tests/ui/coach-consistency.mjs"
+    "test:ui:consistency": "node tests/ui/coach-consistency.mjs",
+    "test:ui:side": "node tests/ui/side-and-hint.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"
