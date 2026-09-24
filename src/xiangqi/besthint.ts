@@ -5,25 +5,36 @@
  * 两者用的是同一套引擎和同一套梯次，所以不会出现"求助说走这里、
  * 走完教练又说不行"——那是这个项目已经栽过一次的坑。
  *
- * 强度上不省钱：用的是最高档的时间预算。你主动点了求助，等几秒换一个
- * 靠得住的答案是划算的；给个半秒算出来的"最优解"反而是害人。
+ * 数据来自对局里的"研究"（study.ts）——和教练是同一份。你想棋的时候它已经在算了，
+ * 所以多数时候一点开就是算完的结果；还没算完就边算边显示，并且标明"还在算"。
  */
 import type { Board, Color, Move } from './rules';
-import { requestAnalysis } from './aiclient';
-import { TIER_INFO, rankMoves, type RankedMove } from './tiers';
-
-/** 求助用的搜索预算。和最高难度同一档——既然是"最优解"，就别打折 */
-export const HINT_BUDGET = { maxDepth: 64, timeMs: 6500, jitter: 0 };
+import type { MoveScore } from './ai';
+import { TIER_INFO, gapText, rankMoves, type RankedMove } from './tiers';
 
 export interface HintResult {
   ranked: RankedMove[];
   best: RankedMove | null;
 }
 
-export async function askBest(board: Board, me: Color): Promise<HintResult> {
-  const moves = await requestAnalysis(board, me, HINT_BUDGET);
+/** 把研究的着法表整理成求助要显示的样子 */
+export function hintOf(board: Board, me: Color, moves: MoveScore[]): HintResult {
   const ranked = rankMoves(board, me, moves);
   return { ranked, best: ranked[0] ?? null };
+}
+
+/** 求助面板当前的状态：算到第几层、算完没有、有没有要额外交代的话 */
+export interface HintState {
+  depth: number;
+  done: boolean;
+  /** 附加说明，比如"刚才教练提醒过这一手，算深之后改判了" */
+  note?: string;
+  /**
+   * 开局定式的着法。引擎认为它和首选一样好（分差在"次选"以内）时，
+   * 面板**以定式为主**：开局阶段前几名只差十几分，那是误差，不是棋理。
+   * 第一步就推荐"炮八平三"这种冷门棋，懂棋的人一看就觉得不专业。
+   */
+  book?: { move: Move; text: string; why: string; opening: string };
 }
 
 export interface BestHintUI {
@@ -46,7 +57,7 @@ const ARROW_COLORS = ['rgba(62,196,109,0.95)', 'rgba(232,200,90,0.75)', 'rgba(15
  *   一句话     —— 最优是哪一手、它想干什么
  *   完整梯次   —— 展开看全部选择和各自差多少
  */
-export function showBestHint(opts: BestHintUI): { update: (r: HintResult) => void; close: () => void } {
+export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: HintState) => void; close: () => void } {
   const el = document.createElement('div');
   el.className = 'xq-tip xq-besthint';
   el.innerHTML = `
@@ -54,6 +65,7 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult) => voi
       <span class="xq-tip-icon">🔍</span>
       <span class="xq-tip-text">正在算这个局面的最优解…</span>
     </div>
+    <div class="xq-tip-status"></div>
     <div class="xq-tip-why"></div>
     <div class="xq-tip-bar">
       <button class="xq-btn" data-act="more">看完整梯次</button>
@@ -62,6 +74,7 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult) => voi
   opts.host.appendChild(el);
   const elText = el.querySelector('.xq-tip-text') as HTMLElement;
   const elWhy = el.querySelector('.xq-tip-why') as HTMLElement;
+  const elStatus = el.querySelector('.xq-tip-status') as HTMLElement;
   const elMore = el.querySelector('[data-act="more"]') as HTMLButtonElement;
   elMore.disabled = true;
 
@@ -83,27 +96,43 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult) => voi
     }
   });
 
-  const update = (r: HintResult) => {
+  const update = (r: HintResult, st: HintState) => {
     latest = r;
+    // 算到第几层要摆出来：没算完的"最优"只是目前的看法，用户有权知道
+    elStatus.textContent = st.done ? `已算完 ${st.depth} 层` : `已算 ${st.depth} 层，还在往深算…（结论可能还会变）`;
     if (!r.best) {
       elText.textContent = '这个局面已经没有可走的棋了。';
       return;
     }
-    // 盘上画出前三手
-    opts.board.setArrows(
-      r.ranked.slice(0, 3).map((x, i) => ({ ...x.move, color: ARROW_COLORS[i] })),
-    );
-    opts.board.select({ x: r.best.move.fx, y: r.best.move.fy });
-    const alt = r.ranked.slice(1, 3).filter((x) => x.gap <= 30);
-    elText.innerHTML =
-      `最优是 <b>${r.best.text}</b>${r.best.why ? `（${r.best.why}）` : ''}。` +
-      (alt.length ? `　<span class="dim">${alt.map((a) => a.text).join('、')} 也一样好。</span>` : '');
+    const same = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
+    const bookAt = st.book ? r.ranked.find((x) => same(x.move, st.book!.move)) : undefined;
+    const lead = st.book && bookAt && (bookAt.tier === 'best' || bookAt.tier === 'good') ? bookAt : null;
+    // 盘上画出前三手（定式领衔时，定式排第一）
+    const shown = lead ? [lead, ...r.ranked.filter((x) => x !== lead)] : r.ranked;
+    opts.board.setArrows(shown.slice(0, 3).map((x, i) => ({ ...x.move, color: ARROW_COLORS[i] })));
+    opts.board.select({ x: shown[0].move.fx, y: shown[0].move.fy });
+    const lost = r.best.score < -9000;
+    if (lead && st.book) {
+      const others = r.ranked.filter((x) => x !== lead && x.gap <= 30).slice(0, 2);
+      elText.innerHTML =
+        `开局按定式走 <b>${lead.text}</b>（${st.book.opening}：${st.book.why.replace(/。$/, '')}）。` +
+        (others.length
+          ? `　<span class="dim">引擎算下来 ${others.map((a) => a.text).join('、')} 也差不多——分差都在 30 以内，开局阶段这点差别是误差，先把定式走熟。</span>`
+          : '') +
+        (st.note ? `<div class="xq-tip-note">${st.note}</div>` : '');
+    } else {
+      const alt = r.ranked.slice(1, 3).filter((x) => x.gap <= 30);
+      elText.innerHTML =
+        `${st.done ? '最优' : '目前看最好'}是 <b>${r.best.text}</b>${r.best.why ? `（${r.best.why}）` : ''}。` +
+        (lost ? '　<span class="dim">局面已经挡不住杀了，这是最顽强的一手。</span>' : '') +
+        (alt.length ? `　<span class="dim">${alt.map((a) => a.text).join('、')} 也一样好。</span>` : '') +
+        (st.note ? `<div class="xq-tip-note">${st.note}</div>` : '');
+    }
     elWhy.innerHTML = r.ranked
       .slice(0, 8)
       .map((x) => {
-        const gap = x.gap === 0 ? '' : x.gap >= 9999 ? '（首选是杀棋）' : `落后 ${x.gap}`;
         return `<div class="row"><i style="color:${TIER_INFO[x.tier].color}">${TIER_INFO[x.tier].name}</i>
-          <b>${x.text}</b> <span>${gap}</span>${x.why ? `<em>${x.why}</em>` : ''}</div>`;
+          <b>${x.text}</b> <span>${gapText(x)}</span>${x.why ? `<em>${x.why}</em>` : ''}</div>`;
       })
       .join('');
     elMore.disabled = false;

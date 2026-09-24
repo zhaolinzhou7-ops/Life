@@ -6,7 +6,7 @@
  * 除了对局求解，复盘也走这里：一盘 60 手要逐手搜索约 5 秒，同样不能占着主线程，
  * 而且复盘是**边算边出结果**的——每judge完一手就回一条，界面可以立刻显示进度。
  */
-import { analyze, think, judgeMove, type SearchOpts } from './ai';
+import { analyze, think, judgeMove, scoreMove, type SearchOpts } from './ai';
 import { applyMove, type Board, type Color, type Move } from './rules';
 
 export interface ThinkRequest {
@@ -41,7 +41,31 @@ export interface AnalyzeRequest {
   opts: SearchOpts;
 }
 
-export type AiRequest = ThinkRequest | ReviewRequest | AnalyzeRequest;
+/**
+ * 对局中的"研究"：轮到你走时，把这个局面一层一层往深算，每算完一层回一条。
+ *
+ * 教练判你这一手、🔍 求助给最优解，读的都是这一份——同一个局面只有一个裁判，
+ * 两边才不会一个说不行、一个说最好。
+ */
+export interface StudyRequest {
+  kind: 'study';
+  id: number;
+  board: Board;
+  color: Color;
+  opts: SearchOpts;
+}
+
+/** 只精确算一手（教练要拦的那一手） */
+export interface ScoreRequest {
+  kind: 'score';
+  id: number;
+  board: Board;
+  color: Color;
+  move: Move;
+  opts: SearchOpts;
+}
+
+export type AiRequest = ThinkRequest | ReviewRequest | AnalyzeRequest | StudyRequest | ScoreRequest;
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 
@@ -60,6 +84,21 @@ self.onmessage = (e: MessageEvent<AiRequest>) => {
       c = other(c);
     }
     post({ id, kind: 'review-done' });
+    return;
+  }
+
+  if (e.data.kind === 'score') {
+    const { id, board, color, move, opts } = e.data;
+    post({ id, kind: 'score', score: scoreMove(board, color, move, opts) });
+    return;
+  }
+
+  if (e.data.kind === 'study') {
+    const { id, board, color, opts } = e.data;
+    const a = analyze(board, color, opts, (step) => {
+      post({ id, kind: 'study-step', moves: step.moves, depth: step.depth });
+    });
+    post({ id, kind: 'study-done', moves: a.moves, depth: a.depth });
     return;
   }
 

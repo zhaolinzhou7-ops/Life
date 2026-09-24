@@ -12,13 +12,15 @@ const pending = new Map<number, (m: Move | null) => void>();
 /** 复盘是流式的：每算完一手回一次 onStep，全部算完回 onDone */
 const reviews = new Map<number, { onStep: ReviewStep; onDone: () => void }>();
 const analyses = new Map<number, (r: MoveScore[]) => void>();
+const scores = new Map<number, (r: MoveScore | null) => void>();
 let workerBroken = false;
 
 export type ReviewStep = (ply: number, color: Color, board: Board, judged: Judged | null) => void;
 
 interface WorkerMsg {
   id: number;
-  kind?: 'review-step' | 'review-done' | 'analysis';
+  kind?: 'review-step' | 'review-done' | 'analysis' | 'study-step' | 'study-done' | 'score';
+  score?: MoveScore | null;
   moves?: MoveScore[];
   move?: Move | null;
   ply?: number;
@@ -44,6 +46,12 @@ function ensureWorker(): Worker | null {
         cb?.(d.moves ?? []);
         return;
       }
+      if (d.kind === 'score') {
+        const cb = scores.get(d.id);
+        scores.delete(d.id);
+        cb?.(d.score ?? null);
+        return;
+      }
       if (d.kind === 'review-done') {
         const r = reviews.get(d.id);
         reviews.delete(d.id);
@@ -65,6 +73,8 @@ function ensureWorker(): Worker | null {
       reviews.clear();
       for (const [, cb] of analyses) cb([]);
       analyses.clear();
+      for (const [, cb] of scores) cb(null);
+      scores.clear();
       worker?.terminate();
       worker = null;
     };
@@ -203,11 +213,137 @@ export function requestAnalysis(board: Board, color: Color, opts: SearchOpts): P
   });
 }
 
+/**
+ * 精确算一手。走的是对手的搜索线程——轮到你走的时候它正闲着。
+ * 起不来 Worker 就返回 null（不在主线程上算，宁可说得粗一点也不能卡界面）。
+ */
+export function requestScore(board: Board, color: Color, move: Move, opts: SearchOpts): Promise<MoveScore | null> {
+  const w = ensureWorker();
+  if (!w) return Promise.resolve(null);
+  const id = ++seq;
+  return new Promise((resolve) => {
+    const guard = window.setTimeout(() => {
+      if (scores.delete(id)) resolve(null);
+    }, opts.timeMs + 4000);
+    scores.set(id, (r) => {
+      clearTimeout(guard);
+      resolve(r);
+    });
+    w.postMessage({ kind: 'score', id, board, color, move, opts });
+  });
+}
+
+/**
+ * 研究线程：专门给"轮到你走时算这个局面"用，和对手的搜索线程分开。
+ *
+ * 为什么要单独一条线程：
+ *   原来预分析和对手的搜索挤在同一个 Worker 里，Worker 是单线程的，
+ *   预分析没算完，对手的回手就得排队。于是预分析只敢给 900ms——
+ *   才四层，看不见三步以外的杀棋。教练拿四层的结果判"出将会丢兵"，
+ *   🔍 拿六秒半的结果说"出将是最优"，自己跟自己打架。
+ *   分开之后，研究可以放开算；你一落子就把它掐掉（terminate），
+ *   对手的搜索一点都不受影响。
+ */
+let studyWorker: Worker | null = null;
+let studyBusy = false;
+let studyBroken = false;
+let studyId = 0;
+let studyCb: { onStep: StudyStep; onDone: StudyStep } | null = null;
+
+export type StudyStep = (moves: MoveScore[], depth: number) => void;
+
+function ensureStudyWorker(): Worker | null {
+  if (studyBroken) return null;
+  if (studyWorker) return studyWorker;
+  try {
+    studyWorker = new Worker(new URL('./ai.worker.ts', import.meta.url), { type: 'module' });
+    studyWorker.onmessage = (e: MessageEvent<WorkerMsg & { depth?: number }>) => {
+      const d = e.data;
+      if (d.id !== studyId || !studyCb) return; // 过期研究的迟到消息
+      if (d.kind === 'study-step') studyCb.onStep(d.moves ?? [], d.depth ?? 0);
+      else if (d.kind === 'study-done') {
+        studyBusy = false;
+        const cb = studyCb;
+        studyCb = null;
+        cb.onDone(d.moves ?? [], d.depth ?? 0);
+      }
+    };
+    studyWorker.onerror = () => {
+      studyBroken = true;
+      studyBusy = false;
+      const cb = studyCb;
+      studyCb = null;
+      studyWorker?.terminate();
+      studyWorker = null;
+      cb?.onDone([], 0);
+    };
+    return studyWorker;
+  } catch {
+    studyBroken = true;
+    return null;
+  }
+}
+
+/**
+ * 开始研究一个局面。每算完一层调 onStep，算完调 onDone。返回取消函数。
+ *
+ * 同一时间只有一份研究：开新的会自动掐掉旧的。
+ * 掐的办法只能是 terminate——Worker 在同步搜索里收不到消息。
+ * 代价是置换表跟着没了，下一次研究冷启动；但只在"还没算完就换局面"时才发生。
+ */
+export function startStudy(
+  board: Board,
+  color: Color,
+  opts: SearchOpts,
+  onStep: StudyStep,
+  onDone: StudyStep,
+): () => void {
+  stopStudy();
+  const w = ensureStudyWorker();
+  const id = ++studyId;
+  if (!w) {
+    // 起不来 Worker：主线程上算一个很浅的版本，宁可浅也不能冻住界面
+    const t = window.setTimeout(() => {
+      if (id !== studyId) return;
+      const a = analyze(board, color, { ...opts, maxDepth: Math.min(opts.maxDepth, 4), timeMs: Math.min(opts.timeMs, 500) });
+      if (id !== studyId) return;
+      onStep(a.moves, a.depth);
+      onDone(a.moves, a.depth);
+    }, 0);
+    return () => {
+      clearTimeout(t);
+      if (id === studyId) studyId++;
+    };
+  }
+  studyBusy = true;
+  studyCb = { onStep, onDone };
+  w.postMessage({ kind: 'study', id, board, color, opts });
+  return () => {
+    if (id === studyId) stopStudy();
+  };
+}
+
+/** 停掉在跑的研究。已经算完（线程空闲）就留着线程，置换表还能接着用 */
+export function stopStudy() {
+  studyId++;
+  studyCb = null;
+  if (studyBusy) {
+    studyWorker?.terminate();
+    studyWorker = null;
+    studyBusy = false;
+  }
+}
+
 export function disposeAi() {
   worker?.terminate();
   worker = null;
   pending.clear();
   reviews.clear();
   analyses.clear();
+  scores.clear();
   workerBroken = false;
+  stopStudy();
+  studyWorker?.terminate();
+  studyWorker = null;
+  studyBroken = false;
 }

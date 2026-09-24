@@ -27,10 +27,11 @@ ok('走完之后轮到我（黑）', st.turn === 'b');
 await page.screenshot({path:OUT+'/side-black.png'});
 // 求助
 await page.locator('#xq-best').click();
-for (let i=0;i<40;i++){ const t = await page.locator('.xq-besthint .xq-tip-text').textContent().catch(()=>''); if(t && !t.includes('正在算')) break; await page.waitForTimeout(500); }
+// 求助读的是后台研究：没算完时显示"目前看最好是…（还在算）"，算完变成"最优是"
+for (let i=0;i<40;i++){ const t = await page.locator('.xq-besthint .xq-tip-status').textContent().catch(()=>''); if(t && t.includes('已算完')) break; await page.waitForTimeout(500); }
 const hint = (await page.locator('.xq-besthint .xq-tip-text').textContent()) ?? '';
 console.log('   求助结果：' + hint.trim().slice(0,80));
-ok('求助给出了最优解', hint.includes('最优是'));
+ok('求助给出了最优解（中局是"最优是"，定式局面是"按定式走"）', hint.includes('最优是') || hint.includes('按定式走'));
 const arrows = await page.evaluate(()=>!!document.querySelector('.xq-boardwrap canvas'));
 ok('棋盘还在（箭头画在画布上）', arrows);
 await page.screenshot({path:OUT+'/side-hint.png'});

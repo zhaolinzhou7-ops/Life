@@ -3902,3 +3902,102 @@ canvas {
   font-size: 12px;
   line-height: 1.6;
 }
+
+/* ---------- 和棋徽章 ---------- */
+.xq-result-badge.draw {
+  color: #cfd8dc;
+  text-shadow: 0 0 22px rgba(180, 200, 215, 0.55), 0 4px 10px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- 底部操作条：悔棋 / 求和 / 认输 / 重开 ---------- */
+.xq-bar {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 0 10px;
+  z-index: 12;
+}
+.xq-bar .xq-btn {
+  padding: 8px 4px;
+  font-size: 12.5px;
+  border-radius: 12px;
+  text-align: center;
+}
+.xq-bar .xq-btn:disabled { opacity: 0.55; }
+
+/* ---------- 教练状态行 ---------- */
+/* 一直占着一行：只换内容不隐藏，不然棋盘会上下跳 */
+.xq-coachline {
+  flex: none;
+  margin: 0 10px;
+  min-height: 20px;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 4px 10px;
+  border-radius: 9px;
+  color: rgba(240, 230, 210, 0.78);
+  background: rgba(255, 255, 255, 0.04);
+  z-index: 12;
+}
+.xq-coachline.idle { color: rgba(240, 230, 210, 0.38); background: transparent; }
+.xq-coachline.warn { color: #ffd2a6; background: rgba(224, 107, 58, 0.16); border: 1px solid rgba(224, 107, 58, 0.35); }
+.xq-coachline.good { color: #b9f2cb; background: rgba(62, 196, 109, 0.14); border: 1px solid rgba(62, 196, 109, 0.3); }
+
+/* 教练提示条：算到第几层 + 改判后的放行样式 */
+.xq-tip-status {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: rgba(240, 230, 210, 0.45);
+}
+.xq-tip-status:empty { display: none; }
+.xq-tip.ok { border-color: rgba(62, 196, 109, 0.6); }
+.xq-tip.ok .xq-tip-bar .xq-btn.primary {
+  background: linear-gradient(180deg, #37a862, #23804a);
+}
+.xq-tip-note {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: rgba(240, 230, 210, 0.78);
+}
+
+/* 复盘：教练拦过的那几手 */
+.xq-rv-flag {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #ffe2bf;
+  background: rgba(224, 163, 61, 0.12);
+  border: 1px solid rgba(224, 163, 61, 0.3);
+}
+.xq-rv-item .f { font-size: 11px; margin-left: 2px; }
+
+@media (max-height: 700px) {
+  .xq-bar .xq-btn { padding: 6px 4px; }
+  .xq-coachline { font-size: 11.5px; padding: 3px 8px; }
+}
+
+/* 矮屏（360×640 这类）：对手框压到了棋盘左上角，黑方的车马象被盖住。
+   把对手框缩成一颗小胶囊，并且给它在棋盘上方留出位置，而不是浮在棋盘上。 */
+@media (max-height: 760px) {
+  .xq-rivalbox { padding: 3px 10px 3px 3px; gap: 6px; }
+  .xq-rivalbox canvas { width: 34px !important; height: 34px !important; }
+  .xq-rivalbox .info b { font-size: 12.5px; }
+  .xq-rivalbox .info span { display: none; }
+  .xq-play { top: 96px; gap: 7px; }
+  /* 对手说话的气泡放到对手框右边，留在棋盘上方那条空地里，不压棋子 */
+  .xq-bubble {
+    top: calc(env(safe-area-inset-top) + 54px);
+    left: 118px;
+    max-width: calc(100vw - 128px);
+    padding: 6px 10px;
+    font-size: 12.5px;
+  }
+}
+
+/* 复盘时操作条和教练行都用不上，让位给复盘面板 */
+.xq-root:has(.xq-rv) .xq-bar,
+.xq-root:has(.xq-rv) .xq-coachline { display: none; }

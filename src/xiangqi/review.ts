@@ -15,6 +15,7 @@ import {
   GRADE_LABEL,
   GRADE_COLOR,
   type GameReview,
+  type Judged,
   type ReviewedMove,
 } from './analysis';
 import { setGameReview } from './archive';
@@ -25,6 +26,8 @@ import { mdToHtml } from './livecoach';
 import type { BoardView } from './boardview';
 import { toFen } from './notation';
 import { addOwnPuzzle, recordGame } from './save';
+
+const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 
 /** 复盘搜索深度：和对局难度无关，复盘永远用同一把尺子量 */
 const REVIEW_DEPTH = 6;
@@ -45,11 +48,20 @@ export interface ReviewOpts {
    * 首页的"最近棋局"才能显示"这盘错在哪"，而不是只有一个日期。
    */
   archiveId?: string;
+  /**
+   * 对局里教练已经算过的判读（第几手 → 当时的研究结果）。
+   * 比复盘自己算得深的就直接用：同一手棋，对局里教练怎么说、复盘就怎么说，
+   * 不能对局里说"没问题"、复盘又打成"失误"。
+   */
+  known?: Map<number, Judged>;
+  /** 教练拦过、你坚持走了的那几手（第几手 → 教练当时的话） */
+  coachFlags?: Map<number, string>;
   onClose: () => void;
 }
 
 export function runReview(opts: ReviewOpts): () => void {
   const { host, scene, startBoard, startColor, moves, playerColor, playerWon, archiveId, onClose } = opts;
+  const coachFlags = opts.coachFlags ?? new Map<number, string>();
 
   // 每一手走之前的局面，导航时直接取用
   const boards: Board[] = [startBoard];
@@ -123,6 +135,7 @@ export function runReview(opts: ReviewOpts): () => void {
         ${m.loss > 30 ? `<span class="xq-rv-loss">亏 ${m.loss}</span>` : ''}
       </div>
       <div class="xq-rv-comment">${m.comment}</div>
+      ${coachFlags.has(m.ply) ? `<div class="xq-rv-flag">🧑‍🏫 对局时教练拦过这一手，你选择了"就这么走"。教练当时说：${esc(coachFlags.get(m.ply)!)}</div>` : ''}
       ${m.bestPv ? `<div class="xq-rv-pv"><span>正确下法</span>${m.bestPv.join(' ')}</div>` : ''}
       <button class="xq-rv-deep" data-deep="${cursor}">🔍 从全局讲讲这一手</button>
       <div class="xq-rv-deepbox"></div>`;
@@ -138,6 +151,7 @@ export function runReview(opts: ReviewOpts): () => void {
           data-i="${i}" style="--g:${GRADE_COLOR[m.grade]}">
           <span class="n">${Math.floor(m.ply / 2) + 1}${m.color === startColor ? '.' : '…'}</span>
           <span class="t">${m.text}</span>
+          ${coachFlags.has(m.ply) ? '<span class="f" title="教练拦过">🧑‍🏫</span>' : ''}
           ${bad ? `<span class="g">${GRADE_LABEL[m.grade]}</span>` : ''}
         </button>`;
       })
@@ -280,8 +294,12 @@ export function runReview(opts: ReviewOpts): () => void {
     moves,
     { maxDepth: REVIEW_DEPTH, timeMs: REVIEW_TIME, jitter: 0 },
     (ply, color, board, judged) => {
-      if (judged) {
-        reviewed.push(reviewMove(board, ply, color, judged));
+      const k = opts.known?.get(ply);
+      // 对局里的判读只在"精确、且不比复盘浅"时才用。只有下限的（差得太多、没精确算）
+      // 交给复盘自己算——拿下限当亏损，丢车的棋会被评成"不佳"
+      const use = k && !k.played.bound && (!judged || k.depth >= judged.depth) ? k : judged;
+      if (use) {
+        reviewed.push(reviewMove(board, ply, color, use));
       }
       elProgress.textContent = `分析中 ${ply + 1}/${moves.length}`;
       renderList();

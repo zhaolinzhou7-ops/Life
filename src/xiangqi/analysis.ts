@@ -71,7 +71,8 @@ export const FLIP_LABEL: Record<Flip, string> = {
 /** 引擎对一手棋的原始判读（由 ai.judgeMove 提供，这里只声明形状避免循环依赖） */
 export interface Judged {
   best: { move: Move; score: number; mateIn?: number; pv: Move[] };
-  played: { move: Move; score: number; mateIn?: number; pv: Move[] };
+  /** bound = 分数只是上限（引擎只证明了"至少差这么多"），复盘不能拿它当精确亏损 */
+  played: { move: Move; score: number; mateIn?: number; pv: Move[]; bound?: boolean };
   depth: number;
 }
 

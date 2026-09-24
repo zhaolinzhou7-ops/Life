@@ -808,6 +808,25 @@ export interface SearchOpts {
   timeMs: number;
   /** 评估扰动幅度，低难度用来"看走眼" */
   jitter: number;
+  /**
+   * 只给分析用：比最好的一手差出这么多分以上的着法，不再精确打分，只证明"它至少差这么多"。
+   *
+   * 分析要给每一手打**准确**分数，根节点只能全窗口逐个搜，比只找最佳着法的
+   * think 慢得多——同样 6.5 秒，think 能到 10 层，全窗口分析只到 7 层。
+   * 可一手丢车的棋到底差 900 还是差 1100，对教练和梯次毫无意义：它就是"劣"。
+   * 给这类着法只做一次便宜的试探（证明它低于门槛就停），省下来的时间换深度。
+   * 不传 = 全部精确（离线出题的工具要比较次优解，保持原行为）。
+   */
+  margin?: number;
+  /**
+   * 根节点不许走的着法。
+   *
+   * 搜索只看得见自己搜索树里的重复，看不见**对局历史**。
+   * 于是它会在占优时走回老局面（三次重复就判和了，白白送掉一盘赢棋），
+   * 或者一直将军（长将按棋规要判负）。对局层知道历史，把这些着法挑出来传进来。
+   * 全部被禁时忽略这一项——没棋可走比重复更糟。
+   */
+  avoid?: Move[];
 }
 
 /** 把界面用的 Board 装载进扁平棋盘 */
@@ -856,6 +875,11 @@ export function think(b: Board, color: Color, opts: SearchOpts): Move | null {
     unmakeMove(m, 0);
   }
   if (roots.length === 0) return null;
+  if (opts.avoid?.length) {
+    const banned = new Set(opts.avoid.map((a) => mk(a.fy * COLS + a.fx, a.ty * COLS + a.tx)));
+    const kept = roots.filter((m) => !banned.has(m));
+    if (kept.length) roots.splice(0, roots.length, ...kept);
+  }
   if (roots.length === 1) { lastSearch.depth = 0; lastSearch.nodes = 0; return toMove(roots[0]); }
 
   let best = roots[0];
@@ -933,6 +957,11 @@ export interface MoveScore {
   move: Move;
   /** 走子方视角，单位与子力价值一致（兵=100，车=1000） */
   score: number;
+  /**
+   * score 只是**上限**：这一手比最好的差出了 margin 以上，没再精确算。
+   * 界面上要写成"差 600+"，不能写成一个精确数。
+   */
+  bound?: boolean;
   /** >0 = 走子方 n 回合内可将死对方；<0 = 走子方 n 回合内被将死 */
   mateIn?: number;
   /** 主变（这步之后双方的最佳应对） */
@@ -985,7 +1014,16 @@ function extractPv(first: number, maxLen: number): Move[] {
  * 分析当前局面，返回全部合法着法及其分数（从高到低）。
  * 没有合法着法（被将死或困毙）时返回空数组。
  */
-export function analyze(b: Board, color: Color, opts: SearchOpts): Analysis {
+export function analyze(
+  b: Board,
+  color: Color,
+  opts: SearchOpts,
+  /**
+   * 每算完一层回调一次。对局里的教练要**边算边用**：你落子那一刻手里有几层就用几层，
+   * 而不是等全部算完——那样你秒落子时教练什么都拿不到。
+   */
+  onDepth?: (a: Analysis) => void,
+): Analysis {
   load(b, color);
   deadline = Date.now() + opts.timeMs;
   stopped = false;
@@ -1006,34 +1044,100 @@ export function analyze(b: Board, color: Color, opts: SearchOpts): Analysis {
   }
   if (roots.length === 0) return { moves: [], depth: 0, nodes: 0 };
 
-  let scored: { m: number; v: number }[] = roots.map((m) => ({ m, v: 0 }));
+  let scored: { m: number; v: number; bound: boolean }[] = roots.map((m) => ({ m, v: 0, bound: false }));
+  const margin = opts.margin ?? Infinity;
+
+  const pack = (): Analysis => ({
+    moves: scored.map(({ m, v, bound }) => {
+      const pv = extractPv(m, 12);
+      const mate = mateDistance(v);
+      const r: MoveScore = { move: toMove(m), score: v, pv };
+      if (mate !== undefined) r.mateIn = mate;
+      if (bound) r.bound = true;
+      return r;
+    }),
+    depth: reachedDepth,
+    nodes,
+  });
 
   for (let d = 1; d <= opts.maxDepth; d++) {
-    const round: { m: number; v: number }[] = [];
+    const round: { m: number; v: number; bound: boolean }[] = [];
+    let top = -Infinity;
     // 上一轮的好棋先搜，置换表命中率高，深层更快
     for (const { m } of scored) {
       makeMove(m, 0);
-      const v = -negamax(d - 1, -Infinity, Infinity, 1, true);
+      // 下限 = 目前最好的分数 - margin。低于它的着法搜索会很快失败退出，
+      // 返回值（fail-soft）是个上限；高于它的照常得到精确分。上限开着（+∞），
+      // 所以比当前最好还好的着法也是精确的，不会被截断。
+      const floor = top === -Infinity || margin === Infinity ? -Infinity : top - margin;
+      let v = -negamax(d - 1, -Infinity, -floor, 1, true);
+      const bound = floor !== -Infinity && v <= floor;
+      // 第二道门槛：再用零窗口试一次"是不是差出了一个车"。
+      // 只有第一道门槛的话，丢车的棋也只能说"至少差 300"——教练会说成"少 3 个兵以上"，
+      // 比真相轻得多。零窗口试探很便宜（精确算一遍的话，对攻局面里多出来的两层就全赔回去了）。
+      if (bound && !stopped) {
+        const floor2 = top - Math.max(margin * 3, 900);
+        if (v > floor2) {
+          const v2 = -negamax(d - 1, -floor2 - 1, -floor2, 1, true);
+          if (!stopped && v2 <= floor2) v = Math.min(v, v2);
+        }
+      }
       unmakeMove(m, 0);
       if (stopped) break;
-      round.push({ m, v });
+      round.push({ m, v, bound });
+      if (!bound && v > top) top = v;
     }
     if (round.length < scored.length) break; // 这一轮没搜完，丢弃，用上一轮的结果
     round.sort((a, c) => c.v - a.v);
     scored = round;
     reachedDepth = d;
+    if (onDepth) onDepth(pack());
     if (Date.now() > deadline) break;
+    // 首选已经是杀棋、而且杀得比搜索深度还短：再往深算结论也不会变
+    const lead = scored[0].v;
+    if (Math.abs(lead) > MATE - 200 && MATE - Math.abs(lead) < d) break;
   }
 
-  return {
-    moves: scored.map(({ m, v }) => {
-      const pv = extractPv(m, 12);
-      const mate = mateDistance(v);
-      return mate === undefined ? { move: toMove(m), score: v, pv } : { move: toMove(m), score: v, mateIn: mate, pv };
-    }),
-    depth: reachedDepth,
-    nodes,
-  };
+  return pack();
+}
+
+/**
+ * 只精确算一手棋。
+ *
+ * 分析为了省时间，对差得很多的着法只证明"至少差这么多"。平时够用，但教练真要拦下
+ * 这一手时，"至少少一个车"和"两步之内被将死"是两回事——后者才是真相，也是复盘会说的话。
+ * 这时候只给这一手补一次全窗口搜索：一手棋，代价很小。
+ */
+export function scoreMove(b: Board, color: Color, mv: Move, opts: SearchOpts): MoveScore | null {
+  load(b, color);
+  deadline = Date.now() + opts.timeMs;
+  stopped = false;
+  nodes = 0;
+  reachedDepth = 0;
+  ttGen = (ttGen + 1) & 127;
+  killers.fill(0);
+  const m = mk(mv.fy * COLS + mv.fx, mv.ty * COLS + mv.tx);
+  const me = side;
+  makeMove(m, 0);
+  if (inCheck(me)) {
+    unmakeMove(m, 0);
+    return null;
+  }
+  let got: number | null = null;
+  for (let d = 1; d <= opts.maxDepth; d++) {
+    const v = -negamax(d - 1, -Infinity, Infinity, 1, true);
+    if (stopped) break;
+    got = v;
+    reachedDepth = d;
+    if (Date.now() > deadline) break;
+    if (Math.abs(v) > MATE - 200 && MATE - Math.abs(v) < d) break;
+  }
+  unmakeMove(m, 0);
+  if (got === null) return null;
+  const r: MoveScore = { move: toMove(m), score: got, pv: extractPv(m, 12) };
+  const mate = mateDistance(got);
+  if (mate !== undefined) r.mateIn = mate;
+  return r;
 }
 
 /**

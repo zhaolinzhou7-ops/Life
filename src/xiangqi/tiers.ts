@@ -54,6 +54,15 @@ export interface RankedMove {
   line: string[];
   /** 这一手在棋理上做了什么（来自评估分项的变化） */
   why: string;
+  /** gap 只是下限（引擎只证明了"至少差这么多"），显示成"落后 600+" */
+  atLeast?: boolean;
+}
+
+/** 分差的显示：精确的写数字，只有下限的写"N+" */
+export function gapText(r: { gap: number; atLeast?: boolean }): string {
+  if (r.gap === 0) return '';
+  if (r.gap >= 9999) return '（首选是杀棋）';
+  return `落后 ${r.gap}${r.atLeast ? '+' : ''}`;
 }
 
 /** 杀棋分在四万以上，不能拿它做减法 */
@@ -124,7 +133,7 @@ function diffTerms(a: Int32Array, b: Int32Array, me: Color): string {
 export function rankMoves(
   before: Board,
   me: Color,
-  scored: { move: Move; score: number; pv: Move[] }[],
+  scored: { move: Move; score: number; pv: Move[]; bound?: boolean }[],
   limit = 999,
 ): RankedMove[] {
   if (!scored.length) return [];
@@ -168,6 +177,7 @@ export function rankMoves(
        * 不依赖任何比较基准，说出来永远成立。
        */
       why: idx < 6 ? intentNames(before, s.move, me) : '',
+      atLeast: s.bound && gap < 9999 ? true : undefined,
     };
   });
 }
@@ -203,7 +213,7 @@ export function tierTable(ranked: RankedMove[], played?: Move, top = 6): string[
   if (mineIdx >= top) shown.push(ranked[mineIdx]);
   return shown.map((r) => {
     const mine = isPlayed(r);
-    const gap = r.gap === 0 ? '' : r.gap >= 9999 ? '（首选是杀棋）' : `落后 ${r.gap}`;
+    const gap = gapText(r);
     const skip = mineIdx >= top && r === ranked[mineIdx] && mineIdx > top ? `　（第 ${mineIdx + 1} 名）` : '';
     return `${TIER_INFO[r.tier].name}　**${r.text}**　${gap}${skip}${mine ? '　← 你走的' : ''}${r.why ? `\n　　${r.why}` : ''}`;
   });
