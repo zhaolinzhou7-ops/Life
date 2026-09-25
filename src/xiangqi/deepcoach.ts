@@ -29,7 +29,7 @@ import {
 import { PIECE_VALUE, hangingPieces, inPieces, mateInOne, moveRisk, other, seeAt, type Hanging } from './teach';
 import { moveToText, pieceName } from './notation';
 import { requestAnalysis } from './aiclient';
-import { engineAnalyse } from './fsf';
+import { engineAnalyse } from './pikafish';
 import { TIER_INFO, intentNames, placeInTiers, rankMoves, tierTable } from './tiers';
 import type { Facts } from './llm';
 

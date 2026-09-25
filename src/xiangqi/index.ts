@@ -14,13 +14,15 @@ import {
   type Move,
 } from './rules';
 import { disposeAi, requestMove, warmupAi } from './aiclient';
-import { engineBestMove, engineCapable, engineReady, loadEngine } from './fsf';
-import type { Judged } from './analysis';
+import { engineBestMove, engineCapable, engineReady, loadEngine } from './pikafish';
+import { MOVE_LABEL, labelOf, reviewMove, type Judged, type MoveLabel } from './analysis';
+import { GameAnalysis } from './gamescore';
+import { recentGameAccuracy } from './save';
 import { runReview } from './review';
 import { runCoach, type CoachEntry } from './coach';
 import { renderGameList, renderHome, renderLevel } from './home';
 import { fromFen } from './notation';
-import { archiveFromBoard, listGames as listArchived, openGame, type ArchivedGame } from './archive';
+import { archiveFromBoard, decodeMoves, encodeMoves, listGames as listArchived, openGame, type ArchivedGame } from './archive';
 import {
   HINT_LEVELS,
   getHintLevel,
@@ -40,7 +42,7 @@ import { initCoachProvider } from './llm';
 import { hintOf, showBestHint } from './besthint';
 import { bookMoves, isBookMove } from './book';
 import { TIER_INFO, gapText } from './tiers';
-import { Study } from './study';
+import { POWERS, Study, getPower, setPower, type Power } from './study';
 import {
   END_TEXT,
   MOVE_LIMIT,
@@ -101,9 +103,9 @@ const LEVELS = [
   { id: 2, name: '中级', desc: '有基本战术，抓得住你的漏着', depth: 64, jitter: 25, timeMs: 900 },
   { id: 3, name: '高级', desc: '不送子，会抓你的弱点', depth: 64, jitter: 0, timeMs: 1800 },
   { id: 4, name: '大师', desc: '抓杀抓子，很难占到他便宜', depth: 64, jitter: 0, timeMs: 2800 },
-  // 顶两档换专业引擎（Fairy-Stockfish）。浏览器跑不了时退回自家引擎，时间照旧
-  { id: 5, name: '特级大师', desc: '专业引擎，职业棋手的水准', depth: 64, jitter: 0, timeMs: 4500, fsfMs: 1500 },
-  { id: 6, name: '棋王', desc: '专业引擎全力以赴，几乎不犯错', depth: 64, jitter: 0, timeMs: 6500, fsfMs: 4000 },
+  // 顶两档换专业引擎（Pikafish 皮卡鱼）。浏览器跑不了时退回自家引擎，时间照旧
+  { id: 5, name: '特级大师', desc: '皮卡鱼引擎，每步 1.5 秒，职业棋手的水准', depth: 64, jitter: 0, timeMs: 4500, proMs: 1500 },
+  { id: 6, name: '棋王', desc: '皮卡鱼引擎全力，每步 5 秒，几乎不犯错', depth: 64, jitter: 0, timeMs: 6500, proMs: 5000 },
 ];
 
 export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void): () => void {
@@ -123,6 +125,58 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
   const unlock = () => unlockAudio();
   window.addEventListener('pointerdown', unlock, { once: true });
+
+  // ───────── 没下完的那一盘 ─────────
+  /*
+   * 每走一步就把这一盘存一份。手机浏览器切到后台一会儿就可能被系统回收页面，
+   * 刷新一下、手滑关掉也一样——下了三十步的棋不能就这么没了。
+   * 下完、认输、议和，或者你明确选了"退出，放弃这一局"，才删掉。
+   */
+  const ONGOING_KEY = 'xq-ongoing';
+  interface Ongoing {
+    ts: number;
+    level: number;
+    rival: string;
+    tempo: number;
+    me: Color;
+    /** 起始局面（含轮到谁走） */
+    start: string;
+    moves: string;
+    practice: boolean;
+  }
+  const readOngoing = (): Ongoing | null => {
+    try {
+      const o = JSON.parse(localStorage.getItem(ONGOING_KEY) || 'null') as Ongoing | null;
+      // 两个星期前的残局就别再提了
+      if (!o || !o.moves || Date.now() - o.ts > 14 * 864e5) return null;
+      return o;
+    } catch {
+      return null;
+    }
+  };
+  const clearOngoing = () => {
+    try {
+      localStorage.removeItem(ONGOING_KEY);
+    } catch {
+      /* 删不掉也无所谓 */
+    }
+  };
+  function resumeOngoing(o: Ongoing) {
+    const parsed = fromFen(o.start);
+    if (!parsed) {
+      clearOngoing();
+      showHome();
+      return;
+    }
+    const rival = CHARACTERS.find((c) => c.name === o.rival) ?? CHARACTERS[0];
+    clearAll();
+    startGame(o.level, rival, o.tempo, undefined, o.me, {
+      board: parsed.board,
+      turn: parsed.toMove,
+      moves: decodeMoves(o.moves),
+      practice: o.practice,
+    });
+  }
 
   const clearAll = () => {
     cleanupGame?.();
@@ -146,6 +200,17 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       onReview: (id) => showGameList(id),
       onLevel: () => showLevel(),
       onExit: () => onExit(false),
+      resume: (() => {
+        const o = readOngoing();
+        if (!o) return undefined;
+        const n = o.moves.length / 4;
+        const L = LEVELS[Math.max(0, Math.min(LEVELS.length - 1, o.level))];
+        return {
+          label: `已走 ${n} 步 · ${L.name} · 对手 ${o.rival} · 你执${o.me === 'r' ? '红' : '黑'}`,
+          go: () => resumeOngoing(o),
+          drop: clearOngoing,
+        };
+      })(),
     });
     setupEl = { remove: dispose } as unknown as HTMLElement;
   }
@@ -220,6 +285,15 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       playerColor: g.side,
       playerWon: g.result === 'win',
       archiveId: g.id,
+      // 已经复盘过（记过战绩）的就不再记——原来每打开一次就多记一盘，"我的水平"被重复计数
+      record: !g.review,
+      title: `中国象棋 · ${g.d} · 你执${g.side === 'r' ? '红' : '黑'} · ${g.result === 'win' ? '胜' : g.result === 'loss' ? '负' : '和'} · ${g.level}${g.rival ? ` · 对手 ${g.rival}` : ''}`,
+      onReplayFrom: (b, t) => {
+        clearAll();
+        const lv = Number(localStorage.getItem('xq-level') ?? 2);
+        const rv = Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length;
+        startGame(lv, CHARACTERS[rv], Number(localStorage.getItem('xq-tempo') ?? 1), undefined, g.side, { board: b, turn: t });
+      },
       onClose: () => {
         cleanupGame?.();
         showGameList();
@@ -241,6 +315,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let rival = Number(localStorage.getItem('xq-rival') ?? 2);
     let tempo = Math.max(0, Math.min(TEMPOS.length - 1, Number(localStorage.getItem('xq-tempo') ?? 1)));
     let hint: HintLevel = getHintLevel();
+    let power: Power = getPower();
     let sidePick = (localStorage.getItem('xq-side') ?? 'r') as 'r' | 'b' | 'x';
 
     const s = document.createElement('div');
@@ -368,6 +443,29 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       hNote.textContent = '教练不会替你走棋，也不拦着你——只在你要掉坑的时候说一句，走不走由你定。';
       s.appendChild(hNote);
 
+      // 算力：轮到你走时教练算多久。全力档你想多久它算多久，层数一直往上涨
+      const pLabel = document.createElement('div');
+      pLabel.className = 'xq-sec';
+      pLabel.textContent = '教练算力';
+      s.appendChild(pLabel);
+      const pRow = document.createElement('div');
+      pRow.className = 'diff-row';
+      POWERS.forEach((pw) => {
+        const c = document.createElement('div');
+        c.className = 'card' + (power === pw.id ? ' selected' : '');
+        c.innerHTML = `<div class="title" style="justify-content:center">${pw.name}</div>
+          <div class="desc" style="text-align:center">${pw.desc}</div>`;
+        c.onclick = () => { power = pw.id; setPower(pw.id); sfxTap(); render(); };
+        pRow.appendChild(c);
+      });
+      s.appendChild(pRow);
+      const pNote = document.createElement('div');
+      pNote.className = 'xq-note';
+      // 引擎是开源的 GPL 软件：用的是谁的、在哪能拿到源码，要让用户看得见
+      pNote.innerHTML =
+        '教练引擎：皮卡鱼 <a href="https://github.com/official-pikafish/Pikafish" target="_blank" rel="noopener">Pikafish</a>（开源，GPL-3.0）。全力档层数随时间一直涨，切到后台自动暂停。';
+      s.appendChild(pNote);
+
       const go = document.createElement('button');
       go.className = 'btn';
       go.textContent = '⚔️ 开始对弈';
@@ -406,7 +504,14 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     handicap?: { strip: number; depth: number; onFinish: (won: boolean) => void },
     /** 你执哪一方。不传默认执红 */
     myColor: Color = 'r',
+    /**
+     * 从一个现成的局面开始（复盘里"从这里重下"）。不传就是标准开局。
+     * 这种练习局不记进战绩：它不是一盘完整的棋，算进去会把你的平均水平搅浑。
+     */
+    from?: { board: Board; turn: Color; moves?: Move[]; practice?: boolean },
   ) {
+    /** 摆局练习（从复盘某一手接着下）：不记战绩。接着下一盘没下完的普通对局不算 */
+    const practice = from ? (from.practice ?? !from.moves) : false;
     /**
      * 你执哪一方、对手执哪一方。
      *
@@ -421,10 +526,12 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     // 夹一下：存档里可能留着旧版本的档位号。越界会让 L 变成 undefined，
     // 然后在读 L.depth 的时候整局白屏——为了省一行防御而白屏不值得。
     const L = LEVELS[Math.max(0, Math.min(LEVELS.length - 1, level))];
-    let board: Board = initialBoard();
+    let board: Board = from ? cloneBoard(from.board) : initialBoard();
+    /** 谁先走：标准开局红先；从复盘某一手接着下时，轮到谁就是谁 */
+    const startTurn: Color = from?.turn ?? 'r';
     // 让子：把黑方的马拿掉。让子是教练给学生定级最老实的办法——
     // 让你两个马能赢、让一个马赢不了，水平就卡在这两档之间。
-    if (handicap?.strip) {
+    if (handicap?.strip && !from) {
       // 让子拿掉的是**对手**的马，对手不一定是黑方
       const spots: [number, number][] = foe === 'b' ? [[1, 0], [7, 0]] : [[1, 9], [7, 9]];
       for (let i = 0; i < handicap.strip && i < spots.length; i++) {
@@ -447,8 +554,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let history: Board[] = [];
     /** 整盘的着法序列，复盘用。history 存的是局面，复盘要的是着法 */
     let moveLog: Move[] = [];
-    /** 红方永远先行，这是棋规；执黑时就是对手先走 */
-    let turn: Color = 'r';
+    /** 红方永远先行，这是棋规；执黑时就是对手先走。从复盘接着下时按那个局面 */
+    let turn: Color = startTurn;
     let busy = false;
     let over = false;
     let selected: { x: number; y: number } | null = null;
@@ -479,7 +586,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let moveToken = 0;
     /** 每一手走完之后的局面记录：重复局面、长将、自然限着都靠它 */
     let plies: PlyRecord[] = [];
-    let startKey = toFen(board, 'r');
+    let startKey = toFen(board, startTurn);
     /** 你每一手落子时引擎的判读。复盘直接用，保证复盘和对局里教练说的是同一套 */
     let bookAt = new Map<number, Judged>();
     /** 教练拦过、你坚持走了的那几手（第几手 → 教练当时的话），复盘里要标出来 */
@@ -497,7 +604,62 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     /** 这一局怎么结束的 */
     let ending: GameEnd | null = null;
     /** 对手上一步是哪个引擎走的（测试用：顶两档要确认真的换成了专业引擎） */
-    let lastAiEngine: 'fsf' | 'local' | null = null;
+    let lastAiEngine: 'pro' | 'local' | null = null;
+    /** 这一盘的逐手评分。棋一结束就在后台开算，结算页和复盘都读它 */
+    let gameAnalysis: GameAnalysis | null = null;
+    /** 对局中你每一手的即时称号（来自教练的研究），棋谱条上标出来 */
+    const liveMarks = new Map<number, MoveLabel>();
+
+    /** 每走一步存一份，页面被回收了还能接着下（让子定级局不存：它的结果要回交给定级流程） */
+    function saveOngoing() {
+      if (handicap || over) return;
+      try {
+        const o: Ongoing = {
+          ts: Date.now(),
+          level,
+          rival: rival.name,
+          tempo: tempoIdx,
+          me,
+          start: startKey,
+          moves: encodeMoves(moveLog),
+          practice,
+        };
+        localStorage.setItem(ONGOING_KEY, JSON.stringify(o));
+      } catch {
+        /* 存不下就算了：功能退化成"不能续下"，不影响这一盘 */
+      }
+    }
+
+    /** 棋一结束：开始给整盘逐手打分 */
+    function startAnalysis(playerWon: boolean) {
+      gameAnalysis?.cancel();
+      gameAnalysis = null;
+      if (moveLog.length < 2) return;
+      gameAnalysis = new GameAnalysis({
+        startBoard: cloneBoard(startSnapshot),
+        startColor: startTurn,
+        moves: moveLog.slice(),
+        playerColor: me,
+        playerWon,
+        archiveId: archivedId ?? undefined,
+        known: bookAt,
+        // 从复盘某一手接着下的练习局不记战绩
+        record: !practice,
+      });
+      gameAnalysis.subscribe((a) => {
+        if (a.done) refreshLog(); // 算完之后棋谱条换成整盘双方的称号
+      });
+    }
+
+    /**
+     * 这一盘不接着看了（重开、退出）。
+     * 专业引擎在另一条车道上算，让它算完——存档、战绩、错题本还等着它落地；
+     * 自家引擎会占着对手的搜索线程，只能停掉，不然下一盘对手的回手要排在一整盘复盘后面。
+     */
+    function releaseAnalysis() {
+      if (gameAnalysis && !gameAnalysis.done && gameAnalysis.engine !== 'pro') gameAnalysis.cancel();
+      gameAnalysis = null;
+    }
 
     const moveKey = (m: Move) => `${m.fx}${m.fy}${m.tx}${m.ty}`;
     const sameMove = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
@@ -510,6 +672,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       const s = new Study(board, me, { startFen: startKey, moves: moveLog.slice() });
       study = s;
       s.subscribe(() => onStudy(s));
+      if (document.hidden) s.pause(); // 对手在后台走完了这一步：先别算，等你回来
       return s;
     }
 
@@ -522,7 +685,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     function onStudy(s: Study) {
       if (s !== study || over || turn !== me) return;
       renderCoachLine();
-      if (s.done && !lostSaid && hintLevel > 0) {
+      // 算到有定论（够深）就可以说——全力档可能要算几分钟才"算完"，不能等到那时候
+      if (s.settled && !lostSaid && hintLevel > 0) {
         // 入门到中级的对手会看走眼（搜索带扰动），高级以上不会
         const t = lostNotice(board, s.moves, !handicap && L.jitter === 0);
         if (t) {
@@ -595,6 +759,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       if (!over && moveLog.length >= 4) {
         const ok = await askConfirm('退出会放弃这一局，不会记录。想留下记录的话，可以先认输再退出。', '退出', '接着下');
         if (!ok) return;
+        clearOngoing(); // 明确放弃了，首页就别再问"继续上一盘"
       }
       showSetup();
     };
@@ -737,7 +902,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       }
       const s = study && turn === me && !over && study.is(board, me) ? study : null;
       const depth = s ? ` · 已算 ${s.depth} 层${s.done ? '' : '…'}` : '';
-      const who = s ? (s.engine === 'fsf' ? ' · 专业引擎' : ' · 自带引擎') : '';
+      const who = s ? (s.engine === 'pro' ? ' · 专业引擎' : ' · 自带引擎') : '';
       coachLine.textContent = `🧑‍🏫 教练在看（${HINT_LEVELS[hintLevel].name}）${depth}${who}`;
     }
     function setCoachLine(text: string | null, kind: 'warn' | 'good' | 'info' = 'info', ms = 0) {
@@ -819,14 +984,36 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       elBal.className = `bal ${bal > 0 ? 'up' : bal < 0 ? 'down' : ''}`;
     }
 
+    /** 第 i 手的称号：整盘算完就用复盘的；对局中只给你自己的，来自教练当时的研究 */
+    function markOf(i: number, before: Board, color: Color): MoveLabel | null {
+      const a = gameAnalysis;
+      if (a?.done && a.reviewed[i]) return labelOf(a.reviewed[i]);
+      if (color !== me) return null;
+      const hit = liveMarks.get(i);
+      if (hit) return hit;
+      const j = bookAt.get(i);
+      if (!j || j.played.bound) return null;
+      const lb = labelOf(reviewMove(before, i, color, j));
+      liveMarks.set(i, lb);
+      return lb;
+    }
+
     /** 棋谱：一行横着滚，永远把最新一手滚到眼前 */
     function refreshLog() {
       let cur: Board = startSnapshot;
       const parts: string[] = [];
+      const offset = startTurn === 'b' ? 1 : 0;
       moveLog.forEach((m, i) => {
+        const j = i + offset;
+        const color: Color = j % 2 === 0 ? 'r' : 'b';
         const txt = moveToText(cur, m);
-        if (i % 2 === 0) parts.push(`<b>${i / 2 + 1}.</b>`);
-        parts.push(`<span class="${i % 2 === 0 ? 'r' : 'b'}">${txt}</span>`);
+        if (j % 2 === 0) parts.push(`<b>${j / 2 + 1}.</b>`);
+        else if (i === 0) parts.push('<b>1.</b>…');
+        // 每一手的称号：对局中只有你自己的（教练的研究给的），整盘算完后双方都有
+        const lb = markOf(i, cur, color);
+        const mk = lb ? MOVE_LABEL[lb] : null;
+        const sym = mk && mk.sym && lb !== 'top' ? mk.sym : '•';
+        parts.push(`<span class="${color}">${txt}${mk ? `<i class="mk" style="color:${mk.color}" title="${mk.name}">${sym}</i>` : ''}</span>`);
         cur = applyMove(cur, m);
       });
       elLog.innerHTML = parts.length ? parts.join('') : '<span class="none">棋谱会显示在这里</span>';
@@ -1250,7 +1437,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       const idx = s.moves.findIndex((x) => sameMove(x.move, m));
       if (idx < 0) return;
       const best = s.moves[0];
-      bookAt.set(ply, { best, played: s.moves[idx], depth: s.depth, engine: s.engine });
+      const runnerUp = s.moves[1] && !s.moves[1].bound ? s.moves[1].score : undefined;
+      bookAt.set(ply, { best, played: s.moves[idx], depth: s.depth, engine: s.engine, second: runnerUp });
       if (hintLevel < 2 || ply - praisedAt < 6) return;
       const after = applyMove(board, m);
       if (threatAtTurn && !mateInOne(after, foe) && idx <= 2) {
@@ -1284,6 +1472,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       board = applyMove(board, m);
       turn = turn === 'r' ? 'b' : 'r';
       plies.push({ key: toFen(board, turn), mover: mover.c, check: isInCheck(board, turn), capture: captured });
+      saveOngoing();
       scene.hideCheck();
       scene.animateMove(m, () => {
         if (captured) {
@@ -1345,11 +1534,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
             timeMs: handicap ? 2000 : L.timeMs,
             avoid,
           });
-        const fsfMs = !handicap && 'fsfMs' in L ? (L.fsfMs as number) : 0;
+        const proMs = !handicap && 'proMs' in L ? (L.proMs as number) : 0;
         const pick: Promise<Move | null> =
-          fsfMs && engineReady()
-            ? engineBestMove(board, foe, fsfMs, { startFen: startKey, moves: moveLog.slice() }, avoid).then((m) => {
-                lastAiEngine = m ? 'fsf' : 'local';
+          proMs && engineReady()
+            ? engineBestMove(board, foe, proMs, { startFen: startKey, moves: moveLog.slice() }, avoid).then((m) => {
+                lastAiEngine = m ? 'pro' : 'local';
                 return m ?? local();
               })
             : ((lastAiEngine = 'local'), local());
@@ -1391,6 +1580,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       // 悔掉的那几手，留下的判读和"没听劝"的标记都不作数了
       for (const k of [...bookAt.keys()]) if (k >= moveLog.length) bookAt.delete(k);
       for (const k of [...coachFlags.keys()]) if (k >= moveLog.length) coachFlags.delete(k);
+      for (const k of [...liveMarks.keys()]) if (k >= moveLog.length) liveMarks.delete(k);
+      // 结束之后又悔棋接着下：那份整盘评分对应的是一盘没下完的棋，作废
+      gameAnalysis?.cancel();
+      gameAnalysis = null;
       turn = me;
       over = false;
       ending = null;
@@ -1405,6 +1598,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       scene.syncBoard(board);
       setTurnUI();
       prepareTurn();
+      saveOngoing();
     }
 
     function restart() {
@@ -1416,6 +1610,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       plies = [];
       bookAt = new Map();
       coachFlags = new Map();
+      liveMarks.clear();
+      releaseAnalysis();
+      clearOngoing();
       lostSaid = false;
       drawDeclinedAt = -99;
       praisedAt = -99;
@@ -1427,7 +1624,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       board = cloneBoard(startSnapshot); // 让子局要保留让掉的子
       history = [];
       moveLog = [];
-      turn = 'r'; // 红方先行是棋规，和你执哪一方无关
+      turn = startTurn; // 红方先行是棋规，和你执哪一方无关（从某个局面接着下时按那个局面）
       over = false;
       busy = false;
       selected = null;
@@ -1461,6 +1658,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       if (ending) return;
       ending = end;
       over = true;
+      clearOngoing(); // 下完了，不用再"继续上一盘"
       moveToken++;
       clearTimeout(aiTimer);
       aiSeq++;
@@ -1486,13 +1684,14 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       // 整盘存下来。存的是起始局面 + 着法序列，之后随时能翻回来复盘。
       // 存档在复盘之前就要落地——用户可能直接关掉不复盘，那盘棋也不能丢。
       if (moveLog.length >= 2 && !archivedId) {
-        archivedId = archiveFromBoard(startSnapshot, 'r', moveLog, {
+        archivedId = archiveFromBoard(startSnapshot, startTurn, moveLog, {
           side: me,
           result,
-          level: handicap ? `让${handicap.strip}马` : L.name,
+          level: handicap ? `让${handicap.strip}马` : practice ? `${L.name} · 摆局练习` : L.name,
           rival: rival.name,
         });
       }
+      startAnalysis(playerWon);
       if (result === 'win') {
         sfxWinBig();
         setTimeout(() => say(pickLine(rival.lines.lose)), 500);
@@ -1526,7 +1725,39 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         <h1 style="color:${result === 'win' ? '#ffd76e' : result === 'loss' ? '#ef5350' : '#cfd8dc'}">${title}</h1>
         <div class="sub">${sub}</div>
         ${hintsUsed > 0 ? `<div class="xq-usedhint">这一局用了 ${hintsUsed} 次求助——照着引擎走出来的棋不算你的水平，复盘的时候心里有个数。</div>` : ''}
-        ${coachFlags.size > 0 ? `<div class="xq-usedhint">教练拦过你 ${coachFlags.size} 次、你坚持走了——复盘里这几手标了 🧑‍🏫，先看它们。</div>` : ''}`;
+        ${coachFlags.size > 0 ? `<div class="xq-usedhint">教练拦过你 ${coachFlags.size} 次、你坚持走了——复盘里这几手标了 🧑‍🏫，先看它们。</div>` : ''}
+        <div class="xq-score"></div>`;
+      // 本局评分：一盘下完就在后台开算，算完直接显示在这里，不用点进复盘
+      const elScore = s.querySelector('.xq-score') as HTMLElement;
+      const paintScore = () => {
+        const a = gameAnalysis;
+        if (!a) {
+          elScore.remove();
+          return;
+        }
+        if (!a.done) {
+          elScore.innerHTML = `📊 正在给每一手打分… <b>${a.reviewed.length}/${a.total}</b>`;
+          return;
+        }
+        const rep = a.report!;
+        const mine = rep.stats[me];
+        const theirs = rep.stats[foe];
+        const c = rep.counts[me];
+        const bits = [
+          c.brilliant ? `妙手 ${c.brilliant}` : '',
+          c.only ? `唯一着 ${c.only}` : '',
+          `漏着 ${c.blunder}`,
+          `失误 ${c.mistake}`,
+        ].filter(Boolean);
+        const hist = recentGameAccuracy(6);
+        // 刚算完的这一盘已经记进去了：拿来比的是"之前几盘"，所以要把它扣掉——
+        // 这里简单起见只在盘数够的时候说，并且说"最近几盘"
+        elScore.innerHTML = `
+          <div class="xq-score-row"><span>你的准确率</span><b>${mine.accuracy}</b><span>对手</span><b class="foe">${theirs.accuracy}</b></div>
+          <div class="xq-score-sub">${bits.join(' · ')}${hist ? ` · 最近 ${hist.games} 盘平均 ${hist.avg}` : ''}</div>`;
+      };
+      paintScore();
+      gameAnalysis?.subscribe(paintScore);
       // 复盘排在最前面：下完一盘最该做的是先看自己错在哪，而不是立刻再开一局
       const rv = document.createElement('button');
       rv.className = 'btn';
@@ -1564,7 +1795,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         host: wrap,
         scene,
         startBoard: cloneBoard(startSnapshot),
-        startColor: 'r',
+        startColor: startTurn,
         moves: moveLog.slice(),
         playerColor: me,
         playerWon: lastWon,
@@ -1572,6 +1803,14 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         // 对局里教练已经算过你每一手，复盘直接用——同一手棋，对局里和复盘里说法必须一样
         known: bookAt,
         coachFlags,
+        analysis: gameAnalysis,
+        title: `中国象棋 · ${new Date().toLocaleDateString('zh-CN')} · 你执${me === 'r' ? '红' : '黑'} · ${lastWon ? '胜' : ending?.winner === null ? '和' : '负'} · ${L.name} · 对手 ${rival.name}`,
+        onReplayFrom: (b, t) => {
+          // 从这一手之前的局面接着下：试试正确的走法，对手照原来的难度应对
+          closeReview = null;
+          clearAll();
+          startGame(level, rival, tempoIdx, undefined, me, { board: b, turn: t });
+        },
         onClose: () => {
           closeReview = null;
           resultEl?.classList.remove('xq-hidden');
@@ -1579,6 +1818,23 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           rivalBox.classList.remove('xq-hidden');
         },
       });
+    }
+
+    // 接着下一盘没下完的棋：把存下的着法一步步重放，悔棋、重复局面、长将判定都要用到这段历史
+    if (from?.moves?.length) {
+      for (const m of from.moves) {
+        const legal = legalMoves(board, turn).some((x) => sameMove(x, m));
+        if (!legal) break; // 存档坏了：停在最后一个合法的局面上
+        const mover = board[m.fy][m.fx]!;
+        const captured = !!board[m.ty][m.tx];
+        history.push(board);
+        moveLog.push(m);
+        board = applyMove(board, m);
+        turn = turn === 'r' ? 'b' : 'r';
+        plies.push({ key: toFen(board, turn), mover: mover.c, check: isInCheck(board, turn), capture: captured });
+      }
+      scene.syncBoard(board);
+      if (moveLog.length) scene.setLastMove(moveLog[moveLog.length - 1]);
     }
 
     refreshTray();
@@ -1591,6 +1847,16 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
      * 它一加载好，就把当前这一步换成它重算——前提是你还没在这一步上做过任何决定
      * （教练没开过口、求助面板没开着），否则中途换裁判，前后说法就可能对不上。
      */
+    /*
+     * 切到后台（锁屏、切到别的应用）就暂停研究，回来接着算。
+     * 全力档一算就是几分钟，不能在口袋里一直占着 CPU 耗电发热。
+     */
+    const onVisibility = () => {
+      if (document.hidden) study?.pause();
+      else study?.resume();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
     void loadEngine().then((ok) => {
       if (!ok || over || turn !== me || busy) return;
       if (!study || study.engine !== 'local' || !study.is(board, me)) return;
@@ -1625,11 +1891,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         /** 对手上一步用的引擎 */
         aiEngine: () => lastAiEngine,
         /** 当前研究用的是哪个引擎 */
-        engine: () => (study ? study.engine : engineReady() ? 'fsf' : 'local'),
+        engine: () => (study ? study.engine : engineReady() ? 'pro' : 'local'),
         /** 研究进度：算到第几层、算完没有、目前的首选 */
         study: () =>
           study && study.is(board, me)
-            ? { depth: study.depth, done: study.done, best: study.moves[0]?.move ?? null, score: study.moves[0]?.score ?? 0 }
+            ? { depth: study.depth, done: study.done, paused: study.paused, best: study.moves[0]?.move ?? null, score: study.moves[0]?.score ?? 0 }
             : null,
         /** 内部状态，排查"点了没反应"用 */
         state: () => ({ busy, over, turn, selected, tip: !!closeCoachPrompt, ending }),
@@ -1688,6 +1954,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     }
 
     cleanupGame = () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      releaseAnalysis();
       closeReview?.();
       closeReview = null;
       dropStudy();

@@ -36,7 +36,7 @@ export interface HintState {
    */
   book?: { move: Move; text: string; why: string; opening: string };
   /** 谁算的：专业引擎还是自带引擎。如实写出来 */
-  engine?: 'fsf' | 'local';
+  engine?: 'pro' | 'local';
 }
 
 export interface BestHintUI {
@@ -103,7 +103,7 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: Hi
     const r: HintResult = { ...full, ranked: full.ranked.filter((x) => !x.atLeast) };
     latest = r;
     // 算到第几层要摆出来：没算完的"最优"只是目前的看法，用户有权知道
-    const who = st.engine === 'fsf' ? '专业引擎' : st.engine === 'local' ? '自带引擎' : '';
+    const who = st.engine === 'pro' ? '专业引擎' : st.engine === 'local' ? '自带引擎' : '';
     elStatus.textContent =
       (st.done ? `已算完 ${st.depth} 层` : `已算 ${st.depth} 层，还在往深算…（结论可能还会变）`) + (who ? ` · ${who}` : '');
     if (!r.best) {

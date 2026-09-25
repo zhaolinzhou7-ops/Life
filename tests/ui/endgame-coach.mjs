@@ -14,7 +14,8 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME || un
 
 async function openGame(page, side = '执红先行') {
   await page.goto(BASE, { waitUntil: 'networkidle' });
-  await page.evaluate(() => localStorage.setItem('xq-hint-level', '2'));
+  // 省电档（每步 5 秒）：测试要等"算完"，全力档要算好几分钟
+  await page.evaluate(() => { localStorage.setItem('xq-hint-level', '2'); localStorage.setItem('xq-power', 'save'); });
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
   await page.locator('.xq-home-card').nth(0).click(); await page.waitForTimeout(400);
   await page.getByText(side).first().click(); await page.waitForTimeout(150);

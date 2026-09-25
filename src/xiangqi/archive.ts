@@ -29,6 +29,9 @@ export interface ArchivedReview {
   worstLoss?: number;
   /** 一句话总结，列表里直接显示 */
   headline?: string;
+  /** 你这盘的准确率 / 对手的准确率（0～100） */
+  accuracy?: number;
+  foeAccuracy?: number;
 }
 
 export interface ArchivedGame {

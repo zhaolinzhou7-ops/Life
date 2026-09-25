@@ -123,6 +123,8 @@ export interface GameRecord {
   lossBy?: Partial<Record<Dim, number>>;
   /** 这盘走了多少手，用来判断样本够不够 */
   plies?: number;
+  /** 这盘你的准确率（0～100）。老存档没有这一项 */
+  accuracy?: number;
 }
 
 interface SaveData {
@@ -680,6 +682,17 @@ export function recordGame(g: Omit<GameRecord, 'd'>) {
   d.games.push({ ...g, d: today() });
   if (d.games.length > 200) d.games.shift();
   store(d);
+}
+
+/**
+ * 最近几盘的平均准确率，拿来和这一盘比："比你最近 5 盘的平均高 6"。
+ * 跟自己比才有意义——准确率高低和对手强弱、局面复杂度都有关系。
+ * 不够 2 盘返回 null。
+ */
+export function recentGameAccuracy(n = 5): { avg: number; games: number } | null {
+  const list = load().games.filter((g) => typeof g.accuracy === 'number').slice(-n);
+  if (list.length < 2) return null;
+  return { avg: Math.round(list.reduce((a, g) => a + (g.accuracy ?? 0), 0) / list.length), games: list.length };
 }
 
 export function getGames(): GameRecord[] {

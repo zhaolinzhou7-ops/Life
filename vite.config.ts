@@ -3,23 +3,25 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
- * 象棋教练用的专业引擎（Fairy-Stockfish，WASM 多线程版）和让它能跑起来的 service worker。
+ * 象棋教练用的专业引擎（Pikafish 皮卡鱼，WASM）和一个让页面跨源隔离的 service worker。
  *
- * 文件不进 git：版本钉死在 package.json 里，构建时从 node_modules 拷进 dist，
- * 开发时直接从 node_modules 读。这样升级只改一个版本号，仓库里也没有二进制。
+ * 引擎文件放在 vendor/pikafish/（原样，GPL-3.0，来源和校验和见那里的 README）。
+ * 构建时拷进 dist/pika/，开发时直接从 vendor 读。
  *
- * 引擎是 GPL-3.0，原样分发、不做修改，许可证文本（Copying.txt）一并拷过去。
+ * 跨源隔离眼下不是必需的（这个引擎是单线程构建），留着是因为上一版已经在用户设备上
+ * 注册过这个 service worker；而且将来换多线程构建时直接就能用上。
  */
-const ENGINE_DIR = resolve(__dirname, 'node_modules/fairy-stockfish-nnue.wasm');
+const PIKA_DIR = resolve(__dirname, 'vendor/pikafish');
 const ASSETS: Record<string, string> = {
-  'fsf/stockfish.js': resolve(ENGINE_DIR, 'stockfish.js'),
-  'fsf/stockfish.wasm': resolve(ENGINE_DIR, 'stockfish.wasm'),
-  'fsf/stockfish.worker.js': resolve(ENGINE_DIR, 'stockfish.worker.js'),
-  'fsf/Copying.txt': resolve(ENGINE_DIR, 'Copying.txt'),
-  'fsf/AUTHORS': resolve(ENGINE_DIR, 'AUTHORS'),
+  'pika/pikafish.js': resolve(PIKA_DIR, 'pikafish.js'),
+  'pika/pikafish.wasm': resolve(PIKA_DIR, 'pikafish.wasm'),
+  'pika/pikafish.data': resolve(PIKA_DIR, 'pikafish.data'),
+  'pika/pika-worker.js': resolve(PIKA_DIR, 'pika-worker.js'),
+  'pika/COPYING': resolve(PIKA_DIR, 'COPYING'),
+  'pika/README.md': resolve(PIKA_DIR, 'README.md'),
   'coi-serviceworker.js': resolve(__dirname, 'node_modules/coi-serviceworker/coi-serviceworker.min.js'),
 };
-const TYPES: Record<string, string> = { js: 'text/javascript', wasm: 'application/wasm', txt: 'text/plain' };
+const TYPES: Record<string, string> = { js: 'text/javascript', wasm: 'application/wasm', data: 'application/octet-stream', md: 'text/plain; charset=utf-8' };
 
 /**
  * 多线程 WASM 要用 SharedArrayBuffer，浏览器只在"跨源隔离"的页面里给它，

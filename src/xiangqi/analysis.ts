@@ -7,7 +7,7 @@
  */
 import { applyMove, cloneBoard, type Board, type Color, type Move, type PType } from './rules';
 import { moveToText, pieceName } from './notation';
-import { tagMistake, type ErrTag } from './teach';
+import { hangingPieces, tagMistake, type ErrTag } from './teach';
 import type { Dim } from './save';
 
 /** 子力价值，和引擎 ai.ts 里的 VAL 保持一致（兵=100） */
@@ -75,7 +75,107 @@ export interface Judged {
   played: { move: Move; score: number; mateIn?: number; pv: Move[]; bound?: boolean };
   depth: number;
   /** 哪个引擎判的。两个引擎的"层"不能互相比深浅 */
-  engine?: 'fsf' | 'local';
+  engine?: 'pro' | 'local';
+  /** 次好的一手的分数（走子方视角）。有它才判得出"唯一着" */
+  second?: number;
+}
+
+// ───────────────────────── 评分：胜率、准确率、妙手 ─────────────────────────
+
+/**
+ * 胜率（走子方视角，0～100）。
+ *
+ * 用胜率而不是分差给每一手打分，是国际象棋网站通行的做法，道理很简单：
+ * 已经多两个车的时候再亏一个兵无关痛痒，均势时亏一个兵却可能是胜负手。
+ * 分差一样，对结果的影响完全不同。
+ * 系数按"车≈1000"的口径调：多一个兵约 56%，多一个马炮约 75%，多一个车约 92%。
+ */
+export function winPct(score: number, mateIn?: number): number {
+  if (mateIn !== undefined) return mateIn > 0 ? 100 : 0;
+  const s = Math.max(-4000, Math.min(4000, score));
+  return 50 + 50 * (2 / (1 + Math.exp(-0.0025 * s)) - 1);
+}
+
+/**
+ * 一手棋的准确率（0～100）：走完之后你的胜率比最好的下法掉了多少。
+ * 公式沿用 lichess：掉 0 → 100，掉 5 个百分点 → 约 80，掉 20 个百分点 → 约 40。
+ */
+export function moveAccuracy(winBefore: number, winAfter: number): number {
+  const d = Math.max(0, winBefore - winAfter);
+  const a = 103.1668 * Math.exp(-0.04354 * d) - 3.1669;
+  return Math.max(0, Math.min(100, Math.round(a)));
+}
+
+/** 一方整盘的准确率：算术平均和调和平均各半——一手漏着要能把分数拉下来，不能被几十手好棋摊平 */
+export function gameAccuracy(accs: number[]): number {
+  if (!accs.length) return 0;
+  const arith = accs.reduce((a, b) => a + b, 0) / accs.length;
+  const harm = accs.length / accs.reduce((a, b) => a + 1 / Math.max(1, b), 0);
+  return Math.round((arith + harm) / 2);
+}
+
+export type Phase = 'opening' | 'middle' | 'endgame';
+export const PHASE_NAME: Record<Phase, string> = { opening: '开局', middle: '中局', endgame: '残局' };
+
+/**
+ * 每一手的称号。比六档分级多出三样：
+ *   妙手   —— 引擎首选（或几乎一样好），而且是弃子：走完对方能白吃你一个马炮以上，但引擎认为值
+ *   唯一着 —— 引擎首选，而且其它走法都差出两个兵以上：这一步走不对局面就崩
+ *   最佳   —— 就是引擎的首选
+ * 这三样最能说明"你看到了别人看不到的东西"，只挑错不夸好的复盘让人越下越怕。
+ */
+export type MoveLabel = 'brilliant' | 'only' | 'top' | 'best' | 'good' | 'ok' | 'dubious' | 'mistake' | 'blunder';
+
+export const MOVE_LABEL: Record<MoveLabel, { name: string; sym: string; color: string }> = {
+  brilliant: { name: '妙手', sym: '!!', color: '#26c6da' },
+  only: { name: '唯一着', sym: '!', color: '#2eb7a0' },
+  top: { name: '最佳', sym: '★', color: '#3ec46d' },
+  best: { name: '好棋', sym: '', color: '#6cc46d' },
+  good: { name: '不错', sym: '', color: '#9cc46d' },
+  ok: { name: '可以', sym: '', color: '#c9c48a' },
+  dubious: { name: '不佳', sym: '?!', color: '#e8a33d' },
+  mistake: { name: '失误', sym: '?', color: '#e8703d' },
+  blunder: { name: '漏着', sym: '??', color: '#e0433a' },
+};
+
+/** 统计表里的顺序：从好到坏 */
+export const LABEL_ORDER: MoveLabel[] = ['brilliant', 'only', 'top', 'best', 'good', 'ok', 'dubious', 'mistake', 'blunder'];
+
+export function labelOf(m: { grade: Grade; badge?: 'brilliant' | 'only'; isBest?: boolean }): MoveLabel {
+  if (m.badge) return m.badge;
+  if (m.isBest && m.grade === 'best') return 'top';
+  return m.grade;
+}
+
+/**
+ * 局面评价说成人话（红方视角的分数）："红优，约多一个马炮"、"均势"、"黑方 3 步杀"。
+ * 复盘里每一手都标"走之前 → 走之后"，一眼看出这一手让局面变成了什么样。
+ */
+export function evalWords(redScore: number, redMate?: number): string {
+  if (redMate !== undefined) return redMate > 0 ? `红方 ${redMate} 步杀` : `黑方 ${-redMate} 步杀`;
+  const a = Math.abs(redScore);
+  if (a < 60) return '均势';
+  const side = redScore > 0 ? '红' : '黑';
+  const size = a >= 1900 ? '大优（约多两个车）' : a >= 900 ? '大优（约多一个车）' : a >= 420 ? '优（约多一个马炮）' : a >= 150 ? `稍优（约多${Math.round(a / 100)}个兵）` : '略好';
+  return `${side}${size}`;
+}
+
+/** 这一手是哪个阶段：前 12 回合算开局，进攻子力剩 6 个以内算残局 */
+export function phaseAt(b: Board, ply: number): Phase {
+  if (ply < 24) return 'opening';
+  return materialLeft(b) <= 6 ? 'endgame' : 'middle';
+}
+
+/**
+ * 是不是弃子：走完之后，对方能白吃你的子，净赚一个马炮以上（扣掉你这一手吃到的）。
+ * 静态兑子只用来**认出**弃子；这一手值不值，由引擎说了算。
+ */
+function isSacrifice(b: Board, m: Move, me: Color): boolean {
+  const after = applyMove(b, m);
+  const hang = hangingPieces(after, me).reduce((mx, h) => Math.max(mx, h.loss), 0);
+  const took = b[m.ty][m.tx];
+  const gained = took ? PIECE_VALUE[took.t] : 0;
+  return hang - gained >= 300;
 }
 
 export interface ReviewedMove {
@@ -99,6 +199,19 @@ export interface ReviewedMove {
   comment: string;
   /** 这一手的亏损算在哪一维（只有真亏了才有意义） */
   dim: Dim;
+  /** 这一手的准确率（0～100） */
+  accuracy: number;
+  /** 就是引擎的首选 */
+  isBest: boolean;
+  /** 妙手 / 唯一着 */
+  badge?: 'brilliant' | 'only';
+  /** 这一手在哪个阶段 */
+  phase: Phase;
+  /** 走完之后红方的胜率（0～100），画优势曲线用 */
+  redWin: number;
+  /** 最好的下法 / 你这一手的杀棋步数（走子方视角，正数=能杀对方） */
+  bestMate?: number;
+  playedMate?: number;
   /**
    * 这一手是**哪种毛病**。和 dim 是两件事：
    *   dim  回答"该练哪一块"（拿去排训练计划）
@@ -117,7 +230,11 @@ export interface GameReview {
   /** 各方各自最该改的一手，学棋主要看自己这条 */
   worst: Record<Color, number>;
   /** 按方统计 */
-  stats: Record<Color, { total: number; blunders: number; mistakes: number; avgLoss: number }>;
+  stats: Record<Color, { total: number; blunders: number; mistakes: number; avgLoss: number; accuracy: number }>;
+  /** 各方各阶段的准确率（这个阶段没走过棋就没有） */
+  phaseAcc: Record<Color, Partial<Record<Phase, number>>>;
+  /** 各方每种称号各有几手 */
+  counts: Record<Color, Record<MoveLabel, number>>;
   /**
    * 每一方的分**分别丢在哪一维**（只统计"不佳"以上的失误）。
    * 每日训练就是照着这个排的——练你真正在输分的那一块，而不是练你分低的那一块。
@@ -285,7 +402,22 @@ export function reviewMove(b: Board, ply: number, color: Color, j: Judged): Revi
     && j.best.move.tx === j.played.move.tx && j.best.move.ty === j.played.move.ty;
   // 只给真亏了的一手打标签。实测单手 1.2ms，整盘加起来可以忽略
   const tag = loss >= 80 ? tagMistake(b, j.played.move, color, { missedMate: flip === 'missed-mate', loss }) : undefined;
+  const wBefore = winPct(j.best.score, j.best.mateIn);
+  const wAfter = winPct(j.played.score, j.played.mateIn);
+  const accuracy = moveAccuracy(wBefore, wAfter);
+  // 已经赢定（或输定）的局面里谈不上妙手和唯一着：怎么走都一样
+  const live = Math.abs(j.best.score) < 1500 && j.best.mateIn === undefined;
+  let badge: 'brilliant' | 'only' | undefined;
+  if (grade === 'best' && live && j.best.score > -400 && isSacrifice(b, j.played.move, color)) badge = 'brilliant';
+  else if (isBest && live && j.second !== undefined && j.best.score - j.second >= 200) badge = 'only';
   return {
+    accuracy,
+    isBest,
+    badge,
+    phase: phaseAt(b, ply),
+    redWin: color === 'r' ? wAfter : 100 - wAfter,
+    bestMate: j.best.mateIn,
+    playedMate: j.played.mateIn,
     ply,
     color,
     move: j.played.move,
@@ -342,9 +474,13 @@ export function headlineOf(moves: ReviewedMove[], c: Color): string {
 /** 汇总整盘：统计各方失误，并找出决定胜负的那一手 */
 export function summarize(moves: ReviewedMove[]): GameReview {
   const stats: GameReview['stats'] = {
-    r: { total: 0, blunders: 0, mistakes: 0, avgLoss: 0 },
-    b: { total: 0, blunders: 0, mistakes: 0, avgLoss: 0 },
+    r: { total: 0, blunders: 0, mistakes: 0, avgLoss: 0, accuracy: 0 },
+    b: { total: 0, blunders: 0, mistakes: 0, avgLoss: 0, accuracy: 0 },
   };
+  const zero = () => Object.fromEntries(LABEL_ORDER.map((l) => [l, 0])) as Record<MoveLabel, number>;
+  const counts: GameReview['counts'] = { r: zero(), b: zero() };
+  const accs: Record<Color, number[]> = { r: [], b: [] };
+  const phaseList: Record<Color, Partial<Record<Phase, number[]>>> = { r: {}, b: {} };
   const sum: Record<Color, number> = { r: 0, b: 0 };
   const lossBy: GameReview['lossBy'] = { r: {}, b: {} };
   for (const m of moves) {
@@ -355,9 +491,15 @@ export function summarize(moves: ReviewedMove[]): GameReview {
     else if (m.grade === 'mistake') s.mistakes++;
     // 只统计"不佳"以上的失误。好棋和小波动算进去只会把画面搅浑
     if (m.loss >= 80) lossBy[m.color][m.dim] = (lossBy[m.color][m.dim] ?? 0) + m.loss;
+    counts[m.color][labelOf(m)]++;
+    accs[m.color].push(m.accuracy);
+    (phaseList[m.color][m.phase] ??= []).push(m.accuracy);
   }
+  const phaseAcc: GameReview['phaseAcc'] = { r: {}, b: {} };
   for (const c of ['r', 'b'] as Color[]) {
     stats[c].avgLoss = stats[c].total ? Math.round(sum[c] / stats[c].total) : 0;
+    stats[c].accuracy = gameAccuracy(accs[c]);
+    for (const [ph, list] of Object.entries(phaseList[c]) as [Phase, number[]][]) phaseAcc[c][ph] = gameAccuracy(list);
   }
 
   // 决定胜负的一手：以亏损幅度为主，局势翻转作为加权。
@@ -380,5 +522,5 @@ export function summarize(moves: ReviewedMove[]): GameReview {
     if (m.loss > 0 && (cur < 0 || m.loss > moves[cur].loss)) worst[m.color] = i;
   });
 
-  return { moves, turning, worst, stats, lossBy };
+  return { moves, turning, worst, stats, lossBy, phaseAcc, counts };
 }

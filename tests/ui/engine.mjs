@@ -1,8 +1,8 @@
 /**
- * 专业引擎（Fairy-Stockfish）在真浏览器里的验证。
+ * 专业引擎（Pikafish 皮卡鱼）在真浏览器里的验证。
  *
  * 用户原话："教练太笨了，算的最优解结果是让人家吃子，然后让我的车直接吃士将军，被人家老将吃了。"
- * 拿 Fairy-Stockfish 当裁判测过：自家引擎在 80 个局面里有 7 手明显失误、2 手大漏（其中一手直接走进杀局）。
+ * 拿强引擎当裁判测过：自家引擎在 80 个局面里有 7 手明显失误、2 手大漏（其中一手直接走进杀局）。
  * 这里把那一手大漏钉成回归：换引擎之后教练不能再推荐它，你走了它教练必须拦。
  * 用法：npm run dev，然后 node tests/ui/engine.mjs
  */
@@ -19,7 +19,8 @@ const until = async (page, fn, arg, ms = 20000) => {
 };
 async function openGame(page, levelName) {
   await page.goto(BASE, { waitUntil: 'networkidle' });
-  await page.evaluate(() => localStorage.setItem('xq-hint-level', '2'));
+  // 省电档（每步 5 秒）：测试要等"算完"，全力档要算好几分钟
+  await page.evaluate(() => { localStorage.setItem('xq-hint-level', '2'); localStorage.setItem('xq-power', 'save'); });
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
   await page.locator('.xq-home-card').nth(0).click(); await page.waitForTimeout(300);
   if (levelName) await page.locator('.diff-row .card', { hasText: levelName }).first().click();
@@ -32,8 +33,7 @@ page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
 page.on('response', (r) => { if (r.status() >= 400) errs.push(`${r.status()} ${r.url()}`); });
 await openGame(page);
-ok('页面是跨源隔离的（多线程引擎的前提）', await page.evaluate(() => crossOriginIsolated));
-ok('专业引擎加载成功', await until(page, () => window.__xq.engine() === 'fsf', null, 15000));
+ok('专业引擎加载成功', await until(page, () => window.__xq.engine() === 'pro', null, 15000));
 
 // ── 自家引擎走进杀局的那一手：车二进八 ──
 const TRAP = '2baka2r/9/n7b/p1p5p/4p4/5nC2/P1P1c1P2/9/1r7/RNBAKABR1 w';
@@ -42,7 +42,7 @@ ok('研究算完', await until(page, () => !!window.__xq.study()?.done, null, 15
 const st = await page.evaluate(() => window.__xq.study());
 const bestText = await page.evaluate((m) => window.__xq.textOf(m), st.best);
 console.log(`   研究 ${st.depth} 层，最优 ${bestText}`);
-ok('专业引擎算得比原来深（≥10 层）', st.depth >= 10);
+ok('专业引擎算得深（≥14 层）', st.depth >= 14);
 ok('不再推荐会被将死的"车二进八"', bestText !== '车二进八');
 ok('教练行标着专业引擎', (await page.evaluate(() => window.__xq.coachLine())).includes('专业引擎'));
 // 你偏要走车二进八：教练必须拦，而且说出"杀"
@@ -60,6 +60,25 @@ const hs = await page.locator('.xq-besthint .xq-tip-status').textContent();
 ok('求助面板写明是专业引擎算的', (hs ?? '').includes('专业引擎'));
 await page.locator('#xq-best').click();
 
+// ── 切到后台就暂停，回来接着算（全力档一算几分钟，不能在口袋里耗电）──
+await page.evaluate(() => localStorage.setItem('xq-power', 'max'));
+await page.evaluate(() => window.__xq.setBoard('rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w'));
+await until(page, () => (window.__xq.study()?.depth ?? 0) >= 12, null, 15000);
+const hide = (h) => page.evaluate((v) => {
+  Object.defineProperty(document, 'hidden', { value: v, configurable: true });
+  document.dispatchEvent(new Event('visibilitychange'));
+}, h);
+await hide(true);
+await page.waitForTimeout(300);
+const p1 = await page.evaluate(() => window.__xq.study());
+await page.waitForTimeout(2500);
+const p2s = await page.evaluate(() => window.__xq.study());
+ok('切到后台：研究暂停，层数不再涨', p1.paused && p2s.depth === p1.depth);
+await hide(false);
+ok('回到前台：接着往深算', await until(page, (d) => !window.__xq.study().paused && window.__xq.study().depth > d, p2s.depth, 20000));
+console.log(`   暂停时 ${p1.depth} 层，回来后 ${(await page.evaluate(() => window.__xq.study())).depth} 层`);
+await page.evaluate(() => localStorage.setItem('xq-power', 'save'));
+
 // ── 对局一手 + 复盘：复盘也用专业引擎 ──
 await page.evaluate(() => window.__xq.setBoard('rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w'));
 await until(page, () => (window.__xq.study()?.depth ?? 0) >= 8, null, 8000);
@@ -76,10 +95,10 @@ await page.close();
 const p2 = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
 p2.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 await openGame(p2, '棋王');
-await until(p2, () => window.__xq.engine() === 'fsf', null, 15000);
+await until(p2, () => window.__xq.engine() === 'pro', null, 15000);
 await p2.evaluate(() => window.__xq.play({ fx: 7, fy: 7, tx: 4, ty: 7 }));
 ok('棋王档对手在合理时间内回了一手', await until(p2, () => window.__xq.moves().length >= 2, null, 20000));
-ok('棋王档对手用的是专业引擎', (await p2.evaluate(() => window.__xq.aiEngine())) === 'fsf');
+ok('棋王档对手用的是专业引擎', (await p2.evaluate(() => window.__xq.aiEngine())) === 'pro');
 await p2.close();
 
 await browser.close();

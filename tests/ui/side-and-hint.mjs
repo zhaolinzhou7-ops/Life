@@ -14,6 +14,7 @@ const page = await (await b.newContext({viewport:{width:390,height:844}})).newPa
 page.on('pageerror', e=>errs.push('pageerror: '+e.message));
 page.on('console', m=>{if(m.type()==='error') errs.push('console: '+m.text());});
 await page.goto(process.env.BASE || 'http://localhost:5175/Life/',{waitUntil:'networkidle'});
+await page.evaluate(() => localStorage.setItem('xq-power', 'save')); // 省电档每步 5 秒，等得到"算完"
 await page.getByText('中国象棋',{exact:false}).first().click(); await page.waitForTimeout(800);
 await page.locator('.xq-home-card').nth(0).click(); await page.waitForTimeout(500);
 ok('设置里有选边', await page.getByText('你执哪一方').count() > 0);
