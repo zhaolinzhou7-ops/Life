@@ -13,7 +13,8 @@ import {
   type Color,
   type Move,
 } from './rules';
-import { disposeAi, requestMove, requestScore, warmupAi } from './aiclient';
+import { disposeAi, requestMove, warmupAi } from './aiclient';
+import { engineBestMove, engineCapable, engineReady, loadEngine } from './fsf';
 import type { Judged } from './analysis';
 import { runReview } from './review';
 import { runCoach, type CoachEntry } from './coach';
@@ -26,6 +27,7 @@ import {
   judgeMove,
   lostNotice,
   mdToHtml,
+  needsExact,
   readOpponent,
   setHintLevel,
   shouldWarn,
@@ -38,7 +40,7 @@ import { initCoachProvider } from './llm';
 import { hintOf, showBestHint } from './besthint';
 import { bookMoves, isBookMove } from './book';
 import { TIER_INFO, gapText } from './tiers';
-import { MIN_JUDGE_DEPTH, Study } from './study';
+import { Study } from './study';
 import {
   END_TEXT,
   MOVE_LIMIT,
@@ -99,8 +101,9 @@ const LEVELS = [
   { id: 2, name: '中级', desc: '有基本战术，抓得住你的漏着', depth: 64, jitter: 25, timeMs: 900 },
   { id: 3, name: '高级', desc: '不送子，会抓你的弱点', depth: 64, jitter: 0, timeMs: 1800 },
   { id: 4, name: '大师', desc: '抓杀抓子，很难占到他便宜', depth: 64, jitter: 0, timeMs: 2800 },
-  { id: 5, name: '特级大师', desc: '位置感强，每步想约 4 秒', depth: 64, jitter: 0, timeMs: 4500 },
-  { id: 6, name: '棋王', desc: '目前最强，每步想约 6 秒', depth: 64, jitter: 0, timeMs: 6500 },
+  // 顶两档换专业引擎（Fairy-Stockfish）。浏览器跑不了时退回自家引擎，时间照旧
+  { id: 5, name: '特级大师', desc: '专业引擎，职业棋手的水准', depth: 64, jitter: 0, timeMs: 4500, fsfMs: 1500 },
+  { id: 6, name: '棋王', desc: '专业引擎全力以赴，几乎不犯错', depth: 64, jitter: 0, timeMs: 6500, fsfMs: 4000 },
 ];
 
 export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void): () => void {
@@ -115,6 +118,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   // 讲解器：配了后端就用后端（密钥留在后端，前端只发事实），没配就用离线模板。
   // 离线模板不是降级方案——没有任何 API 也必须能完整学棋。
   initCoachProvider(import.meta.env.VITE_COACH_API as string | undefined);
+  // 专业引擎一进象棋就开始加载：1.7MB，编译一两秒，第一次轮到你走棋时通常已经好了
+  void loadEngine();
 
   const unlock = () => unlockAudio();
   window.addEventListener('pointerdown', unlock, { once: true });
@@ -293,7 +298,16 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         };
         lvRow.appendChild(card);
       });
+
       s.appendChild(lvRow);
+      // 专业引擎跑不起来（老浏览器、隐私模式禁了 service worker）时如实说一声，
+      // 不然"专业引擎"几个字就是空头支票
+      if (!engineCapable()) {
+        const n = document.createElement('div');
+        n.className = 'xq-note';
+        n.textContent = '这个浏览器跑不了专业引擎（需要较新的 Chrome / Safari / Edge），教练和顶两档会用自带引擎，弱一些。';
+        s.appendChild(n);
+      }
 
       // 动画速度
       const tLabel = document.createElement('div');
@@ -482,6 +496,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let threatAtTurn = false;
     /** 这一局怎么结束的 */
     let ending: GameEnd | null = null;
+    /** 对手上一步是哪个引擎走的（测试用：顶两档要确认真的换成了专业引擎） */
+    let lastAiEngine: 'fsf' | 'local' | null = null;
 
     const moveKey = (m: Move) => `${m.fx}${m.fy}${m.tx}${m.ty}`;
     const sameMove = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
@@ -490,7 +506,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     function ensureStudy(): Study {
       if (study && study.is(board, me)) return study;
       study?.stop();
-      const s = new Study(board, me);
+      // 带上整盘的着法：引擎就知道哪些局面已经出现过（长将、重复）
+      const s = new Study(board, me, { startFen: startKey, moves: moveLog.slice() });
       study = s;
       s.subscribe(() => onStudy(s));
       return s;
@@ -641,6 +658,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           done: s.done,
           note: notes.length ? notes.join('<br>') : undefined,
           book: lead ? lead.bm : undefined,
+          engine: s.engine,
         });
       };
       off = s.subscribe(render);
@@ -716,7 +734,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       }
       const s = study && turn === me && !over && study.is(board, me) ? study : null;
       const depth = s ? ` · 已算 ${s.depth} 层${s.done ? '' : '…'}` : '';
-      coachLine.textContent = `🧑‍🏫 教练在看（${HINT_LEVELS[hintLevel].name}）${depth}`;
+      const who = s ? (s.engine === 'fsf' ? ' · 专业引擎' : ' · 自带引擎') : '';
+      coachLine.textContent = `🧑‍🏫 教练在看（${HINT_LEVELS[hintLevel].name}）${depth}${who}`;
     }
     function setCoachLine(text: string | null, kind: 'warn' | 'good' | 'info' = 'info', ms = 0) {
       clearTimeout(lineTimer);
@@ -1087,7 +1106,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       const s = ensureStudy();
       drawBtn.disabled = true;
       drawBtn.textContent = '🤝 …';
-      await s.until((x) => x.depth >= MIN_JUDGE_DEPTH, 3000);
+      await s.until((x) => x.depth >= x.minDepth, 3000);
       drawBtn.disabled = false;
       drawBtn.textContent = '🤝 求和';
       if (token !== moveToken || over || turn !== me) return;
@@ -1156,15 +1175,25 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
       // 教练要看到足够深才判。你秒落子时研究可能才刚开始，等它一小会儿（通常不到一秒）
       const s = ensureStudy();
-      if (!s.done && s.depth < MIN_JUDGE_DEPTH) {
+      if (!s.done && s.depth < s.minDepth) {
         busy = true;
         setCoachLine('教练看一眼这一手…', 'info');
-        await s.until((x) => x.depth >= MIN_JUDGE_DEPTH, 2500);
+        await s.until((x) => x.depth >= x.minDepth, 2500);
         busy = false;
         setCoachLine(null);
         if (token !== moveToken || over || turn !== me || !s.is(board, me)) return;
       }
-      const v = judgeMove(board, m, me, s.moves.length ? s.moves : null, { depth: s.depth, final: s.done });
+      let v = judgeMove(board, m, me, s.moves.length ? s.moves : null, { depth: s.depth, final: s.done });
+      // 你走的这一手引擎只排了个大概（不在前几名里）：先精确算它，再决定拦不拦
+      if (needsExact(v)) {
+        busy = true;
+        setCoachLine('教练算一下这一手…', 'info');
+        await s.refine(m);
+        busy = false;
+        setCoachLine(null);
+        if (token !== moveToken || over || turn !== me || !s.is(board, me)) return;
+        v = judgeMove(board, m, me, s.moves, { depth: s.depth, final: s.done });
+      }
       if (!shouldWarn(hintLevel, v)) {
         doMove(m);
         return;
@@ -1188,7 +1217,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         board: scene,
         study: s,
         // 差得太多的棋分析里只有下限，补一次精确计算，把"至少少一个车"说成真实的后果
-        refine: () => requestScore(before, me, m, { maxDepth: Math.max(2, s.depth), timeMs: 1500, jitter: 0 }),
+        refine: () => s.refine(m),
         onProceed: (retracted, finalV) => {
           closeCoachPrompt = null;
           busy = false;
@@ -1218,7 +1247,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       const idx = s.moves.findIndex((x) => sameMove(x.move, m));
       if (idx < 0) return;
       const best = s.moves[0];
-      bookAt.set(ply, { best, played: s.moves[idx], depth: s.depth });
+      bookAt.set(ply, { best, played: s.moves[idx], depth: s.depth, engine: s.engine });
       if (hintLevel < 2 || ply - praisedAt < 6) return;
       const after = applyMove(board, m);
       if (threatAtTurn && !mateInOne(after, foe) && idx <= 2) {
@@ -1305,12 +1334,23 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         // 再加一点随机，免得每一步都卡在同一个时刻，那样同样很机械。
         const t0 = performance.now();
         const wait = TEMPO.think ? TEMPO.think * (0.75 + Math.random() * 0.5) : 0;
-        requestMove(board, foe, {
-          maxDepth: handicap?.depth ?? L.depth,
-          jitter: handicap ? 0 : L.jitter,
-          timeMs: handicap ? 2000 : L.timeMs,
-          avoid: aiAvoid(),
-        }).then((m) => {
+        const avoid = aiAvoid();
+        const local = () =>
+          requestMove(board, foe, {
+            maxDepth: handicap?.depth ?? L.depth,
+            jitter: handicap ? 0 : L.jitter,
+            timeMs: handicap ? 2000 : L.timeMs,
+            avoid,
+          });
+        const fsfMs = !handicap && 'fsfMs' in L ? (L.fsfMs as number) : 0;
+        const pick: Promise<Move | null> =
+          fsfMs && engineReady()
+            ? engineBestMove(board, foe, fsfMs, { startFen: startKey, moves: moveLog.slice() }, avoid).then((m) => {
+                lastAiEngine = m ? 'fsf' : 'local';
+                return m ?? local();
+              })
+            : ((lastAiEngine = 'local'), local());
+        pick.then((m) => {
           if (over || myTurn !== aiSeq) return; // 期间悔棋/重开了，丢弃这次结果
           const rest = Math.max(0, wait - (performance.now() - t0));
           aiTimer = window.setTimeout(() => {
@@ -1544,6 +1584,19 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     renderCoachLine();
     prepareTurn();
     /*
+     * 专业引擎是异步加载的。开局第一步如果它还没好，这一步的研究先用自带引擎顶着；
+     * 它一加载好，就把当前这一步换成它重算——前提是你还没在这一步上做过任何决定
+     * （教练没开过口、求助面板没开着），否则中途换裁判，前后说法就可能对不上。
+     */
+    void loadEngine().then((ok) => {
+      if (!ok || over || turn !== me || busy) return;
+      if (!study || study.engine !== 'local' || !study.is(board, me)) return;
+      if (closeCoachPrompt || closeBest || warnedHere.fen === study.fen) return;
+      dropStudy();
+      prepareTurn();
+      renderCoachLine();
+    });
+    /*
      * 执黑时红方先行，开局这一手得由对手走。
      * 原来的流程只有"我走完 → afterMove → 轮到对手"这一条路径，
      * 开局没人触发，执黑就会卡在空棋盘上谁也不动。
@@ -1565,7 +1618,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         /** 把一手棋转成中文记谱，测试拿它和教练的推荐对字符串 */
         textOf: (m: Move) => moveToText(board, m),
         /** 当前的引擎分析有没有就绪，测试用它避免抢跑 */
-        analysisReady: () => !!study && study.is(board, me) && (study.depth >= MIN_JUDGE_DEPTH || study.done),
+        analysisReady: () => !!study && study.is(board, me) && (study.depth >= study.minDepth || study.done),
+        /** 对手上一步用的引擎 */
+        aiEngine: () => lastAiEngine,
+        /** 当前研究用的是哪个引擎 */
+        engine: () => (study ? study.engine : engineReady() ? 'fsf' : 'local'),
         /** 研究进度：算到第几层、算完没有、目前的首选 */
         study: () =>
           study && study.is(board, me)

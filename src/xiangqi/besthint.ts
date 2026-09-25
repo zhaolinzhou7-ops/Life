@@ -35,6 +35,8 @@ export interface HintState {
    * 第一步就推荐"炮八平三"这种冷门棋，懂棋的人一看就觉得不专业。
    */
   book?: { move: Move; text: string; why: string; opening: string };
+  /** 谁算的：专业引擎还是自带引擎。如实写出来 */
+  engine?: 'fsf' | 'local';
 }
 
 export interface BestHintUI {
@@ -96,10 +98,14 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: Hi
     }
   });
 
-  const update = (r: HintResult, st: HintState) => {
+  const update = (full: HintResult, st: HintState) => {
+    // 只有上限、没精确算过的着法不进列表——"落后 20+"这种数没有意义
+    const r: HintResult = { ...full, ranked: full.ranked.filter((x) => !x.atLeast) };
     latest = r;
     // 算到第几层要摆出来：没算完的"最优"只是目前的看法，用户有权知道
-    elStatus.textContent = st.done ? `已算完 ${st.depth} 层` : `已算 ${st.depth} 层，还在往深算…（结论可能还会变）`;
+    const who = st.engine === 'fsf' ? '专业引擎' : st.engine === 'local' ? '自带引擎' : '';
+    elStatus.textContent =
+      (st.done ? `已算完 ${st.depth} 层` : `已算 ${st.depth} 层，还在往深算…（结论可能还会变）`) + (who ? ` · ${who}` : '');
     if (!r.best) {
       elText.textContent = '这个局面已经没有可走的棋了。';
       return;

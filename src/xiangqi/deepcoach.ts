@@ -29,6 +29,7 @@ import {
 import { PIECE_VALUE, hangingPieces, inPieces, mateInOne, moveRisk, other, seeAt, type Hanging } from './teach';
 import { moveToText, pieceName } from './notation';
 import { requestAnalysis } from './aiclient';
+import { engineAnalyse } from './fsf';
 import { TIER_INFO, intentNames, placeInTiers, rankMoves, tierTable } from './tiers';
 import type { Facts } from './llm';
 
@@ -452,6 +453,46 @@ export const PHASE_PRINCIPLE: Record<Phase, string[]> = {
   ],
 };
 
+// ───────────────────────── 引擎口径的"问题在哪" ─────────────────────────
+
+/**
+ * 用引擎的主变说清这一手的问题。和对局中教练的报警（livecoach.warnText）是同一个口径：
+ * 被杀就说几步杀、对方第一手吃子就点名吃了什么、否则说差多少。差距在"良"以内不算问题。
+ */
+export function engineProblem(
+  before: Board,
+  m: Move,
+  me: Color,
+  played: { move: Move; score: number; mateIn?: number; pv: Move[]; bound?: boolean } | undefined,
+  best: { move: Move; score: number; mateIn?: number } | undefined,
+): { problem?: string; punish?: string } | null {
+  if (!played || !best) return null;
+  const gap = Math.max(0, best.score - played.score);
+  const after = applyMove(before, m);
+  const reply = played.pv[1];
+  const replyText = reply ? moveToText(after, reply) : '';
+  const eaten = reply ? after[reply.ty][reply.tx] : null;
+  const ate = eaten && eaten.c === me ? `走完之后对方会 ${replyText}，吃掉你的${pieceName(eaten.t, eaten.c)}` : '';
+  const bestMated = best.mateIn !== undefined && best.mateIn < 0;
+  if (played.mateIn !== undefined && played.mateIn < 0) {
+    if (!bestMated) {
+      return { problem: `走完这一手，对方有 ${-played.mateIn} 步杀${replyText ? `，从 ${replyText} 开始` : ''}。`, punish: replyText || undefined };
+    }
+    // 两边都逃不过杀，但这一手让杀来得更快：输定的局面里，顽强防守也是要学的
+    if (played.mateIn > best.mateIn!) {
+      return {
+        problem: `走完这一手，对方 ${-played.mateIn} 步就能杀（最顽强的下法能撑 ${-best.mateIn!} 步）${ate ? `；${ate}` : ''}。`,
+        punish: replyText || undefined,
+      };
+    }
+    return null;
+  }
+  if (gap <= 90) return null;
+  const amount = `${inPieces(Math.min(gap, 2000))}${played.bound ? '以上' : ''}`;
+  if (ate) return { problem: `${ate}，算下去比最好的下法少${amount}。`, punish: replyText };
+  return { problem: `这一手不直接丢子，但比最好的下法差约${amount}${replyText ? `（对方会接 ${replyText}）` : ''}。` };
+}
+
 // ───────────────────────── 组装成讲解层要的事实清单 ─────────────────────────
 
 /**
@@ -504,7 +545,8 @@ export async function deepFacts(before: Board, m: Move, me: Color, opts: DeepOpt
   } else if (opts.analysis?.length) {
     scored = opts.analysis;
   } else {
-    scored = await requestAnalysis(before, me, DEEP);
+    // 专业引擎能用就用它（同时把你这一手也精确算出来），不能用再退回自家引擎
+    scored = (await engineAnalyse(before, me, { movetime: DEEP.timeMs, include: m })) ?? (await requestAnalysis(before, me, DEEP));
   }
 
   // 对方接下来的计划：走完我这一手之后，引擎认为对方会怎么下
@@ -527,6 +569,16 @@ export async function deepFacts(before: Board, m: Move, me: Color, opts: DeepOpt
   const ranked = rankMoves(before, me, scored);
   const place = placeInTiers(ranked, m);
   const bestMv = scored[0]?.move;
+  /*
+   * "问题在哪"：有引擎数据时只从引擎的主变里取。
+   *
+   * 原来这里无条件用静态兑子（moveRisk）。引擎说这一手是最优、静态兑子却说"会丢兵"，
+   * 两句话同时出现——正是用户说的"快被将死了还不让我出将，说会丢兵"那一类。
+   * 静态兑子只在完全没有引擎数据时兜底。
+   */
+  const eng = scored.length ? engineProblem(before, m, me, played, scored[0]) : null;
+  const problem = scored.length ? eng?.problem : risk?.detail;
+  const punish = scored.length ? eng?.punish : risk?.punish ? moveToText(after, risk.punish) : undefined;
   const bestIsPlayed =
     bestMv && bestMv.fx === m.fx && bestMv.fy === m.fy && bestMv.tx === m.tx && bestMv.ty === m.ty;
 
@@ -551,8 +603,8 @@ export async function deepFacts(before: Board, m: Move, me: Color, opts: DeepOpt
      */
     reason: bestMv && !bestIsPlayed ? intentNames(before, bestMv, me) || undefined : undefined,
     bestReason: undefined,
-    problem: risk?.detail,
-    punish: risk?.punish ? moveToText(after, risk.punish) : undefined,
+    problem,
+    punish,
     oppPlan: oppPlan.length ? oppPlan : undefined,
     stage: stage === 'opening' ? '开局' : stage === 'middle' ? '中局' : '残局',
   };

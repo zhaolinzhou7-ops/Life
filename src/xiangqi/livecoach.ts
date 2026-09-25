@@ -185,6 +185,17 @@ export function shouldWarn(level: HintLevel, v: MoveVerdict | null): boolean {
   return v.loss >= LOSS_GATE[level];
 }
 
+/**
+ * 这一手在分析里只有上限（引擎只精确排了前几名），得先精确算一下才能判。
+ *
+ * 专业引擎只精确排前 6 名，其余的只知道"不比第 6 名好"。安静的局面里前 6 名只差
+ * 二三十分，拿这个上限去判，一手丢马的棋也会被当成"差不多"放过去。
+ * 所以只要你走的那一手只有上限，教练一律先精确算它，再决定开不开口。
+ */
+export function needsExact(v: MoveVerdict): boolean {
+  return v.fromEngine && !!v.played?.bound && v.rank !== 1 && !v.mateNext;
+}
+
 /** 这一手的引擎主变走下去，双方各被吃掉了什么 */
 function lineLosses(before: Board, pv: Move[], me: Color): { mine: string[]; theirs: string[]; net: number } {
   let cur = before;

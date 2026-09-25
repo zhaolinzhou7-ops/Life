@@ -7,6 +7,7 @@
 import type { Board, Color, Move } from './rules';
 import { applyMove } from './rules';
 import { requestReview } from './aiclient';
+import { engineReady, engineReview } from './fsf';
 import {
   headlineOf,
   reviewMove,
@@ -288,32 +289,35 @@ export function runReview(opts: ReviewOpts): () => void {
   };
 
   // ---- 启动分析 ----
-  const cancel = requestReview(
-    startBoard,
-    startColor,
-    moves,
-    { maxDepth: REVIEW_DEPTH, timeMs: REVIEW_TIME, jitter: 0 },
-    (ply, color, board, judged) => {
-      const k = opts.known?.get(ply);
-      // 对局里的判读只在"精确、且不比复盘浅"时才用。只有下限的（差得太多、没精确算）
-      // 交给复盘自己算——拿下限当亏损，丢车的棋会被评成"不佳"
-      const use = k && !k.played.bound && (!judged || k.depth >= judged.depth) ? k : judged;
-      if (use) {
-        reviewed.push(reviewMove(board, ply, color, use));
-      }
-      elProgress.textContent = `分析中 ${ply + 1}/${moves.length}`;
-      renderList();
-    },
-    () => {
-      report = summarize(reviewed);
-      harvest(report);
-      elProgress.textContent = `共 ${moves.length} 手`;
-      renderSummary();
-      // 分析完直接跳到「你最该改的一手」——学棋要看的是自己的错
-      const jump = report.worst[playerColor] >= 0 ? report.worst[playerColor] : report.turning;
-      goto(jump >= 0 ? jump : reviewed.length - 1);
-    },
-  );
+  // 专业引擎能用就用它复盘：对局里教练用的也是它，同一手棋两边说法才一致
+  const engine: 'fsf' | 'local' = engineReady() ? 'fsf' : 'local';
+  const onStep = (ply: number, color: Color, board: Board, judged: Judged | null) => {
+    const k = opts.known?.get(ply);
+    // 对局里的判读只在"精确、同一个引擎、且不比复盘浅"时才用。只有下限的（差得太多、没精确算）
+    // 交给复盘自己算——拿下限当亏损，丢车的棋会被评成"不佳"。
+    // 两个引擎的"层"不是一回事，不能拿来比深浅：对局里用的是专业引擎而复盘用不了时，照样用对局里的
+    const sameEngine = (k?.engine ?? 'local') === engine;
+    const use =
+      k && !k.played.bound && (!judged || (sameEngine ? k.depth >= judged.depth : k.engine === 'fsf')) ? k : judged;
+    if (use) {
+      reviewed.push(reviewMove(board, ply, color, use));
+    }
+    elProgress.textContent = `分析中 ${ply + 1}/${moves.length}`;
+    renderList();
+  };
+  const onDone = () => {
+    report = summarize(reviewed);
+    harvest(report);
+    elProgress.textContent = `共 ${moves.length} 手`;
+    renderSummary();
+    // 分析完直接跳到「你最该改的一手」——学棋要看的是自己的错
+    const jump = report.worst[playerColor] >= 0 ? report.worst[playerColor] : report.turning;
+    goto(jump >= 0 ? jump : reviewed.length - 1);
+  };
+  const cancel =
+    engine === 'fsf'
+      ? engineReview(startBoard, startColor, moves, onStep, onDone)
+      : requestReview(startBoard, startColor, moves, { maxDepth: REVIEW_DEPTH, timeMs: REVIEW_TIME, jitter: 0 }, onStep, onDone);
 
   /**
    * 把这一局的成绩记下来，并把**你自己走错的那几手做成题**排进错题本。

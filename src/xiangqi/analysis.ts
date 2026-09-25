@@ -74,6 +74,8 @@ export interface Judged {
   /** bound = 分数只是上限（引擎只证明了"至少差这么多"），复盘不能拿它当精确亏损 */
   played: { move: Move; score: number; mateIn?: number; pv: Move[]; bound?: boolean };
   depth: number;
+  /** 哪个引擎判的。两个引擎的"层"不能互相比深浅 */
+  engine?: 'fsf' | 'local';
 }
 
 export interface ReviewedMove {
