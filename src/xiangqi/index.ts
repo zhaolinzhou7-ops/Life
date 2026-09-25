@@ -645,13 +645,16 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         if (warned) notes.push('刚才教练对这一手提醒过——那是还没算深时的初判。以这里算深之后的结论为准。');
         // 开局阶段引擎最弱：前几名只差十几分，选出来的可能是冷门棋。定式是更可靠的参照。
         // 引擎评得最高的那一手定式领衔；其它定式着法附在下面，并写明引擎怎么看它
+        // 只有引擎精确排过名的定式着法才能领衔；没进前几名的（只知道上限）照样列出来，但不编分差
         const books = bookMoves(board, me)
           .map((bm) => ({ bm, at: r.ranked.find((x) => sameMove(x.move, bm.move)) }))
-          .sort((a, b) => (a.at?.gap ?? 1e9) - (b.at?.gap ?? 1e9));
-        const lead = books[0];
-        for (const { bm, at } of books.slice(1, 3)) {
-          const eng = at ? `引擎评它「${TIER_INFO[at.tier].name}」${at.gap ? `，${gapText(at)}` : ''}` : '';
-          notes.push(`📚 也是定式（${bm.opening}）：<b>${bm.text}</b>——${bm.why}${eng ? `${eng}。` : ''}`);
+          .sort((a, b) => (a.at && !a.at.atLeast ? a.at.gap : 1e9) - (b.at && !b.at.atLeast ? b.at.gap : 1e9));
+        // 领衔还要求引擎认为它和首选一样好（最优/次选）；差一档的就只作为参考列出来
+        const top = books[0]?.at;
+        const lead = top && !top.atLeast && (top.tier === 'best' || top.tier === 'good') ? books[0] : undefined;
+        for (const { bm, at } of books.filter((x) => x !== lead).slice(0, 2)) {
+          const eng = at && !at.atLeast ? `引擎评它「${TIER_INFO[at.tier].name}」${at.gap ? `，${gapText(at)}` : ''}。` : '';
+          notes.push(`📚 ${lead ? '也是定式' : '定式'}（${bm.opening}）：<b>${bm.text}</b>——${bm.why}${eng}`);
         }
         panel.update(r, {
           depth: s.depth,

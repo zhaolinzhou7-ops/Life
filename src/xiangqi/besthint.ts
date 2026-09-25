@@ -121,7 +121,7 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: Hi
     if (lead && st.book) {
       const others = r.ranked.filter((x) => x !== lead && x.gap <= 30).slice(0, 2);
       elText.innerHTML =
-        `开局按定式走 <b>${lead.text}</b>（${st.book.opening}：${st.book.why.replace(/。$/, '')}）。` +
+        `开局按定式走 <b>${lead.text}</b>（${bookWhy(st.book)}）。` +
         (others.length
           ? `　<span class="dim">引擎算下来 ${others.map((a) => a.text).join('、')} 也差不多——分差都在 30 以内，开局阶段这点差别是误差，先把定式走熟。</span>`
           : '') +
@@ -145,6 +145,12 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: Hi
   };
 
   return { update, close };
+}
+
+/** "中炮对屏风马：炮镇中路"；说明和布局名一样时（"仙人指路：仙人指路"）只留一个 */
+function bookWhy(b: { opening: string; why: string }): string {
+  const why = b.why.replace(/。$/, '');
+  return why === b.opening ? b.opening : `${b.opening}：${why}`;
 }
 
 /** 把一手棋画成箭头需要的形状 */

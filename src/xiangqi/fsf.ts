@@ -141,18 +141,32 @@ let sf: SfModule | null = null;
 let loading: Promise<boolean> | null = null;
 let ready = false;
 
-/** 这个浏览器能不能跑多线程 WASM */
+/**
+ * 一个只用到 SIMD 指令的最小 WASM 模块。引擎是按 WASM SIMD 编译的，
+ * 不支持 SIMD 的浏览器（iOS 16.4 之前的 Safari 等）加载会失败，先验一下，省得白下 1.7MB。
+ */
+const SIMD_PROBE = new Uint8Array([
+  0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
+]);
+
+/** 这个浏览器能不能跑多线程 + SIMD 的 WASM */
 export function engineCapable(): boolean {
   try {
     return (
       typeof window !== 'undefined' &&
       window.crossOriginIsolated === true &&
       typeof SharedArrayBuffer !== 'undefined' &&
-      typeof WebAssembly === 'object'
+      typeof WebAssembly === 'object' &&
+      WebAssembly.validate(SIMD_PROBE)
     );
   } catch {
     return false;
   }
+}
+
+/** 给一个 Promise 加上限时：超时当作失败，别让教练一直等一个起不来的引擎 */
+function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms))]);
 }
 
 /** 引擎已经加载好、可以用 */
@@ -200,7 +214,9 @@ export function loadEngine(): Promise<boolean> {
       const base = `${import.meta.env.BASE_URL}fsf/`;
       if (!window.Stockfish) await injectScript(`${base}stockfish.js`);
       if (!window.Stockfish) return false;
-      sf = await window.Stockfish({ locateFile: (f: string) => base + f });
+      const mod = await within(window.Stockfish({ locateFile: (f: string) => base + f }), 20000);
+      if (!mod) return false;
+      sf = mod;
       sf.postMessage('uci');
       if (!(await waitLine((l) => l === 'uciok', 15000))) return false;
       const cores = navigator.hardwareConcurrency || 2;
