@@ -28,6 +28,7 @@ import { moveToText as textOf } from './notation';
 import { recentGameAccuracy } from './save';
 import { planHtml, planOf } from './plan';
 import { classifyEndgame } from './endgame';
+import { trickAt } from './tricks';
 
 const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 
@@ -250,6 +251,7 @@ export function runReview(opts: ReviewOpts): () => void {
       <div class="xq-rv-eval">局面：${before === after ? before : `${before} → ${after}`}</div>
       <div class="xq-rv-comment">${badgeWhy(m)}${m.comment}</div>
       ${coachFlags.has(m.ply) ? `<div class="xq-rv-flag">🧑‍🏫 对局时教练拦过这一手，你选择了"就这么走"。教练当时说：${esc(coachFlags.get(m.ply)!)}</div>` : ''}
+      ${trickNote(m, cursor)}
       ${planBlock(m, boards[cursor])}
       ${endgameNote(m, boards[cursor])}
       <div class="xq-rv-actions">
@@ -271,6 +273,23 @@ export function runReview(opts: ReviewOpts): () => void {
     const p = planOf(before, m.color, src, 7);
     const head = m.bestMove ? `正确下法 <b>${m.bestText}</b>` : '这一手的思路';
     return `<div class="xq-rv-pv"><span class="hd">${head}</span>${planHtml(p)}</div>`;
+  }
+
+  /**
+   * 邪门布局：这一手是不是江湖套路里的那一步邪门棋；是对方刚走了邪门棋的话，你这一手是破了还是上当了。
+   */
+  function trickNote(m: ReviewedMove, i: number): string {
+    const after = boards[i + 1];
+    const played = trickAt(after, m.color === 'r' ? 'b' : 'r');
+    if (played) return `<div class="xq-rv-trick">🗡 邪门布局「${played.name}」：${played.lure}</div>`;
+    const faced = trickAt(boards[i], m.color);
+    if (!faced) return '';
+    const ok = [faced.refute[0].t, ...(faced.refute[0].alts ?? [])].includes(m.text);
+    if (ok) return `<div class="xq-rv-trick good">✅ 破解成功：对方走的是「${faced.name}」，${faced.refute[0].why}</div>`;
+    if (m.text === faced.trap[0].t) {
+      return `<div class="xq-rv-trick bad">⚠️ 上当了：对方走的是「${faced.name}」。${faced.principle}破解是 <b>${faced.refute[0].t}</b>。</div>`;
+    }
+    return `<div class="xq-rv-trick">🗡 对方刚走了邪门布局「${faced.name}」，破解是 <b>${faced.refute[0].t}</b>——${faced.refute[0].why}</div>`;
   }
 
   /** 残局里的一手：这是什么残局、书上怎么说 */

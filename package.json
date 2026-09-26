@@ -26,7 +26,9 @@
     "test:ui:endgame": "node tests/ui/endgame-coach.mjs",
     "test:ui:engine": "node tests/ui/engine.mjs",
     "test:ui:review": "node tests/ui/review-score.mjs",
-    "test:ui:resume": "node tests/ui/resume.mjs"
+    "test:ui:resume": "node tests/ui/resume.mjs",
+    "test:ui:tricks": "node tests/ui/tricks.mjs",
+    "check:tricks": "node tools/run.mjs check-tricks"
   },
   "dependencies": {
     "three": "^0.170.0"

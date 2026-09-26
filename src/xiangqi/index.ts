@@ -46,6 +46,7 @@ import { POWERS, Study, getPower, setPower, type Power } from './study';
 import { classifyEndgame, endgameHeadline, isEndgame } from './endgame';
 import { opponentIdea, planHtml, planOf, threatText } from './plan';
 import { loadLibrary } from './library';
+import { trickAt, trickMoveFor } from './tricks';
 import {
   END_TEXT,
   MOVE_LIMIT,
@@ -234,7 +235,20 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         Number(localStorage.getItem('xq-tempo') ?? 1),
         { strip, depth, onFinish },
       );
-    }, entry);
+    }, entry, (moves, meColor) => {
+      // 邪门布局破解的"从这里实战"：从套路走完的局面开一盘练习局（不记战绩）
+      disposeCoach?.();
+      disposeCoach = null;
+      const lv = Math.max(0, Math.min(LEVELS.length - 1, Number(localStorage.getItem('xq-level') ?? 1) || 0));
+      startGame(
+        lv,
+        CHARACTERS[Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length],
+        Number(localStorage.getItem('xq-tempo') ?? 1),
+        undefined,
+        meColor,
+        { board: initialBoard(), turn: 'r', moves, practice: true },
+      );
+    });
   }
 
   // ============ 最近棋局 ============
@@ -322,6 +336,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let hint: HintLevel = getHintLevel();
     let power: Power = getPower();
     let sidePick = (localStorage.getItem('xq-side') ?? 'r') as 'r' | 'b' | 'x';
+    let tricky = localStorage.getItem('xq-tricky') === '1';
 
     const s = document.createElement('div');
     s.className = 'screen xq-setup';
@@ -427,6 +442,29 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       });
       s.appendChild(sideRow);
 
+      // 对手开局：正常，或者专门走邪门布局（江湖套路），练破解
+      const kLabel = document.createElement('div');
+      kLabel.className = 'xq-sec';
+      kLabel.textContent = '对手开局';
+      s.appendChild(kLabel);
+      const kRow = document.createElement('div');
+      kRow.className = 'diff-row';
+      (
+        [
+          [false, '正常布局', '对手按自己的水平正常下'],
+          [true, '邪门布局', '对手专走炮打中卒、炮打底马这类江湖套路，练破解'],
+        ] as const
+      ).forEach(([v, name, desc]) => {
+        const c = document.createElement('div');
+        c.className = 'card' + (tricky === v ? ' selected' : '');
+        c.dataset.tricky = v ? '1' : '0';
+        c.innerHTML = `<div class="title" style="justify-content:center">${name}</div>
+          <div class="desc" style="text-align:center">${desc}</div>`;
+        c.onclick = () => { tricky = v; sfxTap(); render(); };
+        kRow.appendChild(c);
+      });
+      s.appendChild(kRow);
+
       // 教练模式：这是本产品和普通对弈软件最大的区别，所以放在"开始"上面
       const hLabel = document.createElement('div');
       hLabel.className = 'xq-sec';
@@ -480,6 +518,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         localStorage.setItem('xq-tempo', String(tempo));
         setHintLevel(hint);
         localStorage.setItem('xq-side', sidePick);
+        localStorage.setItem('xq-tricky', tricky ? '1' : '0');
         s.remove();
         setupEl = null;
         const myColor: Color = sidePick === 'x' ? (Math.random() < 0.5 ? 'r' : 'b') : sidePick;
@@ -614,6 +653,12 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let gameAnalysis: GameAnalysis | null = null;
     /** 对局中你每一手的即时称号（来自教练的研究），棋谱条上标出来 */
     const liveMarks = new Map<number, MoveLabel>();
+    /**
+     * 对手走邪门布局（练破解）：标准开局、不是让子局时才走。
+     * trickPick 是这一盘挑中的那一条，挑定了就一直走它，你走出了套路之外就照常下
+     */
+    const tricky = !handicap && !from && localStorage.getItem('xq-tricky') === '1';
+    let trickPick: string | undefined;
 
     /** 每走一步存一份，页面被回收了还能接着下（让子定级局不存：它的结果要回交给定级流程） */
     function saveOngoing() {
@@ -713,6 +758,15 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         setCoachLine('局面已经重复了，而你每一步都在将军。再重复一次就是长将，按规则判负——这一步要变着。', 'warn');
       } else if (threat) {
         setCoachLine(threat, 'warn');
+      } else if (hintLevel > 0 && trickAt(board, me)) {
+        // 对方刚走了一步邪门棋：点破它在赌什么，说出破解的那一手
+        const tr = trickAt(board, me)!;
+        setCoachLine(
+          hintLevel === 1
+            ? `对方走的是邪门布局「${tr.name}」，小心别上当（🔍 里有破解）。`
+            : `对方走的是邪门布局「${tr.name}」：${tr.lure}破解：${tr.refute[0].t}——${tr.refute[0].why}`,
+          'warn',
+        );
       } else {
         const quiet = pliesSinceCapture(plies);
         const last = moveLog.length ? moveLog[moveLog.length - 1] : null;
@@ -898,7 +952,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         if (token !== bestSeq || !s.is(board, me) || !s.best) return;
         const t = await opponentIdea(board, me, s.best.score);
         if (token !== bestSeq || !s.is(board, me)) return;
-        threatHtml = t ? threatText(t) : '对方暂时没有直接的威胁，可以按自己的计划走。';
+        threatHtml = t
+          ? threatText(t)
+          : isInCheck(board, me)
+            ? '你正被将军：先应将。'
+            : '对方暂时没有直接的威胁，可以按自己的计划走。';
         render();
       });
       off = s.subscribe(render);
@@ -1610,8 +1668,12 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
             avoid,
           });
         const proMs = !handicap && 'proMs' in L ? (L.proMs as number) : 0;
-        const pick: Promise<Move | null> =
-          proMs && engineReady()
+        // 邪门布局陪练：局面还在某一条套路上，就按套路走
+        const trickNext = tricky ? trickMoveFor(moveLog, foe, trickPick) : null;
+        if (trickNext) trickPick = trickNext.trick.id;
+        const pick: Promise<Move | null> = trickNext
+          ? Promise.resolve(trickNext.move)
+          : proMs && engineReady()
             ? engineBestMove(board, foe, proMs, { startFen: startKey, moves: moveLog.slice() }, avoid).then((m) => {
                 lastAiEngine = m ? 'pro' : 'local';
                 return m ?? local();

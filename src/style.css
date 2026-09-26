@@ -4314,3 +4314,16 @@ canvas {
 .xq-tip:has(.xq-plan) { max-height: 46vh; }
 .xq-root:has(.xq-tip-why.on) .xq-play { bottom: 58vh; }
 .xq-tip:has(.xq-tip-why.on) { max-height: 56vh; }
+
+/* 复盘里的邪门布局提示 */
+.xq-rv-trick {
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  background: rgba(255, 215, 110, 0.08);
+  border: 1px solid rgba(255, 215, 110, 0.25);
+}
+.xq-rv-trick.good { background: rgba(62, 196, 109, 0.1); border-color: rgba(62, 196, 109, 0.35); }
+.xq-rv-trick.bad { background: rgba(224, 67, 58, 0.1); border-color: rgba(224, 67, 58, 0.35); }

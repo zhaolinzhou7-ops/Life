@@ -128,10 +128,15 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: Hi
     const lost = r.best.score < -9000;
     if (lead && st.book) {
       const others = r.ranked.filter((x) => x !== lead && x.gap <= 30).slice(0, 2);
+      const cracking = st.book.opening.startsWith('破解');
       elText.innerHTML =
-        `开局按定式走 <b>${lead.text}</b>（${bookWhy(st.book)}）。` +
+        (cracking
+          ? `对方走的是邪门布局，这样破：<b>${lead.text}</b>（${bookWhy(st.book)}）。`
+          : `开局按定式走 <b>${lead.text}</b>（${bookWhy(st.book)}）。`) +
         (others.length
-          ? `　<span class="dim">引擎算下来 ${others.map((a) => a.text).join('、')} 也差不多——分差都在 30 以内，开局阶段这点差别是误差，先把定式走熟。</span>`
+          ? cracking
+            ? `　<span class="dim">引擎算下来 ${others.map((a) => a.text).join('、')} 也可以，${lead.text} 最简单、最不容易走错。</span>`
+            : `　<span class="dim">引擎算下来 ${others.map((a) => a.text).join('、')} 也差不多——分差都在 30 以内，开局阶段这点差别是误差，先把定式走熟。</span>`
           : '') +
         (st.note ? `<div class="xq-tip-note">${st.note}</div>` : '');
     } else {

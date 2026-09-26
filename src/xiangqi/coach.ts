@@ -59,8 +59,11 @@ import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
 import { runReplay } from './replay';
-import type { Color } from './rules';
+import type { Color, Move } from './rules';
 import { OPENINGS } from './openings';
+import { TRICKS, walkMoves, type TrickOpening } from './tricks';
+import { outlookOf } from './plan';
+import { inPieces } from './teach';
 import { Board2D } from './board2d';
 import { fromFen } from './notation';
 import { STAGES, stageFor, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block } from './curriculum';
@@ -87,6 +90,8 @@ export function runCoach(
   /** 开一局让子定级棋。学棋模块自己不管对弈，交回对弈流程去下 */
   startLadder?: (strip: number, depth: number, onFinish: (won: boolean) => void) => void,
   entry: CoachEntry = 'home',
+  /** 从一串着法之后的局面开一局实战（练破解）。me 是你执的一方 */
+  startFrom?: (moves: Move[], me: Color) => void,
 ): () => void {
   const wrap = document.createElement('div');
   wrap.className = 'xq-coach';
@@ -255,6 +260,11 @@ export function runCoach(
         t: `🏁 实用残局${cleared.endgames.length ? `（已过 ${cleared.endgames.length}）` : ''}`,
         d: '摆好局面跟引擎下到底——多子必须赢下来，少子必须守和。不到分出结果不算过。',
         go: () => showEndgameList(),
+      },
+      {
+        t: `🗡 邪门布局破解${tricksDone().size ? `（已练 ${tricksDone().size}/${TRICKS.length}）` : ''}`,
+        d: '炮打中卒、炮打底马、急冲中兵、炮过河骚扰……江湖套路本身都是亏的，专门赌你应错。每一条都讲清它赌什么、怎么破，引擎逐条验证过。',
+        go: () => showTricks(),
       },
       {
         t: '🧩 专项练习',
@@ -596,6 +606,14 @@ export function runCoach(
       }</div><div class="desc">${DIM_INFO[d].desc}</div>`;
       el.onclick = () => startPractice(d);
       list.appendChild(el);
+      if (d === 'opening') {
+        const tk = document.createElement('div');
+        tk.className = 'card home-card';
+        tk.innerHTML = `<div class="title">🗡 邪门布局破解</div><div class="desc">炮打中卒、炮打底马、急冲中兵……
+          江湖套路专门赌你应错。看它赌什么、上当会怎样、怎么破，再自己走一遍。</div>`;
+        tk.onclick = () => showTricks();
+        list.appendChild(tk);
+      }
       // 残局题只练"一步正着"；残局真正的功夫是下到底——入口就放在残局题旁边，不用再去找
       if (d === 'endgame') {
         const eg = document.createElement('div');
@@ -1597,6 +1615,12 @@ export function runCoach(
       </div>`;
     const list = document.createElement('div');
     list.className = 'card-list';
+    const tk = document.createElement('div');
+    tk.className = 'card home-card';
+    tk.innerHTML = `<div class="title">🗡 邪门布局破解<span class="tag">${TRICKS.length} 条</span></div>
+      <div class="desc">对手不按定式走、专走江湖套路时怎么办。</div>`;
+    tk.onclick = () => showTricks();
+    list.appendChild(tk);
     for (const o of OPENINGS) {
       const el = document.createElement('div');
       el.className = 'card home-card';
@@ -1651,6 +1675,143 @@ export function runCoach(
       guessFor,
       notes: o.traps,
       onExit: () => showOpening(o),
+    });
+  }
+
+  // ---------------- 邪门布局破解 ----------------
+  const TRICKS_KEY = 'xq-tricks-done';
+  /** 已经亲手破过的套路（"你来破解"全对） */
+  function tricksDone(): Set<string> {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(TRICKS_KEY) ?? '[]') as string[]);
+    } catch {
+      return new Set();
+    }
+  }
+  function markTrickDone(id: string) {
+    const s = tricksDone();
+    s.add(id);
+    try {
+      localStorage.setItem(TRICKS_KEY, JSON.stringify([...s]));
+    } catch {
+      /* 存不下就算了 */
+    }
+  }
+
+  const sideWord = (c: Color) => (c === 'r' ? '红' : '黑');
+
+  function showTricks() {
+    clear();
+    const done = tricksDone();
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-report';
+    scr.innerHTML = `
+      <h1>🗡 邪门布局破解</h1>
+      <div class="sub">江湖套路本身都是亏的，专门赌你应错</div>
+      <div class="xq-advice"><b>破邪门，记住三句话</b>
+        <p>① <b>先看能不能吃</b>：送到嘴边的子先数保护，被将军先看能不能吃掉将军的子。<br>
+        ② <b>不跟着乱打</b>：他不出子光骚扰，你就正常出子；跟着他换子、打底马，等于帮他出子。<br>
+        ③ <b>用出子去捉</b>：单个子冲过来，出一个子捉它，他退一步，你白赚两步。</p>
+        <p class="dim">这里按"套路"收，不按江湖名号——同一个套路各地叫法不一样，认得套路才破得了。
+        每一条的结论都是皮卡鱼引擎逐条复核过的：这一手本身亏多少、破解是不是最好、上当亏多少。</p>
+      </div>`;
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    for (const side of ['r', 'b'] as const) {
+      const h = document.createElement('div');
+      h.className = 'xq-sec';
+      h.textContent = side === 'r' ? '对方执红走邪门（你执黑破解）' : '对方执黑走邪门（你执红破解）';
+      list.appendChild(h);
+      for (const t of TRICKS.filter((x) => x.by === side)) {
+        const el = document.createElement('div');
+        el.className = 'card home-card';
+        el.dataset.trick = t.id;
+        el.innerHTML = `<div class="title">${t.name}<span class="tag">${t.level}</span>${
+          done.has(t.id) ? '<span class="tag warn">已破</span>' : ''
+        }</div><div class="desc">${t.lure}</div>`;
+        el.onclick = () => showTrick(t);
+        list.appendChild(el);
+      }
+    }
+    scr.appendChild(list);
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showHome;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  function showTrick(t: TrickOpening) {
+    clear();
+    const me: Color = t.by === 'r' ? 'b' : 'r';
+    const v = t.verified;
+    const line = [...t.pre, t.trick.t].join(' ');
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-report';
+    scr.innerHTML = `<h1>${t.name}</h1>
+      <div class="sub">对方执${sideWord(t.by)} · 你执${sideWord(me)}破解 · ${t.level}</div>
+      <div class="xq-advice">
+        <b>套路：它在赌什么</b><p>${t.lure}</p>
+        <p class="dim">着法：${line}</p>
+        <b>怎么破</b><p><b>${t.refute[0].t}</b>——${t.refute[0].why}</p>
+        <b>要记住的道理</b><p>${t.principle}</p>
+        <p class="dim">引擎复核：这一步邪门棋本身就亏约${inPieces(v.trickLoss)}；按破解走，局面是「${outlookOf(v.refuteScore)}」；
+        上当的话（${t.trap[0].t}），比破解差约${inPieces(v.trapLoss)}。</p>
+      </div>`;
+    const mk = (label: string, fn: () => void) => {
+      const b = document.createElement('button');
+      b.className = 'btn';
+      b.textContent = label;
+      b.onclick = fn;
+      scr.appendChild(b);
+      return b;
+    };
+    mk('📖 看套路和破解', () => runTrick(t, 'refute')).dataset.act = 'trick-show';
+    mk('⚠️ 看上当会怎样', () => runTrick(t, 'trap')).dataset.act = 'trick-trap';
+    mk(`🎯 你来破解（你执${sideWord(me)}）`, () => runTrick(t, 'guess')).dataset.act = 'trick-guess';
+    if (startFrom) {
+      mk('⚔️ 从这里实战', () => {
+        const w = walkMoves([...t.pre, t.trick.t]);
+        if (w) startFrom(w.moves, me);
+      }).dataset.act = 'trick-play';
+    }
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showTricks;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  function runTrick(t: TrickOpening, mode: 'refute' | 'trap' | 'guess') {
+    clear();
+    const host = document.createElement('div');
+    host.className = 'xq-coach-stage';
+    wrap.appendChild(host);
+    const me: Color = t.by === 'r' ? 'b' : 'r';
+    const pre = t.pre.map((x) => ({ t: x, why: '布局的正常着法。' }));
+    const trick = { t: t.trick.t, why: `<b>邪门着。</b>${t.trick.why}` };
+    const tail = mode === 'trap' ? t.trap : t.refute;
+    const moves = [...pre, trick, ...tail];
+    disposeScreen = runReplay(host, {
+      title: t.name,
+      subtitle:
+        mode === 'trap' ? '上当会怎样：最常见的错误应法' : mode === 'guess' ? `你来破解：你执${sideWord(me)}，先走再对答案` : '套路和破解，每一手都讲在干什么',
+      intro:
+        mode === 'trap'
+          ? `${t.lure}<br><br>下面是<b>上当</b>的走法——看清楚它为什么亏，下次一眼认出来。`
+          : mode === 'guess'
+            ? `套路已经摆好：对方刚走了 <b>${t.trick.t}</b>。${t.trick.why}<br><br>该你了：怎么破？`
+            : t.lure,
+      moves,
+      guessFor: mode === 'guess' ? me : undefined,
+      startAt: mode === 'guess' ? pre.length + 1 : undefined,
+      notes: [t.principle],
+      onFinish: (right, tried) => {
+        if (mode === 'guess' && tried && right === tried) markTrickDone(t.id);
+      },
+      onExit: () => showTrick(t),
     });
   }
 
