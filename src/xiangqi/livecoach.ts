@@ -26,6 +26,7 @@ import type { MoveScore } from './ai';
 import { explain, type Facts } from './llm';
 import { INTENT_INFO, deepFacts, intentsOf } from './deepcoach';
 import { moveToText, pieceName } from './notation';
+import { planHtml, planOf } from './plan';
 
 export type HintLevel = 0 | 1 | 2 | 3;
 
@@ -389,6 +390,7 @@ export function showCoachPrompt(opts: CoachPromptOpts): () => void {
       <span class="xq-tip-text"></span>
     </div>
     <div class="xq-tip-status"></div>
+    <div class="xq-tip-plan"></div>
     <div class="xq-tip-why"></div>
     <div class="xq-tip-bar">
       ${level >= 3 ? '<button class="xq-btn" data-act="why">为什么？</button>' : ''}
@@ -400,8 +402,11 @@ export function showCoachPrompt(opts: CoachPromptOpts): () => void {
   const elText = el.querySelector('.xq-tip-text') as HTMLElement;
   const elStatus = el.querySelector('.xq-tip-status') as HTMLElement;
   const elWhy = el.querySelector('.xq-tip-why') as HTMLElement;
+  const elPlan = el.querySelector('.xq-tip-plan') as HTMLElement;
   const elGo = el.querySelector('[data-act="go"]') as HTMLButtonElement;
 
+  let planKey = '';
+  let planMemo = '';
   const paint = () => {
     const sev = retracted ? 0 : verdict.mateNext || verdict.loss >= 900 ? 3 : verdict.loss >= 420 || verdict.risk?.severity === 2 ? 2 : 1;
     el.className = `xq-tip sev${sev}${retracted ? ' ok' : ''}`;
@@ -413,6 +418,22 @@ export function showCoachPrompt(opts: CoachPromptOpts): () => void {
     } else {
       elText.textContent = warnText(level, verdict, before, move);
       elGo.textContent = '就这么走';
+    }
+    // 不只说"这手不好"，还要说该怎么走、接下来往哪儿走（标准提示以上）
+    const best = verdict.best;
+    const want = !retracted && level >= 2 && best && !best.bound && !sameMove(best.move, move);
+    // 研究每多算一层都会重画；主变没变就不重新翻译
+    const key = want ? `${best.pv.map((x) => `${x.fx}${x.fy}${x.tx}${x.ty}`).join(' ')}|${best.score}|${best.mateIn ?? ''}` : '';
+    if (key !== planKey) {
+      planKey = key;
+      planMemo = want
+        ? `<div class="lead">更好的是 <b>${moveToText(before, best.move)}</b>：</div>${planHtml(planOf(before, me, best, 5))}`
+        : '';
+    }
+    const planned = planMemo;
+    if (elPlan.dataset.k !== planned) {
+      elPlan.dataset.k = planned;
+      elPlan.innerHTML = planned;
     }
     const s = opts.study;
     if (s && !s.done && !s.stopped) elStatus.textContent = `初步判断（已算 ${s.depth} 层，还在往深算，结论变了会马上告诉你）`;

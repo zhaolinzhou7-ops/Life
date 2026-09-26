@@ -9,12 +9,19 @@
  * 规则（合法着法、将军、将死）仍然只认 rules.ts；它给的每一手都要在我们的合法着法里。
  * 起不来时所有调用方自动退回自家引擎，功能不缺，只是弱一些。
  *
- * **线程。** 这个构建是单线程的：一条 `go` 会把所在的 Worker 一直占到算完，中途叫不停。
+ * **线程。** 这个构建是单线程的：一条 `go` 会把所在的 Worker 一直占到算完，发 stop 它收不到。
  * 所以开了两条"车道"，各一个 Worker：
- *   study   —— 轮到你走时的长时间研究，想停就 terminate 掉重起一个（重起只要几十毫秒：
- *              编译好的 wasm 模块和评估网络由主线程直接递过去，不重新下载、不重新编译）
+ *   study   —— 轮到你走时的长时间研究，你一落子就要停
  *   service —— 短任务：精确算你走的那一手、对手走棋、复盘逐手打分、"为什么？"
  * 两条车道互不排队：研究在算的时候，教练照样能立刻精确算你刚走的那一手。
+ *
+ * **怎么叫停。** 拨引擎的表（pika-worker.js）：它以为时间到了，交出算完的那一层，Worker 接着用。
+ * 以前是 terminate 掉 Worker 再起一个，可每个引擎实例要 256MB，手机回收得慢，
+ * 下到二三十手就起不来了——教练"刚开始还能算，后面就不算了"。现在 Worker 只在卡死、崩了时才换。
+ * 浏览器不支持拨表（没有跨源隔离）时，研究分段算，每段几秒，段与段之间停（study.ts）。
+ *
+ * **倒下了怎么办。** 起不来、崩了、卡死超时：这一次的结果标成 failed，调用方当场退回自家引擎；
+ * 连着起不来，就认定这台设备跑不动它（engineLost），之后都用自家引擎，界面会说一声。
  *
  * 许可：Pikafish 是 GPL-3.0。原样加载 vendor/pikafish/ 里的文件，来源与校验和见那里的 README。
  */
@@ -130,6 +137,9 @@ export function linesToMoveScores(lines: PvLine[], board: Board, color: Color): 
 let assets: { module: WebAssembly.Module; data: ArrayBuffer } | null = null;
 let loading: Promise<boolean> | null = null;
 let ready = false;
+/** 引擎中途起不来了（多半是手机内存不够）。之后所有调用方退回自家引擎 */
+let lost = false;
+const lostSubs = new Set<() => void>();
 
 /** 这个浏览器能不能跑：要有 WebAssembly 和 Worker。这个构建不需要 SIMD，也不需要多线程 */
 export function engineCapable(): boolean {
@@ -142,7 +152,37 @@ export function engineCapable(): boolean {
 
 /** 引擎已经加载好、可以用 */
 export function engineReady(): boolean {
-  return ready;
+  return ready && !lost;
+}
+
+/** 引擎中途倒下了（加载好之后又起不来）。界面据此告诉用户"换回自带引擎了"，只说一次 */
+export function engineLost(): boolean {
+  return lost;
+}
+
+/** 引擎倒下时通知一次。返回退订函数 */
+export function onEngineLost(cb: () => void): () => void {
+  lostSubs.add(cb);
+  return () => lostSubs.delete(cb);
+}
+
+function markLost() {
+  if (lost) return;
+  lost = true;
+  for (const cb of [...lostSubs]) cb();
+}
+
+/**
+ * 能不能"拨表"叫停（见 pika-worker.js）：要有 SharedArrayBuffer，页面要跨源隔离。
+ * 不能的话研究改成分段算，每段几秒，段与段之间才能停。
+ */
+export function cooperativeStop(): boolean {
+  try {
+    if (localStorage.getItem('xq-engine-noflag')) return false; // 测试用：模拟没有跨源隔离的浏览器
+  } catch {
+    /* 读不了就按实际情况 */
+  }
+  return typeof SharedArrayBuffer !== 'undefined' && typeof Atomics !== 'undefined' && self.crossOriginIsolated === true;
 }
 
 const baseUrl = () => `${import.meta.env.BASE_URL}pika/`;
@@ -185,67 +225,153 @@ export function loadEngine(): Promise<boolean> {
 
 // ───────────────────────── 车道：一个 Worker + 一个队列 ─────────────────────────
 
+/** 页面上一次回到前台的时刻。手机切后台时整个页面（连同 Worker）会被冻住，回来那一刻不能按超时处理 */
+let visibleAt = 0;
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) visibleAt = Date.now();
+  });
+}
+const justWoke = () => (typeof document !== 'undefined' && document.hidden) || Date.now() - visibleAt < 5000;
+
+/** 一条车道连着这么多次起不来，就认定引擎在这台设备上跑不动了 */
+const MAX_FAILURES = 2;
+/** 一条车道上的引擎崩了这么多次，同样认定跑不动 */
+const MAX_CRASHES = 3;
+
+/** 统计（测试和排查用）：每条车道起过几个 Worker、被迫掐掉过几次 */
+const stats = { spawned: { study: 0, service: 0 }, killed: { study: 0, service: 0 }, failed: { study: 0, service: 0 } };
+export function engineStats() {
+  return {
+    spawned: { ...stats.spawned },
+    killed: { ...stats.killed },
+    failed: { ...stats.failed },
+    cooperative: cooperativeStop(),
+    lost,
+  };
+}
+
+/** 引擎输出的一行；null 表示这个 Worker 死了 */
+type LineFn = (line: string | null) => void;
+
 class Lane {
   private worker: Worker | null = null;
   private starting: Promise<boolean> | null = null;
-  private listeners = new Set<(line: string) => void>();
-  /** 这条车道上排队的任务 */
+  private listeners = new Set<LineFn>();
+  /** 叫停标志（和 Worker 共享的一个整数）。没有跨源隔离时为 null */
+  private flag: Int32Array | null = null;
+  /** 连着起不来的次数 */
+  private failures = 0;
+  /** 起来之后又崩掉的次数（不清零）：每算一次就崩一次的话，不能无休止地重起 */
+  private crashes = 0;
+  /** 这条车道上排队的任务：前一个任务的引擎真正空下来，下一个才开始 */
   queue: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly hash: number) {}
+  constructor(
+    private readonly name: LaneName,
+    private readonly hash: number,
+  ) {}
+
+  /** 能拨表叫停 */
+  get canHalt(): boolean {
+    return !!this.flag;
+  }
 
   /** 确保有一个初始化好的 Worker */
   ensure(): Promise<boolean> {
     if (this.worker && this.starting) return this.starting;
-    if (!assets) return Promise.resolve(false);
-    const w = new Worker(baseUrl() + 'pika-worker.js');
+    if (!assets || lost) return Promise.resolve(false);
+    let w: Worker;
+    try {
+      w = new Worker(baseUrl() + 'pika-worker.js');
+    } catch {
+      this.failed();
+      return Promise.resolve(false);
+    }
+    stats.spawned[this.name]++;
     this.worker = w;
-    this.starting = new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), 20000);
-      w.onmessage = (e: MessageEvent<{ line?: string; ready?: boolean; error?: string }>) => {
+    const sab = cooperativeStop() ? new SharedArrayBuffer(4) : null;
+    this.flag = sab ? new Int32Array(sab) : null;
+    const starting = (this.starting = new Promise<boolean>((resolve) => {
+      let up = false;
+      const bad = () => {
+        clearTimeout(timer);
+        if (this.worker === w) this.kill(false);
+        if (!up) {
+          this.failed();
+          resolve(false);
+        } else if (++this.crashes >= MAX_CRASHES) markLost();
+      };
+      // 起不来（内存不够时实例化会失败）：别让等它的研究干等
+      const timer = setTimeout(bad, 20000);
+      w.onmessage = (e: MessageEvent<{ line?: string; ready?: boolean; error?: string; crashed?: string }>) => {
         const d = e.data;
         if (d.ready) {
           clearTimeout(timer);
+          up = true;
+          this.failures = 0;
           w.postMessage({ cmd: 'uci' });
           w.postMessage({ cmd: `setoption name Hash value ${this.hash}` });
           resolve(true);
-        } else if (d.error) {
-          clearTimeout(timer);
-          resolve(false);
+        } else if (d.error || d.crashed) {
+          bad();
         } else if (d.line !== undefined) {
           for (const f of [...this.listeners]) f(d.line);
         }
       };
-      w.onerror = () => {
-        clearTimeout(timer);
-        resolve(false);
+      w.onerror = (e) => {
+        e.preventDefault();
+        bad();
       };
-      w.postMessage({ init: assets });
-    });
-    return this.starting;
+      w.postMessage({ init: { ...assets!, flag: sab } });
+    }));
+    return starting;
+  }
+
+  private failed() {
+    stats.failed[this.name]++;
+    if (++this.failures >= MAX_FAILURES) markLost();
   }
 
   post(cmd: string) {
     this.worker?.postMessage({ cmd });
   }
 
-  listen(f: (line: string) => void): () => void {
+  listen(f: LineFn): () => void {
     this.listeners.add(f);
     return () => this.listeners.delete(f);
   }
 
-  /** 掐掉当前的 Worker。下一个任务会自动起一个新的 */
-  kill() {
-    this.worker?.terminate();
+  /** 拨表：正在算的那一条马上收手，交出已经算完的那一层 */
+  halt() {
+    if (this.flag) Atomics.store(this.flag, 0, 1);
+  }
+
+  /** 表拨回来（每条 go 之前） */
+  resume() {
+    if (this.flag) Atomics.store(this.flag, 0, 0);
+  }
+
+  /**
+   * 掐掉当前的 Worker。只在它卡死、崩了的时候用：
+   * 每个引擎实例 256MB，手机上掐一个起一个，内存很快就被还没回收的旧实例占满
+   */
+  kill(counted = true) {
+    if (!this.worker) return;
+    if (counted) stats.killed[this.name]++;
+    this.worker.terminate();
     this.worker = null;
     this.starting = null;
+    this.flag = null;
+    const ls = [...this.listeners];
     this.listeners.clear();
+    for (const f of ls) f(null);
   }
 }
 
 /** 研究车道算得久，给大一点的置换表；服务车道都是短任务 */
-const lanes = { study: new Lane(64), service: new Lane(32) };
-export type LaneName = keyof typeof lanes;
+const lanes = { study: new Lane('study', 64), service: new Lane('service', 32) };
+export type LaneName = 'study' | 'service';
 
 // ───────────────────────── 搜索 ─────────────────────────
 
@@ -269,6 +395,8 @@ export interface SearchResult {
   bestmove: Move | null;
   /** 被叫停了（结果是叫停前算完的那一层） */
   stopped?: boolean;
+  /** 引擎出了问题（起不来、崩了、卡死被掐掉），结果不完整 */
+  failed?: boolean;
 }
 
 export interface SearchJob {
@@ -277,78 +405,124 @@ export interface SearchJob {
   stop(): void;
 }
 
+/** 叫停之后这么久还没交出 bestmove，就当它卡死了 */
+const HALT_GRACE = 3000;
+/** 一条 go 超出 movetime 这么久还没回来，就当它卡死了 */
+const WATCHDOG_MARGIN = 10000;
+
 export function search(opts: SearchOpts, onDepth?: (lines: PvLine[], depth: number) => void): SearchJob {
   const lane = lanes[opts.lane ?? 'service'];
   let stopRequested = false;
-  let finish: ((r: SearchResult) => void) | null = null;
+  /** 正在算时：交出结果（job 的 promise 马上兑现）并让引擎收手 */
+  let interrupt: (() => void) | null = null;
   let done: SearchResult = { lines: [], depth: 0, bestmove: null };
-  const promise = (lane.queue = lane.queue.then(
-    () =>
-      new Promise<SearchResult>((resolve) => {
-        void (async () => {
-          if (!ready || stopRequested || !(await lane.ensure()) || stopRequested) {
-            resolve({ ...done, stopped: stopRequested });
-            return;
-          }
-          const K = Math.max(1, opts.multipv ?? 1);
-          const want = Math.min(K, opts.searchmoves?.length ?? legalMoves(opts.board, opts.color).length);
-          let cur = new Map<number, PvLine>();
-          let curDepth = 0;
-          let settled = false;
-          const off = lane.listen((line) => {
-            if (line.startsWith('bestmove')) {
-              const u = line.split(/\s+/)[1];
-              end({ ...done, bestmove: u && u !== '(none)' ? uciToMove(u) : null });
-              return;
-            }
-            const info = parseInfo(line);
-            if (!info || info.bound) return;
-            if (info.depth !== curDepth) {
-              cur = new Map();
-              curDepth = info.depth;
-            }
-            cur.set(info.multipv, info);
-            if (cur.size >= want) {
-              const lines = [...cur.values()].sort((a, b) => a.multipv - b.multipv);
-              done = { lines, depth: curDepth, bestmove: null };
-              onDepth?.(lines, curDepth);
-            }
-          });
-          const end = (r: SearchResult) => {
-            if (settled) return;
-            settled = true;
-            off();
-            finish = null;
-            resolve(r);
-          };
-          finish = end;
-          lane.post(`setoption name MultiPV value ${K}`);
-          const h = opts.history;
-          lane.post(
-            h && h.moves.length
-              ? `position fen ${h.startFen} - - 0 1 moves ${h.moves.map(moveToUci).join(' ')}`
-              : `position fen ${toFen(opts.board, opts.color)} - - 0 1`,
-          );
-          const parts = ['go'];
-          if (opts.depth) parts.push(`depth ${opts.depth}`);
-          if (opts.movetime) parts.push(`movetime ${opts.movetime}`);
-          if (!opts.depth && !opts.movetime) parts.push('movetime 1000');
-          if (opts.searchmoves?.length) parts.push(`searchmoves ${opts.searchmoves.map(moveToUci).join(' ')}`);
-          lane.post(parts.join(' '));
-        })();
-      }),
-  )) as Promise<SearchResult>;
+  let answer!: (r: SearchResult) => void;
+  let answered = false;
+  const promise = new Promise<SearchResult>((resolve) => {
+    answer = (r) => {
+      if (answered) return;
+      answered = true;
+      resolve(r);
+    };
+  });
+  const movetime = opts.movetime ?? (opts.depth ? 0 : 1000);
+
+  /** 在车道上跑这一条。返回时引擎已经空下来（交出了 bestmove，或者被掐掉） */
+  const run = async (): Promise<void> => {
+    if (!engineReady() || stopRequested) return answer({ ...done, stopped: stopRequested || undefined });
+    if (!(await lane.ensure()) || stopRequested) {
+      return answer({ ...done, stopped: stopRequested || undefined, failed: !stopRequested || undefined });
+    }
+    await new Promise<void>((idle) => {
+      const K = Math.max(1, opts.multipv ?? 1);
+      const want = Math.min(K, opts.searchmoves?.length ?? legalMoves(opts.board, opts.color).length);
+      let cur = new Map<number, PvLine>();
+      let curDepth = 0;
+      let finished = false;
+      let dog = 0;
+      let haltDog = 0;
+      const settle = () => {
+        if (finished) return;
+        finished = true;
+        off();
+        clearTimeout(dog);
+        clearTimeout(haltDog);
+        interrupt = null;
+        idle();
+      };
+      /** 卡死了：掐掉换一个（listen 会收到 null，由那里收尾） */
+      const hung = () => {
+        if (finished) return;
+        if (justWoke()) {
+          // 页面刚从后台回来（手机上后台会冻住 Worker），多给它一点时间
+          dog = window.setTimeout(hung, 5000);
+          return;
+        }
+        lane.kill();
+      };
+      const off = lane.listen((line) => {
+        if (line === null) {
+          // Worker 死了（崩了、被掐掉）
+          answer({ ...done, stopped: stopRequested || undefined, failed: true });
+          settle();
+          return;
+        }
+        if (line.startsWith('bestmove')) {
+          const u = line.split(/\s+/)[1];
+          answer({ ...done, bestmove: u && u !== '(none)' ? uciToMove(u) : null, stopped: stopRequested || undefined });
+          settle();
+          return;
+        }
+        const info = parseInfo(line);
+        if (!info || info.bound) return;
+        if (info.depth !== curDepth) {
+          cur = new Map();
+          curDepth = info.depth;
+        }
+        cur.set(info.multipv, info);
+        if (cur.size >= want) {
+          const lines = [...cur.values()].sort((a, b) => a.multipv - b.multipv);
+          done = { lines, depth: curDepth, bestmove: null };
+          if (!stopRequested) onDepth?.(lines, curDepth);
+        }
+      });
+      interrupt = () => {
+        answer({ ...done, stopped: true });
+        if (lane.canHalt) {
+          lane.halt();
+          haltDog = window.setTimeout(hung, HALT_GRACE);
+        }
+        // 拨不了表：让它算到 movetime 自己停（研究是分段算的，一段只有几秒），看门狗照常
+      };
+      if (movetime) dog = window.setTimeout(hung, movetime + WATCHDOG_MARGIN);
+      lane.resume();
+      lane.post(`setoption name MultiPV value ${K}`);
+      const h = opts.history;
+      lane.post(
+        h && h.moves.length
+          ? `position fen ${h.startFen} - - 0 1 moves ${h.moves.map(moveToUci).join(' ')}`
+          : `position fen ${toFen(opts.board, opts.color)} - - 0 1`,
+      );
+      const parts = ['go'];
+      if (opts.depth) parts.push(`depth ${opts.depth}`);
+      if (movetime) parts.push(`movetime ${movetime}`);
+      if (opts.searchmoves?.length) parts.push(`searchmoves ${opts.searchmoves.map(moveToUci).join(' ')}`);
+      lane.post(parts.join(' '));
+    });
+  };
+  // 出了意外也要交差：不然等它的人（研究、教练）会一直等下去
+  const safe = () =>
+    run().catch(() => {
+      answer({ ...done, failed: true });
+    });
+  lane.queue = lane.queue.then(safe, safe);
   return {
     promise,
     stop() {
       if (stopRequested) return;
       stopRequested = true;
-      // 正在算的那一条：Worker 停不下来，只能整个掐掉，交出叫停前算完的那一层
-      if (finish) {
-        const f = finish;
-        lane.kill();
-        f({ ...done, stopped: true });
-      }
+      // 还在排队的：轮到它时直接跳过；正在算的：交出叫停前算完的那一层，引擎收手
+      interrupt?.();
     },
   };
 }
@@ -361,7 +535,7 @@ export async function engineBestMove(
   history?: { startFen: string; moves: Move[] },
   avoid: Move[] = [],
 ): Promise<Move | null> {
-  if (!ready) return null;
+  if (!engineReady()) return null;
   const legal = legalMoves(board, color);
   const key = (m: Move) => `${m.fx},${m.fy},${m.tx},${m.ty}`;
   const banned = new Set(avoid.map(key));
@@ -387,7 +561,7 @@ export async function engineScoreMove(
   m: Move,
   opts: { depth?: number; movetime: number; history?: { startFen: string; moves: Move[] } },
 ): Promise<MoveScore | null> {
-  if (!ready) return null;
+  if (!engineReady()) return null;
   const r = await search({ board, color, history: opts.history, searchmoves: [m], depth: opts.depth, movetime: opts.movetime }).promise;
   return linesToMoveScores(r.lines, board, color).find((x) => !x.bound && sameMv(x.move, m)) ?? null;
 }
@@ -401,7 +575,7 @@ export async function engineAnalyse(
   color: Color,
   opts: { movetime: number; multipv?: number; include?: Move; history?: { startFen: string; moves: Move[] } },
 ): Promise<MoveScore[] | null> {
-  if (!ready) return null;
+  if (!engineReady()) return null;
   const r = await search({ board, color, history: opts.history, multipv: opts.multipv ?? 6, movetime: opts.movetime }).promise;
   if (!r.lines.length) return null;
   let moves = linesToMoveScores(r.lines, board, color);
@@ -441,6 +615,8 @@ export function engineReview(
   per = REVIEW_BUDGET.standard,
   /** 这一手已经有更好的判读（对局里教练算过，更深），不用再算——直接回调 judged=null */
   skip: (ply: number) => boolean = () => false,
+  /** 引擎中途倒下了：从第 ply 手起交给调用方（换自家引擎接着算）。不给就只回调 judged=null */
+  onLost?: (ply: number, board: Board, color: Color) => void,
 ): () => void {
   let cancelled = false;
   let job: SearchJob | null = null;
@@ -450,6 +626,10 @@ export function engineReview(
     let c = startColor;
     for (let i = 0; i < moves.length; i++) {
       if (cancelled) return;
+      if (onLost && !engineReady() && !skip(i)) {
+        onLost(i, cur, c);
+        return;
+      }
       if (skip(i)) {
         onStep(i, c, cur, null);
         cur = applyMoveLocal(cur, moves[i]);

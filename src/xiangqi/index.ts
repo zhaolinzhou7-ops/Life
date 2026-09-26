@@ -14,7 +14,7 @@ import {
   type Move,
 } from './rules';
 import { disposeAi, requestMove, warmupAi } from './aiclient';
-import { engineBestMove, engineCapable, engineReady, loadEngine } from './pikafish';
+import { engineBestMove, engineCapable, engineReady, engineStats, loadEngine, onEngineLost } from './pikafish';
 import { MOVE_LABEL, labelOf, reviewMove, type Judged, type MoveLabel } from './analysis';
 import { GameAnalysis } from './gamescore';
 import { recentGameAccuracy } from './save';
@@ -43,6 +43,9 @@ import { hintOf, showBestHint } from './besthint';
 import { bookMoves, isBookMove } from './book';
 import { TIER_INFO, gapText } from './tiers';
 import { POWERS, Study, getPower, setPower, type Power } from './study';
+import { classifyEndgame, endgameHeadline, isEndgame } from './endgame';
+import { opponentIdea, planHtml, planOf, threatText } from './plan';
+import { loadLibrary } from './library';
 import {
   END_TEXT,
   MOVE_LIMIT,
@@ -122,6 +125,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   initCoachProvider(import.meta.env.VITE_COACH_API as string | undefined);
   // 专业引擎一进象棋就开始加载：1.7MB，编译一两秒，第一次轮到你走棋时通常已经好了
   void loadEngine();
+  // 残局库：教练认残局、讲书上的结论要用。按需加载，不进首屏
+  void loadLibrary();
 
   const unlock = () => unlockAudio();
   window.addEventListener('pointerdown', unlock, { once: true });
@@ -718,8 +723,38 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           setCoachLine(`已经 ${Math.floor(quiet / 2)} 回合没有吃子了，满 60 回合按规则判和。`, 'info');
         } else if (read) {
           setCoachLine(read, read.includes('在捉你的') ? 'warn' : 'info');
+        } else if (!egSaid && hintLevel > 0 && isEndgame(board)) {
+          // 刚进残局：说一次这是什么残局、书上怎么说、要领是什么。残局和中局是两种下法
+          egSaid = true;
+          const info = classifyEndgame(board, me);
+          if (info) setCoachLine(`${endgameHeadline(info, me, undefined, undefined, true)}要领和计划点 🔍 看。`, 'info', 14000);
         } else setCoachLine(null);
       }
+      watchThreat();
+    }
+
+    /** 这一局有没有说过"进入残局" */
+    let egSaid = false;
+    let threatSeq = 0;
+    /**
+     * 对方的威胁：规则只看得出一步杀和白吃子，看不出"再走两步就杀你""这一手之后捉双"。
+     * 研究够深之后问一次引擎：如果现在轮到对方，他最想走什么、能得到多少。
+     * 威胁大（三步以内的杀、一个马炮以上）而状态行空着时，提前说出来。
+     */
+    function watchThreat() {
+      if (hintLevel < 2 || !engineReady() || over || turn !== me) return;
+      const s = study;
+      if (!s) return;
+      const token = moveToken;
+      const seq = ++threatSeq;
+      void s.until((x) => x.depth >= x.minDepth, 4000).then(async () => {
+        const live = () => token === moveToken && seq === threatSeq && !over && turn === me && s.is(board, me);
+        if (!live() || !s.best || s.best.mateIn !== undefined) return;
+        const t = await opponentIdea(board, me, s.best.score);
+        if (!t || !live() || lineMsg || closeCoachPrompt || closeBest) return;
+        if (!(t.mateIn && t.mateIn <= 3) && t.loss < 420) return;
+        setCoachLine(`对方的威胁：${threatText(t).replace(/<[^>]+>/g, '')}`, 'warn');
+      });
     }
 
     /**
@@ -770,6 +805,31 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
      * 并且不能重复点——重复点会同时排好几个搜索进 Worker，
      * 后面的对局回手会被它们堵住。
      */
+    /** 求助面板里的计划：同一条主变只翻译一次（研究每多算一层都会刷新面板） */
+    let planKey = '';
+    let planCache = '';
+    function planFor(s: Study): string {
+      const b = s.moves[0];
+      if (!b || b.bound) return '';
+      const k = `${s.fen}|${b.pv.map(moveKey).join(' ')}|${b.score}|${b.mateIn ?? ''}`;
+      if (k !== planKey) {
+        planKey = k;
+        planCache = planHtml(planOf(board, me, b, 5));
+      }
+      return planCache;
+    }
+    /** 残局卡片：这是什么残局、书上怎么说、要领 */
+    function endgameCard(s: Study): string {
+      const info = classifyEndgame(board, me);
+      if (!info) return '';
+      const b = s.moves[0];
+      const head = endgameHeadline(info, me, b?.score, b?.mateIn);
+      return `<div class="xq-egcard">🏁 ${head}<ul>${info.tips
+        .slice(0, 3)
+        .map((t) => `<li>${t}</li>`)
+        .join('')}</ul></div>`;
+    }
+
     let closeBest: (() => void) | null = null;
     /** 求助的请求序号，用来丢弃迟到的结果 */
     let bestSeq = 0;
@@ -827,8 +887,20 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           note: notes.length ? notes.join('<br>') : undefined,
           book: lead ? lead.bm : undefined,
           engine: s.engine,
+          plan: planFor(s),
+          threat: threatHtml,
+          endgame: endgameCard(s),
         });
       };
+      // 对方的想法：研究够深之后问一次引擎"如果轮到他，他想走什么"
+      let threatHtml: string | undefined;
+      void s.until((x) => x.depth >= x.minDepth, 4000).then(async () => {
+        if (token !== bestSeq || !s.is(board, me) || !s.best) return;
+        const t = await opponentIdea(board, me, s.best.score);
+        if (token !== bestSeq || !s.is(board, me)) return;
+        threatHtml = t ? threatText(t) : '对方暂时没有直接的威胁，可以按自己的计划走。';
+        render();
+      });
       off = s.subscribe(render);
       render();
       bestBtn.textContent = '✕';
@@ -1369,6 +1441,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         busy = true;
         setCoachLine('教练看一眼这一手…', 'info');
         await s.until((x) => x.depth >= x.minDepth, 2500);
+        // 还一层都没有（慢手机、引擎刚换过）：再等一会儿。手里什么都没有就判，
+        // 只能退回"看子力"的老办法——那正是教练"算着算着就不算了"的样子
+        if (!s.moves.length && !s.done && !s.stopped) await s.until((x) => x.moves.length > 0, 6000);
         busy = false;
         setCoachLine(null);
         if (token !== moveToken || over || turn !== me || !s.is(board, me)) return;
@@ -1857,6 +1932,15 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     };
     document.addEventListener('visibilitychange', onVisibility);
 
+    /*
+     * 专业引擎中途倒下了（多半是手机内存不够）：研究已经自己换成自带引擎接着算了，
+     * 这里如实说一声——教练突然变浅，用户得知道为什么，而不是以为教练"变笨了"。
+     */
+    const offLost = onEngineLost(() => {
+      showToast('专业引擎在这台设备上跑不动了（内存不够），教练先换自带引擎接着算。刷新页面可以再试专业引擎。', 5000);
+      renderCoachLine();
+    });
+
     void loadEngine().then((ok) => {
       if (!ok || over || turn !== me || busy) return;
       if (!study || study.engine !== 'local' || !study.is(board, me)) return;
@@ -1892,6 +1976,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         aiEngine: () => lastAiEngine,
         /** 当前研究用的是哪个引擎 */
         engine: () => (study ? study.engine : engineReady() ? 'pro' : 'local'),
+        /** 引擎 Worker 起过几个、掐过几个：长对局里不能一步起一个 */
+        engineStats: () => engineStats(),
         /** 研究进度：算到第几层、算完没有、目前的首选 */
         study: () =>
           study && study.is(board, me)
@@ -1955,6 +2041,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
     cleanupGame = () => {
       document.removeEventListener('visibilitychange', onVisibility);
+      offLost();
       releaseAnalysis();
       closeReview?.();
       closeReview = null;

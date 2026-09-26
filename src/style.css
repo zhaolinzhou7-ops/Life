@@ -2320,7 +2320,7 @@ canvas {
   opacity: 0.72;
   letter-spacing: 0.4px;
 }
-.xq-rv-pv span {
+.xq-rv-pv > .hd {
   display: inline-block;
   background: rgba(255, 255, 255, 0.08);
   border-radius: 5px;
@@ -3072,10 +3072,16 @@ canvas {
 }
 .xq-po-tip-list {
   margin: 6px 0 0;
-  padding-left: 18px;
   font-size: 12px;
   line-height: 1.7;
-  opacity: 0.8;
+  opacity: 0.85;
+}
+.xq-po-tip-list ul {
+  margin: 2px 0 0;
+  padding-left: 18px;
+}
+.xq-po-book {
+  color: #bcd0ff;
 }
 .xq-po-tip-list.hidden {
   display: none;
@@ -4148,3 +4154,163 @@ canvas {
 .xq-resume .txt b { font-size: 14px; }
 .xq-resume .txt span { font-size: 12px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .xq-resume .xq-btn.primary { background: linear-gradient(180deg, #37a862, #23804a); color: #fff; border-color: transparent; }
+
+/* ───────── 计划、对方的想法、残局卡片 ───────── */
+.xq-tip-plan {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 30vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.xq-tip-plan:empty { display: none; }
+.xq-tip-plan .lead {
+  margin-top: 8px;
+  font-size: 13px;
+  color: rgba(240, 230, 210, 0.9);
+}
+.xq-tip-threat {
+  margin-top: 8px;
+  padding: 6px 9px;
+  border-radius: 9px;
+  background: rgba(224, 67, 58, 0.12);
+  border: 1px solid rgba(224, 67, 58, 0.3);
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(250, 225, 215, 0.95);
+}
+.xq-plan {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  background: rgba(62, 196, 109, 0.08);
+  border: 1px solid rgba(62, 196, 109, 0.25);
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(240, 235, 220, 0.92);
+}
+.xq-plan .goal b { color: #7fe0a0; }
+.xq-plan .line {
+  margin-top: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 4px;
+}
+.xq-plan .line > i {
+  font-style: normal;
+  opacity: 0.45;
+  font-size: 11px;
+}
+.xq-plan .st {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.xq-plan .st.me { background: rgba(62, 196, 109, 0.16); }
+.xq-plan .st.foe { background: rgba(255, 255, 255, 0.07); opacity: 0.85; }
+.xq-plan .st b { color: #f5e6c4; font-weight: 600; }
+.xq-plan .st em {
+  font-style: normal;
+  font-size: 10.5px;
+  opacity: 0.7;
+}
+.xq-plan .out,
+.xq-plan .eg {
+  margin-top: 5px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.xq-egcard {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  background: rgba(90, 140, 230, 0.1);
+  border: 1px solid rgba(90, 140, 230, 0.3);
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(230, 235, 250, 0.92);
+}
+.xq-egcard ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+.xq-rv-pv .xq-plan { margin-top: 4px; opacity: 1; letter-spacing: 0; }
+.xq-rv-eg {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: rgba(200, 215, 250, 0.9);
+}
+
+/* ───────── 残局练习：教练、反馈、换对手 ───────── */
+.xq-po-opp {
+  margin-left: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 11px;
+  padding: 2px 9px;
+  cursor: pointer;
+}
+.xq-po-opp b { color: #ffd76e; font-weight: 600; }
+.xq-po-coach {
+  flex: 0 0 auto;
+  font-size: 12px;
+  text-align: center;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(240, 230, 210, 0.85);
+  min-height: 1.6em;
+}
+.xq-po-coach.good { color: #8fe3a8; background: rgba(62, 196, 109, 0.08); }
+.xq-po-coach.warn { color: #ffb4a8; background: rgba(224, 67, 58, 0.1); }
+.xq-po-fb {
+  flex: 0 0 auto;
+  display: none;
+  max-height: 30vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 10px;
+  padding: 7px 10px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.xq-po-fb.on { display: block; }
+.xq-po-fb.good { background: rgba(62, 196, 109, 0.1); border: 1px solid rgba(62, 196, 109, 0.3); }
+.xq-po-fb.bad { background: rgba(224, 67, 58, 0.12); border: 1px solid rgba(224, 67, 58, 0.4); }
+.xq-po-fb.info { background: rgba(255, 215, 110, 0.08); border: 1px solid rgba(255, 215, 110, 0.25); }
+.xq-po-fb.hint { background: rgba(62, 196, 109, 0.06); border: 1px solid rgba(62, 196, 109, 0.3); }
+.xq-po-fb b { color: #f5d78e; }
+.xq-po-fb .acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 7px;
+}
+.xq-po-fb .acts .xq-btn { flex: 1; font-size: 12px; padding: 6px 8px; }
+.xq-po-fb .more { margin-top: 7px; }
+.xq-po-fb .more.hidden { display: none; }
+.xq-po-sum { margin-top: 5px; opacity: 0.9 !important; }
+
+/*
+ * 求助面板、教练提示条里有计划时，面板高了不少，会盖住棋盘下半截（你自己的子和推荐的箭头）。
+ * 和展开"为什么"时一样：棋盘挪到上面，头像和吃子托盘先收起来。
+ */
+.xq-root:has(.xq-tip .xq-plan) .xq-play {
+  justify-content: flex-start;
+  bottom: 47vh;
+}
+.xq-root:has(.xq-tip .xq-plan) .xq-tray,
+.xq-root:has(.xq-tip .xq-plan) .xq-rivalbox,
+.xq-root:has(.xq-tip .xq-plan) .xq-bubble { display: none; }
+.xq-tip:has(.xq-plan) { max-height: 46vh; }
+.xq-root:has(.xq-tip-why.on) .xq-play { bottom: 58vh; }
+.xq-tip:has(.xq-tip-why.on) { max-height: 56vh; }

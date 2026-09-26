@@ -6,7 +6,8 @@
  * 结论随时间越算越深；教练判得早、之后算深了结论变了，会当场改口。
  *
  * 裁判优先用专业引擎（pikafish.ts，皮卡鱼）。它没加载好或者这个浏览器跑不了时，
- * 退回自家引擎——同一个局面从头到尾只用一个裁判，不会中途换人。
+ * 退回自家引擎。专业引擎算到一半倒下了（手机内存不够、Worker 崩了），当场换自家引擎接着算——
+ * 宁可浅一点，也不能让教练手里什么都没有、悄悄退回"只看子力"的老判断。
  *
  * **算多久由"算力"决定。** 全力档：你想多久它就算多久（上限 3 分钟），层数随时间一直涨；
  * 你一落子立刻停。切到后台（锁屏、切应用）时暂停，回来接着算，不在口袋里偷偷耗电。
@@ -15,7 +16,7 @@ import type { Board, Color, Move } from './rules';
 import type { MoveScore, SearchOpts } from './ai';
 import { requestScore, startStudy } from './aiclient';
 import { toFen } from './notation';
-import { engineReady, engineScoreMove, linesToMoveScores, search, type SearchJob } from './pikafish';
+import { cooperativeStop, engineReady, engineScoreMove, linesToMoveScores, search, type SearchJob } from './pikafish';
 
 /**
  * 自家引擎的研究预算。
@@ -76,15 +77,22 @@ const PRO_MIN_DEPTH = 10;
 const PRO_SETTLE_DEPTH = 16;
 const LOCAL_SETTLE_DEPTH = 7;
 
+/**
+ * 浏览器不支持随时叫停引擎时（没有跨源隔离），研究分段算：每段这么长，段与段之间才能停。
+ * 每一段都从第 1 层重新迭代，但置换表还在，前面算过的层很快就追回来。
+ * 一段太长，你落子之后引擎还要空转一会儿才能开始算下一个局面。
+ */
+const CHUNK_MS = 2500;
+
 const sameMove = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
 const key = (m: Move) => `${m.fx},${m.fy},${m.tx},${m.ty}`;
 
 export class Study {
   readonly fen: string;
-  /** 用的是哪个裁判 */
-  readonly engine: 'pro' | 'local';
+  /** 用的是哪个裁判。专业引擎中途倒下会换成自家引擎 */
+  engine: 'pro' | 'local';
   /** 教练放行至少要看到的层数（两个引擎的"层"不是一回事） */
-  readonly minDepth: number;
+  minDepth: number;
   moves: MoveScore[] = [];
   depth = 0;
   done = false;
@@ -113,15 +121,29 @@ export class Study {
       const ms = POWERS.find((p) => p.id === power)?.ms ?? 15000;
       this.deadline = Date.now() + ms;
       this.runPro(ms);
-    } else {
-      this.cancel = startStudy(
-        board,
-        color,
-        STUDY_BUDGET,
-        (moves, depth) => this.accept(moves, depth, false),
-        (moves, depth) => this.accept(moves, depth, true),
-      );
-    }
+    } else this.runLocal();
+  }
+
+  private runLocal() {
+    this.cancel = startStudy(
+      this.board,
+      this.color,
+      STUDY_BUDGET,
+      (moves, depth) => this.accept(moves, depth, false),
+      (moves, depth) => this.accept(moves, depth, true),
+    );
+  }
+
+  /** 专业引擎倒下了：这个局面换自家引擎从头算。两个引擎的层数不是一回事，已有的结果清掉 */
+  private fallBack() {
+    this.job = null;
+    this.engine = 'local';
+    this.minDepth = MIN_JUDGE_DEPTH;
+    this.moves = [];
+    this.depth = 0;
+    this.exact.clear();
+    this.emit();
+    this.runLocal();
   }
 
   /** 有定论了：算完，或者已经够深 */
@@ -129,7 +151,9 @@ export class Study {
     return this.done || this.depth >= (this.engine === 'pro' ? PRO_SETTLE_DEPTH : LOCAL_SETTLE_DEPTH);
   }
 
+  /** 用专业引擎算 movetime 毫秒。不能随时叫停的浏览器上分段算 */
   private runPro(movetime: number) {
+    const chunked = !cooperativeStop() && movetime > CHUNK_MS;
     const job = search(
       {
         lane: 'study',
@@ -137,7 +161,7 @@ export class Study {
         color: this.color,
         history: this.history,
         multipv: PRO_MULTIPV,
-        movetime,
+        movetime: chunked ? CHUNK_MS : movetime,
         depth: PRO_MAX_DEPTH,
       },
       (lines, depth) => {
@@ -152,8 +176,20 @@ export class Study {
       this.job = null;
       // 被暂停叫停的不算"算完"
       if (r.stopped) return;
-      if (r.lines.length) this.accept(linesToMoveScores(r.lines, this.board, this.color), r.depth, true);
-      else this.accept([], this.depth, true);
+      // 引擎出了问题、手里什么都没有：换自家引擎接着算，别让教练两手空空
+      if (r.failed && !r.lines.length && !this.moves.length) {
+        this.fallBack();
+        return;
+      }
+      const moves = r.lines.length ? linesToMoveScores(r.lines, this.board, this.color) : [];
+      const left = this.deadline - Date.now();
+      // 分段算：这一段完了、时间还没用完、也还没算到头，接着下一段
+      if (chunked && !r.failed && left > 300 && r.depth < PRO_MAX_DEPTH && !r.lines[0]?.mateIn) {
+        this.accept(moves, r.depth, false);
+        this.runPro(left);
+        return;
+      }
+      this.accept(moves, r.depth || this.depth, true);
     });
   }
 
@@ -219,12 +255,16 @@ export class Study {
     const have = this.moves.find((x) => sameMove(x.move, m));
     if (have && !have.bound) return have;
     if (this.exact.has(k)) return this.exact.get(k)!;
-    const r =
+    let r =
       this.engine === 'pro'
         ? // 不设层数上限、按时间算满：层数封顶的话，一次冷启动的搜索常常还没看到杀棋就停了——
           // 实测一手"再走五步被将死"的棋，封顶 15 层时判成和首选差不多，放开算两秒半才看出是杀
           await engineScoreMove(this.board, this.color, m, { movetime: 2500, history: this.history })
         : await requestScore(this.board, this.color, m, { maxDepth: Math.max(2, this.depth), timeMs: 1500, jitter: 0 });
+    // 专业引擎这时倒下了：用自家引擎精确算这一手，总比只知道一个上限强
+    if (!r && this.engine === 'pro' && !engineReady() && !this.stopped) {
+      r = await requestScore(this.board, this.color, m, { maxDepth: 6, timeMs: 1500, jitter: 0 });
+    }
     if (r && !this.stopped) {
       this.exact.set(k, r);
       this.moves = this.moves.map((x) => (sameMove(x.move, m) && x.bound ? r : x));

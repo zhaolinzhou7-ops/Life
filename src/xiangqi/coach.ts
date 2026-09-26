@@ -596,6 +596,15 @@ export function runCoach(
       }</div><div class="desc">${DIM_INFO[d].desc}</div>`;
       el.onclick = () => startPractice(d);
       list.appendChild(el);
+      // 残局题只练"一步正着"；残局真正的功夫是下到底——入口就放在残局题旁边，不用再去找
+      if (d === 'endgame') {
+        const eg = document.createElement('div');
+        eg.className = 'card home-card';
+        eg.innerHTML = `<div class="title">🏁 实用残局 · 下到底</div><div class="desc">摆好残局跟引擎下到底：多子必须赢下来，少子必须守和。
+          教练一直陪着算，每一手告诉你还赢不赢、还守不守得住，卡住了给你计划。</div>`;
+        eg.onclick = () => void showEndgameList();
+        list.appendChild(eg);
+      }
     }
     scr.appendChild(list);
     const back = document.createElement('button');
@@ -1173,6 +1182,7 @@ export function runCoach(
       title: e.name,
       subtitle: `${e.material} · 局面 ${i + 1}`,
       tips: e.tips,
+      book: e.book,
       onDone: (r) => {
         // 你在标着「和棋」的局面里赢了：说明这个标注保守了，以你的结果为准。
         // 引擎的判定是最好的自动近似，但它不是裁判。

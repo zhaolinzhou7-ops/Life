@@ -94,9 +94,31 @@ export class GameAnalysis {
       this.harvest(this.report);
       this.emit();
     };
+    // 专业引擎中途倒下（手机内存不够）：剩下的交给自家引擎接着算，不能打分打到一半就没了
+    const onLost = (from: number, board: Board, color: Color) => {
+      if (this.cancelled) return;
+      this.engine = 'local';
+      this.cancelFn = requestReview(
+        board,
+        color,
+        moves.slice(from),
+        LOCAL_REVIEW,
+        (ply, c, b, judged) => onStep(ply + from, c, b, judged),
+        onDone,
+      );
+    };
     this.cancelFn =
       this.engine === 'pro'
-        ? engineReview(startBoard, startColor, moves, onStep, onDone, this.opts.deep ? REVIEW_BUDGET.deep : REVIEW_BUDGET.standard, usable)
+        ? engineReview(
+            startBoard,
+            startColor,
+            moves,
+            onStep,
+            onDone,
+            this.opts.deep ? REVIEW_BUDGET.deep : REVIEW_BUDGET.standard,
+            usable,
+            onLost,
+          )
         : requestReview(startBoard, startColor, moves, LOCAL_REVIEW, onStep, onDone);
   }
 

@@ -69,6 +69,7 @@ await page.waitForTimeout(200);
 const det = (await page.locator('.xq-rv-detail').innerText()).replace(/\s+/g, ' ');
 console.log('   单手：' + det.slice(0, 120));
 ok('每一手都有分数和局面评价', /\d+ 分/.test(det) && det.includes('局面'));
+ok('每一手都讲思路（计划）：不只是一串着法', (await page.locator('.xq-rv-detail .xq-plan').count()) === 1 && det.includes('计划'));
 ok('有"深度复盘"', (await page.locator('[data-act="deep-review"]').count()) === 1);
 await page.screenshot({ path: OUT + '/rs-review.png' });
 

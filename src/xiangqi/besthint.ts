@@ -37,6 +37,12 @@ export interface HintState {
   book?: { move: Move; text: string; why: string; opening: string };
   /** 谁算的：专业引擎还是自带引擎。如实写出来 */
   engine?: 'pro' | 'local';
+  /** 计划：首选这一手之后的思路（plan.ts 生成的 HTML） */
+  plan?: string;
+  /** 对方的想法：如果现在轮到他，他最想走什么（HTML） */
+  threat?: string;
+  /** 残局：这是什么残局、书上怎么说、要领（HTML） */
+  endgame?: string;
 }
 
 export interface BestHintUI {
@@ -68,6 +74,7 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: Hi
       <span class="xq-tip-text">正在算这个局面的最优解…</span>
     </div>
     <div class="xq-tip-status"></div>
+    <div class="xq-tip-plan"></div>
     <div class="xq-tip-why"></div>
     <div class="xq-tip-bar">
       <button class="xq-btn" data-act="more">看完整梯次</button>
@@ -77,6 +84,7 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: Hi
   const elText = el.querySelector('.xq-tip-text') as HTMLElement;
   const elWhy = el.querySelector('.xq-tip-why') as HTMLElement;
   const elStatus = el.querySelector('.xq-tip-status') as HTMLElement;
+  const elPlan = el.querySelector('.xq-tip-plan') as HTMLElement;
   const elMore = el.querySelector('[data-act="more"]') as HTMLButtonElement;
   elMore.disabled = true;
 
@@ -134,6 +142,14 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: Hi
         (alt.length ? `　<span class="dim">${alt.map((a) => a.text).join('、')} 也一样好。</span>` : '') +
         (st.note ? `<div class="xq-tip-note">${st.note}</div>` : '');
     }
+    // 计划、对方的想法、残局要领：只报一手棋不够，要讲清接下来往哪儿走
+    // 定式领衔、而引擎的首选是另一手时，不摆引擎的计划——两条思路放一起只会让人更糊涂
+    const showPlan = !lead || same(lead.move, r.best.move);
+    const extra =
+      (st.threat ? `<div class="xq-tip-threat">👀 ${st.threat}</div>` : '') +
+      (showPlan ? st.plan ?? '' : '') +
+      (st.endgame ?? '');
+    if (elPlan.innerHTML !== extra) elPlan.innerHTML = extra;
     elWhy.innerHTML = r.ranked
       .slice(0, 8)
       .map((x) => {

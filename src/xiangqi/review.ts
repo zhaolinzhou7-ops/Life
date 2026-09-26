@@ -26,6 +26,8 @@ import { mdToHtml } from './livecoach';
 import type { BoardView } from './boardview';
 import { moveToText as textOf } from './notation';
 import { recentGameAccuracy } from './save';
+import { planHtml, planOf } from './plan';
+import { classifyEndgame } from './endgame';
 
 const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 
@@ -248,13 +250,36 @@ export function runReview(opts: ReviewOpts): () => void {
       <div class="xq-rv-eval">局面：${before === after ? before : `${before} → ${after}`}</div>
       <div class="xq-rv-comment">${badgeWhy(m)}${m.comment}</div>
       ${coachFlags.has(m.ply) ? `<div class="xq-rv-flag">🧑‍🏫 对局时教练拦过这一手，你选择了"就这么走"。教练当时说：${esc(coachFlags.get(m.ply)!)}</div>` : ''}
-      ${m.bestPv ? `<div class="xq-rv-pv"><span>正确下法</span>${m.bestPv.join(' ')}</div>` : ''}
+      ${planBlock(m, boards[cursor])}
+      ${endgameNote(m, boards[cursor])}
       <div class="xq-rv-actions">
         <button class="xq-rv-deep" data-deep="${cursor}">🔍 从全局讲讲这一手</button>
         ${opts.onReplayFrom ? `<button class="xq-rv-deep" data-replay="${cursor}">♟ 从这里重下</button>` : ''}
       </div>
       <div class="xq-rv-deepbox"></div>`;
     renderList();
+  }
+
+  /**
+   * 计划：走得不好讲"正确的思路"，走得好讲"你的思路"——不只是一串着法，
+   * 而是每一步在干什么、走完局面变成什么样。原来这里只列"正确下法"的记谱，看了也不知道为什么。
+   */
+  function planBlock(m: ReviewedMove, before: Board): string {
+    const src = m.bestMove
+      ? { move: m.bestMove, score: m.bestScore, mateIn: m.bestMate, pv: m.bestLine ?? [m.bestMove] }
+      : { move: m.move, score: m.playedScore, mateIn: m.playedMate, pv: m.playedLine ?? [m.move] };
+    const p = planOf(before, m.color, src, 7);
+    const head = m.bestMove ? `正确下法 <b>${m.bestText}</b>` : '这一手的思路';
+    return `<div class="xq-rv-pv"><span class="hd">${head}</span>${planHtml(p)}</div>`;
+  }
+
+  /** 残局里的一手：这是什么残局、书上怎么说 */
+  function endgameNote(m: ReviewedMove, before: Board): string {
+    if (m.phase !== 'endgame') return '';
+    const info = classifyEndgame(before, m.color);
+    if (!info) return '';
+    const book = info.book ? `书上：${info.book.book}。` : '';
+    return `<div class="xq-rv-eg">🏁 残局「${info.name}」。${book}${info.tips[0]}。</div>`;
   }
 
   /** 妙手、唯一着单独说一句为什么这么叫——光给个称号，人不知道好在哪 */

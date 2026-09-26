@@ -195,6 +195,10 @@ export interface ReviewedMove {
   bestMove?: Move;
   bestText?: string;
   bestPv?: string[];
+  /** 主变的着法本身（计划要一步步翻译，只有中文记谱不够） */
+  bestLine?: Move[];
+  /** 你这一手之后引擎预计的应对（你走的就是最好的一手时，讲"你的思路"用） */
+  playedLine?: Move[];
   /** 一句话人话点评 */
   comment: string;
   /** 这一手的亏损算在哪一维（只有真亏了才有意义） */
@@ -430,6 +434,8 @@ export function reviewMove(b: Board, ply: number, color: Color, j: Judged): Revi
     bestMove: isBest ? undefined : j.best.move,
     bestText: isBest ? undefined : moveToText(b, j.best.move),
     bestPv: isBest ? undefined : pvText(b, j.best.pv).slice(0, 6),
+    bestLine: isBest ? undefined : j.best.pv?.length ? j.best.pv.slice(0, 12) : [j.best.move],
+    playedLine: j.played.pv?.length ? j.played.pv.slice(0, 12) : [j.played.move],
     comment: commentOf(b, j, color, grade, flip, loss),
     dim: dimOfLoss(b, j, color, ply, flip),
     tag,
