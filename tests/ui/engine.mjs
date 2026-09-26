@@ -44,13 +44,19 @@ const bestText = await page.evaluate((m) => window.__xq.textOf(m), st.best);
 console.log(`   研究 ${st.depth} 层，最优 ${bestText}`);
 ok('专业引擎算得深（≥14 层）', st.depth >= 14);
 ok('不再推荐会被将死的"车二进八"', bestText !== '车二进八');
-ok('教练行标着专业引擎', (await page.evaluate(() => window.__xq.coachLine())).includes('专业引擎'));
+// 状态行平时写着"专业引擎"；这个局面对方有杀着，状态行会换成"对方的威胁"那句话——那也是专业引擎算出来的
+const cl = await page.evaluate(() => window.__xq.coachLine());
+ok('教练行标着专业引擎（或者正在说对方的威胁）', cl.includes('专业引擎') || cl.includes('对方的威胁'));
 // 你偏要走车二进八：教练必须拦，而且说出"杀"
 await page.evaluate(() => window.__xq.play({ fx: 7, fy: 9, tx: 7, ty: 1 }));
 await until(page, () => !!document.querySelector('.xq-tip:not(.xq-besthint):not(.xq-lost)'), null, 8000);
 const tip = await page.locator('.xq-tip:not(.xq-besthint):not(.xq-lost) .xq-tip-text').first().textContent().catch(() => '');
 console.log('   教练：' + tip);
 ok('走车二进八教练拦了，并说出会被杀', /杀/.test(tip ?? ''));
+if (!/杀/.test(tip ?? '')) {
+  // 排查用：最近几次搜索、当前状态、这一手走没走出去
+  console.log('   诊断：' + JSON.stringify(await page.evaluate(() => ({ st: window.__xq.state(), moves: window.__xq.moves().length, line: window.__xq.coachLine(), log: (window.__pikaLog ?? []).slice(-4) }))));
+}
 await page.screenshot({ path: OUT + '/engine-trap.png' });
 await page.locator('.xq-tip [data-act="cancel"]').first().click();
 

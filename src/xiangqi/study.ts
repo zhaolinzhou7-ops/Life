@@ -107,6 +107,9 @@ export class Study {
   private job: SearchJob | null = null;
   private deadline = 0;
   private remaining = 0;
+  /** 让出引擎给"精确算一手"：研究先停，算完接着来。可以叠（两个地方同时要精确算） */
+  private holds = 0;
+  private held = 0;
 
   constructor(
     readonly board: Board,
@@ -243,24 +246,58 @@ export class Study {
     return !!e?.bound;
   }
 
+  /** 研究让出引擎（精确算一手用）。在算的话先停下，记住还剩多少时间 */
+  private hold() {
+    if (this.holds++ > 0) return;
+    if (this.engine !== 'pro' || !this.job || this.done || this.paused || this.stopped) return;
+    this.held = Math.max(0, this.deadline - Date.now());
+    const j = this.job;
+    this.job = null;
+    j.stop();
+  }
+
+  /** 精确算完：研究用剩下的时间接着算 */
+  private unhold() {
+    if (--this.holds > 0) return;
+    const left = this.held;
+    this.held = 0;
+    if (!left || this.stopped || this.paused || this.done) return;
+    if (left < 500) {
+      this.accept([], this.depth, true);
+      return;
+    }
+    this.deadline = Date.now() + left;
+    this.runPro(left);
+  }
+
   /**
    * 精确算一手。
    *
    * 专业引擎只精确排前 5 名；你走的那一手不在里面时，只知道"不比第 5 名好"。
    * 在安静的局面里前几名只差二三十分，这个上限什么也说明不了——
-   * 教练要判它拦不拦，就得单独算一下。专业引擎在另一条车道上算，研究不用停。
+   * 教练要判它拦不拦，就得单独算一下。
+   *
+   * **在研究的那个引擎上算。** 它在这个局面上已经想了几秒到几分钟，置换表里全是这个局面的变化，
+   * 接着往下算，深度一下就上去了。换一个冷的引擎从头算，同样三秒只到 18 层左右——
+   * 实测一手"走完对方四步杀"的棋，冷引擎要算到第 18 层（两秒多）才看得见，
+   * 十次里有一两次到时间还没看见，教练就放过去了；手机慢几倍，几乎每次都看不见。
+   * 所以研究先让一让，算完这一手再接着研究。
    */
   async refine(m: Move): Promise<MoveScore | null> {
     const k = key(m);
     const have = this.moves.find((x) => sameMove(x.move, m));
     if (have && !have.bound) return have;
     if (this.exact.has(k)) return this.exact.get(k)!;
-    let r =
-      this.engine === 'pro'
-        ? // 不设层数上限、按时间算满：层数封顶的话，一次冷启动的搜索常常还没看到杀棋就停了——
-          // 实测一手"再走五步被将死"的棋，封顶 15 层时判成和首选差不多，放开算两秒半才看出是杀
-          await engineScoreMove(this.board, this.color, m, { movetime: 2500, history: this.history })
-        : await requestScore(this.board, this.color, m, { maxDepth: Math.max(2, this.depth), timeMs: 1500, jitter: 0 });
+    let r: MoveScore | null;
+    if (this.engine === 'pro') {
+      this.hold();
+      try {
+        // 不设层数上限、按时间算满：层数封顶的话常常还没看到杀棋就停了
+        r = await engineScoreMove(this.board, this.color, m, { movetime: 3000, history: this.history, lane: 'study' });
+      } finally {
+        this.unhold();
+      }
+    } else r = await requestScore(this.board, this.color, m, { maxDepth: Math.max(2, this.depth), timeMs: 1500, jitter: 0 });
     // 专业引擎这时倒下了：用自家引擎精确算这一手，总比只知道一个上限强
     if (!r && this.engine === 'pro' && !engineReady() && !this.stopped) {
       r = await requestScore(this.board, this.color, m, { maxDepth: 6, timeMs: 1500, jitter: 0 });

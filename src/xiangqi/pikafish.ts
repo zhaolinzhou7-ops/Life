@@ -460,6 +460,21 @@ export function search(opts: SearchOpts, onDepth?: (lines: PvLine[], depth: numb
         }
         lane.kill();
       };
+      /**
+       * 只算一手的时候（精确算你走的那一手），"上限"行也有用：它说"这一手最多值这么多"。
+       * 引擎刚发现这一手会被将死、还没来得及把精确分数算完就到时间了，最后一条精确行
+       * 还是发现杀棋之前的老分数——拿老分数去判，教练就会放过一手走进杀局的棋（实测十次里有一次）。
+       * 所以更深一层的上限如果明显更差（被杀，或者差出三个兵以上），就按它算。
+       */
+      const single = opts.searchmoves?.length === 1;
+      let worse: PvLine | null = null;
+      const pessimist = (r: SearchResult): SearchResult => {
+        const exact = r.lines[0];
+        if (!single || !worse || !exact || worse.depth <= r.depth) return r;
+        const mated = worse.mateIn !== undefined && worse.mateIn < 0;
+        if (!mated && exact.score - worse.score < 300) return r;
+        return { ...r, lines: [{ ...worse, bound: false }], depth: worse.depth };
+      };
       const off = lane.listen((line) => {
         if (line === null) {
           // Worker 死了（崩了、被掐掉）
@@ -469,12 +484,18 @@ export function search(opts: SearchOpts, onDepth?: (lines: PvLine[], depth: numb
         }
         if (line.startsWith('bestmove')) {
           const u = line.split(/\s+/)[1];
-          answer({ ...done, bestmove: u && u !== '(none)' ? uciToMove(u) : null, stopped: stopRequested || undefined });
+          answer(pessimist({ ...done, bestmove: u && u !== '(none)' ? uciToMove(u) : null, stopped: stopRequested || undefined }));
           settle();
           return;
         }
         const info = parseInfo(line);
-        if (!info || info.bound) return;
+        if (!info) return;
+        if (info.bound) {
+          // 上限行：/ upperbound / 才是"最多值这么多"
+          if (single && / upperbound/.test(line) && (!worse || info.depth >= worse.depth)) worse = info;
+          return;
+        }
+        if (worse && info.depth >= worse.depth) worse = null;
         if (info.depth !== curDepth) {
           cur = new Map();
           curDepth = info.depth;
@@ -510,6 +531,14 @@ export function search(opts: SearchOpts, onDepth?: (lines: PvLine[], depth: numb
       lane.post(parts.join(' '));
     });
   };
+  // 开发期：最近 30 次搜索的记录（哪条车道、什么局面、算了多久多深、结果），排查"教练怎么没拦"用
+  if (import.meta.env.DEV) {
+    const w = window as unknown as { __pikaLog?: unknown[] };
+    const rec: Record<string, unknown> = { lane: opts.lane ?? 'service', color: opts.color, fen: toFen(opts.board, opts.color), h: opts.history?.moves.length ?? 0, mt: movetime, sm: opts.searchmoves?.map(moveToUci).join(' '), t0: Date.now() };
+    (w.__pikaLog ??= []).push(rec);
+    if (w.__pikaLog.length > 30) w.__pikaLog.shift();
+    void promise.then((r) => Object.assign(rec, { ms: Date.now() - (rec.t0 as number), depth: r.depth, score: r.lines[0]?.mateIn !== undefined ? `M${r.lines[0].mateIn}` : r.lines[0]?.score, stopped: r.stopped, failed: r.failed }));
+  }
   // 出了意外也要交差：不然等它的人（研究、教练）会一直等下去
   const safe = () =>
     run().catch(() => {
@@ -559,10 +588,18 @@ export async function engineScoreMove(
   board: Board,
   color: Color,
   m: Move,
-  opts: { depth?: number; movetime: number; history?: { startFen: string; moves: Move[] } },
+  opts: { depth?: number; movetime: number; history?: { startFen: string; moves: Move[] }; lane?: LaneName },
 ): Promise<MoveScore | null> {
   if (!engineReady()) return null;
-  const r = await search({ board, color, history: opts.history, searchmoves: [m], depth: opts.depth, movetime: opts.movetime }).promise;
+  const r = await search({
+    board,
+    color,
+    history: opts.history,
+    searchmoves: [m],
+    depth: opts.depth,
+    movetime: opts.movetime,
+    lane: opts.lane,
+  }).promise;
   return linesToMoveScores(r.lines, board, color).find((x) => !x.bound && sameMv(x.move, m)) ?? null;
 }
 
