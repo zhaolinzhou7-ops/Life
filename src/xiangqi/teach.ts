@@ -48,8 +48,9 @@ export function inPieces(v: number): string {
   if (n >= 1900) return '两个车';
   if (n >= 900) return '一个车';
   if (n >= 420) return '一个马或炮';
-  if (n >= 200) return '一个士象';
-  if (n >= 90) return '一个兵';
+  // 200~420 这一段原来说"一个士象"，但士象值 220，拿它当 400 分的尺子会把人绕晕。
+  // 直接换算成几个兵最不容易误解——兵是所有人心里最稳的那把尺。
+  if (n >= 90) return `${Math.round(n / 100)}个兵`;
   return '一点点';
 }
 

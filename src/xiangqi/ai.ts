@@ -418,26 +418,206 @@ function unmakeMove(m: number, ply: number) {
 }
 
 // ---------------- 评估 ----------------
+/**
+ * 局面评估。
+ *
+ * **这是整个产品水平的天花板。**
+ * 之前这里只有「子力 + 位置表 + 士象守家 12 分」，别的一概不看。
+ * 后果不是"棋力差一点"，而是：
+ *   - 引擎在安静局面里基本是瞎走，因为所有不吃子的着法在它眼里一样
+ *   - 主变（"对方接下来会走什么"）不可信，因为叶子结点的判断只有子力
+ *   - 教练能说的"全局"只剩下我另外手写的那几条（过河 +X 分之类），
+ *     那不是棋理，那是凑数
+ *
+ * 所以这里按真实的象棋要素重写。每一项都是象棋书里会讲的东西：
+ *   马腿   —— 被蹩死的马几乎等于没有，这是象棋和国际象棋最不一样的地方之一
+ *   车路   —— 车的价值几乎全在"通不通"，闷在家里的车不如一个过河兵
+ *   炮架   —— 炮没有架子就是哑炮；空头炮（正对老将中间无子）威力极大
+ *   将帅   —— 士象是否齐全、有没有被直线火力照住
+ *   兵卒   —— 过河兵价值翻倍，到底线的兵能参与杀棋
+ *
+ * 分项累加到 T[] 里，教练层可以拿到**分项差值**，据此说人话：
+ * "这一手之后你的马被蹩住了、对方的车通了一条直线"——
+ * 这才是从象棋本身出发的解释，而不是"分数少了 30"。
+ */
+
+/** 评估分项。顺序要和 TERM_NAMES 对上 */
+export const TERM_NAMES = ['子力', '位置', '马', '车', '炮', '将帅', '兵卒'] as const;
+const T_MAT = 0, T_PST = 1, T_HORSE = 2, T_ROOK = 3, T_CANNON = 4, T_KING = 5, T_PAWN = 6;
+const T = new Int32Array(7);
+/** 上一次 evaluate() 的分项（红方视角）。只给教练层读，搜索不碰 */
+export const lastTerms = new Int32Array(7);
+
+/**
+ * 只用「子力 + 位置表」评估，也就是这次重写之前的老口径。
+ *
+ * 留这个开关是为了能做 A/B 对局：新评估到底有没有让棋力变强，
+ * 必须让新旧两版在同样的时间预算下真打一场才算数，不能凭感觉说"应该更强"。
+ * 生产路径永远是 false，热路径上只多一次布尔判断。
+ */
+let simpleEval = false;
+export function setSimpleEval(on: boolean) {
+  simpleEval = on;
+}
+
+/** 这一格在 side 方的敌境（过河了吗）。side: 0=红 1=黑 */
+const crossed = (i: number, blk: boolean) => (blk ? py(i) >= 5 : py(i) <= 4);
+
 function evaluate(): number {
-  let s = 0;
+  T.fill(0);
+  let rk = -1;
+  let bk = -1;
+
+  // ── 第一遍：子力、位置表、找到两个老将 ──
   for (let i = 0; i < SQ; i++) {
     const p = bd[i];
     if (p === 0) continue;
     const t = p & 7;
     const blk = isBlack(p);
-    let v = VAL[t];
-    const tb = PST[t];
-    if (tb) v += tb[blk ? MIRROR[i] : i];
-    if (t === A || t === E) {
-      const y = py(i);
-      const yy = blk ? ROWS - 1 - y : y;
-      if (yy >= 7) v += 12; // 士象守家
+    if (t === K) {
+      if (blk) bk = i;
+      else rk = i;
+      continue;
     }
-    s += blk ? -v : v;
+    const sgn = blk ? -1 : 1;
+    T[T_MAT] += sgn * VAL[t];
+    const tb = PST[t];
+    if (tb) T[T_PST] += sgn * tb[blk ? MIRROR[i] : i];
   }
-  // 返回「红方视角」分数
-  return s;
+
+  if (simpleEval) {
+    lastTerms.set(T);
+    return T[T_MAT] + T[T_PST];
+  }
+
+  // ── 第二遍：位置要素 ──
+  for (let i = 0; i < SQ; i++) {
+    const p = bd[i];
+    if (p === 0) continue;
+    const t = p & 7;
+    const blk = isBlack(p);
+    const sgn = blk ? -1 : 1;
+    const x = px(i);
+    const y = py(i);
+    const ek = blk ? rk : bk; // 敌方老将
+
+    switch (t) {
+      case A:
+      case E: {
+        // 士象守在家里才有意义，跑出去的士象不算防守力量
+        const yy = blk ? ROWS - 1 - y : y;
+        if (yy >= 7) T[T_KING] += sgn * 14;
+        break;
+      }
+
+      case H: {
+        /*
+         * 马腿。四条腿被堵几条，直接决定这只马还剩多少价值。
+         * 象棋里一只被蹩死的马是**负资产**：它占着格子、需要保护、还走不动。
+         * 这一项是整个评估里最便宜也最重要的补充——四次数组读换来
+         * 引擎终于知道"别把马堵死"。
+         */
+        let legs = 0;
+        if (y + 1 < ROWS && bd[i + COLS] === 0) legs++;
+        if (y - 1 >= 0 && bd[i - COLS] === 0) legs++;
+        if (x + 1 < COLS && bd[i + 1] === 0) legs++;
+        if (x - 1 >= 0 && bd[i - 1] === 0) legs++;
+        T[T_HORSE] += sgn * (legs * 18 - 36); // 四条腿全通 +36，全堵 -36
+        // 卧槽马 / 挂角马：跳到敌方九宫边上的马是杀棋的主力
+        if (ek >= 0) {
+          const d = Math.abs(px(ek) - x) + Math.abs(py(ek) - y);
+          if (d <= 3 && crossed(i, blk)) T[T_HORSE] += sgn * 30;
+        }
+        break;
+      }
+
+      case R: {
+        /*
+         * 车路。车的价值几乎全在"通不通"——闷在家里的车不如一个过河兵。
+         * 这里直接数它能走多少格（这也是最准确的"车活不活"指标），
+         * 外加两个象棋里特别重要的位置：肋道（三、五路，直通九宫）和沉底。
+         */
+        let mob = 0;
+        for (const d of [1, -1, COLS, -COLS]) {
+          let j = i + d;
+          // 横向移动要防止跨行：用行号判断
+          while (j >= 0 && j < SQ && !(Math.abs(d) === 1 && py(j) !== y)) {
+            mob++;
+            if (bd[j] !== 0) break;
+            j += d;
+          }
+        }
+        T[T_ROOK] += sgn * mob * 3;
+        if (x === 3 || x === 5) T[T_ROOK] += sgn * 20; // 肋道车
+        const backRank = blk ? 9 : 0;
+        if (y === backRank) T[T_ROOK] += sgn * 25; // 沉底车，配合炮马做杀
+        break;
+      }
+
+      case C: {
+        /*
+         * 炮。没有架子的炮是哑炮，有架子且正对老将的炮是杀器。
+         * 空头炮（和敌方老将同一直线、中间一个子都没有）在象棋里
+         * 是压倒性的优势——对方等于被按住脖子，什么都不敢动。
+         */
+        if (ek >= 0 && px(ek) === x) {
+          let between = 0;
+          const step = py(ek) > y ? COLS : -COLS;
+          for (let j = i + step; j !== ek; j += step) if (bd[j] !== 0) between++;
+          if (between === 0) T[T_CANNON] += sgn * 75; // 空头炮
+          else if (between === 1) T[T_CANNON] += sgn * 40; // 架好了，随时可以打
+        }
+        if (x === 4) T[T_CANNON] += sgn * 15; // 中炮
+        const eBack = blk ? 9 : 0;
+        if (y === eBack) T[T_CANNON] += sgn * 18; // 沉底炮
+        break;
+      }
+
+      case P: {
+        // 过河兵价值大增，越靠近底线越值钱；中路的兵比边兵有用
+        if (crossed(i, blk)) {
+          const adv = blk ? y - 4 : 5 - y;
+          T[T_PAWN] += sgn * (20 + adv * 8);
+          if (x >= 3 && x <= 5) T[T_PAWN] += sgn * 10;
+        }
+        break;
+      }
+    }
+  }
+
+  // ── 将帅安全：自己那一路被敌方重子照着，很危险 ──
+  for (const [kp, blk] of [[rk, false], [bk, true]] as const) {
+    if (kp < 0) continue;
+    const sgn = blk ? -1 : 1;
+    const kx = px(kp);
+    let danger = 0;
+    // 老将所在直线上，敌方的车/炮各算一份威胁（中间隔几个子决定紧迫程度）
+    for (let y = 0; y < ROWS; y++) {
+      const j = y * COLS + kx;
+      const q = bd[j];
+      if (q === 0 || j === kp) continue;
+      if (isBlack(q) === blk) continue;
+      const qt = q & 7;
+      if (qt === R || qt === C) {
+        let between = 0;
+        const lo = Math.min(j, kp) + COLS;
+        const hi = Math.max(j, kp);
+        for (let m = lo; m < hi; m += COLS) if (bd[m] !== 0) between++;
+        if (qt === R && between === 0) danger += 40;
+        else if (qt === C && between === 1) danger += 35;
+        else if (between <= 1) danger += 12;
+      }
+    }
+    T[T_KING] -= sgn * danger;
+  }
+
+  const total = simpleEval
+    ? T[T_MAT] + T[T_PST]
+    : T[T_MAT] + T[T_PST] + T[T_HORSE] + T[T_ROOK] + T[T_CANNON] + T[T_KING] + T[T_PAWN];
+  lastTerms.set(T);
+  return total;
 }
+
 /** 走子方视角的评估 */
 const evalSide = () => (side === 0 ? evaluate() : -evaluate());
 
@@ -628,6 +808,25 @@ export interface SearchOpts {
   timeMs: number;
   /** 评估扰动幅度，低难度用来"看走眼" */
   jitter: number;
+  /**
+   * 只给分析用：比最好的一手差出这么多分以上的着法，不再精确打分，只证明"它至少差这么多"。
+   *
+   * 分析要给每一手打**准确**分数，根节点只能全窗口逐个搜，比只找最佳着法的
+   * think 慢得多——同样 6.5 秒，think 能到 10 层，全窗口分析只到 7 层。
+   * 可一手丢车的棋到底差 900 还是差 1100，对教练和梯次毫无意义：它就是"劣"。
+   * 给这类着法只做一次便宜的试探（证明它低于门槛就停），省下来的时间换深度。
+   * 不传 = 全部精确（离线出题的工具要比较次优解，保持原行为）。
+   */
+  margin?: number;
+  /**
+   * 根节点不许走的着法。
+   *
+   * 搜索只看得见自己搜索树里的重复，看不见**对局历史**。
+   * 于是它会在占优时走回老局面（三次重复就判和了，白白送掉一盘赢棋），
+   * 或者一直将军（长将按棋规要判负）。对局层知道历史，把这些着法挑出来传进来。
+   * 全部被禁时忽略这一项——没棋可走比重复更糟。
+   */
+  avoid?: Move[];
 }
 
 /** 把界面用的 Board 装载进扁平棋盘 */
@@ -676,6 +875,11 @@ export function think(b: Board, color: Color, opts: SearchOpts): Move | null {
     unmakeMove(m, 0);
   }
   if (roots.length === 0) return null;
+  if (opts.avoid?.length) {
+    const banned = new Set(opts.avoid.map((a) => mk(a.fy * COLS + a.fx, a.ty * COLS + a.tx)));
+    const kept = roots.filter((m) => !banned.has(m));
+    if (kept.length) roots.splice(0, roots.length, ...kept);
+  }
   if (roots.length === 1) { lastSearch.depth = 0; lastSearch.nodes = 0; return toMove(roots[0]); }
 
   let best = roots[0];
@@ -753,6 +957,11 @@ export interface MoveScore {
   move: Move;
   /** 走子方视角，单位与子力价值一致（兵=100，车=1000） */
   score: number;
+  /**
+   * score 只是**上限**：这一手比最好的差出了 margin 以上，没再精确算。
+   * 界面上要写成"差 600+"，不能写成一个精确数。
+   */
+  bound?: boolean;
   /** >0 = 走子方 n 回合内可将死对方；<0 = 走子方 n 回合内被将死 */
   mateIn?: number;
   /** 主变（这步之后双方的最佳应对） */
@@ -805,7 +1014,16 @@ function extractPv(first: number, maxLen: number): Move[] {
  * 分析当前局面，返回全部合法着法及其分数（从高到低）。
  * 没有合法着法（被将死或困毙）时返回空数组。
  */
-export function analyze(b: Board, color: Color, opts: SearchOpts): Analysis {
+export function analyze(
+  b: Board,
+  color: Color,
+  opts: SearchOpts,
+  /**
+   * 每算完一层回调一次。对局里的教练要**边算边用**：你落子那一刻手里有几层就用几层，
+   * 而不是等全部算完——那样你秒落子时教练什么都拿不到。
+   */
+  onDepth?: (a: Analysis) => void,
+): Analysis {
   load(b, color);
   deadline = Date.now() + opts.timeMs;
   stopped = false;
@@ -826,34 +1044,100 @@ export function analyze(b: Board, color: Color, opts: SearchOpts): Analysis {
   }
   if (roots.length === 0) return { moves: [], depth: 0, nodes: 0 };
 
-  let scored: { m: number; v: number }[] = roots.map((m) => ({ m, v: 0 }));
+  let scored: { m: number; v: number; bound: boolean }[] = roots.map((m) => ({ m, v: 0, bound: false }));
+  const margin = opts.margin ?? Infinity;
+
+  const pack = (): Analysis => ({
+    moves: scored.map(({ m, v, bound }) => {
+      const pv = extractPv(m, 12);
+      const mate = mateDistance(v);
+      const r: MoveScore = { move: toMove(m), score: v, pv };
+      if (mate !== undefined) r.mateIn = mate;
+      if (bound) r.bound = true;
+      return r;
+    }),
+    depth: reachedDepth,
+    nodes,
+  });
 
   for (let d = 1; d <= opts.maxDepth; d++) {
-    const round: { m: number; v: number }[] = [];
+    const round: { m: number; v: number; bound: boolean }[] = [];
+    let top = -Infinity;
     // 上一轮的好棋先搜，置换表命中率高，深层更快
     for (const { m } of scored) {
       makeMove(m, 0);
-      const v = -negamax(d - 1, -Infinity, Infinity, 1, true);
+      // 下限 = 目前最好的分数 - margin。低于它的着法搜索会很快失败退出，
+      // 返回值（fail-soft）是个上限；高于它的照常得到精确分。上限开着（+∞），
+      // 所以比当前最好还好的着法也是精确的，不会被截断。
+      const floor = top === -Infinity || margin === Infinity ? -Infinity : top - margin;
+      let v = -negamax(d - 1, -Infinity, -floor, 1, true);
+      const bound = floor !== -Infinity && v <= floor;
+      // 第二道门槛：再用零窗口试一次"是不是差出了一个车"。
+      // 只有第一道门槛的话，丢车的棋也只能说"至少差 300"——教练会说成"少 3 个兵以上"，
+      // 比真相轻得多。零窗口试探很便宜（精确算一遍的话，对攻局面里多出来的两层就全赔回去了）。
+      if (bound && !stopped) {
+        const floor2 = top - Math.max(margin * 3, 900);
+        if (v > floor2) {
+          const v2 = -negamax(d - 1, -floor2 - 1, -floor2, 1, true);
+          if (!stopped && v2 <= floor2) v = Math.min(v, v2);
+        }
+      }
       unmakeMove(m, 0);
       if (stopped) break;
-      round.push({ m, v });
+      round.push({ m, v, bound });
+      if (!bound && v > top) top = v;
     }
     if (round.length < scored.length) break; // 这一轮没搜完，丢弃，用上一轮的结果
     round.sort((a, c) => c.v - a.v);
     scored = round;
     reachedDepth = d;
+    if (onDepth) onDepth(pack());
     if (Date.now() > deadline) break;
+    // 首选已经是杀棋、而且杀得比搜索深度还短：再往深算结论也不会变
+    const lead = scored[0].v;
+    if (Math.abs(lead) > MATE - 200 && MATE - Math.abs(lead) < d) break;
   }
 
-  return {
-    moves: scored.map(({ m, v }) => {
-      const pv = extractPv(m, 12);
-      const mate = mateDistance(v);
-      return mate === undefined ? { move: toMove(m), score: v, pv } : { move: toMove(m), score: v, mateIn: mate, pv };
-    }),
-    depth: reachedDepth,
-    nodes,
-  };
+  return pack();
+}
+
+/**
+ * 只精确算一手棋。
+ *
+ * 分析为了省时间，对差得很多的着法只证明"至少差这么多"。平时够用，但教练真要拦下
+ * 这一手时，"至少少一个车"和"两步之内被将死"是两回事——后者才是真相，也是复盘会说的话。
+ * 这时候只给这一手补一次全窗口搜索：一手棋，代价很小。
+ */
+export function scoreMove(b: Board, color: Color, mv: Move, opts: SearchOpts): MoveScore | null {
+  load(b, color);
+  deadline = Date.now() + opts.timeMs;
+  stopped = false;
+  nodes = 0;
+  reachedDepth = 0;
+  ttGen = (ttGen + 1) & 127;
+  killers.fill(0);
+  const m = mk(mv.fy * COLS + mv.fx, mv.ty * COLS + mv.tx);
+  const me = side;
+  makeMove(m, 0);
+  if (inCheck(me)) {
+    unmakeMove(m, 0);
+    return null;
+  }
+  let got: number | null = null;
+  for (let d = 1; d <= opts.maxDepth; d++) {
+    const v = -negamax(d - 1, -Infinity, Infinity, 1, true);
+    if (stopped) break;
+    got = v;
+    reachedDepth = d;
+    if (Date.now() > deadline) break;
+    if (Math.abs(v) > MATE - 200 && MATE - Math.abs(v) < d) break;
+  }
+  unmakeMove(m, 0);
+  if (got === null) return null;
+  const r: MoveScore = { move: toMove(m), score: got, pv: extractPv(m, 12) };
+  const mate = mateDistance(got);
+  if (mate !== undefined) r.mateIn = mate;
+  return r;
 }
 
 /**
@@ -882,6 +1166,16 @@ export function resetEngine() {
 export function evaluatePosition(b: Board): number {
   load(b, 'r');
   return evaluate();
+}
+
+/**
+ * 分项估值（红方为正）。教练层用它说人话：
+ * 不是"这一手少了 30 分"，而是"你的马被蹩住了、对方的车通了一条线"。
+ */
+export function evaluateTerms(b: Board): Int32Array {
+  load(b, 'r');
+  evaluate();
+  return Int32Array.from(lastTerms);
 }
 
 /**

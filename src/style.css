@@ -47,11 +47,29 @@ canvas {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: env(safe-area-inset-top) 20px env(safe-area-inset-bottom);
+  /*
+   * safe center：内容放得下就居中，放不下就退回从顶部排。
+   *
+   * 原来是 center。纵向 flex 容器一旦内容超高，居中会让内容**从上方也溢出**，
+   * 而滚动条到顶了仍然够不着——上半截（标题、前几张卡）永远点不到。
+   * 这正是"按钮跑到屏幕外面点不到"的第一个根因。
+   */
+  justify-content: safe center;
+  padding: calc(env(safe-area-inset-top) + 12px) 20px calc(env(safe-area-inset-bottom) + 16px);
   background: radial-gradient(circle at 50% 20%, #1b3a52 0%, #0c141d 70%);
   z-index: 30;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+/*
+ * 第二个根因：flex 子元素默认 flex-shrink:1。内容一超高，每一块都被压扁，
+ * 里面的文字撑出自己的盒子，卡片和按钮在视觉上叠在一起——
+ * 体检里那一堆"被 desc 盖住""被 btn 盖住"全是这么来的。
+ * 一律不许压缩，超了就老老实实滚。
+ */
+.screen > * {
+  flex-shrink: 0;
+  max-width: 100%;
 }
 
 .screen h1 {
@@ -112,16 +130,36 @@ canvas {
   color: var(--accent2);
 }
 
+/*
+ * 选项行。
+ *
+ * 原来是 flex 平分：四个选项在手机上刚好，加到五个（难度补了"入门"档）
+ * 之后每张卡只剩七十来像素，"初级"两个字被挤成上下两行，说明文字更是
+ * 一行一两个字，整片看着像坏了。
+ *
+ * 改成自动换行的网格：每张卡至少 96px，放不下就换行。
+ * 手机上五个难度排成 3+2，字不再竖着掉下来。
+ */
 .diff-row {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
   width: 100%;
   max-width: 460px;
   margin-top: 14px;
 }
 .diff-row .card {
-  flex: 1;
   text-align: center;
+  padding: 10px 6px;
+}
+.diff-row .card .title {
+  font-size: 14px;
+  white-space: nowrap;
+}
+.diff-row .card .desc {
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 3px;
 }
 
 .btn {
@@ -1260,28 +1298,6 @@ canvas {
     radial-gradient(ellipse at 50% -10%, rgba(64, 196, 255, 0.16), transparent 55%),
     radial-gradient(ellipse at 85% 105%, rgba(255, 170, 60, 0.1), transparent 50%),
     radial-gradient(circle at 50% 20%, #1b3a52 0%, #0c141d 70%);
-
-  /*
-   * 合集里的应用只会越来越多，卡片列表迟早比屏幕高。
-   *
-   * .screen 用的是 justify-content: center，而在**可滚动的** flex 容器里，
-   * 居中溢出的那部分会跑到滚动区域的上方——滑到顶也够不着，最上面那张卡片
-   * 直接点不开。320px 的手机上加到第七张就会撞上。
-   *
-   * 这里用一对 auto margin 的伪元素代替居中：有富余空间时它们把空间吃掉，
-   * 效果和居中一样；空间不够时 auto 自动塌成 0，内容从顶部开始正常滚动。
-   */
-  justify-content: flex-start;
-  padding-top: calc(env(safe-area-inset-top) + 18px);
-  padding-bottom: calc(env(safe-area-inset-bottom) + 18px);
-}
-.home-screen::before {
-  content: '';
-  margin-block-end: auto;
-}
-.home-screen::after {
-  content: '';
-  margin-block-start: auto;
 }
 .home-screen h1 {
   font-size: 34px;
@@ -2304,7 +2320,7 @@ canvas {
   opacity: 0.72;
   letter-spacing: 0.4px;
 }
-.xq-rv-pv span {
+.xq-rv-pv > .hd {
   display: inline-block;
   background: rgba(255, 255, 255, 0.08);
   border-radius: 5px;
@@ -3056,10 +3072,16 @@ canvas {
 }
 .xq-po-tip-list {
   margin: 6px 0 0;
-  padding-left: 18px;
   font-size: 12px;
   line-height: 1.7;
-  opacity: 0.8;
+  opacity: 0.85;
+}
+.xq-po-tip-list ul {
+  margin: 2px 0 0;
+  padding-left: 18px;
+}
+.xq-po-book {
+  color: #bcd0ff;
 }
 .xq-po-tip-list.hidden {
   display: none;
@@ -3631,12 +3653,16 @@ canvas {
   text-align: center;
 }
 
-/* 窄屏上把 HUD 收紧一点，给六个按钮腾出位置 */
+/* HUD 上现在有七样东西（退出/回合/静音/求助/教练/悔棋/重开）。
+   .xq-back 用的是另一个类名，之前漏了 nowrap，"退出"两个字被拆成两行。 */
+.xq-back { white-space: nowrap; }
+
 @media (max-width: 400px) {
-  .xq-hud { gap: 4px; padding-left: 5px; padding-right: 5px; }
-  .xq-hud .xq-btn { padding: 6px 8px; }
-  .xq-turn { padding: 6px 9px; font-size: 12px; }
-  .xq-actions { gap: 4px; }
+  .xq-hud { gap: 3px; padding-left: 4px; padding-right: 4px; }
+  .xq-hud .xq-btn,
+  .xq-hud .xq-back { padding: 6px 7px; font-size: 11.5px; }
+  .xq-turn { padding: 6px 7px; font-size: 11.5px; gap: 5px; }
+  .xq-actions { gap: 3px; }
 }
 
 /* ---------- 窄屏适配 ---------- */
@@ -3648,4 +3674,753 @@ canvas {
   .xq-tip-bar .xq-btn { min-width: 30%; }
   .xq-chat { max-height: 78vh; }
   .xq-dimrow .nm { width: 62px; font-size: 11.5px; }
+}
+
+/* ---------- 对局用的正视 2D 棋盘 ---------- */
+/*
+ * 手机屏比 9×10 的棋盘高得多，棋盘无论怎么放大都只能占中间一条，
+ * 上下必然留白。所以不硬撑棋盘，而是把下方那块空地让给吃子托盘和棋谱——
+ * 那两样是下棋的人真的会看的东西。
+ */
+.xq-play {
+  position: absolute;
+  top: 50px;
+  left: 0;
+  right: 0;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 6px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  min-height: 0;
+}
+.xq-boardwrap {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  transition: filter 0.3s ease;
+}
+/* 画布比例要和 board2d 里算格子用的除数一致（宽 COLS+0.9、高 ROWS+1.2），
+   否则画布内部还会再letterbox 一次，白白浪费一圈。 */
+.xq-boardwrap canvas {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 9.9 / 11.2;
+  max-height: 100%;
+}
+.xq-boardwrap canvas {
+  width: 100%;
+  height: 100%;
+}
+/* 对手思考时棋盘稍微压暗一点，让人知道在等什么，又不至于看不清 */
+.xq-boardwrap.thinking {
+  filter: brightness(0.9) saturate(0.95);
+}
+
+/* 复盘面板打开时，棋盘让出下半屏，托盘藏起来 */
+.xq-root:has(.xq-rv) .xq-play { bottom: 48vh; }
+.xq-root:has(.xq-rv.mini) .xq-play { bottom: 28vh; }
+.xq-root:has(.xq-rv) .xq-tray { display: none; }
+
+/* ---------- 吃子托盘 + 棋谱 ---------- */
+.xq-tray {
+  flex: none;
+  padding: 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 12;
+}
+.xq-tray-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+.xq-tray-row .who {
+  flex: none;
+  font-size: 11px;
+  color: rgba(240, 230, 210, 0.42);
+  width: 52px;
+}
+.xq-tray-row .pcs {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-width: 0;
+}
+.xq-tray-row .pcs i {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 18px;
+  width: 18px;
+  height: 18px;
+  text-align: center;
+  border-radius: 50%;
+  background: #f2e3c4;
+  font-family: "STKaiti", "KaiTi", serif;
+  font-weight: 700;
+}
+.xq-tray-row .pcs i.r { color: #c8201a; }
+.xq-tray-row .pcs i.b { color: #15283a; background: #e8e3d6; }
+.xq-tray-row .pcs .none {
+  font-size: 11px;
+  color: rgba(240, 230, 210, 0.22);
+}
+.xq-tray-row .bal {
+  flex: none;
+  font-size: 11.5px;
+  color: rgba(240, 230, 210, 0.5);
+}
+.xq-tray-row .bal.up { color: #6fe09a; }
+.xq-tray-row .bal.down { color: #ef7a72; }
+.xq-log {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 12px;
+  scrollbar-width: none;
+}
+.xq-log::-webkit-scrollbar { display: none; }
+.xq-log b {
+  color: rgba(240, 230, 210, 0.3);
+  font-weight: 400;
+  font-size: 11px;
+}
+.xq-log span.r { color: #ee8a80; }
+.xq-log span.b { color: #9fc4e8; }
+.xq-log .none { color: rgba(240, 230, 210, 0.25); }
+
+@media (max-height: 700px) {
+  /* 矮屏（横屏手机、小平板）先保棋盘，棋谱条收起来 */
+  .xq-log { display: none; }
+  .xq-tray { gap: 2px; }
+}
+
+/* ---------- 深度解读 ---------- */
+.xq-rv-deep {
+  margin-top: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 200, 80, 0.3);
+  background: rgba(255, 200, 80, 0.09);
+  color: #f5d78e;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.xq-rv-deep:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+.xq-rv-deepbox {
+  display: none;
+  margin-top: 8px;
+  padding: 11px 13px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+  line-height: 1.85;
+  color: rgba(240, 230, 210, 0.9);
+}
+.xq-rv-deepbox.on { display: block; }
+.xq-rv-deepbox b { color: #f5d78e; }
+/* 教练提示条里的深度解读同一套排版 */
+/*
+ * 深度解读一展开就是一大段，如果任它长下去会把整个棋盘压到屏幕外——
+ * 而这段话讲的就是盘上的事，看不见盘等于白讲。所以：
+ * 提示条封顶，内容超了自己滚；同时把棋盘顶到上方，保证盘面完整可见。
+ */
+.xq-tip {
+  display: flex;
+  flex-direction: column;
+  max-height: 56vh;
+}
+.xq-tip-why {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.xq-tip-why b { color: #f5d78e; }
+.xq-root:has(.xq-tip-why.on) .xq-play {
+  justify-content: flex-start;
+  bottom: 58vh;
+}
+/* 读解说的时候，头像和吃子托盘都不重要，把空间全让给棋盘 */
+.xq-root:has(.xq-tip-why.on) .xq-tray,
+.xq-root:has(.xq-tip-why.on) .xq-rivalbox,
+.xq-root:has(.xq-tip-why.on) .xq-bubble { display: none; }
+
+/* 做题界面的退出键：任何占满屏幕的流程都必须留一个出口 */
+.xq-tr-quit {
+  flex: none;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  color: rgba(240, 230, 210, 0.85);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.xq-tr-quit:active { background: rgba(255, 255, 255, 0.14); }
+
+/* ---------- 对局中求助最优解 ---------- */
+.xq-besthint .xq-tip-text b { color: #6fe09a; }
+.xq-besthint .xq-tip-text .dim { color: rgba(240, 230, 210, 0.5); font-size: 12.5px; }
+.xq-besthint .xq-tip-why .row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+}
+.xq-besthint .xq-tip-why .row i { font-style: normal; flex: none; width: 30px; font-weight: 600; }
+.xq-besthint .xq-tip-why .row b { color: #f0e6d2; flex: none; }
+.xq-besthint .xq-tip-why .row span { color: rgba(240, 230, 210, 0.45); font-size: 11.5px; flex: none; }
+.xq-besthint .xq-tip-why .row em {
+  font-style: normal;
+  color: rgba(240, 230, 210, 0.6);
+  font-size: 11.5px;
+  margin-left: auto;
+  text-align: right;
+}
+/* 用过求助要如实标出来，学棋软件不该帮人伪造进步 */
+.xq-usedhint {
+  max-width: 460px;
+  margin: 8px auto 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(232, 163, 61, 0.12);
+  color: #ecc07a;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ---------- 和棋徽章 ---------- */
+.xq-result-badge.draw {
+  color: #cfd8dc;
+  text-shadow: 0 0 22px rgba(180, 200, 215, 0.55), 0 4px 10px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- 底部操作条：悔棋 / 求和 / 认输 / 重开 ---------- */
+.xq-bar {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 0 10px;
+  z-index: 12;
+}
+.xq-bar .xq-btn {
+  padding: 8px 4px;
+  font-size: 12.5px;
+  border-radius: 12px;
+  text-align: center;
+}
+.xq-bar .xq-btn:disabled { opacity: 0.55; }
+
+/* ---------- 教练状态行 ---------- */
+/* 一直占着一行：只换内容不隐藏，不然棋盘会上下跳 */
+.xq-coachline {
+  flex: none;
+  margin: 0 10px;
+  min-height: 20px;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 4px 10px;
+  border-radius: 9px;
+  color: rgba(240, 230, 210, 0.78);
+  background: rgba(255, 255, 255, 0.04);
+  z-index: 12;
+}
+.xq-coachline.idle { color: rgba(240, 230, 210, 0.38); background: transparent; }
+.xq-coachline.warn { color: #ffd2a6; background: rgba(224, 107, 58, 0.16); border: 1px solid rgba(224, 107, 58, 0.35); }
+.xq-coachline.good { color: #b9f2cb; background: rgba(62, 196, 109, 0.14); border: 1px solid rgba(62, 196, 109, 0.3); }
+
+/* 教练提示条：算到第几层 + 改判后的放行样式 */
+.xq-tip-status {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: rgba(240, 230, 210, 0.45);
+}
+.xq-tip-status:empty { display: none; }
+.xq-tip.ok { border-color: rgba(62, 196, 109, 0.6); }
+.xq-tip.ok .xq-tip-bar .xq-btn.primary {
+  background: linear-gradient(180deg, #37a862, #23804a);
+}
+.xq-tip-note {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: rgba(240, 230, 210, 0.78);
+}
+
+/* 复盘：教练拦过的那几手 */
+.xq-rv-flag {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #ffe2bf;
+  background: rgba(224, 163, 61, 0.12);
+  border: 1px solid rgba(224, 163, 61, 0.3);
+}
+.xq-rv-item .f { font-size: 11px; margin-left: 2px; }
+
+@media (max-height: 700px) {
+  .xq-bar .xq-btn { padding: 6px 4px; }
+  .xq-coachline { font-size: 11.5px; padding: 3px 8px; }
+}
+
+/* 矮屏（360×640 这类）：对手框压到了棋盘左上角，黑方的车马象被盖住。
+   把对手框缩成一颗小胶囊，并且给它在棋盘上方留出位置，而不是浮在棋盘上。 */
+@media (max-height: 760px) {
+  .xq-rivalbox { padding: 3px 10px 3px 3px; gap: 6px; }
+  .xq-rivalbox canvas { width: 34px !important; height: 34px !important; }
+  .xq-rivalbox .info b { font-size: 12.5px; }
+  .xq-rivalbox .info span { display: none; }
+  .xq-play { top: 96px; gap: 7px; }
+  /* 对手说话的气泡放到对手框右边，留在棋盘上方那条空地里，不压棋子 */
+  .xq-bubble {
+    top: calc(env(safe-area-inset-top) + 54px);
+    left: 118px;
+    max-width: calc(100vw - 128px);
+    padding: 6px 10px;
+    font-size: 12.5px;
+  }
+}
+
+/* 复盘时操作条和教练行都用不上，让位给复盘面板 */
+.xq-root:has(.xq-rv) .xq-bar,
+.xq-root:has(.xq-rv) .xq-coachline { display: none; }
+
+/* ---------- 复盘：评分 ---------- */
+/* 面板里内容多了（评分、曲线、统计、单手详情），中间这一块自己滚动，头和翻页固定 */
+.xq-rv-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overscroll-behavior: contain;
+}
+.xq-rv-score {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.xq-rv-side {
+  flex: none;
+  width: 54px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px 0;
+}
+.xq-rv-side span { font-size: 10.5px; opacity: 0.6; }
+.xq-rv-side b { font-size: 22px; line-height: 1.1; color: #ffd76e; }
+.xq-rv-side.foe b { color: #9fc4e8; }
+.xq-rv-side em { font-style: normal; font-size: 9.5px; opacity: 0.45; }
+.xq-rv-graph {
+  flex: 1;
+  min-width: 0;
+  height: 58px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  cursor: pointer;
+}
+.xq-rv-chip { --g: var(--line); border-color: color-mix(in srgb, var(--g) 55%, transparent); }
+.xq-rv-chip i { font-style: normal; font-weight: 700; color: var(--g); margin-right: 3px; }
+.xq-rv-chip b { color: var(--g); }
+.xq-rv-phase { font-size: 12px; line-height: 1.6; opacity: 0.8; }
+.xq-rv-phase:empty { display: none; }
+.xq-rv-phase b { color: #ffd76e; font-weight: 600; }
+.xq-rv-phase b.up { color: #6fe09a; }
+.xq-rv-phase b.down { color: #ef7a72; }
+.xq-rv-acc {
+  margin-left: auto;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(240, 230, 210, 0.85);
+}
+.xq-rv-eval { font-size: 12px; opacity: 0.72; margin-top: 4px; }
+.xq-rv-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.xq-rv-actions .xq-rv-deep { flex: 1; min-width: 45%; }
+.xq-rv-item .s { color: var(--g); font-weight: 700; font-size: 11px; }
+.xq-rv-hbtn {
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 2px 4px;
+  opacity: 0.8;
+}
+@media (min-width: 720px) {
+  .xq-rv-list { flex: none; max-height: 34vh; }
+}
+.xq-rv.mini .xq-rv-score { display: none; }
+
+/* 结算页：本局评分 */
+.xq-score {
+  margin: 4px 0 10px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+  color: rgba(240, 230, 210, 0.85);
+  text-align: center;
+  min-width: 240px;
+}
+.xq-score b { color: #ffd76e; }
+.xq-score-row { display: flex; align-items: baseline; justify-content: center; gap: 8px; }
+.xq-score-row b { font-size: 26px; }
+.xq-score-row b.foe { font-size: 18px; color: #9fc4e8; }
+.xq-score-sub { font-size: 12px; opacity: 0.7; margin-top: 2px; }
+
+/* 棋谱条：每一手后面的称号标记 */
+.xq-log .mk { font-style: normal; font-size: 10px; margin-left: 2px; font-weight: 700; }
+
+/* 我的水平：准确率走势 */
+.xq-accbars {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 92px;
+  padding: 6px 4px 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.xq-accbars .bar {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 2px;
+}
+.xq-accbars .bar i { width: 100%; max-width: 22px; border-radius: 4px 4px 0 0; background: #c9c48a; }
+.xq-accbars .bar.hi i { background: #3ec46d; }
+.xq-accbars .bar.lo i { background: #e8703d; }
+.xq-accbars .bar span { font-size: 10px; opacity: 0.7; }
+.xq-grow .tail em.acc { color: #ffd76e; font-style: normal; }
+/* 深度复盘按钮：和"从全局讲讲这一手"长得像，但换个颜色，一眼分得清 */
+.xq-rv-deeprv {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(38, 198, 218, 0.35);
+  background: rgba(38, 198, 218, 0.08);
+  color: #9fe6ef;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* 首页：没下完的那一盘 */
+.xq-resume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 520px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(62, 196, 109, 0.1);
+  border: 1px solid rgba(62, 196, 109, 0.35);
+}
+.xq-resume .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.xq-resume .txt b { font-size: 14px; }
+.xq-resume .txt span { font-size: 12px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xq-resume .xq-btn.primary { background: linear-gradient(180deg, #37a862, #23804a); color: #fff; border-color: transparent; }
+
+/* ───────── 计划、对方的想法、残局卡片 ───────── */
+.xq-tip-plan {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 30vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.xq-tip-plan:empty { display: none; }
+.xq-tip-plan .lead {
+  margin-top: 8px;
+  font-size: 13px;
+  color: rgba(240, 230, 210, 0.9);
+}
+.xq-tip-threat {
+  margin-top: 8px;
+  padding: 6px 9px;
+  border-radius: 9px;
+  background: rgba(224, 67, 58, 0.12);
+  border: 1px solid rgba(224, 67, 58, 0.3);
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(250, 225, 215, 0.95);
+}
+.xq-plan {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  background: rgba(62, 196, 109, 0.08);
+  border: 1px solid rgba(62, 196, 109, 0.25);
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(240, 235, 220, 0.92);
+}
+.xq-plan .goal b { color: #7fe0a0; }
+.xq-plan .line {
+  margin-top: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 4px;
+}
+.xq-plan .line > i {
+  font-style: normal;
+  opacity: 0.45;
+  font-size: 11px;
+}
+.xq-plan .st {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.xq-plan .st.me { background: rgba(62, 196, 109, 0.16); }
+.xq-plan .st.foe { background: rgba(255, 255, 255, 0.07); opacity: 0.85; }
+.xq-plan .st b { color: #f5e6c4; font-weight: 600; }
+.xq-plan .st em {
+  font-style: normal;
+  font-size: 10.5px;
+  opacity: 0.7;
+}
+.xq-plan .out,
+.xq-plan .eg {
+  margin-top: 5px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.xq-egcard {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  background: rgba(90, 140, 230, 0.1);
+  border: 1px solid rgba(90, 140, 230, 0.3);
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(230, 235, 250, 0.92);
+}
+.xq-egcard ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+.xq-rv-pv .xq-plan { margin-top: 4px; opacity: 1; letter-spacing: 0; }
+.xq-rv-eg {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: rgba(200, 215, 250, 0.9);
+}
+
+/* ───────── 残局练习：教练、反馈、换对手 ───────── */
+.xq-po-opp {
+  margin-left: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 11px;
+  padding: 2px 9px;
+  cursor: pointer;
+}
+.xq-po-opp b { color: #ffd76e; font-weight: 600; }
+.xq-po-coach {
+  flex: 0 0 auto;
+  font-size: 12px;
+  text-align: center;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(240, 230, 210, 0.85);
+  min-height: 1.6em;
+}
+.xq-po-coach.good { color: #8fe3a8; background: rgba(62, 196, 109, 0.08); }
+.xq-po-coach.warn { color: #ffb4a8; background: rgba(224, 67, 58, 0.1); }
+.xq-po-fb {
+  flex: 0 0 auto;
+  display: none;
+  max-height: 30vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 10px;
+  padding: 7px 10px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.xq-po-fb.on { display: block; }
+.xq-po-fb.good { background: rgba(62, 196, 109, 0.1); border: 1px solid rgba(62, 196, 109, 0.3); }
+.xq-po-fb.bad { background: rgba(224, 67, 58, 0.12); border: 1px solid rgba(224, 67, 58, 0.4); }
+.xq-po-fb.info { background: rgba(255, 215, 110, 0.08); border: 1px solid rgba(255, 215, 110, 0.25); }
+.xq-po-fb.hint { background: rgba(62, 196, 109, 0.06); border: 1px solid rgba(62, 196, 109, 0.3); }
+.xq-po-fb b { color: #f5d78e; }
+.xq-po-fb .acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 7px;
+}
+.xq-po-fb .acts .xq-btn { flex: 1; font-size: 12px; padding: 6px 8px; }
+.xq-po-fb .more { margin-top: 7px; }
+.xq-po-fb .more.hidden { display: none; }
+.xq-po-sum { margin-top: 5px; opacity: 0.9 !important; }
+
+/*
+ * 求助面板、教练提示条里有计划时，面板高了不少，会盖住棋盘下半截（你自己的子和推荐的箭头）。
+ * 和展开"为什么"时一样：棋盘挪到上面，头像和吃子托盘先收起来。
+ */
+.xq-root:has(.xq-tip .xq-plan) .xq-play {
+  justify-content: flex-start;
+  bottom: 47vh;
+}
+.xq-root:has(.xq-tip .xq-plan) .xq-tray,
+.xq-root:has(.xq-tip .xq-plan) .xq-rivalbox,
+.xq-root:has(.xq-tip .xq-plan) .xq-bubble { display: none; }
+.xq-tip:has(.xq-plan) { max-height: 46vh; }
+.xq-root:has(.xq-tip-why.on) .xq-play { bottom: 58vh; }
+.xq-tip:has(.xq-tip-why.on) { max-height: 56vh; }
+
+/* 复盘里的邪门布局提示 */
+.xq-rv-trick {
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  background: rgba(255, 215, 110, 0.08);
+  border: 1px solid rgba(255, 215, 110, 0.25);
+}
+.xq-rv-trick.good { background: rgba(62, 196, 109, 0.1); border-color: rgba(62, 196, 109, 0.35); }
+.xq-rv-trick.bad { background: rgba(224, 67, 58, 0.1); border-color: rgba(224, 67, 58, 0.35); }
+
+/* 结算页：实战分变化 */
+.xq-playnote {
+  margin: 8px auto 0;
+  max-width: 420px;
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: rgba(90, 140, 230, 0.1);
+  border: 1px solid rgba(90, 140, 230, 0.3);
+  color: rgba(225, 232, 250, 0.95);
+}
+.xq-playnote b { color: #ffd76e; }
+
+/* 残局练习：一直在的操作条 */
+.xq-po-acts {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+}
+.xq-po-acts[hidden] { display: none; }
+.xq-po-acts .xq-btn {
+  flex: 1;
+  padding: 9px 6px;
+  font-size: 13px;
+}
+
+/*
+ * 复盘（手机竖屏）：棋盘挪到上面整块露出来，面板占下半屏，不再压着红方底线。
+ * 用户原话："复盘界面太小了，我得点半天"——原来面板盖住棋盘下三分之一，
+ * 讲解压在总结下面要往下翻，翻页只能点一排小字。
+ */
+@media (max-width: 719px) {
+  .xq-root:has(.xq-rv:not(.mini)) .xq-play {
+    justify-content: flex-start;
+    top: 6px;
+    bottom: 50vh;
+  }
+  .xq-root:has(.xq-rv:not(.mini)) .xq-tray,
+  .xq-root:has(.xq-rv:not(.mini)) .xq-coachline,
+  .xq-root:has(.xq-rv:not(.mini)) .xq-bar,
+  .xq-root:has(.xq-rv:not(.mini)) .xq-bubble {
+    display: none;
+  }
+  .xq-rv:not(.mini) {
+    height: 50vh;
+    max-height: 50vh;
+  }
+}
+/* 看某一手时收起整盘总结：这一手的讲解直接在最上面 */
+.xq-rv.focus .xq-rv-summary { display: none; }
+.xq-rv-nav .xq-btn {
+  flex: 1;
+  min-height: 44px;
+  font-size: 14px;
+  padding: 8px 6px;
+}
+.xq-rv-nav .xq-btn.warn {
+  background: rgba(232, 112, 61, 0.18);
+  border-color: rgba(232, 112, 61, 0.5);
+}
+.xq-rv-item {
+  padding: 8px 10px;
+  font-size: 13px;
+  min-height: 36px;
+}
+.xq-rv-head .xq-rv-pos {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+/* 总览按钮：只在看某一手时出现 */
+.xq-rv:not(.focus) .xq-rv-ov { display: none; }
+.xq-rv-ov { font-size: 12px; }
+/* 复盘面板里的每一块都按内容撑开，整块面板滚动——不许被压扁后内容溢出盖住下一块 */
+.xq-rv-body > * { flex-shrink: 0; }
+/* 复盘标题行：一行放下，放不下的进度文字省略，不许折成一长条把讲解挤下去 */
+.xq-rv-head {
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-height: 34px;
+}
+.xq-rv-head > * { white-space: nowrap; flex-shrink: 0; }
+.xq-rv-head .xq-rv-progress {
+  flex: 1 1 auto;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  opacity: 0.6;
+}
+@media (max-width: 719px) {
+  .xq-rv-head .xq-rv-ask { font-size: 0; padding: 4px 6px; }
+  .xq-rv-head .xq-rv-ask::first-letter { font-size: 16px; }
 }

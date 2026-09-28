@@ -33,12 +33,12 @@ export const DIM_INFO: Record<Dim, { name: string; emoji: string; desc: string }
  * 这里只用你自报的级别决定"第一题出多难"，测几题之后就完全以实际表现为准。
  */
 export const TT_LEVELS: { id: string; name: string; seed: number; desc: string }[] = [
-  { id: 'none', name: '没怎么玩过', seed: 900, desc: '规则知道，实战不多' },
-  { id: 'y13', name: '业 1-3', seed: 1050, desc: '能下完整局' },
-  { id: 'y45', name: '业 4-5', seed: 1200, desc: '有基本战术意识' },
-  { id: 'y67', name: '业 6-7', seed: 1350, desc: '公园里能赢大多数人' },
-  { id: 'y89', name: '业 8-9', seed: 1500, desc: '本地强手' },
-  { id: 'pro', name: '专业级以上', seed: 1600, desc: '受过系统训练' },
+  { id: 'none', name: '没怎么玩过', seed: 800, desc: '规则知道，实战不多' },
+  { id: 'y13', name: '业 1-3', seed: 950, desc: '能下完整局' },
+  { id: 'y45', name: '业 4-5', seed: 1100, desc: '有基本战术意识' },
+  { id: 'y67', name: '业 6-7', seed: 1250, desc: '公园里能赢大多数人' },
+  { id: 'y89', name: '业 8-9', seed: 1450, desc: '本地强手' },
+  { id: 'pro', name: '专业级以上', seed: 1800, desc: '受过系统训练' },
 ];
 
 export const ttLevelById = (id: string) => TT_LEVELS.find((l) => l.id === id);
@@ -76,9 +76,40 @@ export function rankOf(r: number) {
  * 说明里也要讲清楚这只是个粗对照：两边的尺子本来就不是同一把。
  */
 export function ttNear(r: number) {
-  let hit = TT_LEVELS[0];
-  for (const l of TT_LEVELS) if (Math.abs(l.seed - r) < Math.abs(hit.seed - r)) hit = l;
-  return hit;
+  // 按区间对照，不按"离哪个起点最近"：原来 1560 分离"专业级以上"(1600) 最近，
+  // 做题做得顺一点的人就被说成专业级——这是用户实测出来的笑话
+  const at = (id: string) => TT_LEVELS.find((l) => l.id === id)!;
+  if (r < 875) return at('none');
+  if (r < 1025) return at('y13');
+  if (r < 1175) return at('y45');
+  if (r < 1325) return at('y67');
+  if (r < 1750) return at('y89');
+  return at('pro');
+}
+
+/**
+ * 对弈里各档 AI 的实战分（本 App 的刻度）。
+ *
+ * 这是整套水平评估的**锚**。原来水平全靠做题分：题库最难的题也就一千六，做得顺的人一路涨上去，
+ * 被说成"专业级"，可实际连"大师"档都下不赢——做题会做和下得赢是两回事。
+ * 现在"你是什么水平"以**跟这几档 AI 下棋的输赢**为准（Elo），做题分只用来看五维里哪一维弱。
+ *
+ * 这几个数是估的：前五档是自带引擎（搜索时间和随机扰动不同），后两档是皮卡鱼（职业以上的水准）。
+ * 估得不准也不要紧——你的实战分是跟着输赢走的，赢了往上、输了往下，几盘之后自己会落到对的位置；
+ * 只要档与档之间的高低顺序对，结论就不会离谱。
+ */
+export const AI_LEVEL_RATING = [750, 950, 1150, 1300, 1450, 1900, 2100];
+/** 和对弈设置页的难度名一一对应（单元测试核对） */
+export const AI_LEVEL_NAMES = ['入门', '初级', '中级', '高级', '大师', '特级大师', '棋王'];
+
+/**
+ * 该跟哪一档下：实战分附近、稍微高一点的那一档。
+ * 赢一半输一半的对手最涨棋——总是赢说明太弱，总是输学不到东西。
+ */
+export function suggestLevel(r: number): number {
+  let best = 0;
+  for (let i = 0; i < AI_LEVEL_RATING.length; i++) if (AI_LEVEL_RATING[i] <= r + 100) best = i;
+  return best;
 }
 
 export interface Rating {
@@ -123,6 +154,22 @@ export interface GameRecord {
   lossBy?: Partial<Record<Dim, number>>;
   /** 这盘走了多少手，用来判断样本够不够 */
   plies?: number;
+  /** 这盘你的准确率（0～100）。老存档没有这一项 */
+  accuracy?: number;
+}
+
+export interface PlayLog {
+  d: string;
+  /** 对手的实战分 */
+  opp: number;
+  /** 1 赢 0.5 和 0 输 */
+  res: 1 | 0.5 | 0;
+  /** 这盘算几成：开着教练、用了求助的棋，不全是你自己下的 */
+  w: number;
+  /** 对手是谁（显示用） */
+  who: string;
+  /** 这盘之后的实战分 */
+  after: number;
 }
 
 interface SaveData {
@@ -165,6 +212,10 @@ interface SaveData {
   ladder?: LadderState;
   /** 自报的天天象棋级别（TT_LEVELS 的 id），只用来给测评定起点 */
   declared?: string;
+  /** 实战分：跟 AI 下棋的输赢（Elo）。n 是算进去的盘数 */
+  play?: { r: number; n: number; log: PlayLog[] };
+  /** 每道题第一次做是哪天（自 1970 起的天数）。只有第一次做计分，做过的题不再优先出 */
+  attempted?: Record<string, number>;
   /**
    * 题目难度的自校准修正值（题号 -> 偏移分）。
    *
@@ -320,10 +371,38 @@ export function calibratedCount(): number {
   return Object.keys(load().puzzleAdj).length;
 }
 
+/**
+ * 这道题是不是第一次做。只有第一次做的结果能说明水平——
+ * 做过的题再做对，多半是记住了答案（用户原话："到后面我光凭记忆都知道该怎么答了"）。
+ * 调用时顺手记下"做过了"。
+ */
+export function firstAttempt(id: string): boolean {
+  const d = load();
+  const at = (d.attempted ??= {});
+  if (id in at) return false;
+  at[id] = todayNum();
+  store(d);
+  return true;
+}
+
+/** 做过的题（题号 -> 第一次做的日子） */
+export function attemptedMap(): Record<string, number> {
+  return load().attempted ?? {};
+}
+
 /** Elo 更新：K 随做题量递减，前几题动得快、后面稳下来 */
 export function updateRating(dim: Dim, puzzleRating: number, correct: boolean): Rating {
   const d = load();
   const cur = d.ratings[dim];
+  // 比你低两百五以上的题做对了，说明不了什么：不加分。
+  // 原来这类题一道道往上加，题库最难才一千六，分数却能一路涨到"专业级"
+  if (correct && puzzleRating < cur.r - 250) {
+    d.ratings[dim] = { r: cur.r, n: cur.n + 1 };
+    (d.recent ??= []).push({ dim, ok: correct });
+    if (d.recent.length > 200) d.recent.shift();
+    store(d);
+    return d.ratings[dim];
+  }
   const expect = 1 / (1 + 10 ** ((puzzleRating - cur.r) / 400));
   const k = cur.n < 5 ? 120 : cur.n < 15 ? 70 : cur.n < 40 ? 40 : 24;
   const next = {
@@ -482,8 +561,8 @@ export function setDeclared(id: string) {
 /** 测评的起始估计：自报过级别就用它，没报就用中间值 */
 export function seedRating(): number {
   const id = load().declared;
-  if (!id) return 1200;
-  return ttLevelById(id)?.seed ?? 1200;
+  if (!id) return 1100;
+  return ttLevelById(id)?.seed ?? 1100;
 }
 
 // ---------------- 残局 / 杀法图形完成记录 ----------------
@@ -682,8 +761,118 @@ export function recordGame(g: Omit<GameRecord, 'd'>) {
   store(d);
 }
 
+/**
+ * 最近几盘的平均准确率，拿来和这一盘比："比你最近 5 盘的平均高 6"。
+ * 跟自己比才有意义——准确率高低和对手强弱、局面复杂度都有关系。
+ * 不够 2 盘返回 null。
+ */
+export function recentGameAccuracy(n = 5): { avg: number; games: number } | null {
+  const list = load().games.filter((g) => typeof g.accuracy === 'number').slice(-n);
+  if (list.length < 2) return null;
+  return { avg: Math.round(list.reduce((a, g) => a + (g.accuracy ?? 0), 0) / list.length), games: list.length };
+}
+
 export function getGames(): GameRecord[] {
   return load().games;
+}
+
+// ---------------- 实战分 ----------------
+
+/**
+ * 记一盘对弈的结果，更新实战分。
+ *
+ * w：这盘算几成。开着教练（它会在你要掉坑时拦一下）、用了 🔍 求助的棋，
+ * 结果里有一部分是教练的功劳，按比例少算——不然开着教练赢几盘，实战分就虚高了。
+ */
+export function recordPlay(opts: { opp: number; res: 1 | 0.5 | 0; w: number; who: string }): { before: number; after: number; n: number } {
+  const d = load();
+  const p = (d.play ??= { r: seedRating(), n: 0, log: [] });
+  const before = p.r;
+  const k = (p.n < 5 ? 80 : p.n < 15 ? 48 : 32) * Math.max(0.2, Math.min(1, opts.w));
+  const expect = 1 / (1 + 10 ** ((opts.opp - p.r) / 400));
+  p.r = Math.round(Math.max(500, Math.min(2600, p.r + k * (opts.res - expect))));
+  p.n++;
+  p.log.push({ d: today(), opp: opts.opp, res: opts.res, w: Math.round(opts.w * 100) / 100, who: opts.who, after: p.r });
+  if (p.log.length > 100) p.log.shift();
+  store(d);
+  return { before, after: p.r, n: p.n };
+}
+
+export function getPlay(): { r: number; n: number; log: PlayLog[] } | null {
+  return load().play ?? null;
+}
+
+/**
+ * 老存档：实战分是这一版才有的，以前下过的棋没算进去。第一次用时从棋局存档里补算一遍
+ * （按时间从早到晚，按"开着教练"六成算——以前的棋看不出开没开教练，保守一点），
+ * 这样老用户一打开就能看到按实战定的水平，不用重新下。只补一次。
+ */
+export function backfillPlay(games: { ts: number; level: string; result: 'win' | 'loss' | 'draw'; moves: string }[]) {
+  const d = load();
+  if (d.play) return;
+  const list = games
+    .filter((g) => g.moves.length >= 40) // 至少十手：太短的棋不算
+    .map((g) => ({ g, lv: AI_LEVEL_NAMES.indexOf(g.level) }))
+    .filter((x) => x.lv >= 0) // 练习局（"中级 · 摆局练习"）、让子局不在这里补
+    .sort((a, b) => a.g.ts - b.g.ts);
+  d.play = { r: seedRating(), n: 0, log: [] };
+  store(d);
+  for (const { g, lv } of list) {
+    recordPlay({ opp: AI_LEVEL_RATING[lv], res: g.result === 'win' ? 1 : g.result === 'draw' ? 0.5 : 0, w: 0.6, who: g.level });
+  }
+}
+
+export interface HonestLevel {
+  /** 用来定段位、定训练阶段的那个分 */
+  r: number;
+  /** 这个分从哪来：实战（可信）、做题（仅供参考）、自报（还什么都没做） */
+  source: 'play' | 'puzzle' | 'declared';
+  /** 实战分算进去的盘数 */
+  games: number;
+  /** 五维做题分的加权总分 */
+  puzzle: number;
+  /** 要对用户说的一句实话（没有就空） */
+  note: string;
+}
+
+/**
+ * 你现在到底什么水平——**以实战为准**。
+ *
+ * 下够 3 盘就用实战分；做题分比实战分高出一截时明说"题做得来、实战用不出来"。
+ * 实战不够时只能先看做题分，但封顶在自报水平往上一点：做题分天生偏高
+ * （题是静止的、知道这里有棋；实战里没人提醒你），不能拿它直接定段位。
+ */
+export function honestLevel(): HonestLevel {
+  const d = load();
+  const puzzle = overallOf(d.ratings);
+  const play = d.play;
+  if (play && play.n >= 3) {
+    return {
+      r: play.r,
+      source: 'play',
+      games: play.n,
+      puzzle,
+      note:
+        puzzle > play.r + 150
+          ? `做题分（${puzzle}）比实战分高出一截：题做得来，实战里用不出来——这正是要练的地方，多下、多复盘。`
+          : '',
+    };
+  }
+  const cap = (d.declared ? seedRating() : 1100) + 150;
+  return {
+    r: d.assessed ? Math.min(puzzle, cap) : seedRating(),
+    source: d.assessed ? 'puzzle' : 'declared',
+    games: play?.n ?? 0,
+    puzzle,
+    note: `实战才下了 ${play?.n ?? 0} 盘，这个水平是按做题估的，多半偏高。下够 3 盘，教练按实战输赢重新定。`,
+  };
+}
+
+/** 实战里的硬指标：最近几盘每盘漏着几次、有没有复盘数据。训练阶段能不能毕业要看它 */
+export function gameEvidence(recent = 8): { games: number; blundersPerGame: number | null } {
+  const g = load().games.slice(-recent);
+  if (!g.length) return { games: 0, blundersPerGame: null };
+  return { games: g.length, blundersPerGame: Math.round((g.reduce((a, x) => a + x.blunders, 0) / g.length) * 10) / 10 };
 }
 
 /**

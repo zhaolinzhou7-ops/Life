@@ -12,7 +12,7 @@
  * 题库按需加载：首页不该为了显示一个"开始测评"按钮就下几百 KB 题目。
  */
 import type { Dim } from './save';
-import { getOwnPuzzles, effectiveRating } from './save';
+import { getOwnPuzzles, effectiveRating, attemptedMap } from './save';
 
 export type PuzzleKind = 'mate' | 'tactic' | 'safety' | 'endgame' | 'opening';
 
@@ -39,6 +39,16 @@ export interface Puzzle {
    * 说明它看起来足够像好棋——那才是做题时真正的障碍。
    */
   blunder?: string;
+  /**
+   * 题目要求——皮卡鱼看过正解之后定的（tools/classify-puzzles.ts）。
+   *
+   * 原来按题型写死提问：战术题一律"找出赢子的一手"。可 80 道战术题里走棋方本来就落后五百到一千四百分，
+   * 正解是最顽强的防守——问"赢子"就是误导（用户原话："我方都是劣势了，你还在问我能赢子的一手"）。
+   *   mate 杀棋 · win 赢子 · only 唯一站得住的一手 · defend 落后时最顽强的防守 · best 最好的一手
+   */
+  goal?: 'mate' | 'win' | 'only' | 'defend' | 'best';
+  /** 走棋方这时的局面分（引擎，车≈1000）：说明"你现在是领先还是落后" */
+  ev?: number;
 }
 
 /** 题型就是能力维度，一一对应 */
@@ -66,6 +76,42 @@ export const KIND_PROMPT: Record<PuzzleKind, string> = {
   endgame: '这个残局，哪一手才对？',
   opening: '开局这一手该怎么走？',
 };
+
+/** 局面分说成一句话（走棋方视角） */
+function standing(ev: number | undefined): string {
+  if (ev === undefined) return '';
+  const a = Math.abs(ev);
+  if (a < 150) return '局面差不多';
+  const size = a >= 900 ? '约一个车' : a >= 420 ? '约一个马炮' : `约${Math.round(a / 100)}个兵`;
+  return ev > 0 ? `你领先${size}` : `你落后${size}`;
+}
+
+/**
+ * 这道题问什么。按正解真正在干什么来问，不按题型写死。
+ * 局面领先落后也一并说出来：落后时找的是防守，不是赢子。
+ */
+export function promptOf(p: Puzzle): string {
+  if (p.id.startsWith('own-')) return '实战里你在这里走错过——找出正确的一手';
+  if (p.kind === 'mate' || p.goal === 'mate') return '找出杀棋';
+  const st = standing(p.ev);
+  switch (p.goal) {
+    case 'win':
+      return '找出赢子的一手';
+    case 'only':
+      if (p.kind === 'safety') return `${st ? st + '。' : ''}只有一步不亏，找出来`;
+      // 残局里分差接近 0 的都是少子的守方：告诉他目标是守和，而不是"局面差不多"
+      if (p.kind === 'endgame' && p.ev !== undefined) {
+        if (Math.abs(p.ev) < 150) return '这盘守得和，但只有这一手守得住，找出来';
+        if (p.ev > 0) return `${st}。只有这一手能把优势保住，找出来`;
+      }
+      return `${st ? st + '。' : ''}只有这一手站得住，找出来`;
+    case 'defend':
+      return `${st || '你落后'}。找出最顽强的防守`;
+    case 'best':
+      return p.kind === 'opening' ? '开局这一手该怎么走？' : `${st ? st + '。' : ''}找出最好的一手`;
+  }
+  return KIND_PROMPT[p.kind];
+}
 
 let cache: Puzzle[] | null = null;
 let loading: Promise<Puzzle[]> | null = null;
@@ -107,15 +153,32 @@ export function byId(id: string): Puzzle | undefined {
  * 不取"最接近的那一道"而是在最接近的若干道里随机——否则同一个分数段
  * 每次都出同一道题，第二次做就成了背答案。
  */
-export function pickNear(kind: PuzzleKind, rating: number, exclude: Set<string>, pool = 6): Puzzle | null {
-  const cand = byKind(kind).filter((p) => !exclude.has(p.id));
-  if (!cand.length) return null;
+export function pickNear(kind: PuzzleKind, rating: number, exclude: Set<string>, pool = 8): Puzzle | null {
+  const all = byKind(kind).filter((p) => !exclude.has(p.id));
+  if (!all.length) return null;
   // 按**自校准后**的难度挑题：你做过的题，难度已经按你的实际表现修正过，
   // 比引擎标称的准。没做过的题就用标称值。
   const dist = (p: Puzzle) => Math.abs(effectiveRating(p.id, p.rating) - rating);
-  cand.sort((a, b) => dist(a) - dist(b));
-  const n = Math.min(pool, cand.length);
-  return cand[(Math.random() * n) | 0];
+  // **先出没做过的题。** 原来只按难度挑、不管做没做过：同一个分数段每次都是那几道，
+  // 做到后面全凭记忆（用户原话）。做错的题有错题本按间隔回来，不靠这里重复出
+  const seen = attemptedMap();
+  const fresh = all.filter((p) => !(p.id in seen)).sort((a, b) => dist(a) - dist(b));
+  if (fresh.length && dist(fresh[0]) <= 300) {
+    const n = Math.min(pool, fresh.length);
+    return fresh[(Math.random() * n) | 0];
+  }
+  // 这个难度附近的新题做完了：挑做得最早的那几道（隔得越久越不像背答案）
+  const old = all.sort((a, b) => dist(a) - dist(b)).slice(0, pool * 3);
+  old.sort((a, b) => (seen[a.id] ?? 0) - (seen[b.id] ?? 0));
+  const n = Math.min(pool, old.length);
+  return old[(Math.random() * n) | 0];
+}
+
+/** 某一类题还有多少道没做过 */
+export function freshCount(kind: PuzzleKind): { fresh: number; total: number } {
+  const seen = attemptedMap();
+  const list = byKind(kind);
+  return { fresh: list.filter((p) => !(p.id in seen)).length, total: list.length };
 }
 
 /** 某一类题的难度跨度，用来告诉用户这类题能测到什么范围 */

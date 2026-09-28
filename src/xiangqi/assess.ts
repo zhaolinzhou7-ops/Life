@@ -9,7 +9,7 @@
  * 和考驾照的适应性测试、Lichess 的 puzzle rating 是一个路子。
  */
 import { DIMS, seedRating, type Dim } from './save';
-import { loadPuzzles, pickNear, type Puzzle, type PuzzleKind } from './puzzles';
+import { loadPuzzles, pickNear, ratingRange, type Puzzle, type PuzzleKind } from './puzzles';
 
 /** 每个维度出几题。5 维 × 7 = 35 题，约 20 分钟 */
 export const PER_DIM = 7;
@@ -18,7 +18,7 @@ export const PER_DIM = 7;
  * 步长：前几题动得大（快速逼近），后面收小（稳定下来）。
  * 这是自适应测评的核心——固定步长要么收敛太慢，要么一直在跳。
  */
-const K_SCHEDULE = [400, 250, 160, 110, 80, 60, 45];
+const K_SCHEDULE = [220, 160, 120, 90, 70, 55, 45];
 
 const DIM_KIND: Record<Dim, PuzzleKind> = {
   safety: 'safety',
@@ -120,7 +120,11 @@ export class Assessment {
     const cur = this.est[q.dim];
     const expect = 1 / (1 + 10 ** ((q.puzzle.rating - cur) / 400));
     const k = K_SCHEDULE[Math.min(this.done[q.dim], K_SCHEDULE.length - 1)];
-    this.est[q.dim] = Math.max(600, Math.min(2300, cur + k * ((correct ? 1 : 0) - expect)));
+    // 估计值封在这类题的难度范围附近：题库最难的题只有一千六，全做对也只能说明"不低于一千六"，
+    // 原来第一步就加减四百、又没有上限，做对两三题就被估到一千八以上（"专业级"），后面再也拉不回来
+    const [lo, hi] = ratingRange(DIM_KIND[q.dim]);
+    const next = cur + k * ((correct ? 1 : 0) - expect);
+    this.est[q.dim] = Math.max(Math.min(600, lo - 100), Math.min(hi + 100, next));
     this.done[q.dim]++;
     this.log.push({ dim: q.dim, rating: q.puzzle.rating, correct });
     this.cur = null;

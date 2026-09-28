@@ -18,8 +18,8 @@ import { applyMove, initialBoard, legalMoves, statusAfter, type Board, type Colo
 import { bestMove, judgeMove, resetEngine } from '../src/xiangqi/ai';
 import { headlineOf, reviewMove, summarize, tagCounts } from '../src/xiangqi/analysis';
 import { archiveFromBoard, clearArchive, getGame, listGames, openGame, setGameReview } from '../src/xiangqi/archive';
-import { buildProfile, trainingFocus } from '../src/xiangqi/insight';
-import { checkMove, getHintLevel } from '../src/xiangqi/livecoach';
+import { behaviourOf, buildProfile, trainingFocus } from '../src/xiangqi/insight';
+import { checkMove, getHintLevel, warnText } from '../src/xiangqi/livecoach';
 import { factsFor } from '../src/xiangqi/chat';
 import { offlineText, verifyExplanation } from '../src/xiangqi/llm';
 import { DIM_INFO } from '../src/xiangqi/save';
@@ -97,17 +97,18 @@ describe('用户A：完全新手，很多棋规都不知道', () => {
       '. . . . . . . . .',
       '. . . . K . . . .',
     );
-    const risk = checkMove(2, b, mv(4, 6, 3, 4), 'r');
-    expect(risk).not.toBeNull();
-    // 新手读得懂：不出现"牵制""兑子""先手"这类他还不认识的词
+    // 传 null 表示引擎分析还没回来——这种时候教练也必须拦得住，
+    // 不能因为后台还在算就放人掉坑
+    const v = checkMove(2, b, mv(4, 6, 3, 4), 'r', null);
+    expect(v).not.toBeNull();
+    const words = `${warnText(2, v!)} ${v!.risk?.detail ?? ''}`;
     for (const jargon of ['牵制', '兑子', '先手', '闪击', '子力价值', '局面评估']) {
-      expect(risk!.brief).not.toContain(jargon);
-      expect(risk!.detail).not.toContain(jargon);
+      expect(words).not.toContain(jargon);
     }
-    // 而且必须说清楚"谁吃你什么"
-    expect(risk!.detail).toContain('马');
-    expect(risk!.detail).toContain('吃');
+    expect(words).toContain('马');
+    expect(words).toContain('吃');
   });
+
 
   it('教练只提醒，不替他走——被拦下的那一手仍然是合法的，走不走由他定', () => {
     const b = board(
@@ -123,7 +124,7 @@ describe('用户A：完全新手，很多棋规都不知道', () => {
       '. . . . K . . . .',
     );
     const m = mv(4, 6, 3, 4);
-    expect(checkMove(2, b, m, 'r')).not.toBeNull();
+    expect(checkMove(2, b, m, 'r', null)).not.toBeNull();
     // 规则层面这一手完全合法，教练无权禁止
     expect(legalMoves(b, 'r').some((x) => x.fx === m.fx && x.fy === m.fy && x.tx === m.tx && x.ty === m.ty)).toBe(true);
   });
@@ -391,5 +392,40 @@ describe('整套闭环：实战 → 找问题 → 出题 → 训练 → 再实�
     // 7. 教练回答基于以上全部真实数据，且不编棋
     const f = factsFor({ side: '红', stats: { ...rep.stats.r, won: result === 'win' } }, '我最近常犯什么错？');
     expect(verifyExplanation(offlineText(f), f).ok).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+describe('执黑也要走得通——整条链路原来都假设"我"是红方', () => {
+  it('执黑下一盘：存档、复盘、行为统计都按黑方算', () => {
+    // 红方（对手）先行
+    const { moves } = playGame((b) => bestMove(b, 'r', 2, 0, 50) ?? legalMoves(b, 'r')[0], { maxPlies: 20 });
+    const id = archiveFromBoard(initialBoard(), 'r', moves, {
+      side: 'b', // 我执黑
+      result: 'loss',
+      level: '中级',
+    });
+    const g = getGame(id)!;
+    expect(g.side).toBe('b');
+
+    // 起手方仍然是红（棋规），但"我"是黑方
+    const opened = openGame(g)!;
+    expect(opened.startColor).toBe('r');
+
+    // 行为统计要从黑方视角数
+    const bh = behaviourOf(opened.start, opened.moves, opened.startColor, 'b');
+    const rh = behaviourOf(opened.start, opened.moves, opened.startColor, 'r');
+    expect(bh.plies + rh.plies).toBe(moves.length);
+    // 黑方后行，手数最多和红方一样多
+    expect(bh.plies).toBeLessThanOrEqual(rh.plies);
+  });
+
+  it('执黑的复盘按黑方视角挑"你最该改的一手"', () => {
+    const { moves } = playGame((b) => bestMove(b, 'r', 1, 200, 40) ?? legalMoves(b, 'r')[0], { maxPlies: 20 });
+    const rep = reviewGame(initialBoard(), moves);
+    // 黑方的统计只数黑方走的手
+    const blackPlies = rep.moves.filter((m) => m.color === 'b').length;
+    expect(rep.stats.b.total).toBe(blackPlies);
+    if (rep.worst.b >= 0) expect(rep.moves[rep.worst.b].color).toBe('b');
   });
 });

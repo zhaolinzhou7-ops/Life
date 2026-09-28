@@ -24,8 +24,12 @@ import {
   getRatings,
   getStreak,
   isAssessed,
-  overallOf,
+  honestLevel,
+  getPlay,
+  backfillPlay,
+  getGames,
   playStats,
+  recentGameAccuracy,
   rankOf,
   srsCount,
   totalSolved,
@@ -40,6 +44,11 @@ export interface HomeActions {
   onReview: (id?: string) => void;
   onLevel: () => void;
   onExit: () => void;
+  /**
+   * 有一盘没下完的棋（被系统杀掉的后台页面、刷新、手滑关掉）。
+   * 手机浏览器切到后台一会儿就可能被回收，辛辛苦苦下了三十步的棋不能就这么没了。
+   */
+  resume?: { label: string; go: () => void; drop: () => void };
 }
 
 const card = (title: string, desc: string, badge: string, go: () => void): HTMLElement => {
@@ -66,11 +75,11 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
   host.appendChild(s);
 
   const games = listGames();
+  backfillPlay(games);
   const profile = buildProfile(games);
   const srs = srsCount();
   const streak = getStreak();
-  const rs = getRatings();
-  const overall = overallOf(rs);
+  const lv = honestLevel();
   const last = games[0];
 
   s.innerHTML = `
@@ -82,9 +91,29 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
   strip.className = 'xq-home-strip';
   strip.innerHTML = `
     <div><b>${games.length}</b><span>对局</span></div>
-    <div><b>${isAssessed() ? rankOf(overall).name : '未测'}</b><span>水平</span></div>
+    <div><b>${lv.source === 'play' ? rankOf(lv.r).name : isAssessed() ? `${rankOf(lv.r).name}?` : '未定'}</b><span>${lv.source === 'play' ? '实战水平' : '水平（待实战确认）'}</span></div>
     <div><b>${streak.streak}</b><span>天连续</span></div>`;
   s.appendChild(strip);
+
+  if (act.resume) {
+    const r = act.resume;
+    const box = document.createElement('div');
+    box.className = 'xq-resume';
+    box.innerHTML = `
+      <div class="txt"><b>⏯ 有一盘没下完</b><span></span></div>
+      <button class="xq-btn primary" data-act="go">继续</button>
+      <button class="xq-btn" data-act="drop">不要了</button>`;
+    (box.querySelector('.txt span') as HTMLElement).textContent = r.label;
+    box.addEventListener('click', (e) => {
+      const a = (e.target as HTMLElement).closest('[data-act]')?.getAttribute('data-act');
+      if (a === 'go') r.go();
+      else if (a === 'drop') {
+        r.drop();
+        box.remove();
+      }
+    });
+    s.appendChild(box);
+  }
 
   const list = document.createElement('div');
   list.className = 'card-list';
@@ -144,9 +173,11 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
       '📊 我的水平',
       profile.enough && profile.habits.length
         ? `你最常犯的是「${profile.habits[0].name}」。点进来看完整的棋风画像。`
-        : isAssessed()
-          ? `当前 ${rankOf(overall).name} · ${overall} 分。五维能力、对局统计都在这里。`
-          : '还没测过水平。测一次大约 20 分钟，之后练什么都按你的短板安排。',
+        : lv.source === 'play'
+          ? `实战 ${rankOf(lv.r).name} · ${lv.r} 分（按 ${lv.games} 盘对弈的输赢）。五维能力、对局统计都在这里。`
+          : isAssessed()
+            ? `做题估的是 ${rankOf(lv.r).name}，还要下几盘实战确认。五维能力、对局统计都在这里。`
+            : '还没测过水平。测一次大约 20 分钟，之后练什么都按你的短板安排。',
       '',
       act.onLevel,
     ),
@@ -200,7 +231,7 @@ export function renderGameList(
         </span>
         <span class="tail">${
           rv
-            ? `<em class="${rv.blunders ? 'bad' : ''}">漏着 ${rv.blunders}</em><em>失误 ${rv.mistakes}</em>`
+            ? `${typeof rv.accuracy === 'number' ? `<em class="acc">准确率 ${rv.accuracy}</em>` : ''}<em class="${rv.blunders ? 'bad' : ''}">漏着 ${rv.blunders}</em><em>失误 ${rv.mistakes}</em>`
             : '<em class="dim">未分析</em>'
         }</span>`;
       row.onclick = () => onOpen(g);
@@ -226,23 +257,35 @@ export function renderLevel(host: HTMLElement, onBack: () => void, onAssess: () 
   const thumbs: Board2D[] = [];
 
   const games = listGames();
+  backfillPlay(games);
   const profile = buildProfile(games);
   const rs = getRatings();
-  const overall = overallOf(rs);
+  const lv = honestLevel();
+  const play = getPlay();
   const ps = playStats();
+  const acc = recentGameAccuracy(10);
 
   s.innerHTML = `<h1>我的水平</h1><div class="sub">全部来自你自己的对局和做题记录</div>`;
 
   // ---- 段位 ----
   const rank = document.createElement('div');
   rank.className = 'xq-rankbox';
-  rank.innerHTML = isAssessed()
-    ? `<div class="big">${rankOf(overall).name}</div>
-       <div class="num">${overall} 分</div>
-       <div class="note">${rankOf(overall).desc}。大致相当于天天象棋的「${ttNear(overall).name}」，
-       但两边的尺子本来就不是同一把，只能当个粗对照。</div>`
-    : `<div class="big">还没测</div>
-       <div class="note">测一次大约 20 分钟，题目难度会跟着你的表现自动调。测完才知道该先练哪一块。</div>`;
+  // 水平以实战为准：跟 AI 下棋的输赢。做题分只看五维里哪一维弱
+  const recentPlay = play?.log.slice(-5).map((x) => `${x.who}${x.res === 1 ? '胜' : x.res === 0.5 ? '和' : '负'}`).join('、');
+  rank.innerHTML =
+    lv.source === 'play'
+      ? `<div class="big">${rankOf(lv.r).name}</div>
+       <div class="num">实战分 ${lv.r}</div>
+       <div class="note">${rankOf(lv.r).desc}。按 ${lv.games} 盘对弈的输赢算的${recentPlay ? `（最近：${recentPlay}）` : ''}，
+       粗略相当于天天象棋「${ttNear(lv.r).name}」——两边的尺子不是同一把，只能当个粗对照。
+       ${lv.note ? `<br><b>${lv.note}</b>` : ''}</div>`
+      : isAssessed()
+        ? `<div class="big">${rankOf(lv.r).name}？</div>
+       <div class="num">做题估分 ${lv.r}（待实战确认）</div>
+       <div class="note">${lv.note}<br>做题分只说明你<b>会不会做题</b>：题是静止的、知道这里有棋，实战里没人提醒你。
+       所以你是什么水平，最终看你下得赢哪一档对手。</div>`
+        : `<div class="big">还没测</div>
+       <div class="note">测一次大约 20 分钟，题目难度会跟着你的表现自动调。测完、再下几盘棋，才知道你的水平和该先练哪一块。</div>`;
   s.appendChild(rank);
 
   if (!isAssessed()) {
@@ -256,7 +299,7 @@ export function renderLevel(host: HTMLElement, onBack: () => void, onAssess: () 
   // ---- 五维 ----
   const dimSec = document.createElement('div');
   dimSec.className = 'xq-sec';
-  dimSec.textContent = '五项能力';
+  dimSec.textContent = '五项能力（做题分，只用来比哪一项弱）';
   s.appendChild(dimSec);
   const bars = document.createElement('div');
   bars.className = 'xq-dims';
@@ -286,7 +329,7 @@ export function renderLevel(host: HTMLElement, onBack: () => void, onAssess: () 
     <div><b>${profile.wins}</b><span>胜</span></div>
     <div><b>${profile.losses}</b><span>负</span></div>
     <div><b>${profile.draws}</b><span>和</span></div>
-    <div><b>${profile.avgPlies || '—'}</b><span>平均手数</span></div>
+    <div><b>${acc ? acc.avg : '—'}</b><span>近期准确率</span></div>
     <div><b>${ps ? ps.avgLoss : '—'}</b><span>平均每手亏</span></div>
     <div><b>${ps ? `${ps.winRate}%` : '—'}</b><span>近期胜率</span></div>
     <div><b>${totalSolved()}</b><span>做对的题</span></div>`;
@@ -300,6 +343,31 @@ export function renderLevel(host: HTMLElement, onBack: () => void, onAssess: () 
         ? `📉 和更早的对局比，你平均每手少亏 ${ps.trend} 分——在涨棋。`
         : `📈 最近平均每手多亏 ${-ps.trend} 分，可能是在挑战更难的对手，也可能是状态问题。`;
     s.appendChild(t);
+  }
+
+  /*
+   * 准确率走势：最近几盘一盘一根柱子。
+   * 跟自己比才有意义——准确率和对手强弱、局面复杂度都有关系，
+   * 但同一个人连着下，柱子往上走就是在涨棋。
+   */
+  const accs = getGames()
+    .filter((g) => typeof g.accuracy === 'number')
+    .slice(-12);
+  if (accs.length >= 2) {
+    const sec = document.createElement('div');
+    sec.className = 'xq-sec';
+    sec.textContent = '准确率走势（最近几盘）';
+    s.appendChild(sec);
+    const bars = document.createElement('div');
+    bars.className = 'xq-accbars';
+    bars.innerHTML = accs
+      .map((g) => {
+        const a = g.accuracy ?? 0;
+        const tone = a >= 85 ? 'hi' : a >= 65 ? 'mid' : 'lo';
+        return `<div class="bar ${tone}" title="${g.d}"><i style="height:${Math.max(6, a)}%"></i><span>${a}</span></div>`;
+      })
+      .join('');
+    s.appendChild(bars);
   }
 
   // ---- 错误画像 ----

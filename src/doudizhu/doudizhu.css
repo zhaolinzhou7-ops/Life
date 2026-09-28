@@ -1,0 +1,994 @@
+/**
+ * 斗地主界面样式。
+ *
+ * 定位是「现代、清晰、轻量」的棋牌产品，不是老式棋牌室：
+ * 深色哑光底 + 一个主色 + 一个强调色，没有金光、没有满屏按钮、没有赌场质感。
+ * 牌本身是界面的主角，所以牌面用纯白高对比，其余元素都往后退。
+ */
+.dd {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(ellipse at 50% 28%, #1d3a34 0%, #12211f 55%, #0d1614 100%);
+  color: #e9f0ee;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  overflow: hidden;
+  --dd-accent: #2fd6a7;
+  --dd-warn: #ffb648;
+  --dd-danger: #ff6b6b;
+  --dd-line: rgba(255, 255, 255, 0.1);
+  --dd-panel: rgba(12, 24, 22, 0.78);
+  --card-w: 58px;
+  --card-h: 82px;
+}
+
+.dd * {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---------------- 顶栏 ---------------- */
+.dd-top {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.32), transparent);
+  z-index: 6;
+}
+
+.dd-top .dd-btn-icon {
+  flex: 0 0 auto;
+}
+
+.dd-status {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.dd-chip {
+  font-size: 12px;
+  line-height: 1;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--dd-line);
+  white-space: nowrap;
+  color: #cfe0dc;
+}
+
+.dd-chip b {
+  color: #fff;
+  font-weight: 600;
+}
+
+.dd-chip.hot {
+  background: rgba(255, 182, 72, 0.16);
+  border-color: rgba(255, 182, 72, 0.4);
+  color: #ffd79a;
+}
+
+.dd-chip.phase {
+  background: rgba(47, 214, 167, 0.14);
+  border-color: rgba(47, 214, 167, 0.35);
+  color: #9defd2;
+}
+
+.dd-btn-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--dd-line);
+  background: rgba(255, 255, 255, 0.06);
+  color: #dbe8e5;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.dd-btn-icon:active {
+  transform: scale(0.94);
+}
+
+/* ---------------- 牌桌 ---------------- */
+.dd-table {
+  flex: 1 1 auto;
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
+  padding: 0 10px;
+  /* 桌面上不限宽的话，两个 AI 会被甩到屏幕两角，中间一大片空 */
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  /*
+   * grid/flex 子项默认 min-width:auto——手牌有 20 张时它会把整个牌桌撑得
+   * 比屏幕还宽，再被 body 的 overflow:hidden 裁掉，最右边几张牌就永远点不到。
+   * 必须显式允许收缩。
+   */
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 上方两个 AI */
+.dd-seats {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  padding-top: 2px;
+  min-width: 0;
+}
+
+.dd-seat {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: var(--dd-panel);
+  border: 1px solid var(--dd-line);
+  min-width: 0;
+  flex: 0 1 auto;
+  max-width: 46%;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.dd-seat.right {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.dd-seat.active {
+  border-color: var(--dd-accent);
+  box-shadow: 0 0 0 1px rgba(47, 214, 167, 0.35), 0 4px 18px rgba(47, 214, 167, 0.16);
+}
+
+.dd-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(140deg, #2d4b45, #1a302c);
+  border: 1px solid var(--dd-line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.dd-avatar.landlord::after {
+  content: '地主';
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--dd-warn);
+  color: #2a1b00;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dd-seat-info {
+  min-width: 0;
+}
+
+.dd-seat-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.dd-seat-count {
+  font-size: 12px;
+  color: #9db6b0;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dd-seat.right .dd-seat-count {
+  justify-content: flex-end;
+}
+
+.dd-seat-count b {
+  color: var(--dd-accent);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.dd-seat-count.low b {
+  color: var(--dd-danger);
+}
+
+/* 小牌背，直观表示"还剩几张" */
+.dd-backs {
+  display: flex;
+  margin-top: 5px;
+  height: 14px;
+  overflow: hidden;
+}
+
+.dd-backs i {
+  width: 7px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(160deg, #3b6b60, #24463f);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  margin-right: -3px;
+  display: block;
+}
+
+.dd-seat-say {
+  position: absolute;
+  top: 54px;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #16302b;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 5;
+  animation: dd-pop 0.2s ease;
+}
+
+.dd-seat-say.left {
+  left: 12px;
+}
+
+.dd-seat-say.right {
+  right: 12px;
+}
+
+@keyframes dd-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.9);
+  }
+}
+
+/* ---------------- 中间出牌区 ---------------- */
+.dd-center {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 1.25fr) 1fr;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  width: 100%;
+}
+
+/* 桌面毡：让中间的留白读起来是"牌桌"，而不是"这块还没画" */
+.dd-center::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  transform: translate(-50%, -50%);
+  width: min(100%, 540px);
+  height: min(86%, 330px);
+  border-radius: 50% / 46%;
+  background: radial-gradient(ellipse at 50% 38%, rgba(64, 130, 112, 0.3), rgba(20, 48, 42, 0.14) 62%, transparent 78%);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.dd-center > * {
+  position: relative;
+  z-index: 1;
+}
+
+/*
+ * 三个出牌区都落在毡子上，左中右正好对应 陈伯 / 我 / 小满 的座位方向。
+ * 试过把 AI 的出牌区往上贴、我的往下贴，结果牌全跑到毡子外面，反而更散。
+ */
+
+.dd-played {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 92px;
+  min-width: 0;
+}
+
+.dd-played .dd-cards {
+  --card-w: 40px;
+  --card-h: 56px;
+}
+
+.dd-played.mine .dd-cards {
+  --card-w: 46px;
+  --card-h: 64px;
+}
+
+.dd-pass {
+  font-size: 19px;
+  font-weight: 800;
+  color: #8ba49e;
+  letter-spacing: 3px;
+  transform: rotate(-6deg);
+  opacity: 0.85;
+}
+
+.dd-move-label {
+  font-size: 11px;
+  color: #8fa8a2;
+}
+
+/* 底牌 */
+.dd-bottom-row {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 3;
+}
+
+.dd-bottom-row .label {
+  font-size: 11px;
+  color: #93aca6;
+}
+
+.dd-bottom-row .dd-cards {
+  --card-w: 32px;
+  --card-h: 45px;
+}
+
+/* 底牌只有 3 张，摊开露出整张牌面，别叠 */
+.dd-bottom-row .dd-card {
+  margin-right: 3px;
+}
+
+.dd-bottom-row .dd-card:last-child {
+  margin-right: 0;
+}
+
+/* 中央提示语 */
+.dd-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  font-size: 12.5px;
+  color: #a9c2bc;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 5px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  max-width: 94%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 4;
+}
+
+.dd-hint.warn {
+  color: #ffd2a8;
+  background: rgba(255, 107, 107, 0.18);
+  border: 1px solid rgba(255, 107, 107, 0.4);
+}
+
+/* ---------------- 我的手牌 ---------------- */
+.dd-mine {
+  flex: 0 0 auto;
+  padding: 4px 8px 0;
+  min-height: calc(var(--card-h) + 22px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dd-cards {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding-top: 18px;
+}
+
+.dd-card {
+  position: relative;
+  width: var(--card-w);
+  height: var(--card-h);
+  flex: 0 0 auto;
+  border-radius: 6px;
+  background: #fff;
+  color: #1b2320;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  /*
+   * --step 是"每张牌往右挪多少"，默认按牌宽的 45% 叠。
+   * 地主的 20 张牌在窄屏上按固定比例会溢出屏幕，所以渲染时会由
+   * JS 按容器实际宽度把 --step 调小（见 index.ts 的 fitHand）。
+   */
+  margin-right: calc(var(--step, calc(var(--card-w) * 0.45)) - var(--card-w));
+  transition: transform 0.13s ease, box-shadow 0.13s ease;
+  user-select: none;
+}
+
+.dd-card:last-child {
+  margin-right: 0;
+}
+
+.dd-card .rank {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: calc(var(--card-h) * 0.26);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.5px;
+  white-space: nowrap;
+}
+
+/*
+ * "10" 是唯一两位数的点数。手牌叠得紧时每张只露出十几个像素，
+ * 按正常字号画会被下一张牌切成"1"，看着像张 1 点的牌。缩一号才认得出。
+ */
+.dd-card.wide .rank {
+  font-size: calc(var(--card-h) * 0.21);
+  letter-spacing: -1.2px;
+  top: 3px;
+  left: 3px;
+}
+
+.dd-card .suit {
+  position: absolute;
+  top: calc(var(--card-h) * 0.28);
+  left: 4px;
+  font-size: calc(var(--card-h) * 0.2);
+  line-height: 1;
+}
+
+.dd-card .big {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  font-size: calc(var(--card-h) * 0.38);
+  line-height: 1;
+  opacity: 0.16;
+}
+
+.dd-card.red {
+  color: #d63b3b;
+}
+
+/* 王：白板一张认不出是谁，给它一个能一眼认出的样子 */
+.dd-card.joker {
+  background: linear-gradient(150deg, #fff 62%, #f2f5f4);
+}
+
+/*
+ * 王牌沿用普通牌的排版：角上是"小/大"，下面一个"王"，水印是星。
+ * 之前用 writing-mode 竖排两个字，在 60px 高的牌上会被下一张牌盖掉一半，
+ * 只剩一个"王"，根本分不出大小王。
+ */
+.dd-card.joker .suit {
+  font-size: calc(var(--card-h) * 0.22);
+  font-weight: 700;
+}
+
+.dd-card.joker .big {
+  font-size: calc(var(--card-h) * 0.34);
+  opacity: 0.55;
+  right: 4px;
+  bottom: 3px;
+  color: #1b2320;
+}
+
+.dd-card.joker.red .big {
+  color: #d63b3b;
+  opacity: 0.75;
+}
+
+.dd-mine .dd-card {
+  cursor: pointer;
+}
+
+.dd-mine .dd-card.selected {
+  transform: translateY(-18px);
+  box-shadow: 0 6px 16px rgba(47, 214, 167, 0.4);
+  border-color: var(--dd-accent);
+}
+
+.dd-mine .dd-card.hinted::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 7px;
+  border: 2px solid var(--dd-warn);
+  pointer-events: none;
+}
+
+.dd-mine .dd-card.dim {
+  filter: brightness(0.62) saturate(0.6);
+}
+
+/* ---------------- 底部按钮 ---------------- */
+.dd-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+  padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px);
+  min-height: 62px;
+}
+
+.dd-btn {
+  padding: 11px 22px;
+  border-radius: 12px;
+  border: 1px solid var(--dd-line);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e9f0ee;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.1s, opacity 0.15s;
+  white-space: nowrap;
+}
+
+.dd-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.dd-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.dd-btn.primary {
+  background: var(--dd-accent);
+  border-color: transparent;
+  color: #06251c;
+}
+
+.dd-btn.danger {
+  background: rgba(255, 107, 107, 0.16);
+  border-color: rgba(255, 107, 107, 0.4);
+  color: #ffb3b3;
+}
+
+.dd-btn.ghost {
+  background: transparent;
+}
+
+.dd-waiting {
+  font-size: 13.5px;
+  color: #8ba49e;
+}
+
+/* ---------------- 叫分 ---------------- */
+.dd-bid-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.dd-bid-btn {
+  padding: 11px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--dd-line);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e9f0ee;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dd-bid-btn.hot {
+  background: var(--dd-warn);
+  color: #2a1b00;
+  border-color: transparent;
+}
+
+.dd-bid-btn:disabled {
+  opacity: 0.35;
+}
+
+/* ---------------- 倒计时 ---------------- */
+.dd-clock {
+  position: absolute;
+  right: 10px;
+  bottom: 6px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid var(--dd-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--dd-accent);
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 5;
+}
+
+.dd-clock.urgent {
+  border-color: var(--dd-danger);
+  color: var(--dd-danger);
+  animation: dd-pulse 0.7s infinite;
+}
+
+@keyframes dd-pulse {
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+/* ---------------- 动画 ---------------- */
+.dd-anim-deal .dd-card {
+  animation: dd-deal 0.3s backwards;
+}
+
+@keyframes dd-deal {
+  from {
+    opacity: 0;
+    transform: translate(0, -160px) rotate(12deg) scale(0.6);
+  }
+}
+
+.dd-anim-play .dd-cards {
+  animation: dd-throw 0.22s ease-out;
+}
+
+@keyframes dd-throw {
+  from {
+    opacity: 0.2;
+    transform: translateY(26px) scale(0.86);
+  }
+}
+
+.dd-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 52px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  color: #fff;
+  text-shadow: 0 0 22px rgba(255, 170, 60, 0.9);
+  animation: dd-flash 0.85s ease-out forwards;
+}
+
+.dd-flash.bomb {
+  background: radial-gradient(circle, rgba(255, 120, 40, 0.42), transparent 62%);
+}
+
+.dd-flash.rocket {
+  background: radial-gradient(circle, rgba(120, 160, 255, 0.45), transparent 62%);
+}
+
+@keyframes dd-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  25% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
+
+/* ---------------- 弹层 ---------------- */
+.dd-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 14, 12, 0.76);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 30;
+  overflow-y: auto;
+}
+
+.dd-panel {
+  width: 100%;
+  max-width: 400px;
+  background: #13211f;
+  border: 1px solid var(--dd-line);
+  border-radius: 18px;
+  padding: 20px;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.dd-panel h2 {
+  margin: 0 0 4px;
+  font-size: 21px;
+  text-align: center;
+}
+
+.dd-panel .sub {
+  text-align: center;
+  font-size: 13px;
+  color: #8ba49e;
+  margin-bottom: 16px;
+}
+
+.dd-result-title {
+  text-align: center;
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  margin-bottom: 6px;
+}
+
+.dd-result-title.win {
+  color: var(--dd-accent);
+}
+
+.dd-result-title.lose {
+  color: var(--dd-danger);
+}
+
+.dd-score-big {
+  text-align: center;
+  font-size: 34px;
+  font-weight: 800;
+  margin: 2px 0 14px;
+}
+
+.dd-score-big.plus {
+  color: var(--dd-accent);
+}
+
+.dd-score-big.minus {
+  color: var(--dd-danger);
+}
+
+.dd-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.dd-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.dd-row .k {
+  color: #93aca6;
+}
+
+.dd-row .v {
+  font-weight: 600;
+  color: #fff;
+  text-align: right;
+}
+
+.dd-row .v.plus {
+  color: var(--dd-accent);
+}
+
+.dd-row .v.minus {
+  color: var(--dd-danger);
+}
+
+.dd-panel-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.dd-panel-actions .dd-btn {
+  flex: 1;
+  text-align: center;
+}
+
+/* 设置项 */
+.dd-field {
+  margin-bottom: 14px;
+}
+
+.dd-field > label {
+  display: block;
+  font-size: 12.5px;
+  color: #93aca6;
+  margin-bottom: 7px;
+}
+
+.dd-seg {
+  display: flex;
+  gap: 6px;
+}
+
+.dd-seg button {
+  flex: 1;
+  padding: 9px 4px;
+  border-radius: 10px;
+  border: 1px solid var(--dd-line);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cfe0dc;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dd-seg button.on {
+  background: var(--dd-accent);
+  color: #06251c;
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.dd-note {
+  font-size: 12px;
+  color: #7e9892;
+  line-height: 1.6;
+  margin-top: -6px;
+  margin-bottom: 12px;
+}
+
+/* 战绩列表 */
+.dd-record {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 12.5px;
+  margin-bottom: 6px;
+}
+
+.dd-record .when {
+  color: #7e9892;
+  font-size: 11.5px;
+}
+
+.dd-record .who {
+  color: #cfe0dc;
+}
+
+.dd-record .sc {
+  font-weight: 700;
+}
+
+.dd-record .sc.plus {
+  color: var(--dd-accent);
+}
+
+.dd-record .sc.minus {
+  color: var(--dd-danger);
+}
+
+.dd-empty {
+  text-align: center;
+  color: #7e9892;
+  font-size: 13px;
+  padding: 26px 0;
+}
+
+/* 学习模式的解释条 */
+.dd-coach {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 30px;
+  max-width: 94%;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #d8e8e4;
+  background: rgba(20, 42, 38, 0.95);
+  border: 1px solid rgba(47, 214, 167, 0.3);
+  border-radius: 12px;
+  padding: 8px 12px;
+  z-index: 8;
+}
+
+.dd-coach b {
+  color: var(--dd-accent);
+}
+
+.dd-coach .why {
+  margin-left: 6px;
+  color: var(--dd-warn);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* 开发调试面板：只在 dev 环境挂上 */
+.dd-debug {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 9;
+  font-size: 11px;
+  color: #6f8a84;
+}
+
+.dd-debug button {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: #6f8a84;
+  cursor: pointer;
+}
+
+/* ---------------- 窄屏适配 ---------------- */
+@media (max-width: 420px) {
+  .dd {
+    --card-w: 42px;
+    --card-h: 60px;
+  }
+  .dd-seat {
+    padding: 6px 8px;
+  }
+  .dd-avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+  .dd-played .dd-cards {
+    --card-w: 30px;
+    --card-h: 42px;
+  }
+  .dd-played.mine .dd-cards {
+    --card-w: 34px;
+    --card-h: 48px;
+  }
+  .dd-btn {
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+  .dd-result-title {
+    font-size: 25px;
+  }
+}
+
+@media (max-height: 640px) {
+  .dd {
+    --card-h: 56px;
+    --card-w: 40px;
+  }
+  .dd-played {
+    min-height: 66px;
+  }
+}

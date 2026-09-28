@@ -16,6 +16,8 @@ import { Board2D, type Mark } from './board2d';
 export interface ReplayMove {
   t: string;
   why?: string;
+  /** 同样正确的其它走法：猜着法时走这些也算对 */
+  alts?: string[];
 }
 
 export interface ReplayOpts {
@@ -26,8 +28,12 @@ export interface ReplayOpts {
   moves: ReplayMove[];
   /** 猜着法模式：你要走的是哪一方（不填则纯讲解） */
   guessFor?: Color;
+  /** 前这么多手直接摆好，从这之后才开始讲/猜（练破解时，套路那几手不用你猜） */
+  startAt?: number;
   /** 底部提示条 */
   notes?: string[];
+  /** 走完时回调：猜着法模式下猜中几手、一共猜了几手 */
+  onFinish?: (right: number, tried: number) => void;
   onExit: () => void;
 }
 
@@ -92,18 +98,20 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
   function submitGuess(mv: Move) {
     const mine = moveToText(board, mv);
     const real = opts.moves[idx].t;
+    const alt = mine !== real && (opts.moves[idx].alts ?? []).includes(mine);
     tried++;
-    if (mine === real) right++;
+    if (mine === real || alt) right++;
     waiting = false;
     sel = null;
     view.setMarks([]);
-    elSay.className = `xq-rp-say ${mine === real ? 'ok' : 'no'}`;
+    const why = opts.moves[idx].why ? `<div class="w">${opts.moves[idx].why}</div>` : '';
+    elSay.className = `xq-rp-say ${mine === real || alt ? 'ok' : 'no'}`;
     elSay.innerHTML =
       mine === real
-        ? `<div class="h">✅ 猜对了 · ${real}</div>${opts.moves[idx].why ? `<div class="w">${opts.moves[idx].why}</div>` : ''}`
-        : `<div class="h">❌ 你走的是 ${mine}，原谱走的是 <b>${real}</b></div>${
-            opts.moves[idx].why ? `<div class="w">${opts.moves[idx].why}</div>` : ''
-          }`;
+        ? `<div class="h">✅ 猜对了 · ${real}</div>${why}`
+        : alt
+          ? `<div class="h">✅ 也对 · 你走的 ${mine} 和 <b>${real}</b> 一样好</div>${why}`
+          : `<div class="h">❌ 你走的是 ${mine}，原谱走的是 <b>${real}</b></div>${why}`;
     play(); // 不管猜没猜中，都按原谱往下走
     renderBar();
     // ⚠️ 猜中最后一手之后要收尾。少了这一句，renderBar() 因为已经走完而
@@ -159,6 +167,7 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
   }
 
   function finish() {
+    opts.onFinish?.(right, tried);
     elSay.className = 'xq-rp-say done';
     elSay.innerHTML =
       `<div class="h">走完了</div>` +
@@ -185,8 +194,14 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
     waiting = false;
     view.setBoard(board);
     view.clearMarks();
+    skipTo();
     renderTrail();
     showIntro();
+  }
+
+  /** 前 startAt 手直接摆好 */
+  function skipTo() {
+    while (idx < Math.min(opts.startAt ?? 0, opts.moves.length)) play();
   }
 
   function renderBar() {
@@ -217,8 +232,24 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
     renderBar();
   }
 
+  skipTo();
   showIntro();
   renderTrail();
+
+  // 开发期测试钩子（生产构建会被摇掉）
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__xqReplay = {
+      /** 猜着法：按中文记谱走一手 */
+      guess: (t: string) => {
+        const mv = waiting ? textToMove(board, turn, t, legal()) : null;
+        if (mv) submitGuess(mv);
+        return !!mv;
+      },
+      waiting: () => waiting,
+      idx: () => idx,
+      say: () => elSay.textContent,
+    };
+  }
 
   return () => {
     view.dispose();

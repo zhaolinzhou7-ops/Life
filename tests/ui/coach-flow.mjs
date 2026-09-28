@@ -80,10 +80,18 @@ const hasWhy = await page.locator('[data-act="why"]').count() > 0;
 ok('教学提示档有「为什么？」按钮', hasWhy);
 if (hasWhy) {
   await page.locator('[data-act="why"]').click();
-  await page.waitForTimeout(1200);
+  // 深度解读要现跑一次四秒的搜索，固定等 1.2 秒是不够的——
+  // 等到梯次表真的出来为止
+  const t0 = Date.now();
+  for (let i = 0; i < 60; i++) {
+    const t = await page.locator('.xq-tip-why').textContent();
+    if (t && t.includes('走法梯次')) break;
+    await page.waitForTimeout(500);
+  }
+  note(`深度解读用了 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   const why = (await page.locator('.xq-tip-why').textContent() ?? '').trim();
   note('为什么的回答：' + why.slice(0, 120));
-  ok('「为什么」给出了实质解释', why.length > 20);
+  ok('「为什么」给出了走法梯次', why.includes('走法梯次') && why.length > 60);
   await page.screenshot({ path: `${OUT}/c5-why.png`, fullPage: false });
 }
 
@@ -104,20 +112,40 @@ const clickThrough = async () => {
 /** 等轮回红方。固定 sleep 不靠谱——AI 想多久取决于难度和机器快慢 */
 const waitMyTurn = async (want) => {
   for (let i = 0; i < 60; i++) {
-    const st = await page.evaluate(() => ({ t: window.__xq.turn(), n: window.__xq.moves().length }));
-    if (st.t === 'r' && st.n >= want) return true;
+    // 连 busy 一起等：动画没播完时界面已经说"轮到你走"了，
+    // 这时候点下去会进待处理队列，测试要等真正可以操作再动手
+    const st = await page.evaluate(() => ({
+      t: window.__xq.turn(), n: window.__xq.moves().length, busy: window.__xq.state().busy,
+    }));
+    if (st.t === 'r' && !st.busy && st.n >= want) return true;
     if (await page.locator('.xq-result').count()) return true;
     await page.waitForTimeout(500);
   }
   return false;
 };
-await page.evaluate(() => { window.__xq.tap(0, 6); window.__xq.tap(4, 6); });
-await page.waitForTimeout(700);
-await clickThrough();
+/** 走一手并等它真的落到盘上；教练拦下来就点"就这么走" */
+const playMove = async (fx, fy, tx, ty, label) => {
+  const before = await page.evaluate(() => window.__xq.moves().length);
+  await page.evaluate(([a, b2, c, d]) => { window.__xq.tap(a, b2); window.__xq.tap(c, d); }, [fx, fy, tx, ty]);
+  await page.waitForTimeout(600);
+  await clickThrough();
+  for (let i = 0; i < 40; i++) {
+    if ((await page.evaluate(() => window.__xq.moves().length)) > before) return true;
+    await page.waitForTimeout(400);
+  }
+  const st = await page.evaluate(() => ({
+    ...window.__xq.state(),
+    n: window.__xq.moves().length,
+    fen: window.__xq.fen(),
+    dests: window.__xq.legal().filter((m) => m.fx === 4 && m.fy === 6).map((m) => `${m.tx},${m.ty}`).join(' '),
+    tip: !!document.querySelector('.xq-tip'),
+  }));
+  note(`${label} 没落子：${JSON.stringify(st)}`);
+  return false;
+};
+ok('第一手落盘', await playMove(0, 6, 4, 6, '车平四路'));
 ok('黑方应将后轮回红方', await waitMyTurn(2));
-await page.evaluate(() => { window.__xq.tap(4, 6); window.__xq.tap(4, 3); });
-await page.waitForTimeout(900);
-await clickThrough();
+ok('第二手落盘（吃掉垫子成杀）', await playMove(4, 6, 4, 3, '车吃垫子'));
 await page.waitForTimeout(2500);
 note('走完 ' + await page.evaluate(() => window.__xq.moves().length) + ' 手，轮到 ' + await page.evaluate(() => window.__xq.turn()));
 ok('对局结束出结算页', await page.locator('.xq-result').count() > 0);
@@ -131,6 +159,23 @@ await page.getByText('复盘这一局').first().click();
 await page.waitForTimeout(6000);
 ok('复盘面板打开', await page.locator('.xq-rv').count() > 0);
 await page.screenshot({ path: `${OUT}/c7-review.png` });
+
+// 复盘里的深度解读
+const hasDeep = await page.locator('.xq-rv-deep').count() > 0;
+ok('复盘里有「从全局讲讲这一手」', hasDeep);
+if (hasDeep) {
+  await page.locator('.xq-rv-deep').first().click();
+  for (let i = 0; i < 40; i++) {
+    const t = await page.locator('.xq-rv-deepbox').textContent();
+    if (t && t.includes('走法梯次')) break;
+    await page.waitForTimeout(500);
+  }
+  const deep = (await page.locator('.xq-rv-deepbox').textContent()) ?? '';
+  note('深度解读：' + deep.slice(0, 90));
+  ok('深度解读给出了走法梯次', deep.includes('走法梯次'));
+  ok('深度解读说清了自己这一手排第几', /排第 \d+/.test(deep));
+  await page.screenshot({ path: `${OUT}/c7b-review-deep.png` });
+}
 
 // 问教练
 await page.locator('.xq-rv-ask').click();
