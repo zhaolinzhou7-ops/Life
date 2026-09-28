@@ -181,6 +181,18 @@ function libraryIndex(): Map<string, { name: string; items: EndgamePos[] }> {
   return map;
 }
 
+/**
+ * 这一局你是进攻方还是守方。
+ * 守方不该被问"能赢还是只能和"——你是少子的一方，怎么可能赢（用户原话）。
+ */
+export function roleOf(e: EndgamePos): 'att' | 'def' {
+  if (e.role) return e.role;
+  const p = fromFen(e.fen);
+  if (!p) return 'att';
+  const { attacker } = signature(p.board);
+  return attacker === null || attacker === e.you ? 'att' : 'def';
+}
+
 /** 残局库里和这个局面子力组合相同的那一组。me 用来挑"你是进攻方"还是"你是守方"的那一组 */
 function practiceFor(key: string, me: Color, attacker: Color | null): { name: string; items: EndgamePos[] } | undefined {
   const groups = [...libraryIndex().entries()].filter(([k]) => k.startsWith(key + '#')).map(([, g]) => g);
@@ -197,7 +209,7 @@ function practiceFor(key: string, me: Color, attacker: Color | null): { name: st
 }
 
 /** 进攻方的要领：按手里有什么子来说 */
-function attackTips(a: SideMaterial): string[] {
+export function attackTips(a: SideMaterial): string[] {
   const out: string[] = [];
   if (a.R) {
     out.push('车占中路或肋道，把对方的将逼到一边，再用帅控制中路');
@@ -218,7 +230,7 @@ function attackTips(a: SideMaterial): string[] {
 }
 
 /** 守方的要领 */
-function defendTips(d: SideMaterial): string[] {
+export function defendTips(d: SideMaterial): string[] {
   const out: string[] = [];
   if (d.A + d.E >= 2) out.push('士象不要散：连在一起互相保护，对方就很难打进来');
   out.push('将尽量待在九宫中间，别被赶到边上——边上最容易被将死');

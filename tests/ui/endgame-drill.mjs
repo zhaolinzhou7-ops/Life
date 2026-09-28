@@ -115,6 +115,23 @@ await page.locator('.xq-po-opp').click();
 ok('对手换成自带引擎并记住', (await page.evaluate(() => [window.__xqPlay.opp().setting, localStorage.getItem('xq-po-opp')].join())) === 'local,local');
 await page.locator('.xq-po-opp').click();
 
+// ───────── 4. 守方练习：不问"能不能赢"；提和引擎同意就算守住；操作条一直在 ─────────
+await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
+await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(700);
+await page.getByText('实用残局 · 下到底').first().click(); await page.waitForTimeout(800);
+await page.locator('.card', { hasText: '炮双士守单车' }).first().click(); await page.waitForTimeout(500);
+ok('守方练习不问"能赢/只能和"', (await page.locator('.xq-eg-guess').count()) === 0 && (await page.getByText('守和练习').count()) > 0);
+await page.locator('.card', { hasText: '局面 1' }).first().click(); await page.waitForTimeout(800);
+ok('操作条一直在：重来 / 提和 / 认输', (await page.locator('.xq-po-acts [data-act]').count()) === 3);
+await until(page, () => (window.__xqPlay.study()?.depth ?? 0) >= 14 || !!window.__xqPlay.study()?.done, null, 30000);
+await page.locator('.xq-po-acts [data-act="draw"]').click();
+await page.waitForTimeout(500);
+const res4 = ((await page.locator('.xq-po-result').textContent().catch(() => '')) || (await page.evaluate(() => window.__xqPlay.feedback()))).replace(/\s+/g, ' ');
+console.log('   提和：' + res4.slice(0, 80));
+ok('守和局面提和，引擎同意，算守住', res4.includes('守和成功'));
+await page.screenshot({ path: OUT + '/drill-def.png' });
+
 await browser.close();
 console.log('\n===== 失败项 =====\n' + (errs.length ? errs.join('\n') : '无'));
 process.exit(errs.length ? 1 : 0);

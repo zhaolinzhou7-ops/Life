@@ -68,6 +68,7 @@ import type { Color, Move } from './rules';
 import { OPENINGS } from './openings';
 import { TRICKS, walkMoves, type TrickOpening } from './tricks';
 import { outlookOf } from './plan';
+import { roleOf } from './endgame';
 import { inPieces } from './teach';
 import { Board2D } from './board2d';
 import { fromFen } from './notation';
@@ -1031,11 +1032,12 @@ export function runCoach(
         <b>残局为什么排这么前</b>
         <p>残局是<b>可以算准的</b>——子少、变化收敛，练的是精确不是感觉。
         而且中局的优势最后都要靠残局兑现：多一个马走成和棋，比中局失误还可惜。</p>
-        <p class="dim">每个局面的"是胜是和"都是引擎实测出来的：先下到底，<b>下成和还不算数</b>，
-        要换更强的一档再试一次、还赢不了才记"和"；结论已经确定的组合（单车例胜双士、
-        单车例和士象全……）还要和定式对得上，对不上的局面根本不进库。</p>
-        <p class="dim">所以同一个名目下会有的能赢、有的只能和——<b>摆法不同结果就不同，这正是要练的东西</b>。
-        先自己判断这局是赢是和，再下到底验证。判断力才是残局功力的核心。</p>
+        <p class="dim">每个局面的"是胜是和"都是皮卡鱼实测出来的：算得出杀的直接是胜局；算不出的，
+        让它自己跟自己<b>下到底</b>（和你练的时候同一套规则：60 回合不吃子判和、三次重复判和），
+        下成和的换更长的时间再下一次，还和才记"和"。老局面也按这个办法复核了一遍，改正了 15 个判错的。</p>
+        <p class="dim">同一个名目下会有的能赢、有的只能和——<b>摆法不同结果就不同，这正是要练的东西</b>。
+        你是进攻方时，先判断这局能不能赢，再下到底验证；你是守方时，守住就算过。
+        已经是死和的局面，引擎会提前判和，不用走满 60 回合。</p>
       </div>`;
     const list = document.createElement('div');
     list.className = 'card-list';
@@ -1050,9 +1052,9 @@ export function runCoach(
         list.appendChild(h);
       }
       const done = g.items.filter((i) => cleared.has(i.id)).length;
-      const wins = g.items.filter((i) => i.target === 'win').length;
+      const wins = g.items.filter((i) => i.target === 'win' && roleOf(i) === 'att').length;
       // 还没全部判断过就先不说有几个是胜局——那等于替你把判断做了
-      const guessedAll = g.items.every((i) => guesses[i.id]);
+      const guessedAll = g.items.filter((i) => roleOf(i) === 'att').every((i) => guesses[i.id]);
       const el = document.createElement('div');
       el.className = 'card home-card';
       el.innerHTML = `
@@ -1099,11 +1101,24 @@ export function runCoach(
       // 直接把答案印在卡片上，等于把这一课删掉了
       const render = () => {
         const guess = guesses[e.id];
+        // 你是守方：不问"能赢还是只能和"——你是少子的一方，谈不上赢。直接说清这一局要你干什么
+        if (roleOf(e) === 'def') {
+          el.innerHTML = `
+            <div class="title">局面 ${i + 1}<span class="tag">守和练习</span>
+              ${cleared.has(e.id) ? '<span class="tag">已过</span>' : ''}</div>
+            <div class="xq-eg-thumb"></div>
+            <div class="desc">对方子力占优，<b>你是守方</b>：守住就算过（引擎判定和棋、60 回合不吃子、三次重复都算守住）。${
+              e.reason ? `<br><span class="dim">引擎实测：${drawWhy(e)}</span>` : ''
+            }${bookNote(e)}</div>`;
+          showThumb(el, e);
+          el.onclick = () => runEndgame(g, i);
+          return;
+        }
         if (!guess) {
           el.innerHTML = `
             <div class="title">局面 ${i + 1}<span class="tag">先判断</span></div>
             <div class="xq-eg-thumb"></div>
-            <div class="desc">看一眼这个局面，你觉得强的一方能赢下来，还是只能和？</div>
+            <div class="desc">你是进攻方（子力占优）。看一眼这个局面：你能赢下来，还是只能和？</div>
             <div class="xq-eg-guess">
               <button class="xq-btn" data-g="win">能赢</button>
               <button class="xq-btn" data-g="draw">只能和</button>
@@ -1214,6 +1229,7 @@ export function runCoach(
       subtitle: `${e.material} · 局面 ${i + 1}`,
       tips: e.tips,
       book: e.book,
+      onRestart: () => runEndgame(g, i),
       onDone: (r) => {
         // 你在标着「和棋」的局面里赢了：说明这个标注保守了，以你的结果为准。
         // 引擎的判定是最好的自动近似，但它不是裁判。

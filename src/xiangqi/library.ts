@@ -75,6 +75,8 @@ export interface EndgamePos {
    */
   book?: string;
   rating: number;
+  /** 你在这一局是进攻方还是守方（新造的局面带着；老局面按子力算，见 endgame.roleOf） */
+  role?: 'att' | 'def';
 }
 
 let mateCache: MatePattern[] | null = null;

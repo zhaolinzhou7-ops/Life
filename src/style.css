@@ -4341,3 +4341,86 @@ canvas {
   color: rgba(225, 232, 250, 0.95);
 }
 .xq-playnote b { color: #ffd76e; }
+
+/* 残局练习：一直在的操作条 */
+.xq-po-acts {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+}
+.xq-po-acts[hidden] { display: none; }
+.xq-po-acts .xq-btn {
+  flex: 1;
+  padding: 9px 6px;
+  font-size: 13px;
+}
+
+/*
+ * 复盘（手机竖屏）：棋盘挪到上面整块露出来，面板占下半屏，不再压着红方底线。
+ * 用户原话："复盘界面太小了，我得点半天"——原来面板盖住棋盘下三分之一，
+ * 讲解压在总结下面要往下翻，翻页只能点一排小字。
+ */
+@media (max-width: 719px) {
+  .xq-root:has(.xq-rv:not(.mini)) .xq-play {
+    justify-content: flex-start;
+    top: 6px;
+    bottom: 50vh;
+  }
+  .xq-root:has(.xq-rv:not(.mini)) .xq-tray,
+  .xq-root:has(.xq-rv:not(.mini)) .xq-coachline,
+  .xq-root:has(.xq-rv:not(.mini)) .xq-bar,
+  .xq-root:has(.xq-rv:not(.mini)) .xq-bubble {
+    display: none;
+  }
+  .xq-rv:not(.mini) {
+    height: 50vh;
+    max-height: 50vh;
+  }
+}
+/* 看某一手时收起整盘总结：这一手的讲解直接在最上面 */
+.xq-rv.focus .xq-rv-summary { display: none; }
+.xq-rv-nav .xq-btn {
+  flex: 1;
+  min-height: 44px;
+  font-size: 14px;
+  padding: 8px 6px;
+}
+.xq-rv-nav .xq-btn.warn {
+  background: rgba(232, 112, 61, 0.18);
+  border-color: rgba(232, 112, 61, 0.5);
+}
+.xq-rv-item {
+  padding: 8px 10px;
+  font-size: 13px;
+  min-height: 36px;
+}
+.xq-rv-head .xq-rv-pos {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+/* 总览按钮：只在看某一手时出现 */
+.xq-rv:not(.focus) .xq-rv-ov { display: none; }
+.xq-rv-ov { font-size: 12px; }
+/* 复盘面板里的每一块都按内容撑开，整块面板滚动——不许被压扁后内容溢出盖住下一块 */
+.xq-rv-body > * { flex-shrink: 0; }
+/* 复盘标题行：一行放下，放不下的进度文字省略，不许折成一长条把讲解挤下去 */
+.xq-rv-head {
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-height: 34px;
+}
+.xq-rv-head > * { white-space: nowrap; flex-shrink: 0; }
+.xq-rv-head .xq-rv-progress {
+  flex: 1 1 auto;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  opacity: 0.6;
+}
+@media (max-width: 719px) {
+  .xq-rv-head .xq-rv-ask { font-size: 0; padding: 4px 6px; }
+  .xq-rv-head .xq-rv-ask::first-letter { font-size: 16px; }
+}

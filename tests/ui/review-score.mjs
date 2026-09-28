@@ -73,12 +73,32 @@ ok('每一手都讲思路（计划）：不只是一串着法', (await page.loca
 ok('有"深度复盘"', (await page.locator('[data-act="deep-review"]').count()) === 1);
 await page.screenshot({ path: OUT + '/rs-review.png' });
 
+// 看单手时整盘总结收起来了：点"总览"回去
+await page.locator('[data-act="overview"]').click();
+await page.waitForTimeout(200);
+ok('"总览"回到整盘总结', await page.locator('[data-act="deep-review"]').isVisible());
 // 深度复盘：每手多给几倍时间，重新打分
 await page.locator('[data-act="deep-review"]').click();
 await page.waitForTimeout(300);
 ok('深度复盘开始', ((await page.locator('.xq-rv-progress').textContent()) ?? '').includes('深度'));
 ok('深度复盘算完', await until(page, () => (document.querySelector('.xq-rv-progress')?.textContent ?? '').includes('· 深度'), null, 90000));
 console.log('   ' + (await page.locator('.xq-rv-progress').textContent()));
+
+// 翻页：键盘右键、⚠ 下个问题手
+await page.locator('[data-act="overview"]').click().catch(() => {});
+await page.waitForTimeout(150);
+await page.keyboard.press('ArrowRight');
+await page.waitForTimeout(200);
+ok('键盘右键翻到下一手', (await page.locator('.xq-rv-pos').textContent()).includes('第 1 回合'));
+await page.locator('[data-act="next-bad"]').click();
+await page.waitForTimeout(300);
+console.log('   下个问题手：' + (await page.locator('.xq-rv-pos').textContent()) + ' ' + (await page.locator('[data-act="next-bad"]').textContent()));
+ok('棋盘整块露在面板上面（面板不压棋盘）', await page.evaluate(() => {
+  const b = document.querySelector('.xq-boardwrap canvas')?.getBoundingClientRect();
+  const p = document.querySelector('.xq-rv')?.getBoundingClientRect();
+  return !!b && !!p && b.bottom <= p.top + 2;
+}));
+await page.screenshot({ path: OUT + '/rs-review2.png' });
 
 // 复制棋谱
 await page.locator('[data-act="copy"]').click();

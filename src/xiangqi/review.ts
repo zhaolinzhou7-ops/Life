@@ -87,6 +87,8 @@ export function runReview(opts: ReviewOpts): () => void {
   panel.innerHTML = `
     <div class="xq-rv-head">
       <b>复盘</b>
+      <span class="xq-rv-pos">开局</span>
+      <button class="xq-rv-hbtn xq-rv-ov" data-act="overview" title="回到整盘总结">📊 总览</button>
       <span class="xq-rv-progress">分析中 0/${moves.length}</span>
       <button class="xq-rv-hbtn" data-act="copy" title="复制棋谱">📋</button>
       <button class="xq-rv-ask" title="问教练">🧑‍🏫 问教练</button>
@@ -100,12 +102,12 @@ export function runReview(opts: ReviewOpts): () => void {
         <div class="xq-rv-side foe"><span>对手</span><b>—</b><em>准确率</em></div>
       </div>
       <div class="xq-rv-summary"></div>
-      <div class="xq-rv-list"></div>
       <div class="xq-rv-detail"></div>
+      <div class="xq-rv-list"></div>
     </div>
     <div class="xq-rv-nav">
       <button class="xq-btn" data-go="-1">◀ 上一手</button>
-      <span class="xq-rv-pos">开局</span>
+      <button class="xq-btn warn" data-act="next-bad" title="跳到你下一个走得有问题的地方">⚠ 下个问题手</button>
       <button class="xq-btn" data-go="1">下一手 ▶</button>
     </div>`;
   host.appendChild(panel);
@@ -216,9 +218,13 @@ export function runReview(opts: ReviewOpts): () => void {
     scene.syncBoard(boards[cursor + 1]);
     drawGraph();
 
+    // 总览（开局）时看整盘总结；看某一手时把总结收起来，这一手的讲解直接露在最上面，不用往下翻
+    panel.classList.toggle('focus', cursor >= 0);
+    const body = panel.querySelector('.xq-rv-body') as HTMLElement | null;
+    if (body) body.scrollTop = 0;
     if (cursor < 0) {
-      elPos.textContent = '开局';
-      elDetail.innerHTML = '<div class="xq-rv-empty">点下面任意一手，或者点上面的曲线，看看那一步走得怎么样。</div>';
+      elPos.textContent = '总览';
+      elDetail.innerHTML = '<div class="xq-rv-empty">点「下一手」一手一手看，或者点「⚠ 下个问题手」直接跳到你走得有问题的地方。在棋盘上左右滑也能翻。</div>';
       scene.select(null);
       renderList();
       return;
@@ -536,7 +542,51 @@ export function runReview(opts: ReviewOpts): () => void {
     }
     const go = target.closest('[data-go]') as HTMLElement | null;
     if (go) goto(cursor + Number(go.dataset.go));
+    if (target.closest('[data-act="next-bad"]')) nextBad();
+    if (target.closest('[data-act="overview"]')) goto(-1);
   });
+
+  /** 你下一个走得有问题的地方（不佳、失误、漏着）；到头了从头找 */
+  function nextBad() {
+    const list = reviewed();
+    const bad = (i: number) => {
+      const m = list[i];
+      if (!m || m.color !== playerColor) return false;
+      const lb = labelOf(m);
+      return lb === 'dubious' || lb === 'mistake' || lb === 'blunder';
+    };
+    for (let k = 1; k <= list.length; k++) {
+      const i = (cursor + k + list.length) % list.length;
+      if (bad(i)) {
+        goto(i);
+        return;
+      }
+    }
+    const btn = panel.querySelector('[data-act="next-bad"]') as HTMLButtonElement;
+    btn.textContent = analysis.done ? '👍 没有问题手' : '还在打分…';
+    setTimeout(() => (btn.textContent = '⚠ 下个问题手'), 1600);
+  }
+
+  // 在棋盘上左右滑翻页；键盘左右键也行。手机上点小按钮翻几十手太累了
+  const boardEl = host.querySelector('.xq-boardwrap') as HTMLElement | null;
+  let touchX = 0;
+  let touchY = 0;
+  const onTouchStart = (e: TouchEvent) => {
+    touchX = e.touches[0].clientX;
+    touchY = e.touches[0].clientY;
+  };
+  const onTouchEnd = (e: TouchEvent) => {
+    const dx = e.changedTouches[0].clientX - touchX;
+    const dy = e.changedTouches[0].clientY - touchY;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) goto(cursor + (dx < 0 ? 1 : -1));
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'ArrowRight') goto(cursor + 1);
+    else if (e.key === 'ArrowLeft') goto(cursor - 1);
+  };
+  boardEl?.addEventListener('touchstart', onTouchStart, { passive: true });
+  boardEl?.addEventListener('touchend', onTouchEnd, { passive: true });
+  window.addEventListener('keydown', onKey);
   (panel.querySelector('.xq-rv-close') as HTMLButtonElement).onclick = () => {
     close();
     onClose();
@@ -598,6 +648,9 @@ export function runReview(opts: ReviewOpts): () => void {
     // 自己开的分析跟着复盘一起停；刚下完的棋那份归对局管（它还要落地存档和战绩）
     if (ownAnalysis && !analysis.done) analysis.cancel();
     window.removeEventListener('resize', onResize);
+    window.removeEventListener('keydown', onKey);
+    boardEl?.removeEventListener('touchstart', onTouchStart);
+    boardEl?.removeEventListener('touchend', onTouchEnd);
     closeChat?.();
     closeChat = null;
     panel.remove();

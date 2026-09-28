@@ -46,6 +46,8 @@ export interface PlayoutOpts {
   timeMs?: number;
   onDone: (r: PlayResult, moves: number) => void;
   onExit: () => void;
+  /** 重新开始同一个局面 */
+  onRestart?: () => void;
 }
 
 /** 60 回合无吃子判和 */
@@ -123,6 +125,11 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
     <div class="xq-po-board"></div>
     <div class="xq-po-fb"></div>
     <div class="xq-po-tips"></div>
+    <div class="xq-po-acts">
+      <button class="xq-btn" data-act="restart">↺ 重来</button>
+      <button class="xq-btn" data-act="draw">🤝 提和</button>
+      <button class="xq-btn" data-act="resign">🏳️ 认输</button>
+    </div>
     <div class="xq-po-bar"></div>`;
 
   const elBoard = wrap.querySelector('.xq-po-board') as HTMLElement;
@@ -150,6 +157,19 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
   toggle.onclick = () => tipList.classList.toggle('hidden');
 
   (wrap.querySelector('#xq-po-back') as HTMLButtonElement).onclick = () => opts.onExit();
+  // 下到一半不想下了、下不出结果了：这几个按钮一直在，不用退出整个游戏
+  const elActs = wrap.querySelector('.xq-po-acts') as HTMLElement;
+  elActs.addEventListener('click', (e) => {
+    const act = (e.target as HTMLElement).closest('[data-act]')?.getAttribute('data-act');
+    if (over) return;
+    if (act === 'restart') {
+      if (opts.onRestart) opts.onRestart();
+    } else if (act === 'resign') {
+      finish('loss', '你认输了');
+    } else if (act === 'draw') {
+      offerDraw();
+    }
+  });
   (wrap.querySelector('#xq-po-undo') as HTMLButtonElement).onclick = () => undo();
   elHint.onclick = () => toggleHint();
 
@@ -183,7 +203,49 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
 
   function updateCount() {
     const left = Math.max(0, Math.ceil((NO_CAPTURE_LIMIT - sinceCapture) / 2));
-    elCnt.textContent = `第 ${myMoves} 手 · 距判和还有 ${left} 回合`;
+    elCnt.textContent = `第 ${myMoves} 手 · 60 回合不吃子判和（还剩 ${left}）`;
+  }
+
+  // ───────── 判和：已经是死和，就不用再走满 60 回合 ─────────
+
+  /** 研究够不够深，能不能拿来判和（两个引擎的"层"不是一回事） */
+  const deepEnough = (s: Study) => s.done || s.depth >= (s.engine === 'pro' ? 14 : 6);
+  /** 是不是死和：没有杀，分数在一个兵以内 */
+  const deadDraw = (b: MoveScore) => b.mateIn === undefined && Math.abs(b.score) < 100;
+  /** 连着几步都是死和（每个局面只数一次） */
+  let drawStreak = 0;
+  let countedFen = '';
+  /** 连着这么多步都是死和，就提前判和。用户原话："判定是和棋，还要让我走满 60 回合" */
+  const DRAW_STREAK = 3;
+
+  function watchDraw(s: Study) {
+    const b = s.moves[0];
+    if (!b || !deepEnough(s) || countedFen === s.fen) return;
+    countedFen = s.fen;
+    drawStreak = deadDraw(b) ? drawStreak + 1 : 0;
+    if (drawStreak >= DRAW_STREAK) {
+      finish('draw', `引擎判定已经是和棋（连续 ${DRAW_STREAK} 步都没有进展），不用再走满 60 回合`);
+    }
+  }
+
+  /** 你提和：引擎也认为是和棋才同意 */
+  function offerDraw() {
+    const s = study && study.is(board, me) ? study : null;
+    const b = s?.moves[0];
+    if (!s || !b || !deepEnough(s)) {
+      showFb('教练还在算这个局面，等一下再提和。', 'info');
+      return;
+    }
+    if (b.mateIn === undefined && Math.abs(b.score) < 150) {
+      finish('draw', '引擎也认为是和棋，同意提和');
+      return;
+    }
+    showFb(
+      `引擎不同意和棋：${outlookOf(b.score, b.mateIn)}。${
+        b.score > 0 ? '你还有赢的机会，接着找突破。' : '对方还有赢的机会，不会同意和的——守住它。'
+      }`,
+      'info',
+    );
   }
 
   // ───────── 教练的研究 ─────────
@@ -244,6 +306,7 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
     elCoach.className = `xq-po-coach ${w.kind}`;
     elCoach.textContent = `🧑‍🏫 ${w.text} · 已算 ${s.depth} 层${s.done ? '' : '…'} · ${who}`;
     if (hintOpen) renderHint();
+    watchDraw(s);
   }
 
   // ───────── 提示：最好的一手 + 计划 ─────────
@@ -482,7 +545,9 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
   }
 
   function finish(r: PlayResult, reason = '') {
+    if (over) return;
     over = true;
+    elActs.hidden = true;
     dropStudy();
     closeHint();
     elCoach.className = 'xq-po-coach';
