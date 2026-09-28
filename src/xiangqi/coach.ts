@@ -1210,9 +1210,13 @@ export function runCoach(
   function bookNote(e: EndgamePos): string {
     if (!e.book) return '';
     const conflict = e.target === 'draw' && /例胜|胜势/.test(e.book);
+    // 反过来：书上例和，这个局面却能赢——守方的士象没摆好，正是要你找突破的地方
+    const loose = e.target === 'win' && /例和/.test(e.book);
     return conflict
       ? `<br><span class="dim">棋书上：${e.book}。引擎这一局没走出胜果——胜势要靠技术兑现，兑不出来就是和。</span>`
-      : `<br><span class="dim">棋书上：${e.book}</span>`;
+      : loose
+        ? `<br><span class="dim">棋书上：${e.book}。可这个局面守方的士象没摆好，引擎实测能赢——找到突破口就是这一局要练的。</span>`
+        : `<br><span class="dim">棋书上：${e.book}</span>`;
   }
 
   function runEndgame(g: ReturnType<typeof endgamesByName>[number], i: number) {

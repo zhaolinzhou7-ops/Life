@@ -132,6 +132,32 @@ console.log('   提和：' + res4.slice(0, 80));
 ok('守和局面提和，引擎同意，算守住', res4.includes('守和成功'));
 await page.screenshot({ path: OUT + '/drill-def.png' });
 
+// ───────── 5. 死和局面：连续几步都是和势，引擎提前判和，不用走满 60 回合 ─────────
+await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
+await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(700);
+await page.getByText('实用残局 · 下到底').first().click(); await page.waitForTimeout(800);
+await page.locator('.card', { hasText: '单车对马士象全' }).first().click(); await page.waitForTimeout(500);
+await page.locator('.card', { hasText: '局面 1' }).first().click(); await page.waitForTimeout(800);
+let ended = '';
+for (let i = 0; i < 12 && !ended; i++) {
+  await until(page, () => {
+    const s = window.__xqPlay.state();
+    const st = window.__xqPlay.study();
+    return s.over || (!s.busy && st && (st.depth >= 14 || st.done));
+  }, null, 40000);
+  ended = (await page.locator('.xq-po-result').textContent().catch(() => '')) || '';
+  if (ended) break;
+  const best = await page.evaluate(() => window.__xqPlay.study()?.best);
+  if (!best) break;
+  await page.evaluate((m) => window.__xqPlay.play(m), best);
+  await page.waitForTimeout(600);
+  ended = (await page.locator('.xq-po-result').textContent().catch(() => '')) || '';
+}
+const moves5 = await page.evaluate(() => window.__xqPlay.state().myMoves);
+console.log(`   死和：走了 ${moves5} 手，${ended.replace(/\s+/g, ' ').slice(0, 60)}`);
+ok('死和局面几步之内提前判和（不用走满 60 回合）', ended.includes('不用再走满') && moves5 <= 8);
+
 await browser.close();
 console.log('\n===== 失败项 =====\n' + (errs.length ? errs.join('\n') : '无'));
 process.exit(errs.length ? 1 : 0);
