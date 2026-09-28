@@ -4327,3 +4327,17 @@ canvas {
 }
 .xq-rv-trick.good { background: rgba(62, 196, 109, 0.1); border-color: rgba(62, 196, 109, 0.35); }
 .xq-rv-trick.bad { background: rgba(224, 67, 58, 0.1); border-color: rgba(224, 67, 58, 0.35); }
+
+/* 结算页：实战分变化 */
+.xq-playnote {
+  margin: 8px auto 0;
+  max-width: 420px;
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: rgba(90, 140, 230, 0.1);
+  border: 1px solid rgba(90, 140, 230, 0.3);
+  color: rgba(225, 232, 250, 0.95);
+}
+.xq-playnote b { color: #ffd76e; }

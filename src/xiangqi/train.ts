@@ -10,7 +10,7 @@ import { fromFen, moveToText } from './notation';
 import { legalMoves, applyMove, isInCheck, type Board, type Color, type Move } from './rules';
 import { Board2D, type Mark } from './board2d';
 import { requestMove } from './aiclient';
-import { KIND_PROMPT, type Puzzle } from './puzzles';
+import { promptOf, type Puzzle } from './puzzles';
 
 export interface PuzzleResult {
   correct: boolean;
@@ -77,7 +77,7 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     <div class="xq-tr-top">
       ${opts.onExit ? '<button class="xq-tr-quit" title="退出练习">← 退出</button>' : ''}
       <span class="xq-tr-cap">${opts.caption ?? ''}</span>
-      <span class="xq-tr-ask">${KIND_PROMPT[puzzle.kind]}${
+      <span class="xq-tr-ask">${promptOf(puzzle)}${
         puzzle.mateIn ? `（${puzzle.mateIn * 2 - 1} 步杀）` : ''
       }</span>
       <span class="xq-tr-side">${me === 'r' ? '红方走' : '黑方走'} · 难度 ${puzzle.rating}</span>

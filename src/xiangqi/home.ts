@@ -24,7 +24,9 @@ import {
   getRatings,
   getStreak,
   isAssessed,
-  overallOf,
+  honestLevel,
+  getPlay,
+  backfillPlay,
   getGames,
   playStats,
   recentGameAccuracy,
@@ -73,11 +75,11 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
   host.appendChild(s);
 
   const games = listGames();
+  backfillPlay(games);
   const profile = buildProfile(games);
   const srs = srsCount();
   const streak = getStreak();
-  const rs = getRatings();
-  const overall = overallOf(rs);
+  const lv = honestLevel();
   const last = games[0];
 
   s.innerHTML = `
@@ -89,7 +91,7 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
   strip.className = 'xq-home-strip';
   strip.innerHTML = `
     <div><b>${games.length}</b><span>对局</span></div>
-    <div><b>${isAssessed() ? rankOf(overall).name : '未测'}</b><span>水平</span></div>
+    <div><b>${lv.source === 'play' ? rankOf(lv.r).name : isAssessed() ? `${rankOf(lv.r).name}?` : '未定'}</b><span>${lv.source === 'play' ? '实战水平' : '水平（待实战确认）'}</span></div>
     <div><b>${streak.streak}</b><span>天连续</span></div>`;
   s.appendChild(strip);
 
@@ -171,9 +173,11 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
       '📊 我的水平',
       profile.enough && profile.habits.length
         ? `你最常犯的是「${profile.habits[0].name}」。点进来看完整的棋风画像。`
-        : isAssessed()
-          ? `当前 ${rankOf(overall).name} · ${overall} 分。五维能力、对局统计都在这里。`
-          : '还没测过水平。测一次大约 20 分钟，之后练什么都按你的短板安排。',
+        : lv.source === 'play'
+          ? `实战 ${rankOf(lv.r).name} · ${lv.r} 分（按 ${lv.games} 盘对弈的输赢）。五维能力、对局统计都在这里。`
+          : isAssessed()
+            ? `做题估的是 ${rankOf(lv.r).name}，还要下几盘实战确认。五维能力、对局统计都在这里。`
+            : '还没测过水平。测一次大约 20 分钟，之后练什么都按你的短板安排。',
       '',
       act.onLevel,
     ),
@@ -253,9 +257,11 @@ export function renderLevel(host: HTMLElement, onBack: () => void, onAssess: () 
   const thumbs: Board2D[] = [];
 
   const games = listGames();
+  backfillPlay(games);
   const profile = buildProfile(games);
   const rs = getRatings();
-  const overall = overallOf(rs);
+  const lv = honestLevel();
+  const play = getPlay();
   const ps = playStats();
   const acc = recentGameAccuracy(10);
 
@@ -264,13 +270,22 @@ export function renderLevel(host: HTMLElement, onBack: () => void, onAssess: () 
   // ---- 段位 ----
   const rank = document.createElement('div');
   rank.className = 'xq-rankbox';
-  rank.innerHTML = isAssessed()
-    ? `<div class="big">${rankOf(overall).name}</div>
-       <div class="num">${overall} 分</div>
-       <div class="note">${rankOf(overall).desc}。大致相当于天天象棋的「${ttNear(overall).name}」，
-       但两边的尺子本来就不是同一把，只能当个粗对照。</div>`
-    : `<div class="big">还没测</div>
-       <div class="note">测一次大约 20 分钟，题目难度会跟着你的表现自动调。测完才知道该先练哪一块。</div>`;
+  // 水平以实战为准：跟 AI 下棋的输赢。做题分只看五维里哪一维弱
+  const recentPlay = play?.log.slice(-5).map((x) => `${x.who}${x.res === 1 ? '胜' : x.res === 0.5 ? '和' : '负'}`).join('、');
+  rank.innerHTML =
+    lv.source === 'play'
+      ? `<div class="big">${rankOf(lv.r).name}</div>
+       <div class="num">实战分 ${lv.r}</div>
+       <div class="note">${rankOf(lv.r).desc}。按 ${lv.games} 盘对弈的输赢算的${recentPlay ? `（最近：${recentPlay}）` : ''}，
+       粗略相当于天天象棋「${ttNear(lv.r).name}」——两边的尺子不是同一把，只能当个粗对照。
+       ${lv.note ? `<br><b>${lv.note}</b>` : ''}</div>`
+      : isAssessed()
+        ? `<div class="big">${rankOf(lv.r).name}？</div>
+       <div class="num">做题估分 ${lv.r}（待实战确认）</div>
+       <div class="note">${lv.note}<br>做题分只说明你<b>会不会做题</b>：题是静止的、知道这里有棋，实战里没人提醒你。
+       所以你是什么水平，最终看你下得赢哪一档对手。</div>`
+        : `<div class="big">还没测</div>
+       <div class="note">测一次大约 20 分钟，题目难度会跟着你的表现自动调。测完、再下几盘棋，才知道你的水平和该先练哪一块。</div>`;
   s.appendChild(rank);
 
   if (!isAssessed()) {
@@ -284,7 +299,7 @@ export function renderLevel(host: HTMLElement, onBack: () => void, onAssess: () 
   // ---- 五维 ----
   const dimSec = document.createElement('div');
   dimSec.className = 'xq-sec';
-  dimSec.textContent = '五项能力';
+  dimSec.textContent = '五项能力（做题分，只用来比哪一项弱）';
   s.appendChild(dimSec);
   const bars = document.createElement('div');
   bars.className = 'xq-dims';

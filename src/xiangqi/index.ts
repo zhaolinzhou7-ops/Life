@@ -17,7 +17,7 @@ import { disposeAi, requestMove, warmupAi } from './aiclient';
 import { engineBestMove, engineCapable, engineReady, engineStats, loadEngine, onEngineLost } from './pikafish';
 import { MOVE_LABEL, labelOf, reviewMove, type Judged, type MoveLabel } from './analysis';
 import { GameAnalysis } from './gamescore';
-import { recentGameAccuracy } from './save';
+import { AI_LEVEL_RATING, LADDER, getPlay, recentGameAccuracy, recordPlay, suggestLevel } from './save';
 import { runReview } from './review';
 import { runCoach, type CoachEntry } from './coach';
 import { renderGameList, renderHome, renderLevel } from './home';
@@ -235,11 +235,17 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         Number(localStorage.getItem('xq-tempo') ?? 1),
         { strip, depth, onFinish },
       );
-    }, entry, (moves, meColor) => {
-      // 邪门布局破解的"从这里实战"：从套路走完的局面开一盘练习局（不记战绩）
+    }, entry, (moves, meColor, level) => {
       disposeCoach?.();
       disposeCoach = null;
+      if (level !== undefined) localStorage.setItem('xq-level', String(level));
       const lv = Math.max(0, Math.min(LEVELS.length - 1, Number(localStorage.getItem('xq-level') ?? 1) || 0));
+      if (!moves.length) {
+        // 今日训练里的"实战一局"：正常的一盘，计入实战分
+        startGame(lv, CHARACTERS[Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length], Number(localStorage.getItem('xq-tempo') ?? 1), undefined, meColor);
+        return;
+      }
+      // 邪门布局破解的"从这里实战"：从套路走完的局面开一盘练习局（不记战绩）
       startGame(
         lv,
         CHARACTERS[Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length],
@@ -381,10 +387,15 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       s.appendChild(lvLabel);
       const lvRow = document.createElement('div');
       lvRow.className = 'diff-row';
+      // 按实战分推荐对手：赢一半输一半的最涨棋
+      const pl = getPlay();
+      const rec = pl && pl.n >= 3 ? suggestLevel(pl.r) : -1;
       LEVELS.forEach((L) => {
         const card = document.createElement('div');
         card.className = 'card' + (L.id === level ? ' selected' : '');
-        card.innerHTML = `<div class="title" style="justify-content:center">${L.name}</div>
+        card.innerHTML = `<div class="title" style="justify-content:center">${L.name}${
+          L.id === rec ? '<span class="tag warn">推荐</span>' : ''
+        }</div>
           <div class="desc" style="text-align:center">${L.desc}</div>`;
         card.onclick = () => {
           level = L.id;
@@ -620,6 +631,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
      * 帮用户伪造进步。
      */
     let hintsUsed = 0;
+    /** 这盘开过的最高教练档：开着教练下的棋，实战分要少算 */
+    let maxHint = hintLevel as number;
     /**
      * 当前局面的研究（study.ts）。教练判棋、🔍 求助、议和时对手掂量局面，读的都是这一份——
      * 同一个局面只有一个裁判，教练和求助才不会一个说不行、一个说最好。
@@ -975,6 +988,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     const hintBtn = hud.querySelector('#xq-hint') as HTMLButtonElement;
     hintBtn.onclick = () => {
       hintLevel = ((hintLevel + 1) % HINT_LEVELS.length) as HintLevel;
+      maxHint = Math.max(maxHint, hintLevel);
       setHintLevel(hintLevel);
       hintBtn.textContent = `🧑‍🏫${HINT_LEVELS[hintLevel].short}`;
       showToast(`教练：${HINT_LEVELS[hintLevel].name} —— ${HINT_LEVELS[hintLevel].desc}`);
@@ -1813,6 +1827,24 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       }, quick ? 250 : 700);
     }
 
+    /**
+     * 这盘算进实战分。练习局（从复盘/套路摆出来的局面）、没下几步的棋不算；
+     * 开着教练、用了求助的棋按比例少算——结果里有一部分是教练的功劳。
+     */
+    function notePlay(result: 'win' | 'loss' | 'draw', end: GameEnd): string {
+      if (practice) return '';
+      if (moveLog.length < 10 && end.reason !== 'mate') return '这盘下得太短，不算进实战分。';
+      const opp = handicap
+        ? LADDER.find((r) => r.strip === handicap.strip && r.depth === handicap.depth)?.approx ?? AI_LEVEL_RATING[level] ?? 1200
+        : AI_LEVEL_RATING[Math.max(0, Math.min(AI_LEVEL_RATING.length - 1, level))];
+      const base = [1, 0.8, 0.6, 0.5][maxHint] ?? 0.5;
+      const w = Math.max(0.2, base - 0.1 * hintsUsed);
+      const r = recordPlay({ opp, res: result === 'win' ? 1 : result === 'draw' ? 0.5 : 0, w, who: handicap ? `让${handicap.strip}马` : L.name });
+      const delta = r.after - r.before;
+      const why = w < 1 ? `（这盘按 ${Math.round(w * 10)} 成算：${maxHint ? '开着教练' : ''}${maxHint && hintsUsed ? '、' : ''}${hintsUsed ? `用了 ${hintsUsed} 次求助` : ''}）` : '';
+      return `实战分 ${r.before} → <b>${r.after}</b>（${delta >= 0 ? '+' : ''}${delta}）${why}${r.n < 3 ? ` · 再下 ${3 - r.n} 盘，水平就按实战定` : ''}`;
+    }
+
     function showResult(end: GameEnd) {
       const result: 'win' | 'loss' | 'draw' = end.winner === null ? 'draw' : end.winner === me ? 'win' : 'loss';
       const playerWon = result === 'win';
@@ -1829,6 +1861,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         });
       }
       startAnalysis(playerWon);
+      const playNote = notePlay(result, end);
       if (result === 'win') {
         sfxWinBig();
         setTimeout(() => say(pickLine(rival.lines.lose)), 500);
@@ -1863,6 +1896,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         <div class="sub">${sub}</div>
         ${hintsUsed > 0 ? `<div class="xq-usedhint">这一局用了 ${hintsUsed} 次求助——照着引擎走出来的棋不算你的水平，复盘的时候心里有个数。</div>` : ''}
         ${coachFlags.size > 0 ? `<div class="xq-usedhint">教练拦过你 ${coachFlags.size} 次、你坚持走了——复盘里这几手标了 🧑‍🏫，先看它们。</div>` : ''}
+        ${playNote ? `<div class="xq-playnote">${playNote}</div>` : ''}
         <div class="xq-score"></div>`;
       // 本局评分：一盘下完就在后台开算，算完直接显示在这里，不用点进复盘
       const elScore = s.querySelector('.xq-score') as HTMLElement;

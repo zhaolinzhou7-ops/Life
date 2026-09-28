@@ -14,9 +14,14 @@ import {
   recordAssessment,
   isAssessed,
   updateRating,
+  firstAttempt,
   weakestDim,
   overallOf,
-  confidenceOf,
+  honestLevel,
+  gameEvidence,
+  getPlay,
+  suggestLevel,
+  AI_LEVEL_NAMES,
   getStreak,
   checkIn,
   markWrong,
@@ -54,7 +59,7 @@ import {
   type Dim,
 } from './save';
 import { Assessment, diagnose, type AssessResult } from './assess';
-import { loadPuzzles, pickNear, byId, ratingRange, type Puzzle, type PuzzleKind } from './puzzles';
+import { loadPuzzles, pickNear, byId, ratingRange, freshCount, type Puzzle, type PuzzleKind } from './puzzles';
 import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
@@ -66,7 +71,7 @@ import { outlookOf } from './plan';
 import { inPieces } from './teach';
 import { Board2D } from './board2d';
 import { fromFen } from './notation';
-import { STAGES, stageFor, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block } from './curriculum';
+import { STAGES, stageFor, gameGate, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block } from './curriculum';
 
 const DIM_KIND: Record<Dim, PuzzleKind> = {
   safety: 'safety',
@@ -90,8 +95,11 @@ export function runCoach(
   /** 开一局让子定级棋。学棋模块自己不管对弈，交回对弈流程去下 */
   startLadder?: (strip: number, depth: number, onFinish: (won: boolean) => void) => void,
   entry: CoachEntry = 'home',
-  /** 从一串着法之后的局面开一局实战（练破解）。me 是你执的一方 */
-  startFrom?: (moves: Move[], me: Color) => void,
+  /**
+   * 开一局实战。moves 非空：从那串着法之后的局面开一盘练习局（练破解，不计分）；
+   * moves 为空：正常开一盘（按 level 选对手，计入实战分）
+   */
+  startFrom?: (moves: Move[], me: Color, level?: number) => void,
 ): () => void {
   const wrap = document.createElement('div');
   wrap.className = 'xq-coach';
@@ -173,9 +181,8 @@ export function runCoach(
     clear();
     pruneOnce();
     const rs = getRatings();
-    const overall = overallOf(rs);
-    const rank = rankOf(overall);
-    const ci = confidenceOf(rs);
+    const lv = honestLevel();
+    const rank = rankOf(lv.r);
     const assessed = isAssessed();
     const { streak } = getStreak();
     const srs = srsCount();
@@ -189,9 +196,11 @@ export function runCoach(
     scr.innerHTML = `
       <h1>♟️ 学棋</h1>
       <div class="sub">${
-        assessed
-          ? `当前 <b>${rank.name}</b> · ${overall} 分 <span class="ci">±${ci}（内部刻度）</span>`
-          : '先花 20 分钟测一下，才知道该从哪儿练起'
+        lv.source === 'play'
+          ? `实战水平 <b>${rank.name}</b> · ${lv.r} 分 <span class="ci">（按 ${lv.games} 盘对弈的输赢）</span>`
+          : assessed
+            ? `做题估计 <b>${rank.name}？</b> <span class="ci">还要下几盘实战确认——水平以实战为准</span>`
+            : '先花 20 分钟测一下，才知道该从哪儿练起'
       }${decl ? `<br><span class="ci">你自报：天天象棋 ${decl.name}</span>` : ''}</div>
       <div class="xq-chips">
         ${streak > 0 ? `<span class="xq-chip">🔥 连续 <b>${streak}</b> 天</span>` : ''}
@@ -228,7 +237,7 @@ export function runCoach(
     const list = document.createElement('div');
     list.className = 'card-list';
 
-    const stage = stageFor(rs);
+    const stage = stageFor(rs, gameEvidence());
     const cards: { t: string; d: string; go: () => void; hide?: boolean }[] = [
       {
         t: `📅 今日训练 · ${stage.emoji} 阶段${stage.id} ${stage.name}`,
@@ -504,7 +513,8 @@ export function runCoach(
     clear();
     const rs = getRatings();
     const overall = overallOf(rs);
-    const rank = rankOf(overall);
+    const lv = honestLevel();
+    const rank = rankOf(Math.min(overall, lv.r));
     const weak = weakestDim(rs);
 
     const scr = document.createElement('div');
@@ -512,13 +522,14 @@ export function runCoach(
     const satCount = DIMS.filter((d) => res.saturated[d] && !missing.includes(d)).length;
     scr.innerHTML = `
       <h1>测评结果</h1>
-      <div class="xq-rank-big">${satCount >= 3 ? '≥ ' : ''}${rank.name} <span>${
-        satCount >= 3 ? `${overall} 分以上` : `${overall} 分 ±${res.ci}`
-      }</span></div>
-      <div class="sub">${rank.desc}</div>
-      <div class="sub xq-scale-note">这套分只是这个软件自己的尺子，粗略对照大概是天天象棋的<b>${
-        ttNear(overall).name
-      }</b>——两边的尺子本来就不是一把，别太当真，看它<b>往哪个方向动</b>就够了。</div>`;
+      <div class="xq-rank-big">做题分 ${satCount >= 3 ? '≥ ' : ''}${overall}<span>${satCount >= 3 ? '题库到顶了' : `±${res.ci}`}</span></div>
+      <div class="sub">五维里哪一维弱，下面看得清清楚楚——这是测评最有用的地方。</div>
+      <div class="sub xq-scale-note"><b>但做题分不等于棋力。</b>题是静止的、你知道这里有棋；实战里没人提醒你。
+      所以"你是什么水平"要看实战：${
+        lv.source === 'play'
+          ? `按你 ${lv.games} 盘对弈的输赢，现在是 <b>${rankOf(lv.r).name}（实战分 ${lv.r}）</b>，粗略相当于天天象棋「${ttNear(lv.r).name}」。`
+          : `先下几盘（关掉教练更准），教练按输赢定你的水平。在那之前，按做题暂估 <b>${rank.name}</b>。`
+      }</div>`;
     scr.appendChild(radarCard(rs));
 
     const detail = document.createElement('div');
@@ -535,7 +546,7 @@ export function runCoach(
     }).join('');
     scr.appendChild(detail);
 
-    const stage = stageFor(rs);
+    const stage = stageFor(rs, gameEvidence());
     const rec = focusDim(stage, rs);
     const advice = document.createElement('div');
     advice.className = 'xq-advice';
@@ -590,7 +601,7 @@ export function runCoach(
   function showPickDim() {
     clear();
     const rs = getRatings();
-    const stage = stageFor(rs);
+    const stage = stageFor(rs, gameEvidence());
     const rec = focusDim(stage, rs);
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-home';
@@ -860,7 +871,9 @@ export function runCoach(
         // 错题重练不计分（dim 为 null）：那些题你见过，做对可能只是记住了答案，
         // 拿它涨分会把水平估高。复习只管有没有真的记牢，不管分数。
         const eff = effectiveRating(p.id, p.rating);
-        if (dim) {
+        // 只有第一次做计分：做过的题再做对，多半是记住了答案
+        const first = firstAttempt(p.id);
+        if (dim && first) {
           const before = getRatings()[dim].r;
           updateRating(dim, eff, ok);
           // 同一次 Elo 的另一边：反过来修正这道题的难度。
@@ -990,7 +1003,7 @@ export function runCoach(
         allowHint: true,
         onDone: (r) => {
           const ok = r.correct && !r.usedHint;
-          updateRating('mate', p.rating, ok);
+          if (firstAttempt(p.id)) updateRating('mate', p.rating, ok);
           if (ok) {
             markRight(p.id);
             markMateCleared(p.id);
@@ -1208,8 +1221,8 @@ export function runCoach(
         // 达成目标才算过：胜局必须赢，和局守和即可
         if (r === 'win' || (r === 'draw' && e.target === 'draw')) {
           markEndgameCleared(e.id);
-          updateRating('endgame', e.rating, true);
-        } else {
+          if (firstAttempt(`eg:${e.id}`)) updateRating('endgame', e.rating, true);
+        } else if (firstAttempt(`eg:${e.id}`)) {
           updateRating('endgame', e.rating, false);
         }
         checkIn();
@@ -1254,7 +1267,7 @@ export function runCoach(
   function showToday() {
     clear();
     const rs = getRatings();
-    const stage = stageFor(rs);
+    const stage = stageFor(rs, gameEvidence());
     const due = srsCount().due;
     const loss = lossProfile(10);
     const blocks = dailyPlan({
@@ -1264,6 +1277,8 @@ export function runCoach(
       accuracy: (d) => recentAccuracy(d),
       dueCount: due,
       daysSinceQuiz: daysSinceQuiz(),
+      play: getPlay(),
+      fresh: (d) => freshCount(DIM_KIND[d]).fresh,
     });
     const total = blocks.reduce((a, b) => a + b.minutes, 0);
 
@@ -1350,8 +1365,15 @@ export function runCoach(
           引擎会逐手标出你哪里走坏了、该走什么，那才是这一局真正的价值。</p></div>`;
       const go = document.createElement('button');
       go.className = 'btn';
-      go.textContent = '去下一局 →';
-      go.onclick = onExit; // 回到象棋一级菜单，从那里进对弈
+      const play = getPlay();
+      const lv = play && play.n >= 3 ? suggestLevel(play.r) : undefined;
+      if (startFrom) {
+        go.textContent = lv !== undefined ? `⚔️ 直接开始（对手：${AI_LEVEL_NAMES[lv]}）` : '⚔️ 直接开始一盘';
+        go.onclick = () => startFrom([], 'r', lv);
+      } else {
+        go.textContent = '去下一局 →';
+        go.onclick = onExit; // 回到象棋一级菜单，从那里进对弈
+      }
       const skip = document.createElement('button');
       skip.className = 'btn ghost';
       skip.textContent = '今天先跳过实战';
@@ -1903,7 +1925,7 @@ export function runCoach(
   function showProgram() {
     clear();
     const rs = getRatings();
-    const stage = stageFor(rs);
+    const stage = stageFor(rs, gameEvidence());
     const overall = overallOf(rs);
     const loss = lossProfile(10);
     const games = getGames().slice(-10);
@@ -1929,8 +1951,11 @@ export function runCoach(
       <div class="sub">按你的测评结果和最近的实战数据生成，会随着你的表现自动调整</div>
 
       <div class="xq-advice"><b>① 你现在的水平</b>
-        <p><b>${rankOf(overall).name} · ${overall} 分</b>（本 App 内部刻度，粗略对照天天象棋
-        <b>${ttNear(overall).name}</b>）。${
+        <p>${
+          honestLevel().source === 'play'
+            ? `<b>实战 ${rankOf(honestLevel().r).name} · ${honestLevel().r} 分</b>（按对弈输赢，粗略对照天天象棋 <b>${ttNear(honestLevel().r).name}</b>）。`
+            : `<b>还没有实战水平</b>：${honestLevel().note}`
+        }做题分 ${overall}（只用来比五维哪一维弱）。${
           hist.length
             ? `上次完整测评是 ${sinceAssess} 天前。`
             : '你还没做过完整测评，下面这些数字是按做题记录估的，先去测一次会准得多。'
@@ -2035,7 +2060,7 @@ export function runCoach(
   function showRoadmap() {
     clear();
     const rs = getRatings();
-    const cur = stageFor(rs);
+    const cur = stageFor(rs, gameEvidence());
     const overall = overallOf(rs);
     const ms = nextMilestone(overall);
 
@@ -2068,7 +2093,10 @@ export function runCoach(
         <ul>${st.topics.map((t) => `<li>${t}</li>`).join('')}</ul>
         <div class="grad">出师标准：${status
           .map((g) => `${g.name} ${g.need} 分<b class="${g.ok ? 'ok' : ''}">（现在 ${g.now}）</b>`)
-          .join('　')}</div>`;
+          .join('　')}${(() => {
+          const gate = gameGate(st, gameEvidence());
+          return gate ? `　<b class="${gate.ok ? 'ok' : ''}">${gate.text}</b>` : '';
+        })()}</div>`;
       list.appendChild(el);
     }
     scr.appendChild(list);

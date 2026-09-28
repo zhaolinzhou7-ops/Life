@@ -11,7 +11,7 @@
  * 另一条原则：**毕业看能力，不看天数**。每个阶段有明确的出师标准，
  * 达标才放行，否则就在这一阶段继续磨。
  */
-import { DIM_INFO, DIMS, type Dim } from './save';
+import { AI_LEVEL_NAMES, AI_LEVEL_RATING, DIM_INFO, DIMS, suggestLevel, type Dim } from './save';
 
 export interface Stage {
   id: number;
@@ -104,9 +104,33 @@ export const STAGES: Stage[] = [
 ];
 
 /** 按当前五维水平判断该在第几阶段：前面阶段的出师标准全达标才往后走 */
-export function stageFor(ratings: Record<Dim, { r: number }>): Stage {
+/** 实战里的证据：最近几盘、每盘漏几次（来自复盘） */
+export interface GameEvidence {
+  games: number;
+  blundersPerGame: number | null;
+}
+
+/**
+ * 出师还要看实战。做题分只说明"会不会做题"：原来光凭做题分出师，
+ * 题做得顺的人很快被排到后面的阶段，可实战里照样每盘送子（用户原话："连大师我都下不赢"）。
+ * 阶段一的目标本来就写着"把实战送子降到每盘不到一次"——那就拿实战的数来判。
+ */
+export function gameGate(stage: Stage, ev: GameEvidence | undefined): { ok: boolean; text: string } | null {
+  if (!ev) return null;
+  const need = stage.id === 1 ? { games: 3, max: 1 } : stage.id === 2 ? { games: 5, max: 0.6 } : null;
+  if (!need) return null;
+  const now = ev.blundersPerGame;
+  const ok = ev.games >= need.games && now !== null && now <= need.max;
+  const text =
+    ev.games < need.games
+      ? `实战漏着每盘 ≤${need.max} 次（至少 ${need.games} 盘复盘数据，现在 ${ev.games} 盘）`
+      : `实战漏着每盘 ≤${need.max} 次（最近 ${ev.games} 盘平均 ${now}）`;
+  return { ok, text };
+}
+
+export function stageFor(ratings: Record<Dim, { r: number }>, ev?: GameEvidence): Stage {
   for (const s of STAGES) {
-    const passed = s.graduate.every((g) => ratings[g.dim].r >= g.rating);
+    const passed = s.graduate.every((g) => ratings[g.dim].r >= g.rating) && (gameGate(s, ev)?.ok ?? true);
     if (!passed) return s;
   }
   return STAGES[STAGES.length - 1];
@@ -169,6 +193,10 @@ export interface TrainInput {
   dueCount: number;
   /** 距离上次测验多少天，用来决定今天要不要插一场小测 */
   daysSinceQuiz: number;
+  /** 实战分和算进去的盘数（没有就是还没下过） */
+  play?: { r: number; n: number } | null;
+  /** 某一维还有多少道没做过的题 */
+  fresh?: (d: Dim) => number;
 }
 
 /**
@@ -271,11 +299,18 @@ export function dailyPlan(inp: TrainInput): Block[] {
     });
   }
 
+  // 还没有实战水平：先下几盘。不知道你实战什么样，后面排的全是按做题猜的
+  const play = inp.play;
+  if (!play || play.n < 3) {
+    blocks.push(gameBlock(play));
+  }
+
   const b = biasFor(accuracy(focus.dim));
+  const fresh = inp.fresh?.(focus.dim);
   blocks.push({
     kind: 'focus',
     title: `今日专项：${DIM_INFO[focus.dim].name}`,
-    desc: DIM_INFO[focus.dim].desc,
+    desc: `${DIM_INFO[focus.dim].desc}${fresh !== undefined ? `（这一类还有 ${fresh} 道没做过，先出新题）` : ''}`,
     minutes: 8,
     dim: focus.dim,
     count: 8,
@@ -338,15 +373,33 @@ export function dailyPlan(inp: TrainInput): Block[] {
     });
   }
 
-  blocks.push({
-    kind: 'game',
-    title: '实战一局 + 复盘',
-    desc: '做题练的是识别，实战练的是运用，两样都得有。',
-    minutes: 7,
-    why: '复盘不是走个过场：它会把你这盘走错的手做成题存进错题本，明天回来找你。这一步不做，整个循环就断了。',
-  });
+  if (play && play.n >= 3) blocks.push(gameBlock(play));
 
   return blocks;
+}
+
+/** 实战一局：按实战分推荐对手 */
+function gameBlock(play: { r: number; n: number } | null | undefined): Block {
+  if (!play || play.n < 3) {
+    const n = play?.n ?? 0;
+    return {
+      kind: 'game',
+      title: `先下 ${3 - n} 盘实战（关掉教练更准）`,
+      desc: '和 AI 正常下完一盘，下完点复盘。',
+      minutes: 10,
+      why: `你的水平最终看下不下得赢，不看做题——题是静止的、你知道这里有棋，实战里没人提醒你。
+        实战才下了 ${n} 盘，教练还不知道你实战什么样，训练阶段、该主攻哪一维都只能按做题猜。下够 3 盘，水平和训练都按实战定。`,
+    };
+  }
+  const lv = suggestLevel(play.r);
+  return {
+    kind: 'game',
+    title: `实战一局：对手选「${AI_LEVEL_NAMES[lv]}」 + 复盘`,
+    desc: '做题练的是识别，实战练的是运用，两样都得有。',
+    minutes: 10,
+    why: `你的实战分 ${play.r}，「${AI_LEVEL_NAMES[lv]}」约 ${AI_LEVEL_RATING[lv]}——赢一半输一半的对手最涨棋，连赢几盘就换高一档。
+      复盘会把你这盘走错的手做成题存进错题本，明天回来找你。这一步不做，整个循环就断了。`,
+  };
 }
 
 // ---------------- 周计划 ----------------
