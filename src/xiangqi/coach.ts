@@ -1753,9 +1753,11 @@ export function runCoach(
       <div class="xq-advice"><b>破邪门，记住三句话</b>
         <p>① <b>先看能不能吃</b>：送到嘴边的子先数保护，被将军先看能不能吃掉将军的子。<br>
         ② <b>不跟着乱打</b>：他不出子光骚扰，你就正常出子；跟着他换子、打底马，等于帮他出子。<br>
-        ③ <b>用出子去捉</b>：单个子冲过来，出一个子捉它，他退一步，你白赚两步。</p>
-        <p class="dim">这里按"套路"收，不按江湖名号——同一个套路各地叫法不一样，认得套路才破得了。
-        每一条的结论都是皮卡鱼引擎逐条复核过的：这一手本身亏多少、破解是不是最好、上当亏多少。</p>
+        ③ <b>用出子去捉</b>：单个子冲过来，出一个子捉它，他退一步，你白赚两步。<br>
+        ④ <b>吃了子，舍得还</b>：敢死炮、铁滑车送的子该吃；他出车来捉时，别恋子——弃还一子、棋形工整，比被捉死强。</p>
+        <p class="dim">江湖上有名号的（敢死炮、铁滑车、叠炮、瞎眼狗）名号写在名字里；同一个名号各地走法不一，
+        这里收的是引擎复核过的那一种。每一条的结论都是皮卡鱼逐条复核过的：这一手本身亏多少、破解是不是最好、上当亏多少。
+        有的套路坑在第二步（吃完之后），会单独标出"第二关"。</p>
       </div>`;
     const list = document.createElement('div');
     list.className = 'card-list';
@@ -1769,8 +1771,8 @@ export function runCoach(
         el.className = 'card home-card';
         el.dataset.trick = t.id;
         el.innerHTML = `<div class="title">${t.name}<span class="tag">${t.level}</span>${
-          done.has(t.id) ? '<span class="tag warn">已破</span>' : ''
-        }</div><div class="desc">${t.lure}</div>`;
+          t.trapAfter ? '<span class="tag">两关</span>' : ''
+        }${done.has(t.id) ? '<span class="tag warn">已破</span>' : ''}</div><div class="desc">${t.lure}</div>`;
         el.onclick = () => showTrick(t);
         list.appendChild(el);
       }
@@ -1788,6 +1790,7 @@ export function runCoach(
     clear();
     const me: Color = t.by === 'r' ? 'b' : 'r';
     const v = t.verified;
+    const k = t.trapAfter ?? 0;
     const line = [...t.pre, t.trick.t].join(' ');
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-report';
@@ -1797,9 +1800,14 @@ export function runCoach(
         <b>套路：它在赌什么</b><p>${t.lure}</p>
         <p class="dim">着法：${line}</p>
         <b>怎么破</b><p><b>${t.refute[0].t}</b>——${t.refute[0].why}</p>
+        ${
+          k
+            ? `<b>第二关</b><p>对方 <b>${t.refute[k - 1].t}</b>（${t.refute[k - 1].why}）这时走 <b>${t.refute[k].t}</b>——${t.refute[k].why}</p>`
+            : ''
+        }
         <b>要记住的道理</b><p>${t.principle}</p>
         <p class="dim">引擎复核：这一步邪门棋本身就亏约${inPieces(v.trickLoss)}；按破解走，局面是「${outlookOf(v.refuteScore)}」；
-        上当的话（${t.trap[0].t}），比破解差约${inPieces(v.trapLoss)}。</p>
+        ${k ? `第二关要是走 ${t.trap[0].t}（${t.trap[0].why.replace(/。$/, '')}）` : `上当的话（${t.trap[0].t}）`}，比破解差约${inPieces(v.trapLoss)}。</p>
       </div>`;
     const mk = (label: string, fn: () => void) => {
       const b = document.createElement('button');
@@ -1834,7 +1842,8 @@ export function runCoach(
     const me: Color = t.by === 'r' ? 'b' : 'r';
     const pre = t.pre.map((x) => ({ t: x, why: '布局的正常着法。' }));
     const trick = { t: t.trick.t, why: `<b>邪门着。</b>${t.trick.why}` };
-    const tail = mode === 'trap' ? t.trap : t.refute;
+    // 陷阱在第二关的：先按破解走到分岔处，再接上当的那几手
+    const tail = mode === 'trap' ? [...t.refute.slice(0, t.trapAfter ?? 0), ...t.trap] : t.refute;
     const moves = [...pre, trick, ...tail];
     disposeScreen = runReplay(host, {
       title: t.name,
@@ -1842,7 +1851,9 @@ export function runCoach(
         mode === 'trap' ? '上当会怎样：最常见的错误应法' : mode === 'guess' ? `你来破解：你执${sideWord(me)}，先走再对答案` : '套路和破解，每一手都讲在干什么',
       intro:
         mode === 'trap'
-          ? `${t.lure}<br><br>下面是<b>上当</b>的走法——看清楚它为什么亏，下次一眼认出来。`
+          ? `${t.lure}<br><br>下面是<b>上当</b>的走法——${
+              t.trapAfter ? `前面 ${t.trapAfter / 2} 手是对的（子吃到手了），坑在后面，` : ''
+            }看清楚它为什么亏，下次一眼认出来。`
           : mode === 'guess'
             ? `套路已经摆好：对方刚走了 <b>${t.trick.t}</b>。${t.trick.why}<br><br>该你了：怎么破？`
             : t.lure,

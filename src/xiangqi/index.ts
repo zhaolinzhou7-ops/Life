@@ -46,7 +46,7 @@ import { POWERS, Study, getPower, setPower, type Power } from './study';
 import { classifyEndgame, endgameHeadline, isEndgame } from './endgame';
 import { opponentIdea, planHtml, planOf, threatText } from './plan';
 import { loadLibrary } from './library';
-import { trickAt, trickMoveFor } from './tricks';
+import { trickAt, trickMoveFor, trickStageAt } from './tricks';
 import {
   END_TEXT,
   MOVE_LIMIT,
@@ -778,6 +778,16 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           hintLevel === 1
             ? `对方走的是邪门布局「${tr.name}」，小心别上当（🔍 里有破解）。`
             : `对方走的是邪门布局「${tr.name}」：${tr.lure}破解：${tr.refute[0].t}——${tr.refute[0].why}`,
+          'warn',
+        );
+      } else if (hintLevel > 0 && trickStageAt(board, me)) {
+        // 套路的第二关：子已经吃到手，对方出车来捉——这一步舍不得还子才是上当
+        const tr = trickStageAt(board, me)!;
+        const k = tr.trapAfter ?? 0;
+        setCoachLine(
+          hintLevel === 1
+            ? `「${tr.name}」第二关：他在捉你多吃的子，别恋子（🔍 里有破解）。`
+            : `「${tr.name}」第二关：${tr.refute[k - 1].why}这时走 ${tr.refute[k].t}——${tr.refute[k].why}`,
           'warn',
         );
       } else {

@@ -28,7 +28,7 @@ import { moveToText as textOf } from './notation';
 import { recentGameAccuracy } from './save';
 import { planHtml, planOf } from './plan';
 import { classifyEndgame } from './endgame';
-import { trickAt } from './tricks';
+import { trickAt, trickStageAt } from './tricks';
 
 const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 
@@ -288,11 +288,22 @@ export function runReview(opts: ReviewOpts): () => void {
     const after = boards[i + 1];
     const played = trickAt(after, m.color === 'r' ? 'b' : 'r');
     if (played) return `<div class="xq-rv-trick">🗡 邪门布局「${played.name}」：${played.lure}</div>`;
+    const stage = trickStageAt(boards[i], m.color);
+    if (stage) {
+      const k = stage.trapAfter ?? 0;
+      const good = [stage.refute[k].t, ...(stage.refute[k].alts ?? [])].includes(m.text);
+      if (good) return `<div class="xq-rv-trick good">✅「${stage.name}」第二关也过了：${stage.refute[k].why}</div>`;
+      if (m.text === stage.trap[0].t) {
+        return `<div class="xq-rv-trick bad">⚠️ 吃了子却在第二关上当：「${stage.name}」。${stage.principle}这一步该走 <b>${stage.refute[k].t}</b>。</div>`;
+      }
+      return `<div class="xq-rv-trick">🗡「${stage.name}」第二关：他在捉你多吃的子，这一步的破解是 <b>${stage.refute[k].t}</b>——${stage.refute[k].why}</div>`;
+    }
     const faced = trickAt(boards[i], m.color);
     if (!faced) return '';
     const ok = [faced.refute[0].t, ...(faced.refute[0].alts ?? [])].includes(m.text);
     if (ok) return `<div class="xq-rv-trick good">✅ 破解成功：对方走的是「${faced.name}」，${faced.refute[0].why}</div>`;
-    if (m.text === faced.trap[0].t) {
+    // 陷阱在第二关的套路，trap[0] 是第二关的着法，不能拿来比这一步
+    if (!faced.trapAfter && m.text === faced.trap[0].t) {
       return `<div class="xq-rv-trick bad">⚠️ 上当了：对方走的是「${faced.name}」。${faced.principle}破解是 <b>${faced.refute[0].t}</b>。</div>`;
     }
     return `<div class="xq-rv-trick">🗡 对方刚走了邪门布局「${faced.name}」，破解是 <b>${faced.refute[0].t}</b>——${faced.refute[0].why}</div>`;

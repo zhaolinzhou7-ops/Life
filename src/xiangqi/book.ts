@@ -74,7 +74,9 @@ function build(): Map<string, BookMove[]> {
         const list = map.get(key) ?? [];
         for (const tx of [st.t, ...(st.alts ?? [])]) {
           const mm = textToMove(b, c, tx, legalMoves(b, c));
-          if (mm && !list.some((x) => same(x.move, mm))) list.push({ move: mm, text: tx, why: firstSentence(st.why), opening: `破解「${t.name}」` });
+          // 备选着不能套用正解的理由（"先不急着吃回"配在"马上吃回"上就是在说反话）
+          const why = tx === st.t ? firstSentence(st.why) : st.altWhy ? firstSentence(st.altWhy) : `和 ${st.t} 一样破得了。`;
+          if (mm && !list.some((x) => same(x.move, mm))) list.push({ move: mm, text: tx, why, opening: `破解「${t.name}」` });
         }
         map.set(key, list);
       }
