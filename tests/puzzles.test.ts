@@ -14,7 +14,7 @@ import endgames from '../src/xiangqi/endgamelib.json';
 import mates from '../src/xiangqi/matepatterns.json';
 import { fromFen, textToMove, toFen } from '../src/xiangqi/notation';
 import { applyMove, legalMoves, statusAfter, type Board, type Color } from '../src/xiangqi/rules';
-import type { Puzzle } from '../src/xiangqi/puzzles';
+import { promptOf, type Puzzle } from '../src/xiangqi/puzzles';
 
 const puzzles = raw as unknown as Puzzle[];
 
@@ -191,5 +191,38 @@ describe('FEN 与记谱的往返一致性', () => {
       if (toFen(f.board, f.toMove) !== p.fen.trim()) bad.push(p.id);
     }
     expect(bad).toEqual([]);
+  });
+});
+
+describe('题目问法和局面对得上', () => {
+  it('每道题都有引擎标过的目标', () => {
+    const bad = puzzles.filter((p) => !p.goal || (p.goal !== 'mate' && p.kind !== 'mate' && typeof p.ev !== 'number'));
+    expect(bad.map((p) => p.id)).toEqual([]);
+  });
+
+  it('落后的一方不会被问「赢子」「杀棋」——已经在防守了还问怎么赢，是在误导', () => {
+    const bad: string[] = [];
+    for (const p of puzzles) {
+      if (p.id.startsWith('own-') || p.ev === undefined || p.ev >= 150) continue;
+      const q = promptOf(p);
+      if (/赢子|杀棋|优势/.test(q)) bad.push(`${p.id}(${p.ev}): ${q}`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('残局里分差接近 0 的题（守方）问的是怎么守和', () => {
+    const bad: string[] = [];
+    for (const p of puzzles) {
+      if (p.kind !== 'endgame' || p.goal !== 'only' || p.ev === undefined || Math.abs(p.ev) >= 150) continue;
+      if (!promptOf(p).includes('守')) bad.push(p.id);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('残局题里兵卒残局够多，不是做几道就背下来了', () => {
+    const eg = puzzles.filter((p) => p.kind === 'endgame');
+    expect(eg.length).toBeGreaterThan(200);
+    const pawn = eg.filter((p) => /[Pp]/.test(p.fen.split(' ')[0]));
+    expect(pawn.length).toBeGreaterThan(40);
   });
 });

@@ -98,7 +98,13 @@ export function promptOf(p: Puzzle): string {
     case 'win':
       return '找出赢子的一手';
     case 'only':
-      return p.kind === 'safety' ? `${st ? st + '。' : ''}只有一步不亏，找出来` : `${st ? st + '。' : ''}只有这一手站得住，找出来`;
+      if (p.kind === 'safety') return `${st ? st + '。' : ''}只有一步不亏，找出来`;
+      // 残局里分差接近 0 的都是少子的守方：告诉他目标是守和，而不是"局面差不多"
+      if (p.kind === 'endgame' && p.ev !== undefined) {
+        if (Math.abs(p.ev) < 150) return '这盘守得和，但只有这一手守得住，找出来';
+        if (p.ev > 0) return `${st}。只有这一手能把优势保住，找出来`;
+      }
+      return `${st ? st + '。' : ''}只有这一手站得住，找出来`;
     case 'defend':
       return `${st || '你落后'}。找出最顽强的防守`;
     case 'best':
