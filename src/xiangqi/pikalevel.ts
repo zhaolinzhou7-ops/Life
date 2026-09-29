@@ -63,15 +63,16 @@ export function chooseMove(cands: Cand[], cfg: LevelCfg, rand: () => number = Ma
 
 /**
  * 七档的配置：前六档是削弱过的皮卡鱼，棋王是全力。
- * 分数（AI_LEVEL_RATING）怎么来的见 save.ts；配置是按对下结果一档档挑出来的——
- * 同一个引擎自己跟自己下，差一点就一边倒，所以相邻两档在节点数和温度上都只挪一小步。
+ * 每一档值多少分见 save.ts 的 AI_LEVEL_RATING（对下实测）。
+ * 同一个引擎，节点数和温度差一点强弱就差很多（5000 节点和 7000 节点对下是 2.5 比 13.5），
+ * 所以高级、大师两档只差一小步——实战分落在一千三到一千五的人最多，这一段不能断。
  */
 export const PIKA_LEVELS: LevelCfg[] = [
   { nodes: 600, multipv: 8, temp: 220, maxLoss: 700, slip: 0.15, slipLoss: 1500 },
   { nodes: 1500, multipv: 7, temp: 140, maxLoss: 450, slip: 0.08, slipLoss: 1000 },
   { nodes: 2500, multipv: 6, temp: 110, maxLoss: 380, slip: 0.06, slipLoss: 900 },
   { nodes: 5000, multipv: 6, temp: 80, maxLoss: 280, slip: 0.05, slipLoss: 600 },
+  { nodes: 6000, multipv: 6, temp: 72, maxLoss: 250, slip: 0.045, slipLoss: 550 },
   { nodes: 12000, multipv: 5, temp: 50, maxLoss: 180, slip: 0.03, slipLoss: 400 },
-  { nodes: 50000, multipv: 3, temp: 22, maxLoss: 100, slip: 0.015, slipLoss: 250 },
   { movetime: 3000, multipv: 1, temp: 0, maxLoss: 0, slip: 0, slipLoss: 0 },
 ];

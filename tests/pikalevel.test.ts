@@ -46,16 +46,15 @@ describe('按档位挑着', () => {
   });
 
   it('档位越低越随便：走首选的比例一档比一档低', () => {
+    // 抽 2 万次，比例的抽样误差约 0.004；理论值约 0.43 → 0.60，一档比一档高
     const rate = (i: number) => {
       let n = 0;
-      let x = 1;
-      const rand = () => ((x = (x * 16807) % 2147483647) / 2147483647);
-      for (let k = 0; k < 2000; k++) if (chooseMove(cands, PIKA_LEVELS[i], rand)!.fx === 0) n++;
-      return n / 2000;
+      for (let k = 0; k < 20000; k++) if (chooseMove(cands, PIKA_LEVELS[i], Math.random)!.fx === 0) n++;
+      return n / 20000;
     };
     const rates = [0, 1, 2, 3, 4, 5].map(rate);
     for (let i = 1; i < rates.length; i++) expect(rates[i], `第 ${i} 档`).toBeGreaterThanOrEqual(rates[i - 1] - 0.02);
-    expect(rates[5]).toBeGreaterThan(rates[0] + 0.2);
+    expect(rates[5]).toBeGreaterThan(rates[0] + 0.12);
   });
 });
 
