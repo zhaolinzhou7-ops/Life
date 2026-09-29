@@ -71,7 +71,7 @@ import { outlookOf } from './plan';
 import { roleOf } from './endgame';
 import { inPieces } from './teach';
 import { Board2D } from './board2d';
-import { fromFen } from './notation';
+import { fromFen, toFen } from './notation';
 import { STAGES, stageFor, gameGate, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block } from './curriculum';
 
 const DIM_KIND: Record<Dim, PuzzleKind> = {
@@ -94,7 +94,7 @@ export function runCoach(
   root: HTMLElement,
   onExit: () => void,
   /** 开一局让子定级棋。学棋模块自己不管对弈，交回对弈流程去下 */
-  startLadder?: (strip: number, depth: number, onFinish: (won: boolean) => void) => void,
+  startLadder?: (strip: number, lv: number, onFinish: (won: boolean) => void) => void,
   entry: CoachEntry = 'home',
   /**
    * 开一局实战。moves 非空：从那串着法之后的局面开一盘练习局（练破解，不计分）；
@@ -487,6 +487,8 @@ export function runCoach(
     disposeScreen = runPuzzle(host, q.puzzle, {
       caption: `测评 ${q.index}/${q.total} · ${DIM_INFO[q.dim].emoji} ${DIM_INFO[q.dim].name}`,
       allowHint: false,
+      // 测评要控制时长：主变照样一步步走完，残局不再接着下到底
+      playToEnd: false,
       onDone: (r) => {
         a.answer(r.correct);
         calibratePuzzle(q.puzzle.id, q.puzzle.rating, getRatings()[q.dim].r, r.correct);
@@ -1234,19 +1236,16 @@ export function runCoach(
       tips: e.tips,
       book: e.book,
       onRestart: () => runEndgame(g, i),
-      onDone: (r) => {
+      onDone: (r, _moves, st) => {
         // 你在标着「和棋」的局面里赢了：说明这个标注保守了，以你的结果为准。
         // 引擎的判定是最好的自动近似，但它不是裁判。
         if (r === 'win' && e.target === 'draw') markBeatDraw(e.id);
-        // 达成目标才算过：胜局必须赢，和局守和即可
-        if (r === 'win' || (r === 'draw' && e.target === 'draw')) {
-          markEndgameCleared(e.id);
-          if (firstAttempt(`eg:${e.id}`)) updateRating('endgame', e.rating, true);
-        } else if (firstAttempt(`eg:${e.id}`)) {
-          updateRating('endgame', e.rating, false);
-        }
+        // 达成目标才算过：胜局必须赢（下到将死），和局守和即可。
+        // 过关照记；计分只看第一次，而且靠提示、悔棋下出来的不加分
+        const pass = r === 'win' || (r === 'draw' && e.target === 'draw');
+        if (pass) markEndgameCleared(e.id);
+        if (firstAttempt(`eg:${e.id}`)) updateRating('endgame', e.rating, pass && !st.hints && !st.undos);
         checkIn();
-        runEndgame(g, i); // "再来一次"
       },
       onExit: () => {
         checkIn();
@@ -1561,9 +1560,10 @@ export function runCoach(
       host.className = 'xq-coach-stage';
       wrap.appendChild(host);
       disposeScreen = runPuzzle(host, p, {
-        caption: `限时计算 ${i}/${TOTAL} · 每题 ${LIMIT} 秒`,
+        caption: `限时计算 ${i}/${TOTAL} · 每步 ${LIMIT} 秒`,
         allowHint: false,
         timeLimit: LIMIT,
+        playToEnd: false,
         onDone: (r) => {
           if (r.correct) inTime++;
           else missed.push(p);
@@ -1587,6 +1587,7 @@ export function runCoach(
       disposeScreen = runPuzzle(host, p, {
         caption: `不限时重做 ${j}/${missed.length} · 这次慢慢算`,
         allowHint: false,
+        playToEnd: false,
         onDone: (r) => {
           if (r.correct) solvedUnlimited++;
           round2();
@@ -1740,11 +1741,64 @@ export function runCoach(
     }
   }
 
+  /** 破解到底过关的套路（和皮卡鱼下到将死或胜势已定） */
+  const TRICKS_FULL_KEY = 'xq-tricks-full';
+  function tricksFull(): Set<string> {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(TRICKS_FULL_KEY) ?? '[]') as string[]);
+    } catch {
+      return new Set();
+    }
+  }
+  function markTrickFull(id: string) {
+    const s = tricksFull();
+    s.add(id);
+    try {
+      localStorage.setItem(TRICKS_FULL_KEY, JSON.stringify([...s]));
+    } catch {
+      /* 存不下就算了 */
+    }
+  }
+
+  /** 破解到底：胜势要到这么多（车≈1000）引擎才认"赢定了" */
+  const TRICK_WIN_AT = 800;
+
+  /**
+   * 破解到底：破解那几手走完之后，和皮卡鱼接着下——它执走邪门的一方，全力抵抗。
+   * 下到将死，或者引擎连续几步确认胜势已定（约多一个大子），才算"完全破解"。
+   * 用户原话："江湖布局这些都是只有一步……需要做到将死才行，或者完全破解才行"。
+   */
+  function runTrickFull(t: TrickOpening) {
+    const me: Color = t.by === 'r' ? 'b' : 'r';
+    const w = walkMoves([...t.pre, t.trick.t, ...t.refute.map((x) => x.t)]);
+    if (!w) return;
+    clear();
+    const host = document.createElement('div');
+    host.className = 'xq-coach-stage';
+    wrap.appendChild(host);
+    disposeScreen = runPlayout(host, {
+      fen: toFen(w.board, w.color),
+      you: me,
+      target: 'win',
+      winAt: TRICK_WIN_AT,
+      goal: '🎯 把优势兑现：<b>将死</b>对方，或者走到引擎确认<b>胜势已定</b>',
+      title: `破解到底 · ${t.name}`,
+      subtitle: `破解的 ${Math.ceil(t.refute.length / 2)} 手已经摆好，对手换成皮卡鱼全力抵抗`,
+      tips: [t.principle, '领先之后先把子力出齐、把将护好，再去抢攻；别急着换子，也别贪吃对方送的子。'],
+      onRestart: () => runTrickFull(t),
+      onDone: (r, _n, st) => {
+        if (r === 'win' && !st.hints && !st.undos) markTrickFull(t.id);
+      },
+      onExit: () => showTrick(t),
+    });
+  }
+
   const sideWord = (c: Color) => (c === 'r' ? '红' : '黑');
 
   function showTricks() {
     clear();
     const done = tricksDone();
+    const full = tricksFull();
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-report';
     scr.innerHTML = `
@@ -1758,6 +1812,8 @@ export function runCoach(
         <p class="dim">江湖上有名号的（敢死炮、铁滑车、叠炮、瞎眼狗）名号写在名字里；同一个名号各地走法不一，
         这里收的是引擎复核过的那一种。每一条的结论都是皮卡鱼逐条复核过的：这一手本身亏多少、破解是不是最好、上当亏多少。
         有的套路坑在第二步（吃完之后），会单独标出"第二关"。</p>
+        <p><b>破解几手不算完</b>：每一条都可以 🏁 破解到底——破解摆好之后和皮卡鱼接着下，
+        下到将死、或者引擎确认胜势已定，才算"完全破解"。</p>
       </div>`;
     const list = document.createElement('div');
     list.className = 'card-list';
@@ -1772,7 +1828,7 @@ export function runCoach(
         el.dataset.trick = t.id;
         el.innerHTML = `<div class="title">${t.name}<span class="tag">${t.level}</span>${
           t.trapAfter ? '<span class="tag">两关</span>' : ''
-        }${done.has(t.id) ? '<span class="tag warn">已破</span>' : ''}</div><div class="desc">${t.lure}</div>`;
+        }${full.has(t.id) ? '<span class="tag warn">完全破解</span>' : done.has(t.id) ? '<span class="tag warn">已破</span>' : ''}</div><div class="desc">${t.lure}</div>`;
         el.onclick = () => showTrick(t);
         list.appendChild(el);
       }
@@ -1820,6 +1876,7 @@ export function runCoach(
     mk('📖 看套路和破解', () => runTrick(t, 'refute')).dataset.act = 'trick-show';
     mk('⚠️ 看上当会怎样', () => runTrick(t, 'trap')).dataset.act = 'trick-trap';
     mk(`🎯 你来破解（你执${sideWord(me)}）`, () => runTrick(t, 'guess')).dataset.act = 'trick-guess';
+    mk(`🏁 破解到底：和皮卡鱼下到胜势${tricksFull().has(t.id) ? '（已完全破解）' : ''}`, () => runTrickFull(t)).dataset.act = 'trick-full';
     if (startFrom) {
       mk('⚔️ 从这里实战', () => {
         const w = walkMoves([...t.pre, t.trick.t]);
@@ -1875,7 +1932,7 @@ export function runCoach(
    * 做题分有两个硬伤：一是受题库里最难那道题的限制，业 6 以上很快顶到上限；
    * 二是它衡量的是"会不会做题"，而做题会做和实战下得出来是两回事。
    * 教练历来的定级办法是让子——让你两个马能赢、让一个马赢不了，
-   * 水平就卡在这两档之间。让子让完了就往上加引擎深度，尺子可以一直延伸下去。
+   * 水平就卡在这两档之间。让子让完了就换更强的一档皮卡鱼，尺子可以一直延伸下去。
    */
   function showLadder() {
     clear();
@@ -1888,7 +1945,7 @@ export function runCoach(
     scr.className = 'screen xq-coach-report';
     scr.innerHTML = `
       <h1>让子定级</h1>
-      <div class="sub">跟引擎下让子棋，用"能赢到哪一档"量你的实战棋力</div>
+      <div class="sub">跟皮卡鱼下让子棋，用"能赢到哪一档"量你的实战棋力</div>
       <div class="xq-rank-big">${cur.name}<span>${cur.desc}</span></div>
       <div class="xq-advice"><b>为什么要有这一项</b>
         <p>做题分有两个硬伤：<b>受题库里最难那道题限制</b>（业 6 以上很快就顶到上限，
@@ -1919,7 +1976,7 @@ export function runCoach(
     go.textContent = `⚔️ 下一盘「${cur.name}」${wins ? `（这一档已赢 ${wins}/2）` : ''}`;
     go.onclick = () => {
       if (!startLadder) return;
-      startLadder(cur.strip, cur.depth, (won) => {
+      startLadder(cur.strip, cur.lv, (won) => {
         const r = recordLadder(won);
         void r;
       });
@@ -2212,6 +2269,23 @@ export function runCoach(
   };
   if (getDeclared()) land();
   else askLevel(land);
+
+  // 开发期测试钩子：直接打开某一道题 / 某一条套路的"破解到底"（生产构建会被摇掉）
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__xqCoach = {
+      puzzle: async (id: string) => {
+        await loadPuzzles();
+        const p = byId(id);
+        if (p) runOne(p, null, `测试 ${id}`, () => showHome());
+        return !!p;
+      },
+      trickFull: (id: string) => {
+        const t = TRICKS.find((x) => x.id === id);
+        if (t) runTrickFull(t);
+        return !!t;
+      },
+    };
+  }
 
   return () => {
     clear();

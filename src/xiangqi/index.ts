@@ -14,7 +14,8 @@ import {
   type Move,
 } from './rules';
 import { disposeAi, requestMove, warmupAi } from './aiclient';
-import { engineBestMove, engineCapable, engineReady, engineStats, loadEngine, onEngineLost } from './pikafish';
+import { engineCapable, engineLevelMove, engineLost, engineReady, engineStats, loadEngine, onEngineLost } from './pikafish';
+import { PIKA_LEVELS } from './pikalevel';
 import { MOVE_LABEL, labelOf, reviewMove, type Judged, type MoveLabel } from './analysis';
 import { GameAnalysis } from './gamescore';
 import { AI_LEVEL_RATING, LADDER, getPlay, recentGameAccuracy, recordPlay, suggestLevel } from './save';
@@ -92,25 +93,29 @@ const TEMPOS = [
 /**
  * 难度档。
  *
- * **不再用"算 N 层"做卖点。**
- * 重写评估函数之后出现一件反直觉的事：新评估每秒算的节点少了四成，
- * 同样时间只能搜到更浅的层数，但真打一场是 3 胜 0 负 9 和——它更强。
- * 层数和棋力根本不是一回事，拿层数当宣传语既不准也没意义，
- * 所以改成描述"它下起来是什么样"。
+ * **七档都用皮卡鱼走棋。** 原来前五档是自带引擎加扰动，和顶两档（皮卡鱼）之间断了一大截，
+ * 用户原话："只有最后两档有难度"。现在每一档都是皮卡鱼，按档位削弱：
+ * 算多少个节点（和设备快慢无关）+ 从前几名里挑的认真程度，见 pikalevel.ts。
  *
- * 时间也整体砍短了：原来顶档每步 14 秒，等得人想关掉。
- * 评估变强之后，同样的钱能买到更多棋力，没必要再用时间硬堆。
+ * 描述只说"它下起来是什么样"，不拿层数当卖点——层数和棋力不是一回事。
+ * 每一档值多少分是对下实测的（save.ts 的 AI_LEVEL_RATING）。
  */
 const LEVELS = [
-  { id: 0, name: '入门', desc: '刚学会走子，常看走眼', depth: 64, jitter: 200, timeMs: 200 },
-  { id: 1, name: '初级', desc: '会吃明显的子，不太会算', depth: 64, jitter: 90, timeMs: 400 },
-  { id: 2, name: '中级', desc: '有基本战术，抓得住你的漏着', depth: 64, jitter: 25, timeMs: 900 },
-  { id: 3, name: '高级', desc: '不送子，会抓你的弱点', depth: 64, jitter: 0, timeMs: 1800 },
-  { id: 4, name: '大师', desc: '抓杀抓子，很难占到他便宜', depth: 64, jitter: 0, timeMs: 2800 },
-  // 顶两档换专业引擎（Pikafish 皮卡鱼）。浏览器跑不了时退回自家引擎，时间照旧
-  { id: 5, name: '特级大师', desc: '皮卡鱼引擎，每步 1.5 秒，职业棋手的水准', depth: 64, jitter: 0, timeMs: 4500, proMs: 1500 },
-  { id: 6, name: '棋王', desc: '皮卡鱼引擎全力，每步 5 秒，几乎不犯错', depth: 64, jitter: 0, timeMs: 6500, proMs: 5000 },
+  // 七档都是皮卡鱼（按档位削弱，见 pikalevel.ts）。depth / jitter / timeMs 只在皮卡鱼起不来时给自带引擎替补用
+  { id: 0, name: '入门', desc: '算得很浅，常走次好的棋，隔几步就看走眼', depth: 64, jitter: 200, timeMs: 200 },
+  { id: 1, name: '初级', desc: '看得见一两步的吃子，松着不少', depth: 64, jitter: 90, timeMs: 400 },
+  { id: 2, name: '中级', desc: '明显的战术不漏，局面上常走软', depth: 64, jitter: 25, timeMs: 900 },
+  { id: 3, name: '高级', desc: '不太送子，会抓你的漏着', depth: 64, jitter: 0, timeMs: 1800 },
+  { id: 4, name: '大师', desc: '很少犯错，抓杀抓子', depth: 64, jitter: 0, timeMs: 2800 },
+  { id: 5, name: '特级大师', desc: '皮卡鱼算得很深，几乎只走最好的几步', depth: 64, jitter: 0, timeMs: 4500 },
+  { id: 6, name: '棋王', desc: '皮卡鱼全力，每步想 3 秒，几乎不犯错', depth: 64, jitter: 0, timeMs: 6500 },
 ];
+
+/** 皮卡鱼还在加载就等它，最多等这么久；等不到返回 false，由自带引擎替补 */
+function waitEngine(ms = 15000): Promise<boolean> {
+  if (engineReady()) return Promise.resolve(true);
+  return Promise.race([loadEngine(), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
+}
 
 export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void): () => void {
   const wrap = document.createElement('div');
@@ -224,16 +229,16 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   /** 打开学棋模块（测评 / 课程 / 题库都在里面），直接落到对应的那一屏 */
   function openCoach(entry: CoachEntry) {
     clearAll();
-    disposeCoach = runCoach(wrap, showHome, (strip, depth, onFinish) => {
+    disposeCoach = runCoach(wrap, showHome, (strip, lvIdx, onFinish) => {
       // 让子定级的对局交回对弈流程：那边已经有完整的棋盘、复盘和结算
       disposeCoach?.();
       disposeCoach = null;
-      const lv = Math.max(0, Math.min(LEVELS.length - 1, depth >= 14 ? 4 : depth >= 10 ? 3 : 2));
+      const lv = Math.max(0, Math.min(LEVELS.length - 1, lvIdx));
       startGame(
         lv,
         CHARACTERS[Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length],
         Number(localStorage.getItem('xq-tempo') ?? 1),
-        { strip, depth, onFinish },
+        { strip, lv, onFinish },
       );
     }, entry, (moves, meColor, level) => {
       disposeCoach?.();
@@ -396,7 +401,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         card.innerHTML = `<div class="title" style="justify-content:center">${L.name}${
           L.id === rec ? '<span class="tag warn">推荐</span>' : ''
         }</div>
-          <div class="desc" style="text-align:center">${L.desc}</div>`;
+          <div class="desc" style="text-align:center">${L.desc}<br><span class="dim">约 ${AI_LEVEL_RATING[L.id]} 分</span></div>`;
         card.onclick = () => {
           level = L.id;
           sfxTap();
@@ -411,7 +416,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       if (!engineCapable()) {
         const n = document.createElement('div');
         n.className = 'xq-note';
-        n.textContent = '这个浏览器跑不了专业引擎（需要较新的 Chrome / Safari / Edge），教练和顶两档会用自带引擎，弱一些。';
+        n.textContent = '这个浏览器跑不了皮卡鱼（需要较新的 Chrome / Safari / Edge）：对手和教练都会用自带引擎，弱不少，这样下的棋不计入实战分。';
         s.appendChild(n);
       }
 
@@ -549,14 +554,14 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
   // ============ 对局 ============
   /**
-   * @param handicap 让子局：对手（黑方）少几个马，以及固定的搜索深度；
+   * @param handicap 让子局：对手少几个马、对手是哪一档；
    *                 下完把胜负回给 onFinish，由定级阶梯决定升降档
    */
   function startGame(
     level: number,
     rival: Character,
     tempoIdx = 1,
-    handicap?: { strip: number; depth: number; onFinish: (won: boolean) => void },
+    handicap?: { strip: number; lv: number; onFinish: (won: boolean) => void },
     /** 你执哪一方。不传默认执红 */
     myColor: Color = 'r',
     /**
@@ -662,6 +667,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     let ending: GameEnd | null = null;
     /** 对手上一步是哪个引擎走的（测试用：顶两档要确认真的换成了专业引擎） */
     let lastAiEngine: 'pro' | 'local' | null = null;
+    /** 这盘有没有哪一步是自带引擎替补走的（皮卡鱼没起来）：那样的棋不计入实战分 */
+    let aiFellBack = false;
     /** 这一盘的逐手评分。棋一结束就在后台开算，结算页和复盘都读它 */
     let gameAnalysis: GameAnalysis | null = null;
     /** 对局中你每一手的即时称号（来自教练的研究），棋谱条上标出来 */
@@ -750,8 +757,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       renderCoachLine();
       // 算到有定论（够深）就可以说——全力档可能要算几分钟才"算完"，不能等到那时候
       if (s.settled && !lostSaid && hintLevel > 0) {
-        // 入门到中级的对手会看走眼（搜索带扰动），高级以上不会
-        const t = lostNotice(board, s.moves, !handicap && L.jitter === 0);
+        // 前几档的对手会看走眼（从前几名里随机挑、算得浅），大师以上基本不会
+        const t = lostNotice(board, s.moves, (handicap?.lv ?? level) >= 4);
         if (t) {
           lostSaid = true;
           showLostNotice(t);
@@ -1684,25 +1691,30 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         const t0 = performance.now();
         const wait = TEMPO.think ? TEMPO.think * (0.75 + Math.random() * 0.5) : 0;
         const avoid = aiAvoid();
-        const local = () =>
-          requestMove(board, foe, {
-            maxDepth: handicap?.depth ?? L.depth,
-            jitter: handicap ? 0 : L.jitter,
-            timeMs: handicap ? 2000 : L.timeMs,
-            avoid,
-          });
-        const proMs = !handicap && 'proMs' in L ? (L.proMs as number) : 0;
+        // 皮卡鱼起不来时的替补：自带引擎，按原来各档的参数
+        const local = () => {
+          lastAiEngine = 'local';
+          aiFellBack = true;
+          return requestMove(board, foe, { maxDepth: L.depth, jitter: L.jitter, timeMs: L.timeMs, avoid });
+        };
+        const cfg = PIKA_LEVELS[Math.max(0, Math.min(PIKA_LEVELS.length - 1, handicap?.lv ?? level))];
         // 邪门布局陪练：局面还在某一条套路上，就按套路走
         const trickNext = tricky ? trickMoveFor(moveLog, foe, trickPick) : null;
         if (trickNext) trickPick = trickNext.trick.id;
+        // 各档对手一律是皮卡鱼（按档位削弱）。还在加载就等它，别一上来就换成弱的
         const pick: Promise<Move | null> = trickNext
           ? Promise.resolve(trickNext.move)
-          : proMs && engineReady()
-            ? engineBestMove(board, foe, proMs, { startFen: startKey, moves: moveLog.slice() }, avoid).then((m) => {
-                lastAiEngine = m ? 'pro' : 'local';
-                return m ?? local();
-              })
-            : ((lastAiEngine = 'local'), local());
+          : engineCapable() && !engineLost()
+            ? waitEngine().then((ok) =>
+                ok
+                  ? engineLevelMove(board, foe, cfg, { startFen: startKey, moves: moveLog.slice() }, avoid).then((m) => {
+                      if (!m) return local();
+                      lastAiEngine = 'pro';
+                      return m;
+                    })
+                  : local(),
+              )
+            : local();
         pick.then((m) => {
           if (over || myTurn !== aiSeq) return; // 期间悔棋/重开了，丢弃这次结果
           const rest = Math.max(0, wait - (performance.now() - t0));
@@ -1844,8 +1856,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     function notePlay(result: 'win' | 'loss' | 'draw', end: GameEnd): string {
       if (practice) return '';
       if (moveLog.length < 10 && end.reason !== 'mate') return '这盘下得太短，不算进实战分。';
+      // 对手的分是按皮卡鱼各档测出来的；替补的自带引擎弱得多，算进去会把实战分抬高
+      if (aiFellBack) return '这盘皮卡鱼没加载起来，对手是自带引擎替补的，不算进实战分。';
       const opp = handicap
-        ? LADDER.find((r) => r.strip === handicap.strip && r.depth === handicap.depth)?.approx ?? AI_LEVEL_RATING[level] ?? 1200
+        ? LADDER.find((r) => r.strip === handicap.strip && r.lv === handicap.lv)?.approx ?? AI_LEVEL_RATING[level] ?? 1200
         : AI_LEVEL_RATING[Math.max(0, Math.min(AI_LEVEL_RATING.length - 1, level))];
       const base = [1, 0.8, 0.6, 0.5][maxHint] ?? 0.5;
       const w = Math.max(0.2, base - 0.1 * hintsUsed);

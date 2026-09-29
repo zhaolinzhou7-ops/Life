@@ -68,9 +68,11 @@ describe('实战分', () => {
   });
 
   it('推荐的对手在实战分附近', () => {
-    expect(AI_LEVEL_NAMES[suggestLevel(1150)]).toBe('中级');
-    expect(AI_LEVEL_NAMES[suggestLevel(800)]).toBe('入门');
-    expect(suggestLevel(1450)).toBe(DAMEI);
+    // 实战分正好等于某一档：就推荐那一档（赢一半输一半最涨棋）
+    AI_LEVEL_RATING.forEach((r, i) => expect(suggestLevel(r), AI_LEVEL_NAMES[i]).toBe(i));
+    expect(AI_LEVEL_NAMES[suggestLevel(AI_LEVEL_RATING[2] + 60)]).toBe('中级');
+    expect(AI_LEVEL_NAMES[suggestLevel(300)]).toBe('入门');
+    expect(suggestLevel(AI_LEVEL_RATING[DAMEI])).toBe(DAMEI);
   });
 });
 

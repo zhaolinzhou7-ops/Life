@@ -28,6 +28,7 @@
 import type { MoveScore } from './ai';
 import type { Board, Color, Move } from './rules';
 import { applyMove as applyMoveLocal, legalMoves } from './rules';
+import { chooseMove, type Cand, type LevelCfg } from './pikalevel';
 import { toFen } from './notation';
 
 /**
@@ -383,6 +384,8 @@ export interface SearchOpts {
   multipv?: number;
   movetime?: number;
   depth?: number;
+  /** 搜这么多节点就停（对手各档用：棋力不随设备快慢变） */
+  nodes?: number;
   searchmoves?: Move[];
   /** 在哪条车道上算。默认 service */
   lane?: LaneName;
@@ -425,7 +428,7 @@ export function search(opts: SearchOpts, onDepth?: (lines: PvLine[], depth: numb
       resolve(r);
     };
   });
-  const movetime = opts.movetime ?? (opts.depth ? 0 : 1000);
+  const movetime = opts.movetime ?? (opts.depth || opts.nodes ? 0 : 1000);
 
   /** 在车道上跑这一条。返回时引擎已经空下来（交出了 bestmove，或者被掐掉） */
   const run = async (): Promise<void> => {
@@ -516,6 +519,8 @@ export function search(opts: SearchOpts, onDepth?: (lines: PvLine[], depth: numb
         // 拨不了表：让它算到 movetime 自己停（研究是分段算的，一段只有几秒），看门狗照常
       };
       if (movetime) dog = window.setTimeout(hung, movetime + WATCHDOG_MARGIN);
+      // 按节点数搜：节点数定死了，慢手机上 20 万个节点也就几秒；超过这个还没回来就是卡死了
+      else if (opts.nodes) dog = window.setTimeout(hung, 20000 + opts.nodes / 20);
       lane.resume();
       lane.post(`setoption name MultiPV value ${K}`);
       const h = opts.history;
@@ -526,6 +531,7 @@ export function search(opts: SearchOpts, onDepth?: (lines: PvLine[], depth: numb
       );
       const parts = ['go'];
       if (opts.depth) parts.push(`depth ${opts.depth}`);
+      if (opts.nodes) parts.push(`nodes ${opts.nodes}`);
       if (movetime) parts.push(`movetime ${movetime}`);
       if (opts.searchmoves?.length) parts.push(`searchmoves ${opts.searchmoves.map(moveToUci).join(' ')}`);
       lane.post(parts.join(' '));
@@ -582,6 +588,45 @@ export async function engineBestMove(
 }
 
 const sameMv = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
+
+/**
+ * 对手按档位走一手：皮卡鱼搜前几名，再按 pikalevel 的规则挑（弱档会挑次好的、偶尔看走眼）。
+ * 起不来返回 null，调用方用自家引擎。avoid 里的着法（重复、长将）不走。
+ */
+export async function engineLevelMove(
+  board: Board,
+  color: Color,
+  cfg: LevelCfg,
+  history?: { startFen: string; moves: Move[] },
+  avoid: Move[] = [],
+  rand: () => number = Math.random,
+): Promise<Move | null> {
+  if (!engineReady()) return null;
+  const legal = legalMoves(board, color);
+  const key = (m: Move) => `${m.fx},${m.fy},${m.tx},${m.ty}`;
+  const banned = new Set(avoid.map(key));
+  const allowed = legal.filter((m) => !banned.has(key(m)));
+  const r = await search({
+    board,
+    color,
+    history,
+    multipv: cfg.multipv,
+    nodes: cfg.nodes,
+    movetime: cfg.nodes ? undefined : cfg.movetime,
+    searchmoves: allowed.length && allowed.length < legal.length ? allowed : undefined,
+  }).promise;
+  if (r.failed && !r.lines.length) return null;
+  const legalKeys = new Set(legal.map(key));
+  const cands: Cand[] = [];
+  for (const l of r.lines) {
+    const m = pvToMoves(l.pv)[0];
+    if (!m || !legalKeys.has(key(m)) || cands.some((c) => sameMv(c.move, m))) continue;
+    cands.push({ move: m, score: l.score, mateIn: l.mateIn });
+  }
+  cands.sort((a, b) => b.score - a.score);
+  const m = chooseMove(cands, cfg, rand) ?? r.bestmove;
+  return m && legalKeys.has(key(m)) ? m : null;
+}
 
 /** 精确算一手（服务车道）。算不出来返回 null */
 export async function engineScoreMove(

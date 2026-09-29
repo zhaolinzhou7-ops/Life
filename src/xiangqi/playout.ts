@@ -10,12 +10,14 @@
  *     算到杀就说几步杀；
  *   - **每一手都有反馈**：按这一局的目标判——把赢棋走成和棋、一步让对方有杀，当场说，可以悔棋重走；
  *   - **🔍 提示**：不只给一手棋，给出计划（接下来几步怎么走、每一步为了什么）；
- *   - **对手可以换**：你进攻时默认由专业引擎来守（最顽强的防守才练得出技术）；
- *     你防守时默认由自带引擎来攻——这一类题的"能守和"是按它校准的，换成专业引擎来攻，
- *     书上本来就是胜局的（比如车炮对士象全）就守不住了。两种都可以随时切换；
- *   - **结束有小结**：走了几手、几手是最佳、在哪儿走软的。
+ *   - **对手一律是皮卡鱼全力**：进攻时它守得最顽强，防守时它攻得最狠。残局库的胜和本来就是
+ *     皮卡鱼两边下到底判出来的，对手和判定是同一把尺子。只有皮卡鱼在这台设备上起不来，
+ *     才用自带引擎顶上，并且当场说出来；
+ *   - **结束有小结**：走了几手、几手是最佳、在哪儿走软的；结果当场记下（不用点"再来一次"才记）。
  *
  * 判定规则和实战一致：将死判负、60 回合无吃子判和、三次重复判和。
+ * 要赢的局面必须下到将死；给了 winAt（邪门布局的"破解到底"）的，引擎连续几步确认胜势已定也算过，
+ * 可以选择接着下到将死。
  */
 import { applyMove, isInCheck, legalMoves, statusAfter, type Board, type Color, type Move } from './rules';
 import type { MoveScore } from './ai';
@@ -24,6 +26,11 @@ import { Board2D, type Mark } from './board2d';
 import { requestMove } from './aiclient';
 import { Study } from './study';
 import { engineBestMove, engineCapable, engineReady, loadEngine } from './pikafish';
+
+/** 等一个 Promise，最多等 ms；超时当它失败 */
+function within(p: Promise<boolean>, ms: number): Promise<boolean> {
+  return Promise.race([p, new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
+}
 import { classifyEndgame, drillVerdict, type DrillVerdict } from './endgame';
 import { outlookOf, planHtml, planOf } from './plan';
 import { moveAccuracy, winPct } from './analysis';
@@ -41,31 +48,40 @@ export interface PlayoutOpts {
   tips: string[];
   /** 棋书上这一类残局的结论（只显示） */
   book?: string;
-  /** 自带引擎当对手时的强度 */
+  /** 自带引擎当对手时的强度（只在皮卡鱼起不来时用） */
   depth?: number;
   timeMs?: number;
-  onDone: (r: PlayResult, moves: number) => void;
+  /**
+   * 胜势判定：引擎连续几步都看到你领先这么多（或者已经算到杀），就算你赢了，
+   * 可以接着下到将死，也可以就此收工。不给 = 只认将死（残局练习就是要下到将死）。
+   */
+  winAt?: number;
+  /** 顶上那一行目标的说法（不给就按 target 说） */
+  goal?: string;
+  onDone: (r: PlayResult, moves: number, stats: PlayStats) => void;
   onExit: () => void;
   /** 重新开始同一个局面 */
   onRestart?: () => void;
 }
 
+/** 这一局你是怎么下下来的：做题要据此判"自己做出来的"还是"靠提示/悔棋做出来的" */
+export interface PlayStats {
+  hints: number;
+  undos: number;
+  /** 让结果变了的几手（悔掉的不算） */
+  bad: number;
+  /** 胜势判定收的工（没真的将死） */
+  adjudicated: boolean;
+}
+
 /** 60 回合无吃子判和 */
 const NO_CAPTURE_LIMIT = 120;
-/** 专业引擎当对手时每步想多久 */
+/** 皮卡鱼当对手时每步想多久 */
 const PRO_OPP_MS = 1000;
-const OPP_KEY = 'xq-po-opp';
+/** 等皮卡鱼加载最多等这么久，再不好就用自带引擎顶上 */
+const LOAD_WAIT_MS = 20000;
 
 type Opp = 'pro' | 'local';
-
-function savedOpp(): Opp | null {
-  try {
-    const v = localStorage.getItem(OPP_KEY);
-    return v === 'pro' || v === 'local' ? v : null;
-  } catch {
-    return null;
-  }
-}
 
 const same = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
 
@@ -86,9 +102,14 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
   const foe: Color = me === 'r' ? 'b' : 'r';
   const startFen = toFen(parsed.board, parsed.toMove);
   const info = classifyEndgame(board, me);
-  const iAttack = info?.attacker === me;
-  // 你进攻：专业引擎来守（最顽强）；你防守：自带引擎来攻（这类题按它校准）
-  let opp: Opp = savedOpp() ?? (iAttack ? 'pro' : 'local');
+  // 对手一律是皮卡鱼（残局库的胜和也是皮卡鱼两边下到底判出来的）。
+  // 只有皮卡鱼在这台设备上起不来，才用自带引擎顶上，并且如实说出来
+  let opp: Opp = engineCapable() ? 'pro' : 'local';
+  const engineUp = engineCapable() ? within(loadEngine(), LOAD_WAIT_MS) : Promise.resolve(false);
+  let undos = 0;
+  /** 胜势判定收工之后又选了"接着下到将死" */
+  let playOn = false;
+  let adjudicated = false;
 
   let selected: { x: number; y: number } | null = null;
   let busy = false;
@@ -118,9 +139,9 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
       <button class="xq-btn" id="xq-po-undo">悔棋</button>
     </div>
     <div class="xq-po-goal">${
-      opts.target === 'win' ? '🎯 你必须<b>赢下来</b>' : '🛡 你只要<b>守和</b>就算过'
+      opts.goal ?? (opts.target === 'win' ? '🎯 你必须<b>下到将死</b>' : '🛡 你只要<b>守和</b>就算过')
     }　<span class="xq-po-cnt"></span>
-      <button class="xq-po-opp" title="换对手">对手：<b></b> ⇄</button></div>
+      <span class="xq-po-opp">对手：<b></b></span></div>
     <div class="xq-po-coach">🧑‍🏫 教练在看…</div>
     <div class="xq-po-board"></div>
     <div class="xq-po-fb"></div>
@@ -138,7 +159,7 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
   const elCnt = wrap.querySelector('.xq-po-cnt') as HTMLElement;
   const elCoach = wrap.querySelector('.xq-po-coach') as HTMLElement;
   const elFb = wrap.querySelector('.xq-po-fb') as HTMLElement;
-  const elOpp = wrap.querySelector('.xq-po-opp') as HTMLButtonElement;
+  const elOpp = wrap.querySelector('.xq-po-opp') as HTMLElement;
   const elHint = wrap.querySelector('#xq-po-hint') as HTMLButtonElement;
 
   const view = new Board2D(elBoard, { flip: me === 'b', onTap: (x, y) => onTap(x, y) });
@@ -174,30 +195,16 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
   elHint.onclick = () => toggleHint();
 
   const renderOpp = () => {
-    (elOpp.querySelector('b') as HTMLElement).textContent = opp === 'pro' ? '专业引擎' : '自带引擎';
-    elOpp.title =
-      opp === 'pro'
-        ? '现在是专业引擎（最顽强）。点一下换成自带引擎'
-        : '现在是自带引擎（这组残局按它校准）。点一下换成专业引擎';
-  };
-  elOpp.onclick = () => {
-    opp = opp === 'pro' ? 'local' : 'pro';
-    try {
-      localStorage.setItem(OPP_KEY, opp);
-    } catch {
-      /* 存不下就只在这一局生效 */
-    }
-    renderOpp();
-    showFb(
-      opp === 'pro'
-        ? '对手换成专业引擎：下一步起它来走，最顽强的应对。'
-        : '对手换成自带引擎：这组残局的"能赢/能守和"是按它校准的。',
-      'info',
-    );
+    (elOpp.querySelector('b') as HTMLElement).textContent = opp === 'pro' ? '皮卡鱼' : '自带引擎';
+    elOpp.title = opp === 'pro' ? '皮卡鱼全力应对，最顽强' : '皮卡鱼在这台设备上起不来，先用自带引擎顶上';
   };
   renderOpp();
-  if (!engineCapable()) elOpp.hidden = true;
-  void loadEngine();
+  void engineUp.then((ok) => {
+    if (ok || opp === 'local') return;
+    opp = 'local';
+    renderOpp();
+    showFb('皮卡鱼没加载起来（多半是网络或内存），这一局先用自带引擎当对手——它弱一些，赢了别太当真。', 'info');
+  });
 
   const myLegal = () => legalMoves(board, me).filter((m) => !isInCheck(applyMove(board, m), me));
 
@@ -225,6 +232,30 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
     drawStreak = deadDraw(b) ? drawStreak + 1 : 0;
     if (drawStreak >= DRAW_STREAK) {
       finish('draw', `引擎判定已经是和棋（连续 ${DRAW_STREAK} 步都没有进展），不用再走满 60 回合`);
+    }
+  }
+
+  // ───────── 胜势判定（只在给了 winAt 时）：引擎连续几步都确认赢定了 ─────────
+
+  let winStreak = 0;
+  let winFen = '';
+  const WIN_STREAK = 3;
+
+  function watchWin(s: Study) {
+    if (!opts.winAt || playOn || opts.target !== 'win') return;
+    const b = s.moves[0];
+    if (!b || !deepEnough(s) || winFen === s.fen) return;
+    winFen = s.fen;
+    const won = (b.mateIn !== undefined && b.mateIn > 0) || (b.mateIn === undefined && b.score >= opts.winAt);
+    winStreak = won ? winStreak + 1 : 0;
+    if (winStreak >= WIN_STREAK) {
+      adjudicated = true;
+      finish(
+        'win',
+        b.mateIn !== undefined && b.mateIn > 0
+          ? `引擎已经算到 ${b.mateIn} 步杀`
+          : `引擎连续 ${WIN_STREAK} 步确认胜势已定（${outlookOf(b.score, b.mateIn)}）`,
+      );
     }
   }
 
@@ -292,10 +323,10 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
     const s = study && study.is(board, me) ? study : null;
     if (turn !== me || !s) {
       elCoach.className = 'xq-po-coach';
-      elCoach.textContent = turn === foe ? `🧑‍🏫 对手在想…（${opp === 'pro' ? '专业引擎' : '自带引擎'}）` : '🧑‍🏫 教练在看…';
+      elCoach.textContent = turn === foe ? `🧑‍🏫 对手在想…（${opp === 'pro' ? '皮卡鱼' : '自带引擎'}）` : '🧑‍🏫 教练在看…';
       return;
     }
-    const who = s.engine === 'pro' ? '专业引擎' : '自带引擎';
+    const who = s.engine === 'pro' ? '皮卡鱼' : '自带引擎';
     const b = s.moves[0];
     if (!b) {
       elCoach.className = 'xq-po-coach';
@@ -307,6 +338,7 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
     elCoach.textContent = `🧑‍🏫 ${w.text} · 已算 ${s.depth} 层${s.done ? '' : '…'} · ${who}`;
     if (hintOpen) renderHint();
     watchDraw(s);
+    watchWin(s);
   }
 
   // ───────── 提示：最好的一手 + 计划 ─────────
@@ -456,6 +488,9 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
   }
 
   async function pickOpp(my: number): Promise<Move | null> {
+    // 皮卡鱼还在加载：等它（最多 LOAD_WAIT_MS），不要一上来就换成弱的
+    if (opp === 'pro' && !engineReady()) await engineUp;
+    if (my !== seq) return null;
     if (opp === 'pro' && engineReady()) {
       const m = await engineBestMove(board, foe, PRO_OPP_MS, { startFen, moves: moves.slice() });
       if (my !== seq) return null;
@@ -517,6 +552,9 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
     busy = false;
     seq++;
     undoSeq++;
+    undos++;
+    winStreak = 0;
+    drawStreak = 0;
     for (const k of [...marks.keys()]) if (k >= moves.length) marks.delete(k);
     selected = null;
     myMoves = Math.max(0, myMoves - 1);
@@ -554,28 +592,60 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
     elCoach.textContent = '🧑‍🏫 这一局结束了';
     const pass = r === 'win' || (r === 'draw' && opts.target === 'draw');
     const label =
-      r === 'win' ? '赢了' : r === 'loss' ? '输了' : opts.target === 'draw' ? '守和成功' : '走成和棋了';
+      r === 'win'
+        ? adjudicated && !playOn
+          ? '胜势已定'
+          : '赢了'
+        : r === 'loss'
+          ? '输了'
+          : opts.target === 'draw'
+            ? '守和成功'
+            : '走成和棋了';
     const sum = summary();
+    const stats: PlayStats = {
+      hints: hintsUsed,
+      undos,
+      bad: [...marks.values()].filter((x) => x.v.bad).length,
+      adjudicated: adjudicated && !playOn,
+    };
+    // 结果当场记下来。原来要点"再来一次"才记，点"下一个"就白下了
+    opts.onDone(r, myMoves, stats);
+    const clean = !stats.hints && !stats.undos;
     elBar.innerHTML = `
       <div class="xq-po-result ${pass ? 'ok' : 'no'}">
         <b>${pass ? '✅' : '❌'} ${label}</b>
         <span>${reason ? reason + '　' : ''}${
           pass
             ? opts.target === 'win'
-              ? '优势兑现了，这一局过了。'
+              ? stats.adjudicated
+                ? '优势已经稳了。想练收官就接着下到将死。'
+                : '优势兑现了，这一局过了。'
               : '守住了，这就是这一局要练的。'
             : opts.target === 'win'
-              ? '多子没赢下来——残局最可惜的就是这种。再来一次。'
+              ? '多子没赢下来——最可惜的就是这种。再来一次。'
               : '没守住。看看要领，再试。'
-        }</span>
+        }${pass && !clean ? '（用了提示或悔棋，这次不算"独立完成"）' : ''}</span>
         ${sum ? `<span class="xq-po-sum">${sum}</span>` : ''}
       </div>
       <div class="xq-po-btns">
-        <button class="xq-btn primary" id="xq-po-again">再来一次</button>
+        ${stats.adjudicated ? '<button class="xq-btn primary" id="xq-po-on">接着下到将死</button>' : ''}
+        <button class="xq-btn${stats.adjudicated ? '' : ' primary'}" id="xq-po-again">再来一次</button>
         <button class="xq-btn" id="xq-po-next">${pass ? '下一个 →' : '换一个'}</button>
       </div>`;
-    (elBar.querySelector('#xq-po-again') as HTMLButtonElement).onclick = () => opts.onDone(r, myMoves);
+    (elBar.querySelector('#xq-po-again') as HTMLButtonElement).onclick = () => opts.onRestart?.();
     (elBar.querySelector('#xq-po-next') as HTMLButtonElement).onclick = () => opts.onExit();
+    const on = elBar.querySelector('#xq-po-on') as HTMLButtonElement | null;
+    if (on) on.onclick = () => resume();
+  }
+
+  /** 胜势判定收了工，你想接着下到将死：局面原样继续，不再判胜势 */
+  function resume() {
+    playOn = true;
+    over = false;
+    elActs.hidden = false;
+    elBar.innerHTML = '';
+    showFb('接着下：把它将死。', 'info');
+    step();
   }
 
   /** 切到后台：研究暂停，回来接着算 */

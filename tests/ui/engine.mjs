@@ -107,6 +107,16 @@ ok('棋王档对手在合理时间内回了一手', await until(p2, () => window
 ok('棋王档对手用的是专业引擎', (await p2.evaluate(() => window.__xq.aiEngine())) === 'pro');
 await p2.close();
 
+// ── 最低档也是皮卡鱼（按档位削弱），不再是自带引擎 ──
+const p3 = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+p3.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
+await openGame(p3, '入门');
+await until(p3, () => window.__xq.engine() === 'pro', null, 15000);
+await p3.evaluate(() => window.__xq.play({ fx: 7, fy: 7, tx: 4, ty: 7 }));
+ok('入门档对手回了一手', await until(p3, () => window.__xq.moves().length >= 2, null, 20000));
+ok('入门档对手用的也是皮卡鱼', (await p3.evaluate(() => window.__xq.aiEngine())) === 'pro');
+await p3.close();
+
 await browser.close();
 console.log('\n===== 失败项 =====\n' + (errs.length ? errs.join('\n') : '无'));
 process.exit(errs.length ? 1 : 0);
