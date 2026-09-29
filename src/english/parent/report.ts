@@ -13,9 +13,9 @@
 
 import { aiAssessment } from '../ai';
 import { currentWeaknesses } from '../plan';
-import { dailyMinutes } from '../session';
+import { dailyMinutes, noteSafety } from '../session';
 import { masteredWords } from '../engine/review';
-import { getWord } from '../data/vocab';
+import { getWord, themeLabel, themeLabelEn } from '../data/vocab';
 import { dayKey } from '../engine/util';
 import type { Ctx } from '../ui';
 import { btn, card, el, page, topbar } from '../ui';
@@ -89,6 +89,23 @@ export function renderReport(ctx: Ctx, onBack: () => void): HTMLElement {
       root.appendChild(cs);
 
       const ca = card('下周建议');
+      // §18 的格式：「建议：下周继续强化 Colors + Animals」。
+      // 主题由本地规则算（见 engine/weakness.ts focusThemes），和下周任务的实际倾斜一致
+      if (rep.focus?.length) {
+        const f = el(
+          'p',
+          'en-focus',
+          `下周继续强化：${rep.focus.map((x) => `${themeLabel(x.theme)} ${themeLabelEn(x.theme)}`).join(' + ')}`,
+        );
+        f.style.fontWeight = '600';
+        f.style.color = 'var(--ink)';
+        ca.appendChild(f);
+        const why = el('p');
+        why.style.fontSize = '12.5px';
+        why.style.color = 'var(--ink-3)';
+        why.textContent = rep.focus.map((x) => `${themeLabel(x.theme)}：${x.reason}`).join('；') + '。';
+        ca.appendChild(why);
+      }
       const ul = el('ul');
       ul.style.margin = '6px 0';
       ul.style.paddingLeft = '18px';
@@ -107,7 +124,10 @@ export function renderReport(ctx: Ctx, onBack: () => void): HTMLElement {
       ca.appendChild(t);
       root.appendChild(ca);
 
-      if (r.fallbackNote) {
+      if (r.safetyNote) {
+        noteSafety(data, 'report', r.safetyNote);
+        root.appendChild(el('div', 'en-notice warn', r.safetyNote));
+      } else if (r.fallbackNote) {
         const n = el('div', 'en-notice warn', r.fallbackNote);
         root.appendChild(n);
       } else if (r.engine === 'mock') {

@@ -195,7 +195,7 @@ export function scoreAssessment(age: number, items: AssessItem[], answers: Asses
   }
   if (bucket.say.max) {
     if (bucket.say.skipped >= Math.ceil(bucket.say.max / 2)) {
-      lines.push('跟读环节大多没有开口。这很常见，接下来会从"听 + 指"开始，不急着让他说。');
+      lines.push('跟读环节大多没有开口。这很常见，接下来会从"听 + 指"开始，不急着让孩子说。');
     } else {
       lines.push(say >= 0.7 ? '愿意跟读，而且说得清楚。' : '愿意开口，发音还在模仿阶段。');
     }

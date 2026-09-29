@@ -552,6 +552,10 @@ export function themeLabel(id: ThemeId): string {
   return THEMES.find((t) => t.id === id)?.labelZh ?? id;
 }
 
+export function themeLabelEn(id: ThemeId): string {
+  return THEMES.find((t) => t.id === id)?.label ?? id;
+}
+
 // ———————————————— 英语语法拼装 ————————————————
 //
 // 界面上不少句子是拼出来的（"Where is the ___?"、"Tom sees a ___."）。

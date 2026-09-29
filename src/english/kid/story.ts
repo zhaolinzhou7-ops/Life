@@ -20,7 +20,7 @@ import { PRAISE, pick } from '../data/phrases';
 import { LEVEL_INFO } from '../engine/profile';
 import { cancelSpeech } from '../speech/tts';
 import { aiStory } from '../ai';
-import { commitActivity, type ActivityDraft } from '../session';
+import { commitActivity, noteSafety, type ActivityDraft } from '../session';
 import type { Ctx } from '../ui';
 import { btn, dots, el, highlight, page, topbar } from '../ui';
 import { micControl, optionGrid, say, speaker, type MicHandle } from './parts';
@@ -137,6 +137,7 @@ export function renderStory(ctx: Ctx, opt: StoryOptions): HTMLElement {
     })
       .then((r) => {
         busy = false;
+        if (r.safetyNote) noteSafety(ctx.data, 'story', r.safetyNote);
         story = r.data;
         renderCover();
       })
@@ -275,6 +276,7 @@ export function renderStory(ctx: Ctx, opt: StoryOptions): HTMLElement {
     finished = true;
     cleanup();
     draft.storyId = story?.id;
+    draft.storyTitle = story?.title;
     const s = commitActivity(ctx.data, opt.session, draft, opt.mission);
     ctx.save();
 

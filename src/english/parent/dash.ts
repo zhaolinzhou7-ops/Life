@@ -8,7 +8,7 @@
  *    然后家长会问「为什么听力只有 62 分」，而那个数字本来就不该被这样读
  *
  * 四个标签页对应家长真正会问的四个问题：
- *   今天学了吗 / 他现在什么水平 / 哪里不行 / 到底会了哪些词
+ *   今天学了吗 / 孩子现在什么水平 / 哪里不行 / 到底会了哪些词
  */
 
 import type { ChildProfile, WordMemory } from '../types';
@@ -16,7 +16,8 @@ import { getWord, themeLabel } from '../data/vocab';
 import { SKILLS, describeParticipation, describeSkill, LEVEL_INFO } from '../engine/profile';
 import { masteredWords, retentionBand, riskOf } from '../engine/review';
 import { currentWeaknesses, ensureMission } from '../plan';
-import { dailyMinutes, minutesToday, studiedToday } from '../session';
+import { dailyMinutes, minutesToday, storyHistory, studiedToday } from '../session';
+import { STORIES, getStory } from '../data/stories';
 import { dayKey, dayBefore } from '../engine/util';
 import type { Ctx } from '../ui';
 import { btn, card, el, empty, page, skillBar, topbar } from '../ui';
@@ -108,6 +109,36 @@ export function renderDash(ctx: Ctx, act: DashActions): HTMLElement {
     const todayMin = minutesToday(data, today);
     const startedToday = studiedToday(data, today);
 
+    // 安全提醒放最上面：这是家长最需要第一时间知道的，也是最少发生的
+    const log = (data.safetyLog ?? []).slice(-5).reverse();
+    if (log.length) {
+      const cs = card('安全提醒');
+      const intro = el('p');
+      intro.style.fontSize = '12.5px';
+      intro.textContent =
+        'AI 说了不合适的话，会在到达孩子之前被换掉，孩子看不到也听不到原话；孩子自己说出电话、地址这类信息时，系统不记录、不追问，直接换话题。这里只留说明，不留原话。';
+      cs.appendChild(intro);
+      for (const e of log) {
+        const box = el('div', 'en-weak');
+        const when = new Date(e.at);
+        const where = e.where === 'talk' ? '对话' : e.where === 'story' ? '故事' : '周报';
+        box.appendChild(
+          el('b', undefined, `${when.getMonth() + 1}/${when.getDate()} ${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')} · ${where}`),
+        );
+        box.appendChild(el('div', 'rx', e.note));
+        cs.appendChild(box);
+      }
+      const total = (data.safetyLog ?? []).length;
+      if (total > log.length) {
+        const more = el('p');
+        more.style.fontSize = '12.5px';
+        more.style.color = 'var(--ink-3)';
+        more.textContent = `一共 ${total} 条，这里只列最近 5 条。`;
+        cs.appendChild(more);
+      }
+      body.appendChild(cs);
+    }
+
     const c1 = card('这一周');
     const stats = el('div', 'en-stats');
     const stat = (v: string, l: string) => {
@@ -193,6 +224,43 @@ export function renderDash(ctx: Ctx, act: DashActions): HTMLElement {
       }
     }
     body.appendChild(c3);
+
+    // 故事完成情况（§17）。只列读完了的——故事活动中途退出不提交，所以不会有「读了一半」的条目
+    const reads = storyHistory(data, 30);
+    const c4 = card('故事');
+    if (!reads.length) {
+      c4.appendChild(el('p', undefined, '还没有读完过故事。每天的任务里有一篇，读完会回答一两个小问题。'));
+    } else {
+      const old = dayBefore(today, 7);
+      const week = reads.filter((r) => r.date > old).length;
+      const distinct = new Set(data.readStories.filter((id) => getStory(id))).size;
+      c4.appendChild(
+        el('p', undefined, `最近 7 天读完 ${week} 篇。内置的 ${STORIES.length} 篇故事里，已经读过 ${distinct} 篇。`),
+      );
+      for (const r of reads.slice(0, 5)) {
+        const row = el('div', 'en-switch');
+        const txt = el('div', 'en-switch-txt');
+        txt.appendChild(el('b', undefined, `${r.date.slice(5).replace('-', '/')} · ${r.title}${r.generated ? '（Coco 现编）' : ''}`));
+        const parts: string[] = [];
+        if (r.questions) {
+          parts.push(`${r.questions} 道小问题，第一次就答对 ${r.right} 道`);
+          if (r.close) parts.push(`${r.close} 道说得接近`);
+          if (r.skipped) parts.push(`跳过 ${r.skipped} 道`);
+        } else {
+          parts.push('这篇没有问题');
+        }
+        txt.appendChild(el('span', undefined, parts.join('，')));
+        row.appendChild(txt);
+        row.appendChild(el('div', 'en-trend-lab', '读完'));
+        c4.appendChild(row);
+      }
+      const note = el('p');
+      note.style.fontSize = '12.5px';
+      note.style.color = 'var(--ink-3)';
+      note.textContent = '故事后面的小问题考的是「听懂了没有」。第一次没答对也没关系，孩子会再听一遍、再选一次。';
+      c4.appendChild(note);
+    }
+    body.appendChild(c4);
 
     const go = el('div', 'en-pbtn-row');
     go.appendChild(btn('看本周成长报告', 'en-pbtn primary', act.report));

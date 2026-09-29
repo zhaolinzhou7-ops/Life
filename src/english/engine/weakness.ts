@@ -112,7 +112,7 @@ export function detectWeakness(p: EnglishProfile, mems: WordMemory[], now = Date
   }
   const speakTotal = sig.voluntarySpeak + sig.promptedSpeak;
   if (sig.attempts >= 12 && speakTotal <= sig.attempts * 0.25) {
-    const rx = emptyRx('很少主动开口。跟读环节会先放一遍示范再邀请，答不上来也不追问，别在家里催他说。');
+    const rx = emptyRx('很少主动开口。跟读环节会先放一遍示范再邀请，答不上来也不追问，别在家里催孩子说。');
     rx.lowPressure = true;
     rx.boostSkills = ['speaking'];
     out.push({
@@ -224,4 +224,53 @@ export function mergePrescriptions(ws: Weakness[]): Prescription {
   }
   rx.note = notes.slice(0, 3).join(' ');
   return rx;
+}
+
+export interface FocusTheme {
+  theme: ThemeId;
+  /** 为什么是它。给家长看的一句话，必须指得回数据 */
+  reason: string;
+}
+
+/**
+ * 下周重点主题——周报里那句「建议：下周继续强化 Colors + Animals」（§18）。
+ *
+ * 只从孩子**已经学过、还没掌握**的词里挑。周报说「继续强化」，
+ * 就得是真的正在学的东西；还没开始的主题不在候选里，全掌握了的也不在。
+ *
+ * 排序：被判成薄弱点的主题 > 有反复出错的词 > 错误率 > 没掌握的词数。
+ * 这几项都已经在驱动复习和任务生成，所以这句话不是空头建议——
+ * 下周的任务确实会往这几个主题倾斜。
+ */
+export function focusThemes(mems: WordMemory[], weaknesses: Weakness[], limit = 2): FocusTheme[] {
+  const flagged = new Set(weaknesses.flatMap((w) => w.prescription.boostThemes));
+  const stubborn = new Set(weaknesses.flatMap((w) => w.prescription.focusWordIds));
+  const by = new Map<ThemeId, { open: number; wrong: number; seen: number; stubborn: number }>();
+  for (const m of mems) {
+    if (m.seen <= 0) continue;
+    const w = getWord(m.wordId);
+    if (!w) continue;
+    const t = by.get(w.theme) ?? { open: 0, wrong: 0, seen: 0, stubborn: 0 };
+    t.seen += m.seen;
+    t.wrong += m.wrong;
+    if (!m.mastered) t.open += 1;
+    if (stubborn.has(m.wordId)) t.stubborn += 1;
+    by.set(w.theme, t);
+  }
+
+  const scored: (FocusTheme & { score: number })[] = [];
+  for (const [theme, t] of by) {
+    if (t.open === 0) continue;
+    const rate = t.wrong / Math.max(1, t.seen);
+    const score = (flagged.has(theme) ? 100 : 0) + t.stubborn * 8 + rate * 40 + t.open;
+    const reason = flagged.has(theme)
+      ? `练了 ${t.seen} 次，错了 ${t.wrong} 次，错得比较集中`
+      : t.stubborn
+        ? `有 ${t.stubborn} 个词反复出错`
+        : `还有 ${t.open} 个词没记牢`;
+    scored.push({ theme, reason, score });
+  }
+  // 同分按主题 id 排，保证同一份数据每次给出同一个建议
+  scored.sort((a, b) => b.score - a.score || a.theme.localeCompare(b.theme));
+  return scored.slice(0, limit).map(({ theme, reason }) => ({ theme, reason }));
 }

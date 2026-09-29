@@ -22,6 +22,7 @@ import { INVITE_SPEAK, ON_SKIP, PRAISE, TRANSITION, hintFor, pick } from '../dat
 import { judgeSpeech, normalize, wordSimilar } from '../engine/speech';
 import { describeParticipation, describeSkill } from '../engine/profile';
 import { masteredWords, learningWords } from '../engine/review';
+import { focusThemes } from '../engine/weakness';
 import { rng, shuffle } from '../engine/util';
 import { DEFLECT, checkOutbound, scrubChildInput } from './safety';
 import type {
@@ -320,6 +321,7 @@ export const mockProvider: AiProvider = {
     if (req.minutesThisWeek < 40 && req.sessionsThisWeek > 0) {
       advice.push('每天 10~15 分钟就够，但要尽量每天都有。隔三天学一次，前面学的基本会忘掉。');
     }
+    const focus = focusThemes(req.memories, req.weaknesses);
     if (!advice.length) {
       const themes = new Set(
         mastered.map((m) => getWord(m.wordId)?.theme).filter((t): t is NonNullable<typeof t> => !!t),
@@ -327,10 +329,12 @@ export const mockProvider: AiProvider = {
       advice.push(
         themes.size >= 3
           ? '目前节奏很好，保持每天 10~15 分钟即可。下周会开始加入更长的句子。'
-          : '下周继续强化已经学过的主题，等这些词稳了再铺新的。',
+          : focus.length
+            ? '先把上面这几组词练稳，再铺新的主题，不用急着加量。'
+            : '下周继续强化已经学过的主题，等这些词稳了再铺新的。',
       );
     }
-    advice.push('孩子说错的时候不用纠正发音，让他继续说下去就好——这个阶段愿意开口比说得准更重要。');
+    advice.push('孩子说错的时候不用纠正发音，让孩子继续说下去就好——这个阶段愿意开口比说得准更重要。');
 
     return {
       headline,
@@ -344,6 +348,7 @@ export const mockProvider: AiProvider = {
       listening: describeSkill('listening', p.listening),
       speaking: `${describeSkill('speaking', p.speaking)}${describeParticipation(p.participation)}`,
       advice: advice.slice(0, 3),
+      focus,
     };
   },
 };

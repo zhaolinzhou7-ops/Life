@@ -17,7 +17,7 @@ import type { CoachTurn, DailyMission, MissionStep, Outcome, SessionRecord } fro
 import { aiChat } from '../ai';
 import { recognizerAvailable } from '../speech/recognizer';
 import { cancelSpeech } from '../speech/tts';
-import { commitActivity, type ActivityDraft } from '../session';
+import { commitActivity, noteSafety, type ActivityDraft } from '../session';
 import type { Ctx } from '../ui';
 import { btn, el, page, topbar } from '../ui';
 import { micControl, say, speaker, type MicHandle } from './parts';
@@ -125,6 +125,8 @@ export function renderTalk(ctx: Ctx, opt: TalkOptions): HTMLElement {
         busy = false;
         if (ended) return;
         const reply = r.data;
+        const safety = reply.safetyNote ?? r.safetyNote;
+        if (safety) noteSafety(ctx.data, 'talk', safety);
 
         // 记录这一轮的作答。open 类问题只要开口就算 right，
         // 因为那本来就没有标准答案，要的是「敢说」。

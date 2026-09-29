@@ -29,7 +29,17 @@ import {
 import { newChild } from '../src/english/engine/profile';
 import { buildAssessment, scoreAssessment } from '../src/english/engine/level';
 import { ensureMission, allDone, nextStep, currentWeaknesses } from '../src/english/plan';
-import { commitActivity, finishSession, startSession, dailyMinutes, minutesToday, studiedToday } from '../src/english/session';
+import {
+  commitActivity,
+  finishSession,
+  startSession,
+  dailyMinutes,
+  minutesToday,
+  noteSafety,
+  storyHistory,
+  studiedToday,
+} from '../src/english/session';
+import { detectWeakness, focusThemes } from '../src/english/engine/weakness';
 import { newMemory } from '../src/english/engine/review';
 import { getWord } from '../src/english/data/vocab';
 import { getStory } from '../src/english/data/stories';
@@ -678,5 +688,117 @@ describe('内容续航', () => {
     expect(r.introCount, '自我介绍重复出现').toBe(1);
     expect(r.talkBackToBack, '有连续两天聊同一条链').toBe(0);
     expect(r.talkStarts, `40 天只聊过 ${r.talkStarts} 条不同的链`).toBeGreaterThanOrEqual(5);
+  });
+});
+
+// ════════════════════ 家长端：故事、安全记录、下周重点 ════════════════════
+
+describe('家长端补充信息', () => {
+  it('★ 故事完成情况：读了哪篇、哪天、问答对了几道，重新打开还在', () => {
+    const data = setup();
+    const today = dayKey();
+    const mission = ensureMission(data, today);
+    const story = mission.steps.find((s) => s.kind === 'story')!;
+    expect(story?.storyId).toBeTruthy();
+    let session = startSession(data.profile.id, today);
+
+    const at = Date.now();
+    const built = getStory(story.storyId!)!;
+    session = commitActivity(data, session, {
+      kind: 'story',
+      refId: story.id,
+      title: story.titleZh,
+      learningOutcome: story.learningOutcome,
+      outcomes: [
+        { skill: 'comprehension', result: 'right', hinted: false, stage: 'use', at },
+        { skill: 'comprehension', result: 'wrong', hinted: true, stage: 'use', at },
+        { skill: 'sentence', result: 'close', hinted: false, stage: 'use', at },
+      ],
+      startedAt: at - 90000,
+      storyId: built.id,
+      storyTitle: built.title,
+    }, mission);
+
+    // Coco 现编的故事不在内置库里，标题要靠记录本身带着
+    session = commitActivity(data, session, {
+      kind: 'story',
+      refId: 'extra',
+      title: '故事',
+      learningOutcome: '',
+      outcomes: [{ skill: 'comprehension', result: 'right', hinted: false, stage: 'use', at: at + 5 }],
+      startedAt: at - 60000,
+      storyId: 'st-ai-42',
+      storyTitle: 'The Gateway Tale',
+    });
+
+    const reload = getChildData(data.profile.id)!;
+    const h = storyHistory(reload);
+    expect(h).toHaveLength(2);
+    expect(h[0]).toMatchObject({ title: 'The Gateway Tale', generated: true, questions: 1, right: 1 });
+    expect(h[1]).toMatchObject({
+      storyId: built.id,
+      title: built.title,
+      generated: false,
+      date: today,
+      questions: 3,
+      right: 1,
+      close: 1,
+      skipped: 0,
+    });
+    // 读过的内置故事也进了 readStories，选下一篇时会降权
+    expect(reload.readStories).toContain(built.id);
+  });
+
+  it('非故事活动、老存档里没记 storyId 的故事，都不出现在故事列表里', () => {
+    const data = setup();
+    const mission = ensureMission(data, dayKey());
+    let session = startSession(data.profile.id);
+    session = commitActivity(data, session, doStep(data, mission.steps[0], 'right'), mission);
+    const story = mission.steps.find((s) => s.kind === 'story')!;
+    commitActivity(data, session, doStep(data, story, 'right'), mission); // 模拟老版本：没带 storyId
+    expect(storyHistory(getChildData(data.profile.id)!)).toEqual([]);
+  });
+
+  it('★ 安全记录落盘、只留说明、最多 50 条，删除孩子档案时一起删掉', () => {
+    const data = setup();
+    for (let i = 0; i < 55; i++) noteSafety(data, i % 2 ? 'talk' : 'story', `第 ${i} 条`);
+    const reload = getChildData(data.profile.id)!;
+    expect(reload.safetyLog).toHaveLength(50);
+    expect(reload.safetyLog![49].note).toBe('第 54 条');
+    expect(reload.safetyLog![0].note).toBe('第 5 条');
+    removeChild(data.profile.id);
+    expect(getChildData(data.profile.id)).toBeUndefined();
+  });
+
+  it('★ 下周重点主题：只从正在学、没掌握的主题里挑，被判薄弱的排最前', () => {
+    const now = Date.now();
+    const mem = (id: string, seen: number, wrong: number, mastered = false) => {
+      const m = newMemory(id, now);
+      m.seen = seen;
+      m.wrong = wrong;
+      m.correct = seen - wrong;
+      m.mastered = mastered;
+      return m;
+    };
+    const mems = [
+      // 颜色：错得多
+      mem('w-red', 5, 3),
+      mem('w-blue', 5, 3),
+      // 动物：还有没记牢的，错得少
+      mem('w-cat', 4, 0),
+      mem('w-dog', 4, 1),
+      // 数字：全部掌握了，不该出现在「继续强化」里
+      mem('w-one', 8, 0, true),
+      mem('w-two', 8, 0, true),
+    ];
+    const f = focusThemes(mems, detectWeakness(setup().profile.english, mems, now));
+    expect(f.map((x) => x.theme)).toEqual(['color', 'animal']);
+    expect(f[0].reason).toMatch(/错/);
+    expect(f.map((x) => x.theme)).not.toContain('number');
+
+    // 同一份数据每次给同一个结论
+    expect(focusThemes(mems, [])).toEqual(focusThemes(mems, []));
+    // 什么都没学过：不硬凑
+    expect(focusThemes([], [])).toEqual([]);
   });
 });

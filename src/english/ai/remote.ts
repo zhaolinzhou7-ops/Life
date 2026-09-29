@@ -16,7 +16,7 @@
 import type { CoachReply, SpeechJudgement, Story } from '../types';
 import { getNode, firstNode } from '../data/dialog';
 import { normalize, wordSimilar } from '../engine/speech';
-import { checkOutbound, scrubChildInput } from './safety';
+import { SafetyError, blockedWhat, checkOutbound, checkReport, scrubChildInput } from './safety';
 import { loadConfig } from './config';
 import { mockProvider } from './mock';
 import {
@@ -121,13 +121,21 @@ export const remoteProvider: AiProvider = {
     const say = (parsed?.say ?? '').trim();
     if (!say) throw new Error('模型没有返回可用的回复');
 
-    // 安全第二道：模型说的话，念给孩子之前再过一遍规则
+    // 安全第二道：模型说的话，念给孩子之前再过一遍规则。
+    //
+    // 被拦下时退回本地脚本的这一轮，而不是换一句通用的安全话术：
+    // 下一句该问什么本来就是脚本定的，模型只负责措辞。换成 "What is this?"
+    // 这种套话，孩子看到的问题和下面给的回答选项就对不上了。
+    // 模型同一条回复里的 emoji 也一起丢掉——🏠 配在一句被换掉的话旁边，等于把原话提示出来。
     const verdict = checkOutbound(say);
-    const finalSay = verdict.ok ? say : (verdict.replacement ?? node.ask);
+    if (!verdict.ok) {
+      const local = await mockProvider.chat(req);
+      return { ...local, safetyNote: verdict.note };
+    }
 
     const target = correct ? next : node;
     return {
-      say: finalSay,
+      say,
       emoji: parsed?.emoji ?? target?.emoji ?? '🦜',
       expect: target?.expect,
       hint: target?.hint,
@@ -135,7 +143,6 @@ export const remoteProvider: AiProvider = {
       end: correct && !next,
       judged: correct ? (req.hintCount > 0 ? 'close' : 'right') : 'wrong',
       wordIds: node.wordIds,
-      safetyNote: verdict.note,
     };
   },
 
@@ -160,7 +167,8 @@ export const remoteProvider: AiProvider = {
     const s = check.story;
     // 每一页都要过安全规则。一页不合格就整个丢掉，不做局部修补
     for (const p of s.pages) {
-      if (!checkOutbound(p.text ?? '').ok) throw new Error('模型生成的故事里有不适合的内容');
+      const v = checkOutbound(p.text ?? '');
+      if (!v.ok) throw new SafetyError(`AI 现编的故事里${blockedWhat(v)}。整篇没有给孩子看，换成了内置故事。`);
     }
 
     return {
@@ -212,12 +220,17 @@ export const remoteProvider: AiProvider = {
     const text = await callGateway(system, user);
     const parsed = extractJson<Partial<AssessmentReport>>(text);
     if (!parsed?.headline) throw new Error('模型没有返回可用的报告');
-    return {
-      headline: parsed.headline ?? base.headline,
-      vocabulary: parsed.vocabulary ?? base.vocabulary,
-      listening: parsed.listening ?? base.listening,
-      speaking: parsed.speaking ?? base.speaking,
-      advice: Array.isArray(parsed.advice) && parsed.advice.length ? parsed.advice.slice(0, 3) : base.advice,
+    const out: AssessmentReport = {
+      headline: String(parsed.headline ?? base.headline),
+      vocabulary: String(parsed.vocabulary ?? base.vocabulary),
+      listening: String(parsed.listening ?? base.listening),
+      speaking: String(parsed.speaking ?? base.speaking),
+      advice:
+        Array.isArray(parsed.advice) && parsed.advice.length ? parsed.advice.slice(0, 3).map(String) : base.advice,
+      focus: base.focus,
     };
+    const v = checkReport([out.headline, out.vocabulary, out.listening, out.speaking, ...out.advice].join('\n'));
+    if (!v.ok) throw new SafetyError(`AI 写的周报里${blockedWhat(v)}。整份没有显示，换成了内置引擎写的周报。`);
+    return out;
   },
 };

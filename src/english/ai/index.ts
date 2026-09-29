@@ -11,6 +11,7 @@
 
 import type { CoachReply, SpeechJudgement, Story } from '../types';
 import { mockProvider } from './mock';
+import { SafetyError } from './safety';
 import { remoteProvider } from './remote';
 import { loadConfig } from './config';
 import type {
@@ -75,10 +76,15 @@ async function withFallback<T>(
     lastFallback = undefined;
     return { data, engine: 'remote' };
   } catch (e) {
+    const data = await local();
+    if (e instanceof SafetyError) {
+      // 网关是好的，是模型说了不该说的话。这不算"网关失败"，但要让家长知道
+      return { data, engine: 'mock', safetyNote: e.note };
+    }
     const msg = e instanceof Error ? e.message : String(e);
     lastFallback = msg;
     return {
-      data: await local(),
+      data,
       engine: 'mock',
       fallbackNote: `调用 AI 网关失败（${msg}），这一轮用的是内置引擎。学习流程不受影响。`,
     };

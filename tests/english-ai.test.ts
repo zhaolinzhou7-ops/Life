@@ -12,9 +12,9 @@
  *
  * 标 ★ 的是产品底线。
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { memStore } from './setup-dom';
-import { DEFLECT, checkOutbound, scrubChildInput } from '../src/english/ai/safety';
+import { DEFLECT, checkOutbound, checkReport, scrubChildInput } from '../src/english/ai/safety';
 import { mockProvider } from '../src/english/ai/mock';
 import { remoteProvider } from '../src/english/ai/remote';
 import { aiChat, aiStory, aiAssessment, engineStatus } from '../src/english/ai';
@@ -556,5 +556,112 @@ describe('模型返回的容错', () => {
       questions: [{ ask: 'What is it?', options: [{ label: 'cat', emoji: '🐱', correct: true }] }],
     };
     expect(validateStory(ok, { level: 1, words, theme: 'animal', seed: 1 }).ok).toBe(true);
+  });
+});
+
+// ════════════════════ 远端模型失控时 ════════════════════
+//
+// 用假的 fetch 模拟一个「网关正常、模型说错话」的场景。
+// 和网关挂掉不一样：这种情况要让家长知道（safetyNote），而且孩子那边的对话不能断线。
+
+describe('远端 · 模型说了不该说的话', () => {
+  const gateway = (text: string) => {
+    const calls: { system: string; user: string }[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => {
+        calls.push(JSON.parse(init.body));
+        return new Response(JSON.stringify({ text }), { status: 200 });
+      }),
+    );
+    saveConfig({ ...DEFAULT_CONFIG, mode: 'remote', endpoint: 'http://gw.test/chat', timeoutMs: 1000 });
+    return calls;
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const hello: CoachTurn[] = [{ role: 'coach', text: 'Hello! I am Coco. Can you say hello?', nodeId: 't1-hello' }];
+
+  it('正常的模型回复会被采用（对照组）', async () => {
+    gateway(JSON.stringify({ say: 'Hello to you too! What is your name?', emoji: '🌟' }));
+    const r = await aiChat({ profile: kid(), level: 1, history: hello, childSaid: 'hello', hintCount: 0, seed: 1 });
+    expect(r.engine).toBe('remote');
+    expect(r.data.say).toBe('Hello to you too! What is your name?');
+    expect(r.data.nodeId).toBe('t1-name');
+    expect(r.safetyNote).toBeUndefined();
+    expect(r.data.safetyNote).toBeUndefined();
+  });
+
+  it('★ 模型索要住址：原话不给孩子，换成脚本里的下一句，对话接得上', async () => {
+    gateway(JSON.stringify({ say: 'Where do you live? Tell me your home address.', emoji: '🏠' }));
+    const r = await aiChat({ profile: kid(), level: 1, history: hello, childSaid: 'hello', hintCount: 0, seed: 1 });
+    expect(r.data.say).not.toMatch(/live|address/i);
+    // 下一句是脚本定的「问名字」，不是一句和答题选项对不上的套话
+    expect(r.data.nodeId).toBe('t1-name');
+    expect(r.data.say).toContain('What is your name?');
+    // 模型同一条回复里的 🏠 也不能留：它等于把被拦的原话提示出来
+    expect(r.data.emoji).not.toBe('🏠');
+    expect(r.data.safetyNote).toContain('个人信息');
+  });
+
+  it('★ 模型现编的故事里有不合适的内容：整篇换掉，记成安全事件而不是网关故障', async () => {
+    const pages = [
+      { text: 'Look, a cat!', emoji: '🐱', highlight: 'cat' },
+      { text: 'The monster will kill the cat.', emoji: '👹' },
+      { text: 'The cat is red.', emoji: '🐱', highlight: 'cat' },
+      { text: 'A red cat!', emoji: '🔴', highlight: 'red' },
+      { text: 'The cat is happy.', emoji: '🐱', highlight: 'cat' },
+      { text: 'Red, red, red.', emoji: '🔴', highlight: 'red' },
+    ];
+    gateway(JSON.stringify({ title: 'Bad Tale', pages, questions: [] }));
+    const words = ['w-cat', 'w-red'].map((id) => getWord(id)!);
+    const r = await aiStory({ level: 1, words, theme: 'animal', seed: 7 });
+    expect(r.engine).toBe('mock');
+    expect(r.data.title).not.toBe('Bad Tale');
+    expect(r.data.pages.every((p) => !/kill|monster/i.test(p.text))).toBe(true);
+    expect(r.safetyNote).toContain('故事');
+    // 这不是网关坏了：不该出现「调用 AI 网关失败」，设置页也不该显示降级原因
+    expect(r.fallbackNote).toBeUndefined();
+    expect(engineStatus().detail).not.toContain('降级');
+  });
+
+  it('★ 模型写的周报里有推销：整份换成内置周报，并告诉家长', async () => {
+    gateway(
+      JSON.stringify({
+        headline: '孩子进步很大！',
+        vocabulary: '学了很多词。',
+        listening: '听力不错。',
+        speaking: '口语不错。',
+        advice: ['建议开通会员，解锁全部课程。'],
+      }),
+    );
+    const r = await aiAssessment({ profile: kid(), memories: [], weaknesses: [], minutesThisWeek: 30, sessionsThisWeek: 3 });
+    expect(r.data.headline).not.toBe('孩子进步很大！');
+    expect(r.data.advice.join('')).not.toMatch(/会员|解锁/);
+    expect(r.safetyNote).toContain('周报');
+    expect(r.fallbackNote).toBeUndefined();
+  });
+
+  it('周报用的是给家长的规则：「不要死记硬背」这种话不该被拦', () => {
+    expect(checkReport('不要让孩子死记硬背，多在生活里用。').ok).toBe(true);
+    expect(checkReport('吃饭时可以指着刀叉说 knife 和 fork。').ok).toBe(true);
+    expect(checkReport('建议购买配套绘本。').ok).toBe(false);
+    expect(checkReport('同班的别人都比你家孩子学得快。').ok).toBe(false);
+  });
+
+  it('周报的「下周重点主题」由本地算，模型写的周报也带着它', async () => {
+    gateway(
+      JSON.stringify({ headline: '这周很认真', vocabulary: 'a', listening: 'b', speaking: 'c', advice: ['每天十分钟。'] }),
+    );
+    const m = newMemory('w-red', Date.now());
+    m.seen = 6;
+    m.wrong = 4;
+    m.correct = 2;
+    const r = await aiAssessment({ profile: kid(), memories: [m], weaknesses: [], minutesThisWeek: 30, sessionsThisWeek: 3 });
+    expect(r.engine).toBe('remote');
+    expect(r.data.headline).toBe('这周很认真');
+    expect(r.data.focus?.map((f) => f.theme)).toEqual(['color']);
   });
 });

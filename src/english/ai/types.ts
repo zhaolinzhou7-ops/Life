@@ -24,7 +24,7 @@ import type {
   Word,
   WordMemory,
 } from '../types';
-import type { Weakness } from '../engine/weakness';
+import type { FocusTheme, Weakness } from '../engine/weakness';
 
 export interface ChatRequest {
   profile: ChildProfile;
@@ -92,6 +92,11 @@ export interface AssessmentReport {
   speaking: string;
   /** 下周建议，给家长的具体动作 */
   advice: string[];
+  /**
+   * 下周重点主题。永远由本地规则算，不交给模型：
+   * 它和下周任务的实际安排必须一致，模型不知道任务生成器会怎么排。
+   */
+  focus?: FocusTheme[];
 }
 
 export interface AiProvider {

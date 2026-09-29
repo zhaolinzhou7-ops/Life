@@ -248,6 +248,12 @@ export interface ActivityRecord {
   outcomes: Outcome[];
   seconds: number;
   at: number;
+  /**
+   * 故事活动读的是哪一篇。AI 现编的故事不在内置库里，查不回标题，
+   * 所以标题也一起记下来——家长端「故事完成情况」要列出来。
+   */
+  storyId?: string;
+  storyTitle?: string;
 }
 
 export interface SessionRecord {

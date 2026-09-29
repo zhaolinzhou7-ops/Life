@@ -32,8 +32,20 @@ export interface ChildData {
   readStories: string[];
   /** 最近聊过的话题链（链头 id），按时间顺序。老存档里没有这个字段 */
   recentTalks?: string[];
+  /**
+   * 安全记录：AI 说了被拦下的话、孩子说出了个人信息。
+   * 只存一句说明，不存原话——孩子说的地址电话本来就在进 prompt 之前抹掉了，
+   * 这里更不能留。
+   */
+  safetyLog?: SafetyEvent[];
   /** 对话转写。只有 settings.keepTranscripts=true 时才有内容 */
   transcripts: { at: number; role: 'coach' | 'child'; text: string }[];
+}
+
+export interface SafetyEvent {
+  at: number;
+  where: 'talk' | 'story' | 'report';
+  note: string;
 }
 
 export interface SaveData {
@@ -149,6 +161,7 @@ export function saveChild(data: ChildData): void {
     transcripts: data.profile.settings.keepTranscripts ? data.transcripts.slice(-120) : [],
     readStories: data.readStories.slice(-60),
     recentTalks: (data.recentTalks ?? []).slice(-30),
+    safetyLog: (data.safetyLog ?? []).slice(-50),
   };
   if (i >= 0) d.children[i] = trimmed;
   else d.children.push(trimmed);

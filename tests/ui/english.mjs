@@ -15,6 +15,7 @@
  */
 import fs from 'fs';
 import { chromium } from 'playwright';
+import { startFakeGateway } from './fake-gateway.mjs';
 
 const BASE = process.env.BASE || 'http://localhost:4173/Life/';
 const OUT = process.env.OUT || 'node_modules/.cache/shots';
@@ -34,7 +35,12 @@ function watch(page, tag, { allowNetworkErrors = false } = {}) {
     if (m.type() !== 'error') return;
     // 「网关挂掉」那一节是故意连一个不存在的地址，浏览器必然会在控制台打一条
     // ERR_CONNECTION_REFUSED。那正是这一节要测的东西，不算应用出错。
-    if (allowNetworkErrors && /ERR_CONNECTION_REFUSED|Failed to load resource/.test(m.text())) return;
+    // 断网那一节里，被 main.ts 接住并记下的「代码没下载下来」也属于预期（它记日志是为了排查，不是没接住）
+    if (
+      allowNetworkErrors &&
+      /ERR_CONNECTION_REFUSED|ERR_INTERNET_DISCONNECTED|Failed to load resource|Unable to preload CSS|dynamically imported module/.test(m.text())
+    )
+      return;
     errors.push(`[${tag}] ${m.text()}`);
   });
   page.on('pageerror', (e) => errors.push(`[${tag}] pageerror: ${e.message}`));
@@ -361,6 +367,9 @@ for (const vp of VIEWPORTS) {
   const dashText = await page.locator('.en-page').innerText();
   check('家长端显示学习时长和天数', /学习天数|总分钟/.test(dashText));
   check('家长端说明了今天为什么排这些', /为什么是这些/.test(dashText));
+  await page.locator('.en-card', { hasText: '最近 7 天读完' }).scrollIntoViewIfNeeded();
+  await page.locator('.en-card', { hasText: '最近 7 天读完' }).screenshot({ path: `${OUT}/en-parent-stories.png` });
+  check('★ 家长端有故事完成情况：读完了哪篇、问题答得怎样', /最近 7 天读完 1 篇/.test(dashText) && /第一次就答对/.test(dashText), dashText.slice(dashText.indexOf('故事'), dashText.indexOf('故事') + 120));
 
   // 能力页
   await page.getByRole('button', { name: '能力' }).click();
@@ -394,6 +403,7 @@ for (const vp of VIEWPORTS) {
   const reportText = await page.locator('.en-page').innerText();
   check('周报有四段内容', /词汇/.test(reportText) && /听力/.test(reportText) && /口语/.test(reportText) && /下周建议/.test(reportText));
   check('★ 周报不出现百分比和小数分数', !/\d+%|\d+\.\d+\s*分/.test(reportText), reportText.slice(0, 80));
+  check('★ 周报点名下周重点主题（「下周继续强化：颜色 Colors + …」）', /下周继续强化：\S+ [A-Z][A-Za-z ]+/.test(reportText), (reportText.match(/下周继续强化[^\n]*/) ?? [''])[0]);
 
   // 设置
   await page.locator('.en-back').first().click();
@@ -552,6 +562,189 @@ for (const vp of VIEWPORTS) {
   const after = await page.locator('.en-seg button').allInnerTexts();
   check('只删了妹妹，哥哥还在', after.some((t) => t.includes('Gege')) && !after.some((t) => t.includes('Meimei')), after.join(' | '));
   await ctx.close();
+}
+
+// ═══════════════ 9. 无网络 ═══════════════
+// 两种断网：还没打开应用就断了（代码还没下载），以及学到一半断了。
+{
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  // 这一节故意断网，浏览器报的资源加载失败是预期内的；但页面脚本本身不能抛错
+  watch(page, 'offline', { allowNetworkErrors: true });
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+
+  // —— A：首页开着，断网后点入口 ——
+  await ctx.setOffline(true);
+  await page.getByText('AI 儿童英语学习伙伴', { exact: false }).first().click();
+  await page.waitForTimeout(1500);
+  const bodyA = await page.locator('body').innerText();
+  check('★ 断网点入口不是白屏', bodyA.trim().length > 0, JSON.stringify(bodyA.slice(0, 40)));
+  check('断网时说清楚是网络问题', /网络/.test(bodyA), bodyA.slice(0, 60));
+  await page.screenshot({ path: `${OUT}/en-offline-open.png` });
+  await page.getByText('重试', { exact: true }).click();
+  await page.waitForTimeout(300);
+  check('没连上网时点重试会提示，而不是跳到浏览器的断网页', /还没连上网/.test(await page.locator('body').innerText()));
+  await page.getByText('返回首页', { exact: true }).click();
+  await page.waitForTimeout(300);
+  check('能回到首页', (await page.locator('.home-card').count()) > 0);
+
+  // 连上网以后能正常打开
+  await ctx.setOffline(false);
+  await page.getByText('AI 儿童英语学习伙伴', { exact: false }).first().click();
+  await page.waitForTimeout(800);
+  if (await page.getByText('重试', { exact: true }).isVisible().catch(() => false)) {
+    // 浏览器缓存了失败的 import，重试会整页重新加载
+    await page.getByText('重试', { exact: true }).click();
+    await page.waitForLoadState('networkidle');
+    await page.getByText('AI 儿童英语学习伙伴', { exact: false }).first().click();
+  }
+  await page.waitForSelector('.en-app', { timeout: 8000 });
+  check('恢复网络后能打开', await page.locator('.en-app').isVisible());
+
+  // —— B：已经打开了，学到一半断网 ——
+  await page.locator('.en-input').first().fill('Wifi');
+  await page.getByRole('button', { name: '6', exact: true }).first().click();
+  await page.getByRole('button', { name: '开始吧！' }).click();
+  await page.waitForTimeout(400);
+  await finishAssessment(page);
+  await page.waitForSelector('.en-mission');
+  await ctx.setOffline(true);
+  const ok = await runMission(page);
+  check('★ 学到一半断网，照样能学完', ok);
+  await page.getByRole('button', { name: '回到首页' }).click().catch(() => {});
+  await page.waitForTimeout(300);
+  const saved = await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('english-save') || '{}');
+    const c = (d.children || []).find((x) => x.profile.name === 'Wifi');
+    return c ? c.sessions.length : -1;
+  });
+  check('断网时的学习记录照样存下来了', saved >= 1, `sessions=${saved}`);
+  await ctx.close();
+}
+
+// ═══════════════ 10. 接上一个「能用的」AI 网关 ═══════════════
+// 前面只测过网关挂掉。这里用 fake-gateway.mjs 按 README 的契约起一个本地网关，
+// 让远端那条路径真的跑一遍：浏览器预检 → prompt → 解析 → 安全过滤 → 界面。
+{
+  const gw = await startFakeGateway();
+
+  async function remoteSession(mode) {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    // 去掉语音识别，让对话环节出「点一个你想说的」选项，才能喂进具体的回答
+    await ctx.addInitScript(() => {
+      delete window.SpeechRecognition;
+      delete window.webkitSpeechRecognition;
+    });
+    const page = await ctx.newPage();
+    watch(page, `gw-${mode}`);
+    await page.goto(BASE, { waitUntil: 'networkidle' });
+    await page.evaluate(
+      ([endpoint]) =>
+        localStorage.setItem(
+          'english-ai-config',
+          JSON.stringify({ mode: 'remote', endpoint, token: 'test-token', model: '', timeoutMs: 4000 }),
+        ),
+      [`${gw.base}/${mode}`],
+    );
+    await page.reload({ waitUntil: 'networkidle' });
+    await enter(page, { name: 'Remo', age: '5' });
+    await finishAssessment(page);
+    await page.waitForSelector('.en-mission');
+
+    const out = { bubbles: [], storyTitle: '', report: '', talkFound: false };
+
+    // —— 对话 ——
+    const talkRow = page.locator('.en-step', { hasText: 'Talk with Coco' });
+    if (await talkRow.count()) {
+      out.talkFound = true;
+      await talkRow.first().click();
+      await page.waitForSelector('.en-bubble', { timeout: 5000 });
+      await page.waitForTimeout(400);
+      const chip = page.locator('.en-mic-wrap .en-said').filter({ hasNotText: /结束|跳过/ }).first();
+      await chip.click();
+      await page.waitForFunction(() => document.querySelectorAll('.en-turn:not(.me)').length >= 2, null, { timeout: 8000 });
+      out.bubbles = await page.locator('.en-turn:not(.me) .en-bubble').allInnerTexts();
+      out.avatars = await page.locator('.en-turn:not(.me) .en-coach-av').allInnerTexts();
+      await page.screenshot({ path: `${OUT}/en-gw-${mode}-talk.png` });
+      await page.locator('.en-back').first().click();
+      await page.waitForSelector('.en-mission');
+    }
+
+    // —— 现编故事 ——
+    await page.locator('.en-step', { hasText: 'Listen to a story' }).first().click();
+    await page.getByRole('button', { name: /Coco 讲一个新的/ }).click();
+    await page.waitForSelector('.en-stage .en-ask', { timeout: 8000 });
+    await page.waitForFunction(() => !/thinking/i.test(document.querySelector('.en-stage .en-ask')?.textContent ?? ''), null, { timeout: 8000 });
+    out.storyTitle = await page.locator('.en-stage .en-ask').first().innerText();
+    await page.locator('.en-back').first().click();
+    await page.waitForSelector('.en-mission');
+
+    // —— 周报 ——
+    const gate = page.locator('.en-parent-entry');
+    const box = await gate.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(900);
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    const q = await page.locator('.en-field label').first().innerText();
+    const m = q.match(/(\d+)\s*×\s*(\d+)/);
+    await page.locator('.en-input').first().fill(String(Number(m[1]) * Number(m[2])));
+    await page.getByRole('button', { name: '进入' }).click();
+    await page.waitForSelector('.en-tabs');
+    await page.getByRole('button', { name: '看本周成长报告' }).click();
+    await page.waitForFunction(() => !/正在生成/.test(document.querySelector('.en-page')?.textContent ?? ''), null, { timeout: 8000 });
+    out.report = await page.locator('.en-page').innerText();
+    await page.screenshot({ path: `${OUT}/en-gw-${mode}-report.png`, fullPage: true });
+
+    // —— 回到看板：安全提醒 ——
+    await page.locator('.en-back').first().click();
+    await page.waitForSelector('.en-tabs');
+    out.dash = await page.locator('.en-page').innerText();
+    await page.screenshot({ path: `${OUT}/en-gw-${mode}-dash.png`, fullPage: true });
+
+    // —— 设置页的「测试连接」 ——
+    if (mode === 'good') {
+      await page.getByRole('button', { name: '设置' }).click();
+      await page.getByRole('button', { name: '测试连接' }).click();
+      await page.waitForTimeout(1200);
+      out.testConn = await page.locator('.en-page').innerText();
+    }
+    await ctx.close();
+    return out;
+  }
+
+  // 正常的模型
+  const good = await remoteSession('good');
+  check('网关：对话环节被排进了任务', good.talkFound);
+  check('★ 网关：Coco 的话来自模型', good.bubbles.some((b) => b.includes('Super duper')), good.bubbles.join(' / '));
+  check('★ 网关：模型编的故事被采用了', good.storyTitle.includes('Gateway Tale'), good.storyTitle);
+  check('★ 网关：周报来自模型', /来自网关/.test(good.report), good.report.slice(0, 60));
+  check('网关：设置页测试连接成功', /网关连接正常/.test(good.testConn ?? ''), (good.testConn ?? '').slice(0, 80));
+  const posts = gw.requests.filter((r) => r.method === 'POST' && r.path === '/good');
+  check('★ 网关：浏览器先发了 CORS 预检', gw.requests.some((r) => r.method === 'OPTIONS'));
+  check('网关：鉴权头按设置发出', posts.length > 0 && posts.every((r) => r.auth === 'Bearer test-token'), `${posts.length} 个请求`);
+  check('网关：请求体符合契约（system + user）', posts.every((r) => r.payload.system && r.payload.user));
+
+  // 失控的模型
+  const bad = await remoteSession('unsafe');
+  check('★ 网关：模型索要住址时，孩子看不到那句话', !bad.bubbles.some((b) => /address|where do you live/i.test(b)), bad.bubbles.join(' / '));
+  check('★ 网关：故事里有不合适的内容，整篇丢掉换成内置故事', !bad.storyTitle.includes('Gateway Tale'), bad.storyTitle);
+  check('★ 网关：被拦的那句话配的 🏠 也没给孩子看', !(bad.avatars ?? []).includes('🏠'), (bad.avatars ?? []).join(' '));
+  check('★ 网关：拦下后接的是脚本里的下一句，对话没断', bad.bubbles.length >= 2 && /What is your name\?/.test(bad.bubbles[bad.bubbles.length - 1]), bad.bubbles.join(' / '));
+  check('★ 网关：周报里推销会员，整份换掉并告诉家长', !/会员|解锁/.test(bad.report.replace(/AI 写的周报里[^。]*。/g, '')) && /周报/.test(bad.report) && /引导消费/.test(bad.report), bad.report.slice(-160));
+  check('★ 网关：家长看板出现「安全提醒」，对话、故事、周报三处都记了', /安全提醒/.test(bad.dash) && /· 对话/.test(bad.dash) && /· 故事/.test(bad.dash) && /· 周报/.test(bad.dash), bad.dash.slice(0, 260));
+  check('★ 安全提醒里不留原话', !/address|where do you live|monster|kill|会员/i.test(bad.dash), '');
+  check('正常的模型不会产生安全提醒', !/安全提醒/.test(good.dash));
+
+  // 坏掉的模型
+  const junk = await remoteSession('garbage');
+  check('网关：模型乱回时对话照常继续', junk.bubbles.length >= 2, junk.bubbles.join(' / '));
+  check('网关：模型乱回时故事照常出', junk.storyTitle.length > 0 && !junk.storyTitle.includes('Gateway Tale'), junk.storyTitle);
+  check('★ 网关：模型乱回时周报照常出，并告诉家长用的是内置引擎', /调用 AI 网关失败/.test(junk.report) && /词汇/.test(junk.report), junk.report.slice(-120));
+  check('网关坏掉只是技术问题，不算安全事件', !/安全提醒/.test(junk.dash));
+
+  await gw.close();
 }
 
 await browser.close();

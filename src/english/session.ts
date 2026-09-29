@@ -10,10 +10,11 @@
  */
 
 import type { ActivityRecord, DailyMission, Outcome, SessionRecord } from './types';
-import type { ChildData } from './store';
+import type { ChildData, SafetyEvent } from './store';
 import { saveChild } from './store';
 import { analyzeSession, updateStreak } from './engine/analyze';
 import { dayKey, daysBetween, uid } from './engine/util';
+import { getStory } from './data/stories';
 
 export function startSession(childId: string, date = dayKey()): SessionRecord {
   return {
@@ -40,8 +41,15 @@ export interface ActivityDraft {
   startedAt: number;
   /** 故事活动实际读的是哪一个（可能是 AI 现编的，不一定是任务里排的那个） */
   storyId?: string;
+  storyTitle?: string;
   /** 对话活动聊的是哪条话题链 */
   talkStart?: string;
+}
+
+/** 记一条安全事件，家长端「安全提醒」里能看到 */
+export function noteSafety(data: ChildData, where: SafetyEvent['where'], note: string): void {
+  (data.safetyLog ?? (data.safetyLog = [])).push({ at: Date.now(), where, note });
+  saveChild(data);
 }
 
 /** 记一次「聊过这条话题链」。和故事一样按时间排，重聊的挪到末尾 */
@@ -85,6 +93,10 @@ export function commitActivity(
     seconds: Math.max(1, Math.round((Date.now() - draft.startedAt) / 1000)),
     at: Date.now(),
   };
+  if (draft.storyId) {
+    act.storyId = draft.storyId;
+    act.storyTitle = draft.storyTitle;
+  }
 
   const known = new Set(data.memories.map((m) => m.wordId));
   const touched = [...new Set(draft.outcomes.map((o) => o.wordId).filter((x): x is string => !!x))];
@@ -209,6 +221,49 @@ export function minutesToday(data: ChildData, date = dayKey()): number {
 /** 今天有没有学过（哪怕只学了十几秒） */
 export function studiedToday(data: ChildData, date = dayKey()): boolean {
   return data.sessions.some((s) => s.date === date && s.activities.length > 0);
+}
+
+export interface StoryRead {
+  date: string;
+  at: number;
+  storyId: string;
+  title: string;
+  /** 是不是 AI 现编的（不在内置故事库里） */
+  generated: boolean;
+  /** 读完后的问答：一共几道、第一次就答对几道、说得接近几道、跳过几道 */
+  questions: number;
+  right: number;
+  close: number;
+  skipped: number;
+}
+
+/**
+ * 读过的故事，最近的在前（§17「故事完成情况」）。
+ *
+ * 故事活动只在孩子读完并答完题时才提交，中途退出不记——
+ * 所以这张表里每一条都是真的读完了的。
+ * 老存档里的故事活动没有记 storyId，那些就不列了，不去猜。
+ */
+export function storyHistory(data: ChildData, limit = 20): StoryRead[] {
+  const out: StoryRead[] = [];
+  for (const s of data.sessions) {
+    for (const a of s.activities) {
+      if (a.kind !== 'story' || !a.storyId) continue;
+      out.push({
+        date: s.date,
+        at: a.at,
+        storyId: a.storyId,
+        title: a.storyTitle || a.title,
+        generated: !getStory(a.storyId),
+        questions: a.outcomes.length,
+        right: a.outcomes.filter((o) => o.result === 'right').length,
+        close: a.outcomes.filter((o) => o.result === 'close').length,
+        skipped: a.outcomes.filter((o) => o.result === 'skip').length,
+      });
+    }
+  }
+  // 会话和活动本来就按时间顺序存，先倒过来；同一毫秒提交的两条也能保持「后读的在前」
+  return out.reverse().sort((a, b) => b.at - a.at).slice(0, limit);
 }
 
 export interface DayStat {

@@ -78,6 +78,19 @@ const FEAR = [
   /(笨|蠢|没人喜欢你|会被罚|考不上|别人都比你)/,
 ];
 
+/**
+ * 模型输出被安全规则整个否掉时抛这个。
+ *
+ * 和普通的网关失败分开：网关坏了只是技术问题，家长不需要知道；
+ * 模型说了不该说的话，家长应该知道——即使孩子一个字都没看到。
+ */
+export class SafetyError extends Error {
+  constructor(public readonly note: string) {
+    super(note);
+    this.name = 'SafetyError';
+  }
+}
+
 export type SafetyRule = 'ask-pii' | 'stranger' | 'money' | 'unsafe-topic' | 'fear';
 
 export interface SafetyVerdict {
@@ -106,11 +119,37 @@ const SAFE_REPLY: Record<SafetyRule, string> = {
   fear: "Good try! Let's do it together. Listen.",
 };
 
+/**
+ * 拦截说明的主干，去掉「AI」和「已拦截」，方便拼进别的句子：
+ * 「AI 现编的故事里 + 提到了不适合这个年龄的内容 + 。整篇没有给孩子看…」
+ */
+export function blockedWhat(v: SafetyVerdict): string {
+  return (v.note ?? '').replace(/^AI\s*/, '').replace(/，已拦截。$/, '');
+}
+
 /** 检查 AI 要对孩子说的话 */
 export function checkOutbound(text: string): SafetyVerdict {
   for (const r of RULES) {
     if (r.pats.some((p) => p.test(text))) {
       return { ok: false, rule: r.id, replacement: SAFE_REPLY[r.id], note: r.note };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * 检查写给家长的周报。
+ *
+ * 只查三类：引导消费、引导「别告诉别人」、贬低恐吓。
+ * 周报的读者是家长，「不要死记硬背」「别拿刀叉当玩具」这种话在周报里完全正常，
+ * 用给孩子的那套全量规则去查，好好的报告会被整篇换掉。
+ * 但「建议开通会员」「孩子比同龄人差很多」这种话不管写给谁都不该出现。
+ */
+export function checkReport(text: string): SafetyVerdict {
+  for (const r of RULES) {
+    if (r.id !== 'money' && r.id !== 'stranger' && r.id !== 'fear') continue;
+    if (r.pats.some((p) => p.test(text))) {
+      return { ok: false, rule: r.id, note: r.note };
     }
   }
   return { ok: true };
