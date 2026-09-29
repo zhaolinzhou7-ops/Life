@@ -11,7 +11,7 @@
  *   今天学了吗 / 他现在什么水平 / 哪里不行 / 到底会了哪些词
  */
 
-import type { WordMemory } from '../types';
+import type { ChildProfile, WordMemory } from '../types';
 import { getWord, themeLabel } from '../data/vocab';
 import { SKILLS, describeParticipation, describeSkill, LEVEL_INFO } from '../engine/profile';
 import { masteredWords, retentionBand, riskOf } from '../engine/review';
@@ -27,6 +27,10 @@ export interface DashActions {
   report: () => void;
   settings: () => void;
   backToKid: () => void;
+  /** 这台设备上的所有孩子。只有一个的时候不显示切换条，只显示「添加」 */
+  children: ChildProfile[];
+  switchChild: (id: string) => void;
+  addChild: () => void;
 }
 
 export function renderDash(ctx: Ctx, act: DashActions): HTMLElement {
@@ -42,6 +46,24 @@ export function renderDash(ctx: Ctx, act: DashActions): HTMLElement {
   settingsBtn.style.padding = '6px 12px';
   right.appendChild(settingsBtn);
   root.appendChild(topbar(`${p.avatar} ${p.name} · 家长中心`, act.backToKid, right));
+
+  // 兄弟姐妹共用一台平板很常见。每个孩子的画像、进度、薄弱点完全分开，
+  // 家长在这里切换看谁；孩子端显示的永远是当前选中的那个。
+  const kids = el('div', 'en-seg');
+  kids.style.marginBottom = '12px';
+  for (const c of act.children) {
+    const b = el('button', c.id === p.id ? 'on' : '');
+    b.type = 'button';
+    b.textContent = `${c.avatar} ${c.name}`;
+    if (c.id !== p.id) b.addEventListener('click', () => act.switchChild(c.id));
+    kids.appendChild(b);
+  }
+  const add = el('button');
+  add.type = 'button';
+  add.textContent = '+ 添加孩子';
+  add.addEventListener('click', act.addChild);
+  kids.appendChild(add);
+  root.appendChild(kids);
 
   const tabs = el('div', 'en-tabs');
   const body = el('div');

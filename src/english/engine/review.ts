@@ -39,6 +39,16 @@ export function newMemory(wordId: string, now: number): WordMemory {
 export type Stage = 'recognize' | 'listen' | 'speak' | 'use';
 
 /**
+ * 同一个词两次升盒之间至少隔多久。
+ *
+ * 间隔重复的前提是「隔了一段时间还想得起来」才算数。一次学习里连续答对三遍
+ * 是集中练习，不是间隔回忆——以前每答对一次就升一盒，单词环节一个新词要答
+ * 三次（跟读、选图、用），当天就升到第 3 盒，四天后才第一次复习，正好错过
+ * 最容易忘的那一两天。现在一天之内最多升一盒。
+ */
+const PROMOTE_GAP_MS = 12 * 60 * 60 * 1000;
+
+/**
  * 记一次作答，返回新的记忆状态（不改入参）。
  *
  * hinted=true 时即使答对也不升盒：用提示答出来的，说明还没真会。
@@ -59,10 +69,13 @@ export function applyResult(
     if (hinted) {
       // 靠提示答对：不升盒，但也不罚，当天稍后再来一次
       m.dueAt = now + 10 * 60 * 1000;
+    } else if (m.lastPromotedAt !== undefined && now - m.lastPromotedAt < PROMOTE_GAP_MS) {
+      // 今天已经升过一盒了：这次答对是巩固，不再升盒，复习时间也不往后推
     } else {
       m.streak += 1;
       m.box = clamp(m.box + 1, 0, MAX_BOX);
       m.dueAt = now + INTERVALS[m.box] * DAY_MS;
+      m.lastPromotedAt = now;
     }
   } else if (result === 'close') {
     // 接近正确（跟读不够准、说漏一个词）：算尝试过，不升不降，当天再见一次

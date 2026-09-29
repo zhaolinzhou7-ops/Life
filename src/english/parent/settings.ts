@@ -17,7 +17,12 @@ import { eraseEverything, saveChild, setParentPin, getParentPin, storageSize } f
 import type { Ctx } from '../ui';
 import { btn, card, el, page, toast, topbar } from '../ui';
 
-export function renderSettings(ctx: Ctx, onBack: () => void, onErased: () => void): HTMLElement {
+export function renderSettings(
+  ctx: Ctx,
+  onBack: () => void,
+  onErased: () => void,
+  onChildRemoved: () => void,
+): HTMLElement {
   const data = ctx.data;
   const p = data.profile;
   const s: ChildSettings = { ...p.settings };
@@ -419,6 +424,15 @@ export function renderSettings(ctx: Ctx, onBack: () => void, onErased: () => voi
   c5.appendChild(pinField);
 
   const danger = el('div', 'en-pbtn-row');
+  danger.appendChild(
+    btn(`只删除 ${p.name} 的档案`, 'en-pbtn danger', () => {
+      const ok = confirm(
+        `会删除 ${p.name} 的档案、学习记录和掌握的词。这台设备上其他孩子的数据不受影响。删掉之后无法恢复。确定吗？`,
+      );
+      if (!ok) return;
+      onChildRemoved();
+    }),
+  );
   danger.appendChild(
     btn('删除全部数据', 'en-pbtn danger', () => {
       const ok = confirm(

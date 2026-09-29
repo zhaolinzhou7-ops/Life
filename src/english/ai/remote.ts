@@ -94,7 +94,7 @@ export const remoteProvider: AiProvider = {
 
   async chat(req: ChatRequest): Promise<CoachReply> {
     const lastCoach = [...req.history].reverse().find((t) => t.role === 'coach');
-    const node = getNode(lastCoach?.nodeId ?? '') ?? firstNode(req.level);
+    const node = getNode(lastCoach?.nodeId ?? '') ?? getNode(req.startNodeId ?? '') ?? firstNode(req.level);
 
     // 开场不走模型：第一句话固定，孩子每次进来听到的都一样，有安全感
     if (!lastCoach) return mockProvider.chat(req);

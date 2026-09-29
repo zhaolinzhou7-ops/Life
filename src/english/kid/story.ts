@@ -274,7 +274,7 @@ export function renderStory(ctx: Ctx, opt: StoryOptions): HTMLElement {
     if (finished) return;
     finished = true;
     cleanup();
-    if (story && !ctx.data.readStories.includes(story.id)) ctx.data.readStories.push(story.id);
+    draft.storyId = story?.id;
     const s = commitActivity(ctx.data, opt.session, draft, opt.mission);
     ctx.save();
 

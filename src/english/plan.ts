@@ -40,6 +40,8 @@ export function ensureMission(data: ChildData, date = dayKey(), now = Date.now()
     prescription: weaknesses.length ? mergePrescriptions(weaknesses) : undefined,
     date,
     now,
+    readStories: data.readStories,
+    recentTalks: data.recentTalks ?? [],
   });
   // 已经完成过的步骤，跨设置重算后保持完成状态，不让孩子重做
   if (cached && cached.date === date) {

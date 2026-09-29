@@ -17,8 +17,9 @@
 import { describe, expect, it } from 'vitest';
 import { WORDS, getWord, distractors, THEMES, pointPrompt, findPrompt, withArticle } from '../src/english/data/vocab';
 import { STORIES } from '../src/english/data/stories';
-import { TALK_NODES, getNode } from '../src/english/data/dialog';
+import { TALK_NODES, getNode, talkStarts, chainOf } from '../src/english/data/dialog';
 import { GAMES } from '../src/english/data/games';
+import { checkOutbound } from '../src/english/ai/safety';
 import { ALMOST, PRAISE, TRY_AGAIN, ON_SKIP, hintFor } from '../src/english/data/phrases';
 import { judgeSpeech, normalize, skeleton, wordSimilar } from '../src/english/engine/speech';
 import {
@@ -157,6 +158,66 @@ describe('词库', () => {
     expect(withArticle(getWord('w-grapes')!)).toBe('grapes');
   });
 
+  it('★ 词库够学三个月，而且三档都有词', () => {
+    const byTier = [1, 2, 3].map((t) => WORDS.filter((w) => w.tier === t).length);
+    expect(WORDS.length).toBeGreaterThanOrEqual(250);
+    // tier 3 曾经是 0：reader 和 talker 永远碰不到更难的词
+    expect(byTier[2], `tier1/2/3 = ${byTier.join('/')}`).toBeGreaterThanOrEqual(40);
+    expect(byTier[0]).toBeGreaterThanOrEqual(80);
+  });
+
+  it('★ 同一组里没有两张一样的图——否则选择题会有两个看起来都对的选项', () => {
+    const seen = new Map<string, string>();
+    for (const w of WORDS) {
+      const k = `${w.group}|${w.emoji}`;
+      expect(seen.get(k), `${w.id} 和 ${seen.get(k)} 在同一组里用了同一个图 ${w.emoji}`).toBeUndefined();
+      seen.set(k, w.id);
+    }
+  });
+
+  it('★ 任何一道选择题的三个选项，图和词都两两不同', () => {
+    for (let seed = 1; seed <= 3; seed++) {
+      const rnd = rng(seed);
+      for (const w of WORDS) {
+        const opts = [w, ...distractors(w, 2, rnd)];
+        expect(new Set(opts.map((o) => o.emoji)).size, `${w.id}: ${opts.map((o) => o.emoji).join(' ')}`).toBe(3);
+        expect(new Set(opts.map((o) => o.en)).size, `${w.id}: ${opts.map((o) => o.en).join(' / ')}`).toBe(3);
+      }
+    }
+  });
+
+  it('★ 指不出位置的词不问 "Where is"', () => {
+    for (const w of WORDS.filter((x) => x.abstract)) {
+      expect(pointPrompt(w), w.id).not.toMatch(/^Where /);
+    }
+    expect(pointPrompt(getWord('w-morning')!)).toBe('Which one is morning?');
+    expect(pointPrompt(getWord('w-winter')!)).toBe('Which one is winter?');
+  });
+
+  it('★ 不用太新的 emoji：孩子手里常是旧手机，Emoji 13 以后的字符会显示成方块', () => {
+    // Emoji 12（2019）及以前在 Android 10 / iOS 13 上都能显示。
+    // U+1FA70–1FAFF 这一段里只有下面这几个是 12 以前的，其余都是 13~15 新加的。
+    const OK_IN_BLOCK = new Set([
+      0x1fa70, 0x1fa71, 0x1fa72, 0x1fa73, 0x1fa78, 0x1fa79, 0x1fa7a,
+      0x1fa80, 0x1fa81, 0x1fa82, 0x1fa90, 0x1fa91, 0x1fa92, 0x1fa93, 0x1fa94, 0x1fa95,
+    ]);
+    const TOO_NEW = new Set([0x1f6d6, 0x1f6d7, 0x1f6dc, 0x1f6dd, 0x1f6de, 0x1f6df, 0x1f6fb, 0x1f6fc,
+      0x1f90c, 0x1f972, 0x1f977, 0x1f978, 0x1f979, 0x1f9a3, 0x1f9a4, 0x1f9ab, 0x1f9ac, 0x1f9ad,
+      0x1f9cb, 0x1f9cc, 0x1f7f0]);
+    const bad = (s: string) =>
+      [...s].some((ch) => {
+        const cp = ch.codePointAt(0)!;
+        if (cp >= 0x1fa70 && cp <= 0x1faff) return !OK_IN_BLOCK.has(cp);
+        return TOO_NEW.has(cp);
+      });
+    for (const w of WORDS) expect(bad(w.emoji), `${w.id} ${w.emoji}`).toBe(false);
+    for (const s of STORIES) {
+      expect(bad(s.coverEmoji), s.id).toBe(false);
+      for (const p of s.pages) expect(bad(p.emoji), `${s.id}: ${p.text}`).toBe(false);
+    }
+    for (const n of TALK_NODES) expect(bad(n.emoji), n.id).toBe(false);
+  });
+
   it('词形里不留"orange color"这种拼凑出来的说法', () => {
     for (const w of WORDS) {
       expect(w.en, w.id).not.toMatch(/\b(color|toy)$/);
@@ -208,6 +269,37 @@ describe('故事库', () => {
     }
   });
 
+  it('★ 故事够读：每个等级至少 5 篇，不会两三天就轮回', () => {
+    for (const lv of [1, 2, 3, 4] as const) {
+      const n = STORIES.filter((s) => s.level === lv).length;
+      expect(n, `等级 ${lv} 只有 ${n} 篇`).toBeGreaterThanOrEqual(5);
+    }
+    const ids = STORIES.map((s) => s.id);
+    expect(new Set(ids).size, '故事 id 重复').toBe(ids.length);
+  });
+
+  it('★ 故事和问题里引用的词都真实存在', () => {
+    for (const s of STORIES) {
+      for (const q of s.questions) {
+        if (q.wordId) expect(getWord(q.wordId), `${s.id}: ${q.ask} → ${q.wordId}`).toBeTruthy();
+      }
+    }
+  });
+
+  it('★ 内置内容也要过安全规则——和模型输出同一把尺子', () => {
+    for (const s of STORIES) {
+      for (const p of s.pages) expect(checkOutbound(p.text).ok, `${s.id}: ${p.text}`).toBe(true);
+      for (const q of s.questions) expect(checkOutbound(q.ask).ok, `${s.id}: ${q.ask}`).toBe(true);
+    }
+    for (const w of WORDS) {
+      for (const x of w.sentences) expect(checkOutbound(x.text).ok, `${w.id}: ${x.text}`).toBe(true);
+    }
+    for (const n of TALK_NODES) {
+      expect(checkOutbound(n.ask).ok, `${n.id}: ${n.ask}`).toBe(true);
+      expect(checkOutbound(n.echo).ok, `${n.id}: ${n.echo}`).toBe(true);
+    }
+  });
+
   it('四个等级都有故事，每页都有图', () => {
     for (const lv of [1, 2, 3, 4] as const) {
       expect(STORIES.some((s) => s.level === lv), `等级 ${lv} 没有故事`).toBe(true);
@@ -235,6 +327,43 @@ describe('对话脚本', () => {
   it('三个等级都有起始节点', () => {
     for (const lv of [1, 2, 3] as const) {
       expect(TALK_NODES.some((n) => n.level === lv), `等级 ${lv} 没有节点`).toBe(true);
+    }
+  });
+
+  it('★ 每一级至少 4 条日常话题链——只有一条的话孩子每天听到同一段对话', () => {
+    for (const lv of [1, 2, 3] as const) {
+      const n = talkStarts(lv).filter((x) => !x.intro).length;
+      expect(n, `等级 ${lv} 只有 ${n} 条`).toBeGreaterThanOrEqual(4);
+      expect(talkStarts(lv).filter((x) => x.intro).length, `等级 ${lv} 有多条自我介绍链`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('★ 每条链都能走到头，不成环；每个节点都属于某条链', () => {
+    const reached = new Set<string>();
+    for (const start of TALK_NODES.filter((n) => n.start)) {
+      const chain = chainOf(start.id);
+      expect(chain.length, start.id).toBeGreaterThanOrEqual(3);
+      expect(chain.length, `${start.id} 可能成环`).toBeLessThan(12);
+      expect(chain[chain.length - 1].next, `${start.id} 的链尾还有 next`).toBeUndefined();
+      for (const n of chain) {
+        expect(n.level, `${n.id} 被串进了别的等级的链`).toBe(start.level);
+        reached.add(n.id);
+      }
+      expect(start.title && start.outcome, `${start.id} 缺 title / outcome`).toBeTruthy();
+    }
+    for (const n of TALK_NODES) expect(reached.has(n.id), `${n.id} 没有被任何链走到`).toBe(true);
+  });
+
+  it('★ 对话里引用的词都存在；设了 answer 的题，answer 一定是可接受的回答', () => {
+    for (const n of TALK_NODES) {
+      for (const id of n.wordIds ?? []) expect(getWord(id), `${n.id} → ${id}`).toBeTruthy();
+      if (n.answer) expect(n.expect, n.id).toContain(n.answer);
+    }
+  });
+
+  it('★ 没有唯一答案的题（年龄、喜好、开放题）不设 answer', () => {
+    for (const id of ['t1-age', 't1-like', 't1n-age', 't1f-like', 't2p-pet']) {
+      expect(getNode(id)?.answer, id).toBeUndefined();
     }
   });
 });
@@ -345,31 +474,55 @@ describe('跟读判定', () => {
 describe('复习引擎', () => {
   const now = Date.now();
 
-  it('答对升盒，间隔变长', () => {
-    let m = newMemory('w-apple', now);
+  /** 按复习日程一次次答对：每次都在到期那天来复习 */
+  function reviewedOnSchedule(id: string, times: number, start = now) {
+    let m = newMemory(id, start);
+    let t = start;
     const gaps: number[] = [];
-    for (let i = 0; i < 4; i++) {
-      m = applyResult(m, 'right', 'recognize', now);
-      gaps.push(Math.round((m.dueAt - now) / DAY));
+    for (let i = 0; i < times; i++) {
+      m = applyResult(m, 'right', 'recognize', t);
+      gaps.push(Math.round((m.dueAt - t) / DAY));
+      t = Math.max(m.dueAt, t + DAY);
     }
+    return { m, gaps, t };
+  }
+
+  it('答对升盒，间隔变长', () => {
+    const { gaps } = reviewedOnSchedule('w-apple', 4);
     expect(gaps).toEqual([INTERVALS[1], INTERVALS[2], INTERVALS[3], INTERVALS[4]]);
   });
 
-  it('★ 连续正确三次且进到高盒才算掌握（§19）', () => {
+  it('★ 同一次学习里连着答对好几遍，只升一盒——那是集中练习，不是间隔回忆', () => {
     let m = newMemory('w-apple', now);
-    m = applyResult(m, 'right', 'recognize', now);
-    m = applyResult(m, 'right', 'recognize', now);
+    // 单词环节：跟读、选图、用，一个新词当场答对三次
+    m = applyResult(m, 'right', 'speak', now);
+    m = applyResult(m, 'right', 'listen', now + 60_000);
+    m = applyResult(m, 'right', 'use', now + 120_000);
+    expect(m.box).toBe(1);
+    expect(m.streak).toBe(1);
+    expect(m.correct).toBe(3); // 作答照记，只是不算间隔成功
+    // 第二天就该复习——这正是最容易忘的时候
+    expect(Math.round((m.dueAt - now) / DAY)).toBe(1);
+    // 隔天再答对，才升到下一盒
+    m = applyResult(m, 'right', 'recognize', now + DAY);
+    expect(m.box).toBe(2);
+  });
+
+  it('★ 连续正确三次且进到高盒才算掌握（§19）', () => {
+    let { m } = reviewedOnSchedule('w-apple', 2);
     expect(m.mastered).toBe(false);
-    m = applyResult(m, 'right', 'recognize', now);
+    ({ m } = reviewedOnSchedule('w-apple', 3));
     expect(m.streak).toBe(3);
-    m = applyResult(m, 'right', 'recognize', now);
+    expect(m.mastered).toBe(false); // 盒号还不够高
+    ({ m } = reviewedOnSchedule('w-apple', 4));
     expect(m.mastered).toBe(true);
   });
 
   it('★ 答错只退一盒，并且当场重新排队——不清零', () => {
-    let m = newMemory('w-yellow', now);
-    for (let i = 0; i < 4; i++) m = applyResult(m, 'right', 'recognize', now);
+    const r = reviewedOnSchedule('w-yellow', 4);
+    let m = r.m;
     const box = m.box;
+    const now = r.t;
     m = applyResult(m, 'wrong', 'listen', now);
     expect(m.box).toBe(box - 1);
     expect(m.box).toBeGreaterThan(0);
@@ -420,9 +573,8 @@ describe('复习引擎', () => {
   it('retentionBand 只给三档，不给百分比', () => {
     const fresh = newMemory('x', now);
     expect(retentionBand(fresh, now)).toBe('shaky');
-    let m = fresh;
-    for (let i = 0; i < 4; i++) m = applyResult(m, 'right', 'recognize', now);
-    expect(retentionBand(m, now)).toBe('solid');
+    const { m, t } = reviewedOnSchedule('x', 4);
+    expect(retentionBand(m, t)).toBe('solid');
   });
 });
 
@@ -644,6 +796,37 @@ describe('每日任务', () => {
     const sa = STORIES.find((s) => s.id === a.steps.find((x) => x.kind === 'story')?.storyId);
     const sb = STORIES.find((s) => s.id === b.steps.find((x) => x.kind === 'story')?.storyId);
     if (sa && sb) expect(sb.level).toBeGreaterThanOrEqual(sa.level);
+  });
+
+  it('★ 起步阶段还有 tier 1 没学时，不会被塞 tier 2 的词', () => {
+    const c = child();
+    expect(c.level).toBe('starter');
+    for (const d of ['2026-03-01', '2026-03-02', '2026-03-03']) {
+      const m = generateMission({ profile: c, memories: [], date: d });
+      for (const id of m.steps.find((s) => s.id === 'm-words')?.wordIds ?? []) {
+        expect(getWord(id)!.tier, `${d} ${id}`).toBe(1);
+      }
+    }
+  });
+
+  it('★ 难度档是软上限：tier 1 全见过了，起步阶段照样有新词（从 tier 2 接上）', () => {
+    const c = child();
+    const now = Date.now();
+    // 所有 tier 1 都见过，而且都记得很牢（不欠复习债，避免新词被复习挤掉）
+    const seenAllTier1: WordMemory[] = WORDS.filter((w) => w.tier === 1).map((w) => ({
+      ...newMemory(w.id, now - 30 * DAY),
+      seen: 5,
+      correct: 5,
+      box: 5,
+      streak: 5,
+      mastered: true,
+      dueAt: now + 10 * DAY,
+    }));
+    const m = generateMission({ profile: c, memories: seenAllTier1, date: '2026-03-05', now });
+    const words = m.steps.find((s) => s.id === 'm-words');
+    expect(words, '学完 tier 1 之后就没有新词了').toBeTruthy();
+    expect(words!.wordIds.length).toBeGreaterThan(0);
+    for (const id of words!.wordIds) expect(getWord(id)!.tier, id).toBe(2);
   });
 
   it('词学完了也不会排空任务——永远有东西可学', () => {

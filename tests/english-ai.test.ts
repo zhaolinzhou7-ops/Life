@@ -25,6 +25,7 @@ import { newChild } from '../src/english/engine/profile';
 import { newMemory } from '../src/english/engine/review';
 import { detectWeakness } from '../src/english/engine/weakness';
 import type { CoachTurn } from '../src/english/types';
+import { TALK_NODES } from '../src/english/data/dialog';
 
 const kid = () => newChild('Mimi', 5, '🐣');
 
@@ -86,6 +87,35 @@ describe('模型 → 孩子', () => {
       expect(v.replacement).toBeTruthy();
       // 替代句不能自己又踩线
       expect(checkOutbound(v.replacement!).ok, v.replacement).toBe(true);
+    }
+  });
+
+  it('★ 规则瞄准的是「向孩子要 / 引导孩子买」，换个说法也要拦得住', () => {
+    for (const bad of [
+      "What's your mom's phone number?",
+      'Tell me your phone.',
+      'Call me later!',
+      'Ask your mom to buy the full version.',
+      'You should buy more stars.',
+      'Buy it now!',
+      'Unlock more animals today!',
+      'What is the name of your school?',
+      'Tell me your password.',
+    ]) {
+      expect(checkOutbound(bad).ok, bad).toBe(false);
+    }
+  });
+
+  it('★ 词库和故事里的生活描述不会被误伤（曾经把 phone、buy 都拦了）', () => {
+    for (const good of [
+      'This is a phone.',
+      'Mom talks to Grandma on the phone.',
+      'We buy some bread at the shop.',
+      'The fire truck is red.',
+      'I go to school by bus.',
+      'My school is big.',
+    ]) {
+      expect(checkOutbound(good).ok, good).toBe(true);
     }
   });
 
@@ -183,6 +213,47 @@ describe('内置引擎 · 对话', () => {
     const h2 = await mockProvider.chat({ profile: kid(), level: 1, history, childSaid: 'banana', hintCount: 2, seed: 1 });
     expect(h2.say).toMatch(/red/i);
     expect(h2.say).toMatch(/say it with me/i);
+  });
+
+  it('★ 年龄、喜好这类没有标准答案的题，答不上来时不给音头（不能暗示孩子一岁、替他决定喜好）', async () => {
+    for (const id of ['t1-age', 't1-like']) {
+      const history: CoachTurn[] = [{ role: 'coach', text: '?', nodeId: id }];
+      for (const hintCount of [0, 1, 2]) {
+        const r = await mockProvider.chat({ profile: kid(), level: 1, history, childSaid: 'banana', hintCount, seed: 1 });
+        expect(r.say, `${id} hint${hintCount}: ${r.say}`).not.toMatch(/It's [a-z]\.\.\./);
+        expect(r.say, `${id} hint${hintCount}: ${r.say}`).not.toMatch(/starts with/);
+      }
+    }
+  });
+
+  it('★ 指定了话题链就从那条链开始', async () => {
+    const r = await mockProvider.chat({
+      profile: kid(), level: 1, history: [], childSaid: '', hintCount: 0, seed: 1, startNodeId: 't1a-dog',
+    });
+    expect(r.nodeId).toBe('t1a-dog');
+    expect(r.say).toMatch(/animal/i);
+  });
+
+  it('★ 每一条话题链都能用内置引擎完整走完，每一句都安全', async () => {
+    for (const start of TALK_NODES.filter((n) => n.start)) {
+      let r = await mockProvider.chat({
+        profile: kid(), level: start.level, history: [], childSaid: '', hintCount: 0, seed: 1, startNodeId: start.id,
+      });
+      let history: CoachTurn[] = [{ role: 'coach', text: r.say, nodeId: r.nodeId }];
+      let guard = 0;
+      while (!r.end && guard < 15) {
+        expect(checkOutbound(r.say).ok, `${start.id}: ${r.say}`).toBe(true);
+        const node = TALK_NODES.find((n) => n.id === r.nodeId)!;
+        const said = node.answer ?? node.expect[0] ?? 'I like it very much';
+        r = await mockProvider.chat({
+          profile: kid(), level: start.level, history, childSaid: said, hintCount: 0, seed: 1, startNodeId: start.id,
+        });
+        expect(r.judged, `${start.id} / ${node.id} 答「${said}」没被判对`).toBe('right');
+        history = [{ role: 'coach', text: r.say, nodeId: r.nodeId }];
+        guard += 1;
+      }
+      expect(r.end, `${start.id} 走不到结束`).toBe(true);
+    }
   });
 
   it('★ 沉默不会被当成答错，而且两次之后会温和地换一题', async () => {

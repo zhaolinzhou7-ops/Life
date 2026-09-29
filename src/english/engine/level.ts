@@ -23,7 +23,9 @@ import { initialProfile, levelOf } from './profile';
 const TIER_WORDS: Record<1 | 2 | 3, string[]> = {
   1: ['w-apple', 'w-cat', 'w-red', 'w-dog', 'w-mom'],
   2: ['w-banana', 'w-yellow', 'w-three', 'w-eat', 'w-rabbit'],
-  3: ['w-elephant', 'w-hungry', 'w-brother', 'w-wash', 'w-flower'],
+  // 以前这一层放的其实是 tier 2 的词——词库里 tier 3 是空的。
+  // 第三层要真的难一档，否则测不出 reader 和 talker 的区别。
+  3: ['w-kangaroo', 'w-excited', 'w-helicopter', 'w-vegetables', 'w-octopus'],
 };
 
 function optionsFor(wordId: string, rnd: () => number): AssessItem['options'] {

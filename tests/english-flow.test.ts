@@ -62,16 +62,38 @@ function setup(age = 5, answerAll: ResultTag = 'right'): ChildData {
   return data;
 }
 
-/** 把一个任务步骤当成「全部答对」做完 */
+/**
+ * 把一个任务步骤按真实界面会产生的作答做完。
+ *
+ * 要尽量贴近界面：单词和复习环节每个词都有一次跟读（界面里的 Repeat），
+ * 对话环节是开口说。早先这里只产生「认词」一种作答，模拟出来的孩子一句话都没说过，
+ * 一周后引擎就（正确地）判定他不愿开口、不再排对话——测出来的是模拟的毛病，不是产品的。
+ */
 function doStep(data: ChildData, step: MissionStep, result: ResultTag, now = Date.now()): ActivityDraft {
-  const outcomes: Outcome[] = step.wordIds.map((id) => ({
+  void data;
+  const one = (id: string, skill: Outcome['skill'], stage: Outcome['stage']): Outcome => ({
     wordId: id,
-    skill: step.kind === 'game' ? 'listening' : step.kind === 'story' ? 'comprehension' : 'vocabulary',
+    skill,
     result,
     hinted: false,
-    stage: step.kind === 'game' ? 'listen' : 'recognize',
+    stage,
     at: now,
-  }));
+  });
+  const outcomes: Outcome[] = step.wordIds.flatMap((id): Outcome[] => {
+    switch (step.kind) {
+      case 'word':
+      case 'listen':
+        return [one(id, 'vocabulary', 'recognize'), one(id, 'speaking', 'speak')];
+      case 'game':
+        return [one(id, 'listening', 'listen')];
+      case 'story':
+        return [one(id, 'comprehension', 'use')];
+      case 'talk':
+        return [one(id, 'speaking', 'use')];
+      default:
+        return [one(id, 'vocabulary', 'recognize')];
+    }
+  });
   return {
     kind: step.kind,
     refId: step.id,
@@ -571,5 +593,90 @@ describe('「今天学了多少」必须说实话', () => {
       session = commitActivity(data, session, doStep(data, step, 'right'), mission);
     }
     expect(session.newWords.length).toBeLessThanOrEqual(planned);
+  });
+});
+
+// ════════════════════ 内容续航：「能长期用」要能被测出来 ════════════════════
+//
+// 这组测试把「每天学、学三个月」模拟一遍。第一版上线时只有 84 个词、9 个故事、
+// 每级一条对话，起步阶段的孩子第 14 天就没有新词了，读者和表达阶段的孩子
+// 永远碰不到 tier 3——这些单元测试全看不出来，只有把日子一天天过下去才看得见。
+
+describe('内容续航', () => {
+  function simulate(level: ChildData['profile']['level'], age: number, minutes: number, days: number) {
+    const data = setup(age);
+    data.profile.level = level;
+    data.profile.settings.dailyMinutes = minutes;
+    let t = Date.parse('2026-01-05T09:00:00');
+    let firstDryDay = -1;
+    const stories: string[] = [];
+    const talkStarts = new Set<string>();
+    const talks: string[] = [];
+    let storyRepeatsWithin3 = 0;
+    for (let day = 1; day <= days; day++) {
+      const date = dayKey(new Date(t));
+      data.mission = undefined;
+      const m = ensureMission(data, date, t);
+      if (!m.steps.some((s) => s.id === 'm-words') && firstDryDay < 0) firstDryDay = day;
+      const st = m.steps.find((s) => s.kind === 'story')?.storyId;
+      if (st) {
+        if (stories.slice(-3).includes(st)) storyRepeatsWithin3 += 1;
+        stories.push(st);
+      }
+      const talk = m.steps.find((s) => s.kind === 'talk')?.talkStart;
+      if (talk) {
+        talkStarts.add(talk);
+        talks.push(talk);
+      }
+      let session = startSession(data.profile.id, date);
+      for (const step of [...m.steps]) {
+        const draft = doStep(data, step, 'right', t);
+        draft.storyId = step.storyId;
+        draft.talkStart = step.talkStart;
+        session = commitActivity(data, session, draft, m);
+      }
+      finishSession(data, session);
+      data.profile.level = level; // 钉住等级，只测「内容够不够」
+      t += DAY;
+    }
+    const talkBackToBack = talks.filter((t, i) => i > 0 && talks[i - 1] === t).length;
+    const introCount = talks.filter((t) => t === 't1-hello').length;
+    return {
+      firstDryDay,
+      distinctStories: new Set(stories).size,
+      storyRepeatsWithin3,
+      talkStarts: talkStarts.size,
+      talkBackToBack,
+      introCount,
+      firstTalk: talks[0],
+    };
+  }
+
+  it('★ 起步阶段每天学，三个月都有新词', () => {
+    const r = simulate('starter', 5, 15, 90);
+    expect(r.firstDryDay, `第 ${r.firstDryDay} 天就没有新词了`).toBe(-1);
+  });
+
+  it('★ 其它阶段至少两个月有新词', () => {
+    for (const [lv, age] of [['explorer', 6], ['reader', 8], ['talker', 10]] as const) {
+      const r = simulate(lv, age, 15, 60);
+      expect(r.firstDryDay, `${lv} 第 ${r.firstDryDay} 天就没有新词了`).toBe(-1);
+    }
+  });
+
+  it('★ 三个月里读到足够多不同的故事，而且三天内不重复', () => {
+    for (const [lv, age] of [['starter', 5], ['explorer', 6], ['talker', 10]] as const) {
+      const r = simulate(lv, age, 15, 90);
+      expect(r.distinctStories, `${lv} 只读到 ${r.distinctStories} 个不同故事`).toBeGreaterThanOrEqual(15);
+      expect(r.storyRepeatsWithin3, `${lv} 有 ${r.storyRepeatsWithin3} 次三天内读到同一个故事`).toBe(0);
+    }
+  });
+
+  it('★ 对话每天换话题：连续两天不聊同一条，自我介绍只在第一次', () => {
+    const r = simulate('starter', 5, 20, 40);
+    expect(r.firstTalk, '第一次聊天应该是自我介绍').toBe('t1-hello');
+    expect(r.introCount, '自我介绍重复出现').toBe(1);
+    expect(r.talkBackToBack, '有连续两天聊同一条链').toBe(0);
+    expect(r.talkStarts, `40 天只聊过 ${r.talkStarts} 条不同的链`).toBeGreaterThanOrEqual(5);
   });
 });

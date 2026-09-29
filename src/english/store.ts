@@ -28,8 +28,10 @@ export interface ChildData {
   sessions: SessionRecord[];
   /** 今天的任务缓存。同一天重进不重新生成 */
   mission?: DailyMission;
-  /** 读过的故事，用于选故事时降权 */
+  /** 读过的故事，按阅读顺序，用于选故事时降权 */
   readStories: string[];
+  /** 最近聊过的话题链（链头 id），按时间顺序。老存档里没有这个字段 */
+  recentTalks?: string[];
   /** 对话转写。只有 settings.keepTranscripts=true 时才有内容 */
   transcripts: { at: number; role: 'coach' | 'child'; text: string }[];
 }
@@ -146,6 +148,7 @@ export function saveChild(data: ChildData): void {
     sessions: data.sessions.filter((s) => daysBetween(s.date, today) <= 90).slice(-200),
     transcripts: data.profile.settings.keepTranscripts ? data.transcripts.slice(-120) : [],
     readStories: data.readStories.slice(-60),
+    recentTalks: (data.recentTalks ?? []).slice(-30),
   };
   if (i >= 0) d.children[i] = trimmed;
   else d.children.push(trimmed);

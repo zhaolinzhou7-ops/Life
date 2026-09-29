@@ -207,7 +207,7 @@ export function renderGame(ctx: Ctx, opt: GameOptions): HTMLElement {
     const lane = el('div', 'en-pic');
     const paintLane = () => {
       const cells = queue.length;
-      lane.textContent = '🌊'.repeat(Math.max(0, frog)) + '🐸' + '🪨'.repeat(Math.max(0, cells - frog));
+      lane.textContent = '🌊'.repeat(Math.max(0, frog)) + '🐸' + '🍃'.repeat(Math.max(0, cells - frog));
       lane.style.fontSize = cells > 6 ? '30px' : '38px';
       lane.style.wordBreak = 'break-all';
     };

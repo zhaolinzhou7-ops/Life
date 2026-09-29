@@ -25,7 +25,14 @@ export type ThemeId =
   | 'number'
   | 'action'
   | 'toy'
-  | 'nature';
+  | 'nature'
+  | 'house'
+  | 'describe'
+  | 'transport'
+  | 'place'
+  | 'school'
+  | 'time'
+  | 'job';
 
 /** 能力维度。刻意和「活动类型」分开：一个活动可以同时练多个维度 */
 export type SkillId =
@@ -148,6 +155,11 @@ export interface Word {
   plural?: boolean;
   /** 不可数（milk、water、bread）。不加 a/an，也不变复数 */
   mass?: boolean;
+  /**
+   * 指不出位置的名词（morning、birthday、winter）。
+   * 这类词不能问 "Where is the morning?"，要问 "Which one is morning?"
+   */
+  abstract?: boolean;
   sentences: WordSentence[];
   /** 「这是什么」类提问的具体问法，不同词性问法不同 */
   ask: string;
@@ -176,6 +188,8 @@ export interface WordMemory {
   errors: { recognize: number; listen: number; speak: number; use: number };
   firstLearnedAt: number;
   mastered: boolean;
+  /** 上次升盒的时间。同一天里多次答对只升一盒（见 review.ts） */
+  lastPromotedAt?: number;
 }
 
 // ———————————————— 故事 ————————————————
@@ -276,6 +290,8 @@ export interface MissionStep {
   storyId?: string;
   gameId?: GameId;
   talkLevel?: 1 | 2 | 3;
+  /** 对话从哪条话题链开始（dialog.ts 里 start 的节点） */
+  talkStart?: string;
   done: boolean;
 }
 

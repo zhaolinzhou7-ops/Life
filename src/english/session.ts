@@ -38,6 +38,30 @@ export interface ActivityDraft {
   learningOutcome: string;
   outcomes: Outcome[];
   startedAt: number;
+  /** 故事活动实际读的是哪一个（可能是 AI 现编的，不一定是任务里排的那个） */
+  storyId?: string;
+  /** 对话活动聊的是哪条话题链 */
+  talkStart?: string;
+}
+
+/** 记一次「聊过这条话题链」。和故事一样按时间排，重聊的挪到末尾 */
+export function noteTalk(data: ChildData, startId: string): void {
+  const list = data.recentTalks ?? (data.recentTalks = []);
+  const i = list.indexOf(startId);
+  if (i >= 0) list.splice(i, 1);
+  list.push(startId);
+}
+
+/**
+ * 记一次「读过这个故事」。
+ *
+ * 列表按阅读顺序排，重读的挪到末尾而不是重复追加——
+ * 选故事时要知道的是「多久以前读的」，不是「读过几次」。
+ */
+export function noteStory(data: ChildData, storyId: string): void {
+  const i = data.readStories.indexOf(storyId);
+  if (i >= 0) data.readStories.splice(i, 1);
+  data.readStories.push(storyId);
 }
 
 /**
@@ -110,6 +134,9 @@ export function commitActivity(
   const res = analyzeSession(data.profile, data.memories, slice);
   data.profile = res.profile;
   data.memories = res.memories;
+
+  if (draft.storyId) noteStory(data, draft.storyId);
+  if (draft.talkStart) noteTalk(data, draft.talkStart);
 
   if (mission) {
     const step = mission.steps.find((s) => s.id === draft.refId);

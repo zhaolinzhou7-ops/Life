@@ -32,13 +32,31 @@ import type {
 import { WORDS, getWord } from '../data/vocab';
 import { STORIES } from '../data/stories';
 import { GAMES, getGame } from '../data/games';
+import { chainOf, firstNode, talkStarts, type TalkNode } from '../data/dialog';
 import { LEVEL_INFO } from './profile';
 import { dueWords, riskOf } from './review';
 import type { Prescription } from './weakness';
 import { hashSeed, rng, shuffle } from './util';
 
 /** 主题推进顺序。刻意从「我自己」开始：离孩子最近的东西最容易建立意义连接 */
-export const THEME_ORDER: ThemeId[] = ['self', 'family', 'food', 'animal', 'color', 'number', 'action', 'toy', 'nature'];
+export const THEME_ORDER: ThemeId[] = [
+  'self',
+  'family',
+  'food',
+  'animal',
+  'color',
+  'number',
+  'action',
+  'toy',
+  'house',
+  'nature',
+  'describe',
+  'transport',
+  'place',
+  'school',
+  'time',
+  'job',
+];
 
 export interface MissionInput {
   profile: ChildProfile;
@@ -46,6 +64,10 @@ export interface MissionInput {
   prescription?: Prescription;
   date: string;
   now?: number;
+  /** 读过的故事，按阅读顺序，最后一个是最近读的 */
+  readStories?: string[];
+  /** 最近聊过的话题链，按时间顺序 */
+  recentTalks?: string[];
 }
 
 /** 每个等级一次学几个新词。低龄少而精，重复次数比数量重要 */
@@ -78,11 +100,24 @@ function pickReview(mems: WordMemory[], rx: Prescription | undefined, now: numbe
   return out;
 }
 
+/** 按等级和家长的难度设置，算出「优先从哪一档取新词」 */
+export function tierCapFor(profile: ChildProfile): 1 | 2 | 3 {
+  const maxTier: 1 | 2 | 3 = profile.level === 'starter' ? 1 : profile.level === 'explorer' ? 2 : 3;
+  const harder = profile.settings.difficulty === 'harder' ? 1 : 0;
+  const easier = profile.settings.difficulty === 'easier' ? -1 : 0;
+  return Math.min(3, Math.max(1, maxTier + harder + easier)) as 1 | 2 | 3;
+}
+
 /**
  * 挑今天的新词。
  *
  * 主题按顺序推进，但处方指定的主题优先。同一次只从一到两个主题取词，
  * 这样这些词能在后面的游戏和故事里反复碰到，而不是学完就散。
+ *
+ * **难度档是软上限，不是墙。** 先从当前等级允许的档里取；这一档的词都见过了，
+ * 再逐级往上放。以前这里是硬过滤——一个起步阶段的孩子两周就把 tier 1 学完，
+ * 之后每天的任务里就再也没有新词，而他的等级可能还没来得及升上去。
+ * 「学完了这一档」本身就是最直接的学习历史，比能力分数更该算数。
  */
 function pickNew(
   profile: ChildProfile,
@@ -92,35 +127,36 @@ function pickNew(
   rnd: () => number,
 ): Word[] {
   const known = new Set(mems.map((m) => m.wordId));
-  const maxTier: 1 | 2 | 3 = profile.level === 'starter' ? 1 : profile.level === 'explorer' ? 2 : 3;
-  const harder = profile.settings.difficulty === 'harder' ? 1 : 0;
-  const easier = profile.settings.difficulty === 'easier' ? -1 : 0;
-  const tierCap = Math.min(3, Math.max(1, maxTier + harder + easier)) as 1 | 2 | 3;
-
-  const eligible = WORDS.filter((w) => !known.has(w.id) && w.tier <= tierCap);
-  if (!eligible.length) return [];
+  const unknown = WORDS.filter((w) => !known.has(w.id));
+  if (!unknown.length) return [];
 
   const themeOrder: ThemeId[] = [...(rx?.boostThemes ?? []), ...THEME_ORDER].filter(
     (t, i, a) => a.indexOf(t) === i,
   );
 
   const out: Word[] = [];
-  for (const theme of themeOrder) {
-    if (out.length >= count) break;
-    const pool = shuffle(eligible.filter((w) => w.theme === theme), rnd);
-    for (const w of pool) {
-      if (out.length >= count) break;
+  const taken = new Set<string>();
+  const take = (w: Word) => {
+    if (out.length < count && !taken.has(w.id)) {
       out.push(w);
+      taken.add(w.id);
     }
-  }
-  // 主题都学完了就全库兜底，保证永远有东西可学
-  if (out.length < count) {
-    for (const w of shuffle(eligible, rnd)) {
+  };
+
+  for (let cap = tierCapFor(profile); cap <= 3 && out.length < count; cap++) {
+    const eligible = unknown.filter((w) => w.tier <= cap && !taken.has(w.id));
+    for (const theme of themeOrder) {
       if (out.length >= count) break;
-      if (!out.some((x) => x.id === w.id)) out.push(w);
+      // 同一主题里先低档后高档，同档内随机
+      const pool = shuffle(eligible.filter((w) => w.theme === theme), rnd).sort((a, b) => a.tier - b.tier);
+      pool.forEach(take);
     }
+    // THEME_ORDER 之外的主题（将来加的）也要能被取到
+    shuffle(eligible, rnd)
+      .sort((a, b) => a.tier - b.tier)
+      .forEach(take);
   }
-  return out.slice(0, count);
+  return out;
 }
 
 /** 按薄弱点选游戏。没有薄弱点时按等级给一个合适的默认 */
@@ -154,8 +190,16 @@ function pickGame(profile: ChildProfile, rx: Prescription | undefined, rnd: () =
  * 挑故事。
  *
  * 优先选「目标词里有今天学的词」的故事——故事的价值就在于让新词在情节里复现。
- * 其次才是难度匹配。已经读过的故事会降权但不排除：重复听同一个故事对低龄孩子
- * 是好事，不是浪费。
+ * 其次才是难度匹配。
+ *
+ * 读过的故事按**多久以前读的**降权，而不是一刀切：
+ *   最近三次读过的 —— 几乎排除。昨天刚听完的故事今天又来，孩子会觉得 App 坏了。
+ *   更早读过的    —— 轻罚。隔一阵重听同一个故事对低龄孩子是好事，不是浪费。
+ *
+ * 「最近三次」的罚分必须压得过「和今天的词重合」的加分。否则会形成一个回路：
+ * 读完一个故事 → 它的词进复习 → 第二天复习词和这个故事重合 → 又选中它。
+ *
+ * readIds 按阅读顺序排列，最后一个是最近读的（见 session.ts 的 noteStory）。
  */
 function pickStory(profile: ChildProfile, todayWords: string[], readIds: string[], rnd: () => number): Story | null {
   const target = LEVEL_INFO[profile.level].storyLevel;
@@ -167,11 +211,45 @@ function pickStory(profile: ChildProfile, todayWords: string[], readIds: string[
     const overlap = s.words.filter((w) => todayWords.includes(w)).length;
     score += overlap * 4;
     score -= Math.abs(s.level - want) * 3;
-    if (readIds.includes(s.id)) score -= 2.5;
+    const idx = readIds.lastIndexOf(s.id);
+    if (idx >= 0) {
+      const ago = readIds.length - 1 - idx; // 0 = 上一次读的就是它
+      score -= ago < 3 ? 30 : ago < 8 ? 3 : 1;
+    }
     return { s, score: score + rnd() * 1.2 };
   }).sort((a, b) => b.score - a.score);
 
   return scored[0]?.s ?? null;
+}
+
+/**
+ * 挑今天聊哪条话题链。
+ *
+ *  · 第一次和 Coco 说话：用自我介绍链（问名字、年龄）。之后不再用——
+ *    天天听到 "Hello! I am Coco." 很怪，像一个记不住你的人。
+ *  · 之后优先和今天学的词重合的链：今天学了动物，就聊动物，
+ *    让新词马上在对话里用一次。
+ *  · 最近两次聊过的几乎排除，最近五次聊过的轻罚，保证轮换。
+ */
+function pickTalk(level: 1 | 2 | 3, todayWords: string[], recent: string[], rnd: () => number): TalkNode {
+  const starts = talkStarts(level);
+  if (!recent.length) {
+    const intro = starts.find((n) => n.intro);
+    if (intro) return intro;
+  }
+  const pool = starts.filter((n) => !n.intro);
+  const scored = (pool.length ? pool : starts).map((n) => {
+    const words = chainOf(n.id).flatMap((x) => x.wordIds ?? []);
+    let score = words.filter((w) => todayWords.includes(w)).length * 3;
+    const idx = recent.lastIndexOf(n.id);
+    if (idx >= 0) {
+      const ago = recent.length - 1 - idx;
+      score -= ago < 2 ? 30 : ago < 5 ? 4 : 1;
+    }
+    return { n, score: score + rnd() * 1.5 };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.n ?? firstNode(level);
 }
 
 export function generateMission(input: MissionInput): DailyMission {
@@ -256,7 +334,7 @@ export function generateMission(input: MissionInput): DailyMission {
   });
 
   // ——— 4. 故事 ———
-  const story = pickStory(profile, todayWords, [], rnd);
+  const story = pickStory(profile, todayWords, input.readStories ?? [], rnd);
   if (story) {
     steps.push({
       id: 'm-story',
@@ -277,21 +355,18 @@ export function generateMission(input: MissionInput): DailyMission {
   const talkLevel: 1 | 2 | 3 = level === 'starter' ? 1 : level === 'explorer' ? 1 : level === 'reader' ? 2 : 3;
   const wantTalk = !rx?.lowPressure && profile.settings.allowVoice !== false;
   if (wantTalk) {
+    const chain = pickTalk(talkLevel, todayWords, input.recentTalks ?? [], rnd);
     steps.push({
       id: 'm-talk',
       kind: 'talk',
       title: 'Talk with Coco',
-      titleZh: '和 Coco 说几句话',
+      titleZh: `和 Coco 说几句话：${chain.title ?? '聊聊天'}`,
       icon: '🦜',
       estimateMin: 3,
-      learningOutcome:
-        talkLevel === 1
-          ? '能回答 name / age / what is this / what color 这类问题'
-          : talkLevel === 2
-            ? '能说出今天吃了什么、做了什么'
-            : '能就一个话题连续说几句',
-      wordIds: [],
+      learningOutcome: chain.outcome ?? '能就一个话题回答几个问题',
+      wordIds: chainOf(chain.id).flatMap((n) => n.wordIds ?? []).filter((id, i, a) => a.indexOf(id) === i),
       talkLevel,
+      talkStart: chain.id,
       done: false,
     });
   }

@@ -12,7 +12,7 @@
 
 import './english.css';
 import type { SessionRecord } from './types';
-import { activeChildId, getChildData, saveChild, type ChildData } from './store';
+import { activeChildId, getChildData, listChildren, removeChild, saveChild, setActiveChild, type ChildData } from './store';
 import { ensureMission, nextStep } from './plan';
 import { startSession } from './session';
 import { cancelSpeech } from './speech/tts';
@@ -183,6 +183,21 @@ export function bootEnglish(app: HTMLElement, onExit: () => void): () => void {
       report: () => push(reportView),
       settings: () => push(settingsView),
       backToKid: () => reset(homeView),
+      children: listChildren(),
+      switchChild: (id: string) => {
+        // 换孩子时进行中的会话属于上一个孩子，必须丢掉，否则作答会记到别人头上
+        setActiveChild(id);
+        data = getChildData(id);
+        session = null;
+        reset(dashView);
+      },
+      addChild: () =>
+        push(() =>
+          renderOnboard(onboarded, {
+            // 家长端里点「添加」进来的，取消应该回到家长中心，而不是退出整个应用
+            exit: () => pop(),
+          }),
+        ),
     });
 
   const reportView: View = () => renderReport(ctx, pop);
@@ -196,6 +211,16 @@ export function bootEnglish(app: HTMLElement, onExit: () => void): () => void {
         data = undefined;
         session = null;
         reset(homeView);
+      },
+      () => {
+        // 只删这一个孩子。还有别的孩子就切过去留在家长中心，没有了就回首次引导
+        if (!data) return;
+        removeChild(data.profile.id);
+        session = null;
+        const next = activeChildId();
+        data = next ? getChildData(next) : undefined;
+        if (data) reset(dashView);
+        else reset(homeView);
       },
     );
 

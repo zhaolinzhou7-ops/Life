@@ -479,6 +479,81 @@ for (const vp of VIEWPORTS) {
   await ctx.close();
 }
 
+// ═══════════════ 8. 两个孩子共用一台设备 ═══════════════
+{
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  watch(page, 'siblings');
+
+  const openParent = async () => {
+    const gate = page.locator('.en-parent-entry');
+    const box = await gate.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(900);
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    const q = await page.locator('.en-field label').first().innerText();
+    const m = q.match(/(\d+)\s*×\s*(\d+)/);
+    await page.locator('.en-input').first().fill(String(Number(m[1]) * Number(m[2])));
+    await page.getByRole('button', { name: '进入' }).click();
+    await page.waitForSelector('.en-tabs', { timeout: 4000 });
+  };
+
+  // 哥哥：做完测评，学一次
+  await enter(page, { name: 'Gege', age: '8' });
+  await finishAssessment(page);
+  await page.waitForSelector('.en-mission');
+  await runMission(page);
+  await page.getByRole('button', { name: '回到首页' }).click();
+  await page.waitForSelector('.en-mission');
+
+  // 家长端添加妹妹
+  await openParent();
+  await page.getByRole('button', { name: '+ 添加孩子' }).click();
+  await page.waitForTimeout(300);
+  await page.locator('.en-input').first().fill('Meimei');
+  await page.getByRole('button', { name: '4', exact: true }).first().click();
+  await page.getByRole('button', { name: '开始吧！' }).click();
+  await page.waitForTimeout(400);
+  check('添加的孩子直接进测评', await page.getByText("Let's play a little game!").isVisible().catch(() => false));
+  await page.locator('.en-back').first().click();
+  await page.waitForSelector('.en-hero h1');
+  check('孩子端切到了新加的孩子', (await page.locator('.en-hero h1').innerText()).includes('Meimei'));
+  check('新孩子从零开始，没有继承哥哥的进度', await page.getByText("Let's play a game first!").isVisible().catch(() => false));
+
+  // 家长端能看到两个孩子并切换
+  await openParent();
+  const chips = await page.locator('.en-seg button').allInnerTexts();
+  check('家长端列出两个孩子', chips.some((t) => t.includes('Gege')) && chips.some((t) => t.includes('Meimei')), chips.join(' | '));
+  await page.screenshot({ path: `${OUT}/en-siblings-dash.png`, fullPage: true });
+  await page.getByRole('button', { name: /Gege/ }).click();
+  await page.waitForTimeout(300);
+  check('切换后看的是哥哥的数据', (await page.locator('.en-bar-title').first().innerText()).includes('Gege'));
+  await page.getByRole('button', { name: '词汇' }).click();
+  await page.waitForTimeout(250);
+  check('哥哥的词汇记录还在', (await page.locator('.en-wordtag').count()) > 0);
+
+  // 刷新之后两个档案都在
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByText('AI 儿童英语学习伙伴', { exact: false }).first().click();
+  await page.waitForSelector('.en-hero h1');
+  check('刷新后停在上次选中的孩子', (await page.locator('.en-hero h1').innerText()).includes('Gege'));
+
+  // 只删妹妹
+  await openParent();
+  await page.getByRole('button', { name: /Meimei/ }).click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: '设置' }).click();
+  await page.waitForTimeout(300);
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: /只删除 Meimei 的档案/ }).click();
+  await page.waitForSelector('.en-tabs', { timeout: 4000 });
+  const after = await page.locator('.en-seg button').allInnerTexts();
+  check('只删了妹妹，哥哥还在', after.some((t) => t.includes('Gege')) && !after.some((t) => t.includes('Meimei')), after.join(' | '));
+  await ctx.close();
+}
+
 await browser.close();
 
 const failed = results.filter((r) => !r.ok);

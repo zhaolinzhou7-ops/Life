@@ -18,7 +18,6 @@ import { aiChat } from '../ai';
 import { recognizerAvailable } from '../speech/recognizer';
 import { cancelSpeech } from '../speech/tts';
 import { commitActivity, type ActivityDraft } from '../session';
-import { getNode } from '../data/dialog';
 import type { Ctx } from '../ui';
 import { btn, el, page, topbar } from '../ui';
 import { micControl, say, speaker, type MicHandle } from './parts';
@@ -53,6 +52,7 @@ export function renderTalk(ctx: Ctx, opt: TalkOptions): HTMLElement {
     learningOutcome: opt.step.learningOutcome,
     outcomes,
     startedAt: Date.now(),
+    talkStart: opt.step.talkStart,
   };
 
   let hintCount = 0;
@@ -119,6 +119,7 @@ export function renderTalk(ctx: Ctx, opt: TalkOptions): HTMLElement {
       silent,
       hintCount,
       seed: opt.mission.seed + turns * 17,
+      startNodeId: opt.step.talkStart,
     })
       .then((r) => {
         busy = false;
@@ -237,12 +238,8 @@ export function renderTalk(ctx: Ctx, opt: TalkOptions): HTMLElement {
   // 开场：拿脚本树的第一个问题，不走模型——每次进来听到的都一样，有安全感
   send('', false);
 
-  // 首屏先把第一个节点的问题铺上，避免 AI 返回前是一片空白
-  const first = getNode(`t${level}-hello`);
-  if (first) {
-    const tip = el('div', 'en-mic-hint', '和 Coco 说说话吧');
-    controls.appendChild(tip);
-  }
+  // AI 返回之前别让下半屏空着
+  controls.appendChild(el('div', 'en-mic-hint', '和 Coco 说说话吧'));
 
   return root;
 }

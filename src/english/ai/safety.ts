@@ -21,14 +21,24 @@
  */
 
 /** 模型绝对不能向孩子索取的信息 */
+/**
+ * 拦的是「向孩子要」，不是「提到这个词」。
+ *
+ * 早先这里写的是 /phone/——结果词库里的 phone、故事里的
+ * "Mom talks to Grandma on the phone." 全被当成索取个人信息拦掉了。
+ * 接了模型之后，Coco 只要一教 phone 这个词就会被换成一句不相干的话，
+ * 孩子看到的是一个答非所问的伙伴。规则要瞄准行为，不能瞄准词。
+ */
 const ASK_PII = [
-  /\b(where do you live|what'?s your address|your home address)\b/i,
-  /\b(phone|telephone|mobile)\s*(number)?\b/i,
-  /\b(what school|which school|school name|your school is)\b/i,
+  /\b(where do you live|what'?s your address|your (home )?address)\b/i,
+  /\b(phone|telephone|mobile)\s+number\b/i,
+  /\b(your|mom'?s|dad'?s|parents'?) (phone|telephone|mobile)\b/i,
+  /\b(call me|text me|call this number)\b/i,
+  /\b(what school|which school|school name|name of your school|your school is)\b/i,
   /\b(send me a photo|send a picture of you|upload your)\b/i,
-  /\b(id card|passport|credit card|bank)\b/i,
+  /\b(id card|passport|credit card|bank card|bank account|password)\b/i,
   /\b(full name|last name|family name|surname)\b/i,
-  /(家住|住哪|地址|几号楼|电话号码|手机号|身份证|哪个学校|学校在哪)/,
+  /(家住|住哪|地址|几号楼|电话号码|手机号|身份证|哪个学校|学校在哪|密码)/,
 ];
 
 /** 引导线下接触陌生人 */
@@ -40,9 +50,18 @@ const STRANGER = [
 ];
 
 /** 引导消费 */
+/**
+ * 同理：拦的是「引导孩子花钱」，不是「句子里出现 buy」。
+ * "We buy some bread at the shop." 是生活描述，词库里本来就该有。
+ */
 const MONEY = [
-  /\b(buy|purchase|subscribe|pay|upgrade|premium|discount|only \$?\d)\b/i,
-  /(购买|付费|充值|订阅|开通会员|优惠|折扣)/,
+  /\b(subscribe|subscription|premium|upgrade|in-app|coupon|discount|price|payment)\b/i,
+  /\bunlock (more|all|the full|everything)\b/i,
+  /\b(ask|tell) (your )?(mom|dad|mum|parents?) to (buy|pay|get you)\b/i,
+  /\b(you|mom|dad|parents?) (can|should|could|need to|must|have to) (buy|pay)\b/i,
+  /\b(buy|pay for) (it|this|that|now|more|them)\b/i,
+  /\bonly \$?\d/i,
+  /(购买|付费|充值|订阅|开通会员|优惠|折扣|解锁)/,
 ];
 
 /** 不适合年龄的内容 */

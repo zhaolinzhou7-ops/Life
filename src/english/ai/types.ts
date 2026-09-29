@@ -37,6 +37,8 @@ export interface ChatRequest {
   /** 这一轮用了几次提示 */
   hintCount: number;
   seed: number;
+  /** 这次对话从哪条话题链开始。不给就用这一级的默认链 */
+  startNodeId?: string;
 }
 
 export interface CorrectionRequest {

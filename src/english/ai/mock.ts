@@ -75,7 +75,7 @@ export const mockProvider: AiProvider = {
 
   async chat(req: ChatRequest): Promise<CoachReply> {
     const lastCoach = [...req.history].reverse().find((t) => t.role === 'coach');
-    const node = getNode(lastCoach?.nodeId ?? '') ?? firstNode(req.level);
+    const node = getNode(lastCoach?.nodeId ?? '') ?? getNode(req.startNodeId ?? '') ?? firstNode(req.level);
 
     // 开场：还没说过话，直接抛出第一个问题
     if (!lastCoach) {
@@ -149,9 +149,10 @@ export const mockProvider: AiProvider = {
       };
     }
 
-    // 答得不对：先给提示，不直接公布答案（§10）
+    // 答得不对：先给提示，不直接公布答案（§10）。
+    // 只有「唯一正确答案」的题才给音头；年龄、喜好这类题没有标准答案，只给句型。
+    const target = node.answer ?? '';
     if (req.hintCount === 0) {
-      const target = node.expect[0] ?? '';
       return {
         say: `Good try! ${target ? hintFor(target, 1) : node.hint}`,
         emoji: node.emoji,
@@ -163,7 +164,6 @@ export const mockProvider: AiProvider = {
       };
     }
     if (req.hintCount === 1) {
-      const target = node.expect[0] ?? '';
       return {
         say: target ? hintFor(target, 2) : node.hint,
         emoji: node.emoji,
@@ -176,7 +176,6 @@ export const mockProvider: AiProvider = {
     }
 
     // 两次提示之后给答案，但要求跟读一次再往下走
-    const target = node.expect[0] ?? '';
     const next = getNode(node.next ?? '');
     return {
       say: `${target ? hintFor(target, 3) : ''} ${pick(TRANSITION, req.seed)} ${next?.ask ?? ''}`.trim(),
