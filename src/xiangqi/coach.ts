@@ -1921,6 +1921,8 @@ export function runCoach(
       onFinish: (right, tried) => {
         if (mode === 'guess' && tried && right === tried) markTrickDone(t.id);
       },
+      // 破解那几手走完不算完：接着和皮卡鱼下到胜势
+      next: mode === 'trap' ? undefined : { label: '🏁 接着破解到底', run: () => runTrickFull(t) },
       onExit: () => showTrick(t),
     });
   }

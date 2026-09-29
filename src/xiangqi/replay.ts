@@ -35,6 +35,8 @@ export interface ReplayOpts {
   /** 走完时回调：猜着法模式下猜中几手、一共猜了几手 */
   onFinish?: (right: number, tried: number) => void;
   onExit: () => void;
+  /** 走完之后的下一步（比如邪门布局"破解到底"），放在收尾那一栏最前面 */
+  next?: { label: string; run: () => void };
 }
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
@@ -180,9 +182,13 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
             .map((n) => `<li>${n}</li>`)
             .join('')}</ul></div>`
         : '');
-    elBar.innerHTML = '<button class="xq-btn primary" id="rp-again">再看一遍</button><button class="xq-btn ghost" id="rp-out">← 返回</button>';
+    elBar.innerHTML =
+      (opts.next ? `<button class="xq-btn primary" id="rp-next-step">${opts.next.label}</button>` : '') +
+      `<button class="xq-btn${opts.next ? '' : ' primary'}" id="rp-again">再看一遍</button><button class="xq-btn ghost" id="rp-out">← 返回</button>`;
     (elBar.querySelector('#rp-again') as HTMLButtonElement).onclick = () => reset();
     (elBar.querySelector('#rp-out') as HTMLButtonElement).onclick = opts.onExit;
+    const nx = elBar.querySelector('#rp-next-step') as HTMLButtonElement | null;
+    if (nx && opts.next) nx.onclick = opts.next.run;
   }
 
   function reset() {
