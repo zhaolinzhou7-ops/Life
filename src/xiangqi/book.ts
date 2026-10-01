@@ -34,10 +34,16 @@ const firstSentence = (html: string) => html.replace(/<[^>]+>/g, '').split('。'
 
 function build(): Map<string, BookMove[]> {
   const map = new Map<string, BookMove[]>();
-  for (const o of OPENINGS) {
+  // 只有谱上的着法（人写的定式）算定式；引擎延伸出来的那一截不算——它们是"好棋"，不是"定式"
+  const lines = OPENINGS.flatMap((o) => [
+    { name: o.name, moves: o.moves },
+    ...o.variations.map((v) => ({ name: o.name, moves: [...o.moves.slice(0, v.at), ...v.moves] })),
+  ]);
+  for (const o of lines) {
     let b = initialBoard();
     let c: Color = 'r';
     for (const om of o.moves) {
+      if (!om.book) break;
       const m = textToMove(b, c, om.t, legalMoves(b, c));
       if (!m) break; // 数据有误就停在这里，不往下猜
       const key = toFen(b, c);

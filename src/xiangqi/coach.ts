@@ -15,6 +15,7 @@ import {
   isAssessed,
   updateRating,
   firstAttempt,
+  attemptedMap,
   weakestDim,
   overallOf,
   honestLevel,
@@ -59,20 +60,36 @@ import {
   type Dim,
 } from './save';
 import { Assessment, diagnose, type AssessResult } from './assess';
-import { loadPuzzles, pickNear, byId, ratingRange, freshCount, type Puzzle, type PuzzleKind } from './puzzles';
+import { loadPuzzles, pickNear, byId, ratingRange, freshCount, combos, type Puzzle, type PuzzleKind } from './puzzles';
 import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
+import mateLadderData from './mateladder.json';
 import { runReplay } from './replay';
 import type { Color, Move } from './rules';
-import { OPENINGS } from './openings';
-import { TRICKS, walkMoves, type TrickOpening } from './tricks';
+import { OPENINGS, SYSTEM_ORDER, moveNote, type Opening } from './openings';
+import { judgeAgainst } from './altjudge';
+import { TRICKS, refuteLine, trapLine, walkMoves, type TrickOpening } from './tricks';
 import { outlookOf } from './plan';
 import { roleOf } from './endgame';
 import { inPieces } from './teach';
 import { Board2D } from './board2d';
 import { fromFen, toFen } from './notation';
 import { STAGES, stageFor, gameGate, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block } from './curriculum';
+
+/** 残局阶梯的题（tools/gen-mate-ladder.ts 生成，merge-mate-ladder 并成这一份） */
+const MATE_LADDER = mateLadderData as unknown as {
+  id: string;
+  name: string;
+  category: string;
+  material: string;
+  fen: string;
+  you: Color;
+  mateIn: number;
+  solved: number;
+  line: string[];
+  tier: number;
+}[];
 
 const DIM_KIND: Record<Dim, PuzzleKind> = {
   safety: 'safety',
@@ -270,6 +287,16 @@ export function runCoach(
         t: `🏁 实用残局${cleared.endgames.length ? `（已过 ${cleared.endgames.length}）` : ''}`,
         d: '摆好局面跟引擎下到底——多子必须赢下来，少子必须守和。不到分出结果不算过。',
         go: () => showEndgameList(),
+      },
+      {
+        t: '🧠 中局组合',
+        d: '要连走好几步才拿到便宜的得子和杀棋，按步数（2–3 / 4–5 / 6 步以上）和主题（连将杀、弃子、抽将、捉双……）分开练。每一步都判，走到便宜拿到手才算对。',
+        go: () => void showCombos(),
+      },
+      {
+        t: `🪜 残局阶梯${Object.keys(mlStars()).length ? `（已过 ${Object.keys(mlStars()).length}）` : ''}`,
+        d: '5 步杀 → 10 步杀 → 15 步杀 → 20 步杀，按子力体系分组，和皮卡鱼下到将死。从终点往回学：先练最后几步怎么收，再一档档往前推。',
+        go: () => showMateLadder(),
       },
       {
         t: `🗡 邪门布局破解${tricksDone().size ? `（已练 ${tricksDone().size}/${TRICKS.length}）` : ''}`,
@@ -636,6 +663,12 @@ export function runCoach(
           教练一直陪着算，每一手告诉你还赢不赢、还守不守得住，卡住了给你计划。</div>`;
         eg.onclick = () => void showEndgameList();
         list.appendChild(eg);
+        const ml = document.createElement('div');
+        ml.className = 'card home-card';
+        ml.innerHTML = `<div class="title">🪜 残局阶梯 · 5 / 10 / 15 / 20 步杀</div><div class="desc">同一个残局从终点往回切：先练最后 5 步怎么收，
+          再往前推到 10 步、15 步、20 步。和皮卡鱼下到将死，按用了几步给星。</div>`;
+        ml.onclick = () => showMateLadder();
+        list.appendChild(ml);
       }
     }
     scr.appendChild(list);
@@ -1646,15 +1679,15 @@ export function runCoach(
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-report';
     scr.innerHTML = `
-      <h1>布局定式</h1>
-      <div class="sub">讲思路，不背招法</div>
-      <div class="xq-advice"><b>布局为什么排在最后</b>
-        <p>业余棋手输棋六成是漏着、两成半是残局走不出结果，布局只占一成。
-        前面几样没练好的时候，布局占的那点便宜根本守不住——这正是"背了一堆定式
-        还是不涨棋"的原因。</p>
-        <p>但到了 1500 以上布局就是真瓶颈了。这时候要的<b>不是招法表</b>，
-        是每一手在干什么。所以下面每一手都配一句理由，
-        而且建议你用<b>猜着法</b>再过一遍：光看谱，你会以为自己都想得到。</p>
+      <h1>布局体系</h1>
+      <div class="sub">每一套：怎么走、为什么这么走、对方怎么破</div>
+      <div class="xq-advice"><b>怎么学布局才涨棋</b>
+        <p>每一套主线走到 15 回合左右：前面几个回合是定式谱，后面由皮卡鱼深算延伸，
+        <b>每一手都配一句在干什么</b>，双方选择最多的地方补了变化。</p>
+        <p>建议顺序：先 📖 看一遍主线和"怎么破"，再用 🎯 <b>自己执一方走一遍</b>——走了谱外的着法，
+        皮卡鱼会判它是不是一样好。光看谱会以为自己都想得到，自己走一遍才知道。</p>
+        <p class="dim">布局在业余对局里只占输棋原因的一成左右；漏着和残局没练好时，布局的便宜守不住。
+        到了一千五以上，布局才是真瓶颈。</p>
       </div>`;
     const list = document.createElement('div');
     list.className = 'card-list';
@@ -1664,13 +1697,25 @@ export function runCoach(
       <div class="desc">对手不按定式走、专走江湖套路时怎么办。</div>`;
     tk.onclick = () => showTricks();
     list.appendChild(tk);
-    for (const o of OPENINGS) {
-      const el = document.createElement('div');
-      el.className = 'card home-card';
-      el.innerHTML = `<div class="title">${o.name}<span class="tag">${o.side === 'red' ? '先手' : '后手'}</span></div>
-        <div class="desc">${o.tag}<br><span class="dim">${o.moves.length} 手</span></div>`;
-      el.onclick = () => showOpening(o);
-      list.appendChild(el);
+    const systems = [...SYSTEM_ORDER, ...OPENINGS.map((o) => o.system).filter((x) => !SYSTEM_ORDER.includes(x))];
+    for (const sys of [...new Set(systems)]) {
+      const items = OPENINGS.filter((o) => o.system === sys);
+      if (!items.length) continue;
+      const h = document.createElement('div');
+      h.className = 'xq-sec';
+      h.textContent = sys;
+      list.appendChild(h);
+      for (const o of items) {
+        const el = document.createElement('div');
+        el.className = 'card home-card';
+        el.dataset.opening = o.id;
+        el.innerHTML = `<div class="title">${o.name}<span class="tag">${o.side === 'red' ? '先手' : '后手'}</span></div>
+          <div class="desc">${o.tag}<br><span class="dim">主线 ${Math.ceil(o.moves.length / 2)} 回合${
+            o.variations.length ? ` · ${o.variations.length} 个变化` : ''
+          }</span></div>`;
+        el.onclick = () => showOpening(o);
+        list.appendChild(el);
+      }
     }
     scr.appendChild(list);
     const back = document.createElement('button');
@@ -1681,22 +1726,46 @@ export function runCoach(
     wrap.appendChild(scr);
   }
 
-  function showOpening(o: (typeof OPENINGS)[number]) {
+  function showOpening(o: Opening) {
     clear();
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-report';
+    const flagged = o.moves.filter((m) => m.book && m.loss && m.loss >= 60);
     scr.innerHTML = `<h1>${o.name}</h1><div class="sub">${o.tag}</div>
-      <div class="xq-advice"><b>核心思路——要记住的是这个</b><p>${o.idea}</p></div>`;
-    const a = document.createElement('button');
-    a.className = 'btn';
-    a.textContent = '📖 看一遍（讲解）';
-    a.onclick = () => runOpening(o, undefined);
-    scr.appendChild(a);
-    const g = document.createElement('button');
-    g.className = 'btn';
-    g.textContent = `🎯 猜着法（你执${o.side === 'red' ? '红' : '黑'}）`;
-    g.onclick = () => runOpening(o, o.side === 'red' ? 'r' : 'b');
-    scr.appendChild(g);
+      <div class="xq-advice"><b>核心思路——要记住的是这个</b><p>${o.idea}</p>
+        <b>${o.side === 'red' ? '对方怎么破' : '怎么破'}</b><p>${o.breaks}</p>
+        <b>容易踩的坑</b><ul>${o.traps.map((t) => `<li>${t}</li>`).join('')}</ul>
+        <p class="dim">主线 ${Math.ceil(o.moves.length / 2)} 回合，${o.final}。${
+          flagged.length ? `谱上 ${flagged.map((m) => m.t).join('、')} 引擎不太认可，讲解里有说明。` : ''
+        }每一手都让皮卡鱼核对过。</p>
+      </div>`;
+    const mk = (label: string, fn: () => void, act?: string) => {
+      const b = document.createElement('button');
+      b.className = 'btn';
+      b.textContent = label;
+      b.onclick = fn;
+      if (act) b.dataset.act = act;
+      scr.appendChild(b);
+    };
+    mk('📖 看主线（每一手都讲）', () => runOpening(o, undefined), 'op-watch');
+    mk('🎯 你执红走一遍', () => runOpening(o, 'r'), 'op-red');
+    mk('🎯 你执黑走一遍', () => runOpening(o, 'b'), 'op-black');
+    if (o.variations.length) {
+      const h = document.createElement('div');
+      h.className = 'xq-sec';
+      h.textContent = '变化';
+      scr.appendChild(h);
+      o.variations.forEach((v, k) => {
+        const row = document.createElement('div');
+        row.className = 'card home-card';
+        row.dataset.variation = String(k);
+        row.innerHTML = `<div class="title">${v.name}</div><div class="desc">从第 ${Math.floor(v.at / 2) + 1} 回合分出去，再走 ${Math.ceil(
+          v.moves.length / 2,
+        )} 回合 · ${v.final}</div>`;
+        row.onclick = () => runOpening(o, undefined, k);
+        scr.appendChild(row);
+      });
+    }
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
@@ -1705,19 +1774,249 @@ export function runCoach(
     wrap.appendChild(scr);
   }
 
-  function runOpening(o: (typeof OPENINGS)[number], guessFor: Color | undefined) {
+  function runOpening(o: Opening, guessFor: Color | undefined, variation?: number) {
     clear();
     const host = document.createElement('div');
     host.className = 'xq-coach-stage';
     wrap.appendChild(host);
+    const v = variation === undefined ? null : o.variations[variation];
+    const line = v ? [...o.moves.slice(0, v.at), ...v.moves] : o.moves;
     disposeScreen = runReplay(host, {
-      title: o.name,
-      subtitle: guessFor ? '猜着法：先自己走，再看原谱' : '讲解：每一手都说明在做什么',
-      intro: o.idea,
-      moves: o.moves.map((m) => ({ t: m.t, why: m.why })),
+      title: v ? `${o.name} · ${v.name}` : o.name,
+      subtitle: guessFor ? `你执${guessFor === 'r' ? '红' : '黑'}：先自己走，再看原谱（走了别的，皮卡鱼判是不是一样好）` : '讲解：每一手都说明在做什么',
+      intro: v ? `变化：${v.name}。前 ${v.at} 手和主线一样，从这里分出去。` : o.idea,
+      moves: line.map((m) => ({ t: m.t, why: moveNote(m) })),
       guessFor,
-      notes: o.traps,
+      startAt: v ? v.at : undefined,
+      judge: guessFor ? (b, c, mine, exp) => judgeAgainst(b, c, mine, exp) : undefined,
+      notes: [o.breaks, ...o.traps],
       onExit: () => showOpening(o),
+    });
+  }
+
+  // ---------------- 中局组合：按主题、按步数 ----------------
+  const COMBO_THEMES: { id: string; why: string }[] = [
+    { id: '连将杀', why: '每一步都将军，一直将到死。对方只能应将，你握着全部主动。' },
+    { id: '杀', why: '杀法里有一步不将军的"安静着"——封住退路、腾出位置，下一步才杀得死。' },
+    { id: '弃子', why: '先送一个子，换来更大的东西：杀棋、捉双、或者把对方的防守子引开。' },
+    { id: '抽将', why: '走开一个子，后面的子将军（闪将）；走开的那个子顺手吃子或捉子，对方应将就顾不上。' },
+    { id: '捉双', why: '一步同时捉两个子，对方只救得了一个。' },
+    { id: '将军抽子', why: '将军的同时捉着另一个子，对方应完将，那个子就丢了。' },
+    { id: '组合', why: '几步连续的得子手段，没有单一的名字，但每一步都是逼着对方走的。' },
+  ];
+  const COMBO_TIERS = [
+    { name: '2–3 步', min: 2, max: 3 },
+    { name: '4–5 步', min: 4, max: 5 },
+    { name: '6 步以上', min: 6, max: 99 },
+  ];
+
+  async function showCombos() {
+    clear();
+    await loadPuzzles();
+    if (!wrap.isConnected) return;
+    const all = combos();
+    const seen = attemptedMap();
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-home';
+    scr.innerHTML = `<h1>🧠 中局组合</h1>
+      <div class="sub">要连走好几步、每一步都逼着对方走的得子和杀棋</div>
+      <div class="xq-advice"><b>怎么练</b>
+        <p>每一题都要<b>走到便宜真正拿到手</b>（子吃到手、对方吃不回来，或者将死）才算对，中间每一步都判。
+        题目是从对局里找出来的：那一刻只有这一路能赢，别的走法都放跑了机会。</p>
+        <p>先按步数从短到长练，再按主题专项练——认熟了主题，实战里看一眼就知道"这里有没有组合"。</p>
+      </div>`;
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    const sec = (t: string) => {
+      const h = document.createElement('div');
+      h.className = 'xq-sec';
+      h.textContent = t;
+      list.appendChild(h);
+    };
+    const card = (title: string, desc: string, items: Puzzle[], key: string) => {
+      if (!items.length) return;
+      const done = items.filter((p) => p.id in seen).length;
+      const el = document.createElement('div');
+      el.className = 'card home-card';
+      el.dataset.combo = key;
+      el.innerHTML = `<div class="title">${title}<span class="tag">${items.length} 题</span>${
+        done ? `<span class="tag warn">做过 ${done}</span>` : ''
+      }</div><div class="desc">${desc}</div>`;
+      el.onclick = () => runComboSession(items, title);
+      list.appendChild(el);
+    };
+    sec('按步数');
+    for (const t of COMBO_TIERS) card(t.name, `要连走 ${t.name}才拿到便宜`, all.filter((p) => (p.steps ?? 0) >= t.min && (p.steps ?? 0) <= t.max), `steps-${t.min}`);
+    sec('按主题');
+    for (const th of COMBO_THEMES) card(th.id, th.why, all.filter((p) => p.themes?.includes(th.id)), `theme-${th.id}`);
+    scr.appendChild(list);
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showHome;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  /** 一组 10 道：没做过的先出，难度贴近你的战术分 */
+  function runComboSession(items: Puzzle[], title: string) {
+    const seen = attemptedMap();
+    const r = getRatings().tactic.r;
+    const order = [...items].sort((a, b) => {
+      const fa = a.id in seen ? 1 : 0;
+      const fb = b.id in seen ? 1 : 0;
+      return fa - fb || Math.abs(a.rating - r) - Math.abs(b.rating - r);
+    });
+    const pick = order.slice(0, 10);
+    let i = 0;
+    let right = 0;
+    const step = () => {
+      if (i >= pick.length) return finishSession(`中局组合 · ${title}`, right, pick.length, () => void showCombos());
+      const p = pick[i++];
+      runOne(p, 'tactic', `${title} ${i}/${pick.length} · ${(p.themes ?? []).join('、')}`, (ok) => {
+        if (ok) right++;
+        step();
+      });
+    };
+    step();
+  }
+
+  // ---------------- 残局阶梯：5 / 10 / 15 / 20 步杀 ----------------
+  const ML_KEY = 'xq-mate-ladder';
+  const ML_TIERS = [5, 10, 15, 20];
+  /** 每一档的参考难度分（第一次做、没用提示悔棋、两星以上算做对） */
+  const ML_RATING: Record<number, number> = { 5: 1000, 10: 1250, 15: 1450, 20: 1650 };
+  const ML_CATS = ['兵类', '马类', '炮类', '车类', '组合'];
+  function mlStars(): Record<string, number> {
+    try {
+      return JSON.parse(localStorage.getItem(ML_KEY) ?? '{}') as Record<string, number>;
+    } catch {
+      return {};
+    }
+  }
+  function setMlStars(id: string, n: number) {
+    const s = mlStars();
+    if ((s[id] ?? 0) >= n) return;
+    s[id] = n;
+    try {
+      localStorage.setItem(ML_KEY, JSON.stringify(s));
+    } catch {
+      /* 存不下就算了 */
+    }
+  }
+  const mlTier = (t: number) => MATE_LADDER.filter((x) => x.tier === t);
+  /** 上一档过了一半（最多要求 5 道）才解锁下一档：阶梯要一级一级上 */
+  function mlUnlocked(k: number): boolean {
+    if (k === 0) return true;
+    const prev = mlTier(ML_TIERS[k - 1]);
+    const st = mlStars();
+    return prev.filter((x) => (st[x.id] ?? 0) > 0).length >= Math.min(5, Math.ceil(prev.length / 2));
+  }
+
+  function showMateLadder() {
+    clear();
+    const st = mlStars();
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-home';
+    scr.innerHTML = `<h1>🪜 残局阶梯</h1>
+      <div class="sub">5 步杀 → 10 步杀 → 15 步杀 → 20 步杀，一档一档往上走</div>
+      <div class="xq-advice"><b>为什么这样排</b>
+        <p>每一题都是皮卡鱼两边下到将死、再从终点往回切出来的：同一个残局，最后 5 步怎么收在第一档，
+        再往前推 5 步在第二档……<b>从终点往回学</b>，前面的每一步你都知道是为了走到哪个杀法。</p>
+        <p>每题都和皮卡鱼下到将死（它会用最顽强的守法）。用最快步数杀死 ★★★，多走几步 ★★，杀死了但绕得远 ★。
+        靠提示、悔棋杀死的只给一颗星。上一档过一半，下一档才解锁。</p>
+      </div>`;
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    ML_TIERS.forEach((t, k) => {
+      const items = mlTier(t);
+      if (!items.length) return;
+      const done = items.filter((x) => (st[x.id] ?? 0) > 0).length;
+      const stars = items.reduce((a, x) => a + (st[x.id] ?? 0), 0);
+      const open = mlUnlocked(k);
+      const el = document.createElement('div');
+      el.className = `card home-card${open ? '' : ' locked'}`;
+      el.dataset.tier = String(t);
+      el.innerHTML = `<div class="title">${t} 步杀<span class="tag">${items.length} 题</span>${
+        open ? (done ? `<span class="tag warn">已过 ${done} · ${stars}★</span>` : '') : '<span class="tag">🔒 上一档过一半解锁</span>'
+      }</div><div class="desc">${[...new Set(items.map((x) => x.category))].join('、')}</div>`;
+      if (open) el.onclick = () => showMateTier(t);
+      list.appendChild(el);
+    });
+    scr.appendChild(list);
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showHome;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  function showMateTier(t: number) {
+    clear();
+    const st = mlStars();
+    const items = mlTier(t);
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-home';
+    scr.innerHTML = `<h1>${t} 步杀</h1><div class="sub">按子力体系分组：同一类残局的杀法思路是相通的</div>`;
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    for (const cat of [...ML_CATS, ...new Set(items.map((x) => x.category))]) {
+      const group = items.filter((x) => x.category === cat);
+      if (!group.length || list.querySelector(`[data-cat="${cat}"]`)) continue;
+      const h = document.createElement('div');
+      h.className = 'xq-sec';
+      h.dataset.cat = cat;
+      h.textContent = cat;
+      list.appendChild(h);
+      for (const it of group) {
+        const el = document.createElement('div');
+        el.className = 'card home-card';
+        el.dataset.ml = it.id;
+        const n = st[it.id] ?? 0;
+        el.innerHTML = `<div class="title">${it.material}<span class="tag">最快 ${it.mateIn} 步</span>${
+          n ? `<span class="tag warn">${'★'.repeat(n)}</span>` : ''
+        }</div><div class="desc">你执${it.you === 'r' ? '红' : '黑'}，皮卡鱼守</div>`;
+        el.onclick = () => runMateLadder(it);
+        list.appendChild(el);
+      }
+    }
+    scr.appendChild(list);
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showMateLadder;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  function runMateLadder(it: (typeof MATE_LADDER)[number]) {
+    clear();
+    const host = document.createElement('div');
+    host.className = 'xq-coach-stage';
+    wrap.appendChild(host);
+    const N = it.mateIn;
+    const tips = [
+      `最快 ${N} 步能杀。先想清楚最后的杀法图形是什么，再倒推前面每一步在为它做什么。`,
+      '对方会用最顽强的守法。走不动的时候点 🔍，看引擎的计划——但用了提示只给一颗星。',
+    ];
+    disposeScreen = runPlayout(host, {
+      fen: it.fen,
+      you: it.you,
+      target: 'win',
+      par: N,
+      goal: `🎯 将死对方：<b>${N}</b> 步内 ★★★`,
+      title: `${N} 步杀 · ${it.material}`,
+      subtitle: `${it.category} · 残局阶梯 ${it.tier} 步档`,
+      tips,
+      onRestart: () => runMateLadder(it),
+      onDone: (r, my, stats) => {
+        const stars = r !== 'win' ? 0 : stats.hints || stats.undos ? 1 : my <= N ? 3 : my <= N + Math.max(2, Math.round(N * 0.3)) ? 2 : 1;
+        if (stars) setMlStars(it.id, stars);
+        if (firstAttempt(it.id)) updateRating('endgame', ML_RATING[it.tier] ?? 1200, stars >= 2);
+        checkIn();
+      },
+      onExit: () => showMateTier(it.tier),
     });
   }
 
@@ -1900,7 +2199,7 @@ export function runCoach(
     const pre = t.pre.map((x) => ({ t: x, why: '布局的正常着法。' }));
     const trick = { t: t.trick.t, why: `<b>邪门着。</b>${t.trick.why}` };
     // 陷阱在第二关的：先按破解走到分岔处，再接上当的那几手
-    const tail = mode === 'trap' ? [...t.refute.slice(0, t.trapAfter ?? 0), ...t.trap] : t.refute;
+    const tail = mode === 'trap' ? [...t.refute.slice(0, t.trapAfter ?? 0), ...trapLine(t)] : refuteLine(t);
     const moves = [...pre, trick, ...tail];
     disposeScreen = runReplay(host, {
       title: t.name,
@@ -1917,6 +2216,7 @@ export function runCoach(
       moves,
       guessFor: mode === 'guess' ? me : undefined,
       startAt: mode === 'guess' ? pre.length + 1 : undefined,
+      judge: mode === 'guess' ? (b, c, mine, exp) => judgeAgainst(b, c, mine, exp) : undefined,
       notes: [t.principle],
       onFinish: (right, tried) => {
         if (mode === 'guess' && tried && right === tried) markTrickDone(t.id);

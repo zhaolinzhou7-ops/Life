@@ -17,6 +17,7 @@
  */
 import { applyMove, initialBoard, legalMoves, type Board, type Color, type Move } from './rules';
 import { textToMove, toFen } from './notation';
+import deep from './trickdeep.json';
 
 export interface TrickStep {
   /** 中文记谱 */
@@ -445,6 +446,22 @@ export const TRICKS: TrickOpening[] = [
 ];
 
 export const trickById = (id: string) => TRICKS.find((t) => t.id === id);
+
+/**
+ * 破解谱、上当谱往深里走的那一截（tools/deepen-tricks.ts 让皮卡鱼接着人写的部分算出来的）。
+ * 人写的破解只有三五手，破解往往要十几步才算把便宜拿稳；这一截接在人写的后面，每一手都有说明。
+ */
+const DEEP = deep as Record<string, { refute: TrickStep[]; trap: TrickStep[] } | undefined>;
+
+/** 完整的破解谱：人写的几手 + 引擎延伸的 */
+export function refuteLine(t: TrickOpening): TrickStep[] {
+  return [...t.refute, ...(DEEP[t.id]?.refute ?? [])];
+}
+
+/** 完整的上当谱（从分岔处起）：人写的几手 + 引擎延伸的 */
+export function trapLine(t: TrickOpening): TrickStep[] {
+  return [...t.trap, ...(DEEP[t.id]?.trap ?? [])];
+}
 
 /** 一串着法从开局走下去，走不通返回 null */
 export function walkMoves(texts: string[]): { board: Board; color: Color; moves: Move[] } | null {

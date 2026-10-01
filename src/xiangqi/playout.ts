@@ -58,6 +58,8 @@ export interface PlayoutOpts {
   winAt?: number;
   /** 顶上那一行目标的说法（不给就按 target 说） */
   goal?: string;
+  /** 残局阶梯：最快几步杀（计数显示成"已走 k 步 / 最快 N 步杀"） */
+  par?: number;
   onDone: (r: PlayResult, moves: number, stats: PlayStats) => void;
   onExit: () => void;
   /** 重新开始同一个局面 */
@@ -210,7 +212,9 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
 
   function updateCount() {
     const left = Math.max(0, Math.ceil((NO_CAPTURE_LIMIT - sinceCapture) / 2));
-    elCnt.textContent = `第 ${myMoves} 手 · 60 回合不吃子判和（还剩 ${left}）`;
+    elCnt.textContent = opts.par
+      ? `已走 ${myMoves} 步 / 最快 ${opts.par} 步杀`
+      : `第 ${myMoves} 手 · 60 回合不吃子判和（还剩 ${left}）`;
   }
 
   // ───────── 判和：已经是死和，就不用再走满 60 回合 ─────────

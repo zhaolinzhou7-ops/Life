@@ -4430,3 +4430,9 @@ canvas {
   .xq-rv-head .xq-rv-ask { font-size: 0; padding: 4px 6px; }
   .xq-rv-head .xq-rv-ask::first-letter { font-size: 16px; }
 }
+
+/* 残局阶梯：没解锁的档 */
+.card.home-card.locked {
+  opacity: 0.5;
+  cursor: default;
+}

@@ -49,6 +49,15 @@ export interface Puzzle {
   goal?: 'mate' | 'win' | 'only' | 'defend' | 'best';
   /** 走棋方这时的局面分（引擎，车≈1000）：说明"你现在是领先还是落后" */
   ev?: number;
+  /** 中局组合的主题：连将杀、杀、弃子、抽将、捉双、将军抽子、组合（tools/gen-combos.ts 按主变标的） */
+  themes?: string[];
+  /** 中局组合要连走几步才把便宜拿到手 */
+  steps?: number;
+}
+
+/** 中局组合：从对局里找出来的多步组合（带主题标签的战术题） */
+export function combos(): Puzzle[] {
+  return (cache ?? []).filter((p) => !!p.themes?.length);
 }
 
 /** 题型就是能力维度，一一对应 */
