@@ -2722,6 +2722,10 @@ canvas {
   background: #e8703d;
   color: #10161d;
 }
+.xq-coach .card .tag.ok {
+  background: #3dbb7a;
+  color: #10161d;
+}
 
 /* ===================== 象棋：做题界面 ===================== */
 .xq-coach-stage {
@@ -2768,6 +2772,12 @@ canvas {
 }
 .xq-tr-side {
   opacity: 0.6;
+}
+.xq-tr-steps {
+  flex: 0 0 auto;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.7;
 }
 .xq-tr-board {
   flex: 1;
@@ -4423,4 +4433,10 @@ canvas {
 @media (max-width: 719px) {
   .xq-rv-head .xq-rv-ask { font-size: 0; padding: 4px 6px; }
   .xq-rv-head .xq-rv-ask::first-letter { font-size: 16px; }
+}
+
+/* 残局阶梯：没解锁的档 */
+.card.home-card.locked {
+  opacity: 0.5;
+  cursor: default;
 }

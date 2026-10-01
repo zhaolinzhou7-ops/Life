@@ -18,9 +18,17 @@ export interface NodeEngine {
 export async function startPikafish(hash = 64): Promise<NodeEngine> {
   const dir = path.resolve('vendor/pikafish');
   // 仓库是 "type": "module"，引擎胶水是 CommonJS：拷成 .cjs 再 require，文件本身不动
-  const cjs = path.resolve('node_modules/.cache/pikafish.cjs');
+  // 每个进程拷自己的一份：几个分片同时起，共用一个文件会读到别人拷了一半的内容（factory is not a function）
+  const cjs = path.resolve(`node_modules/.cache/pikafish-${process.pid}.cjs`);
   fs.mkdirSync(path.dirname(cjs), { recursive: true });
   fs.copyFileSync(path.join(dir, 'pikafish.js'), cjs);
+  process.on('exit', () => {
+    try {
+      fs.unlinkSync(cjs);
+    } catch {
+      /* 删不掉就留着 */
+    }
+  });
   const factory = require(cjs);
   const wasmBinary = fs.readFileSync(path.join(dir, 'pikafish.wasm'));
   const data = fs.readFileSync(path.join(dir, 'pikafish.data'));

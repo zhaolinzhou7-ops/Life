@@ -5,7 +5,11 @@
  * 冲中兵、炮过河骚扰……它们本身都是**亏的**，但专门赌你应错——
  * 被将军就慌着垫仕、看见子就吃、被骚扰就退马。应对了，对方白亏；应错了，亏的是你。
  *
- * 这里按"套路"收，不按江湖名号：同一个套路各地叫法不一样，认得套路才破得了。
+ * 按"套路"收；江湖上有名号的（敢死炮、铁滑车、叠炮、瞎眼狗……）名号写进名字里，
+ * 但同一个名号各地走法不一，收的是引擎复核过的那一种走法。
+ *
+ * 有的套路陷阱不在第一步：敢死炮、铁滑车送的子**该吃**，真正的坑是吃完之后——
+ * 他出车来捉，你舍不得还、拼命救，才被捉死。这种用 trapAfter 标出陷阱在破解的第几手之后。
  *
  * **每一条都是引擎说了算，不是凭记忆写的。** 着法走得通、这一手本身亏多少、
  * 破解那一手是不是（接近）最好、上当那一手亏多少——tools/check-tricks.ts 逐条让皮卡鱼复核，
@@ -13,6 +17,7 @@
  */
 import { applyMove, initialBoard, legalMoves, type Board, type Color, type Move } from './rules';
 import { textToMove, toFen } from './notation';
+import deep from './trickdeep.json';
 
 export interface TrickStep {
   /** 中文记谱 */
@@ -21,6 +26,8 @@ export interface TrickStep {
   why: string;
   /** 同样正确的其它走法（练习时走这些也算对） */
   alts?: string[];
+  /** 备选走法自己的一句话（不写就说"和正解一样破得了"）——正解的理由套不到备选上 */
+  altWhy?: string;
 }
 
 export interface TrickOpening {
@@ -39,6 +46,12 @@ export interface TrickOpening {
   refute: TrickStep[];
   /** 上当：最常见的错误应法和它的后果 */
   trap: TrickStep[];
+  /**
+   * 陷阱在破解的第几手之后（默认 0：邪门着之后马上就是陷阱）。
+   * 比如 2 表示先按 refute[0]、refute[1] 走，到 refute[2] 这一手才分岔：
+   * 走 refute[2] 是破解，走 trap[0] 是上当。必须是偶数（轮到破解方）。
+   */
+  trapAfter?: number;
   /** 破解的道理——要记住的是这一句 */
   principle: string;
   /** 引擎复核过的数（破解方视角，车≈1000） */
@@ -47,7 +60,7 @@ export interface TrickOpening {
     trickLoss: number;
     /** 按破解走之后，破解方的分 */
     refuteScore: number;
-    /** 上当那一手比破解差多少 */
+    /** 上当那一手比破解差多少（有 trapAfter 的，在分岔那一步比） */
     trapLoss: number;
   };
 }
@@ -102,16 +115,24 @@ export const TRICKS: TrickOpening[] = [
     pre: ['炮二平五'],
     trick: { t: '炮2进7', why: '黑炮隔着红方的八路炮，打掉底线的马。' },
     refute: [
-      { t: '车九平八', why: '车马上吃回炮：马换炮，车还出来了。' },
-      { t: '马2进3', why: '黑方出马。他少了一个炮，你多了一个出好的车。' },
+      {
+        t: '炮五进四',
+        why: '先不急着吃回：他的炮钻在你底线，一时出不来。中炮先把中卒吃了，打开中路。马上用车吃回（车九平八）也对，只是没这么好。',
+        alts: ['车九平八'],
+        altWhy: '车马上吃回炮：马换炮，车还顺势出来了——最稳的破法。',
+      },
+      { t: '马2进3', why: '黑方跳马来捉你的中炮。' },
+      { t: '炮五退二', why: '中炮退回来站稳，中卒已经到手。' },
+      { t: '炮2平4', why: '他的炮出不来，只好隔着相打掉你的仕，换掉了事。' },
+      { t: '帅五平六', why: '帅吃掉炮。一来一回，你多吃了中卒，中路打开，局面领先。' },
     ],
     trap: [
       { t: '马二进三', why: '不理它，照常出马。' },
       { t: '炮2平4', why: '黑炮沿底线再打掉你的仕。' },
       { t: '帅五平六', why: '帅只好出来吃炮——马、仕都丢了，帅也离开了中路。' },
     ],
-    principle: '被炮打了底马，第一件事是吃回来。底线的炮不吃，它会横着接着打。',
-    verified: { trickLoss: 281, refuteScore: 365, trapLoss: 196 },
+    principle: '被炮打了底马别慌：他的炮钻进你底线一时出不来，可以先吃中卒再收拾它；最稳的是马上用车吃回。最不能做的是不理它，让它沿底线再打一个。',
+    verified: { trickLoss: 399, refuteScore: 504, trapLoss: 365 },
   },
   {
     id: 'shunpao-zhongzu-check',
@@ -237,9 +258,210 @@ export const TRICKS: TrickOpening[] = [
     principle: '吃子之前先数保护：这个子有谁护着？横着护的车、斜着护的象最容易看漏。',
     verified: { trickLoss: 196, refuteScore: 194, trapLoss: 878 },
   },
+
+  // ─────────────── 江湖上有名号的几种 ───────────────
+  {
+    id: 'gansipao-red',
+    name: '敢死炮（巡河炮平过来送炮）',
+    by: 'r',
+    level: '初级',
+    lure: '先把左炮升到河口（巡河炮），再平到右边，和自己的二路炮叠在一条线上——等于把后面那门炮送到你 8 路炮的嘴边。它赌你两样：一是不敢吃；二是吃了之后舍不得，被他出车把炮捉死。',
+    pre: ['炮八进二', '马2进3'],
+    trick: {
+      t: '炮八平二',
+      why: '巡河炮平到二路，挡在自己的二路炮前面：你的 8 路炮隔着它，正好能打掉后面那门炮。这是故意送的——你不吃，他下一步"后炮进五"反过来隔着巡河炮打你的 8 路炮。',
+    },
+    refute: [
+      { t: '炮8进5', why: '吃！隔着他的巡河炮打掉后面那门炮，白得一个炮。这一步不吃，反而是你要丢炮。' },
+      { t: '马二进三', why: '红方跳马让出右车，下一步车一平二，要把你这门深入的炮捉死——敢死炮真正的圈套在这里。' },
+      {
+        t: '马3退5',
+        why: '回窝心马：不去救那门炮，给右炮让出横线，也躲开巡河炮的闪击。多吃的子该吐就吐，棋形不能乱。',
+        alts: ['马8进7'],
+      },
+      { t: '车一平二', why: '红车过来捉炮。' },
+      { t: '炮2平8', why: '右炮平过来，和前面的炮连成一线互相照应：他吃你的前炮，你后炮就能打回来。你还是多一子，局面领先。' },
+    ],
+    trapAfter: 2,
+    trap: [
+      { t: '炮8退1', why: '舍不得多吃的炮，往回退一步想保住。' },
+      { t: '车一平二', why: '红车一平，从下面捉炮；上面又被他的巡河炮挡着，退不回去。' },
+      { t: '马8进7', why: '救不了了。' },
+      { t: '车二进三', why: '红车把炮吃回去。你多吃的子吐了回去，出子还落后了——这正是敢死炮要的结果。' },
+    ],
+    principle: '送到嘴边的炮先吃；吃了之后他出车来捉，别恋子——该还就还，棋形比多一个子要紧。',
+    verified: { trickLoss: 265, refuteScore: 373, trapLoss: 382 },
+  },
+  {
+    id: 'gansipao-black',
+    name: '黑方敢死炮（巡河炮平过来送炮）',
+    by: 'b',
+    level: '初级',
+    lure: '你架中炮，他把右炮升到河口，再平到 2 路、挡在自己的 2 路炮前面——把后面那门炮送给你的八路炮吃。赌你没看出来：你顺手出子，他反过来隔着巡河炮打你的八路炮。',
+    pre: ['炮二平五', '炮8进2', '马二进三'],
+    trick: {
+      t: '炮8平2',
+      why: '黑方巡河炮平到 2 路，挡在自己的 2 路炮前面：你的八路炮隔着它，正好能打掉后面那门炮。不吃的话，他下一步"后炮进5"反过来打你的八路炮。',
+    },
+    refute: [
+      { t: '炮八进五', why: '吃！隔着他的巡河炮打掉后面那门炮，白得一个炮。' },
+      { t: '马2进3', why: '黑方跳马，准备出车来捉你这门炮。' },
+      { t: '马三退五', why: '回窝心马，不去救那门炮，给中炮让出横线。多吃的子该吐就吐。', alts: ['炮五平八'] },
+      { t: '车1平2', why: '黑车过来捉炮。' },
+      { t: '炮五平八', why: '中炮平过来，和前面的炮连成一线互相照应。你还是多一子。' },
+    ],
+    trap: [
+      { t: '车一平二', why: '没看出他在送炮，顺手出车。' },
+      { t: '后炮进5', why: '黑方后炮隔着巡河炮，打掉你的八路炮——你白丢一个炮。' },
+    ],
+    principle: '对方把两个子摆到一条线上、正对着你的炮，先看是谁送给谁：能先吃就先吃。',
+    verified: { trickLoss: 211, refuteScore: 475, trapLoss: 876 },
+  },
+  {
+    id: 'tiehuache',
+    name: '铁滑车（开局车一进一弃马）',
+    by: 'r',
+    level: '初级',
+    lure: '开局先抬车，右马就没人保了，白送给你的炮吃；你一吃，他马上架中炮、车横过来捉你那门炮，想靠出子快把子抢回来。赌你吃了马之后只顾出子，看不见车在捉炮。',
+    pre: [],
+    trick: {
+      t: '车一进一',
+      why: '第一步就把右车抬起来——车一走，二路马就没人保护了，你的 8 路炮隔着他的二路炮就能打掉这匹马。这是故意送的。',
+    },
+    refute: [
+      { t: '炮8进7', why: '吃！马是白送的。江湖上说"吃了就上当"，引擎算下来恰恰相反——不吃才亏。' },
+      { t: '炮二平五', why: '红方架中炮，抢着出子。' },
+      { t: '马8进7', why: '跳马护住中卒。' },
+      { t: '车一平二', why: '红车平过来，从上面捉你底线上的炮——铁滑车真正的圈套在这一步。' },
+      { t: '炮8平9', why: '炮往边上一躲。先看清车在捉炮，再想出子。' },
+      { t: '车二退一', why: '红车退到底线，横着再捉。' },
+      {
+        t: '炮9平7',
+        why: '隔着他的车打掉相，把炮还给他（弃还）：你用一个炮换了他的马和相，子力还是多，棋形也不乱。',
+        alts: ['炮9退1'],
+      },
+    ],
+    trapAfter: 4,
+    trap: [
+      { t: '卒3进1', why: '吃了马，照常挺卒出子，没看见车在捉炮。' },
+      { t: '车二退一', why: '红车退一步，把炮吃回去：你白吃的马吐了回去，他的车还顺势出来了。' },
+    ],
+    principle: '送的马就吃。吃完以后眼睛盯着他的车：车一横过来，炮就先躲；躲不开就打他的相仕把炮还回去，别让他白白捉回。',
+    verified: { trickLoss: 291, refuteScore: 176, trapLoss: 276 },
+  },
+  {
+    id: 'tiehuache-zhongpao',
+    name: '铁滑车（中炮后车九进一弃马）',
+    by: 'r',
+    level: '初级',
+    lure: '架好中炮之后抬左车，八路马白送给你的炮吃；你一吃，他退车横着捉炮。赌你舍不得这门炮，拼命往回救——一救就被他两个车堵死。',
+    pre: ['炮二平五', '马8进7'],
+    trick: {
+      t: '车九进一',
+      why: '架好中炮之后抬左车——八路马没人保了，你的 2 路炮隔着他的八路炮就能打掉它。故意送的。',
+    },
+    refute: [
+      { t: '炮2进7', why: '吃！马是白送的。' },
+      { t: '车九退一', why: '红车退回底线，横着捉你的炮。' },
+      { t: '炮2平4', why: '隔着他的相打掉仕，把炮还给他（弃还）：他只能用帅来吃，帅被拉出了中路。' },
+      { t: '帅五平六', why: '帅只能出来吃炮。' },
+      { t: '马2进3', why: '正常出子。你用一个炮换了他的马和仕，他的帅还离开了中路，局面领先。' },
+    ],
+    trapAfter: 2,
+    trap: [
+      { t: '炮2退1', why: '舍不得这门炮，往回退想救。' },
+      { t: '车一进一', why: '红方另一个车也抬起来——' },
+      { t: '马2进3', why: '你照常出马。' },
+      { t: '车一平八', why: '车平过来把炮吃掉：你多吃的马吐了回去，他两个车都出来了，你反而落后。' },
+    ],
+    principle: '吃了子被捉，最好的办法常常是"弃还"——用这门炮再换他一个仕相；舍不得、往回退，一个子都救不回来。',
+    verified: { trickLoss: 360, refuteScore: 259, trapLoss: 358 },
+  },
+  {
+    id: 'shuang-tiehuache',
+    name: '双铁滑车（两匹马都送）',
+    by: 'r',
+    level: '中级',
+    lure: '右马送了还不够，左车也抬起来，再送一匹马，然后两个车一起横着出来捉炮、打将。赌你吃了一匹就不敢再吃，或者吃了之后慌。',
+    pre: ['车一进一', '炮8进7'],
+    trick: { t: '车九进一', why: '右马已经送了，左车也抬起来，再送一匹马。两个车一起横着出来，想靠速度把你压死。' },
+    refute: [
+      { t: '炮2进7', why: '再吃！第二匹马也是白送的。' },
+      { t: '炮二进二', why: '红方升炮，想腾出路来出车。' },
+      { t: '车9进2', why: '你也出车。多两个子，按部就班出子就行——他的车再快，也换不回两匹马。' },
+    ],
+    trap: [
+      { t: '马8进7', why: '吃了一匹就不敢再吃，照常出马。' },
+      { t: '马八进七', why: '红方把左马救走了——你少吃一个子，他的车照样出来了。' },
+    ],
+    principle: '他送多少吃多少。子吃到手，按部就班出子，他出子再快也补不回来。',
+    verified: { trickLoss: 428, refuteScore: 662, trapLoss: 360 },
+  },
+  {
+    id: 'diepao',
+    name: '叠炮（两个炮叠在一路）',
+    by: 'r',
+    level: '初级',
+    lure: '两个炮叠在一路，看着呆，其实一前一后架好了：后炮随时隔着前炮打你的 8 路炮；你顺手出车到 8 路，前炮又能隔着你的炮打车。赌你照常出子，看不见这一条线。',
+    pre: ['炮二进一', '马8进7'],
+    trick: {
+      t: '炮八平二',
+      why: '左炮平到二路，和已经升起来的二路炮叠在一起：前炮当炮架，后炮能隔着它打你的 8 路炮；你要是出车到 8 路，前炮还能隔着你的炮打车。',
+    },
+    refute: [
+      { t: '炮8进5', why: '先下手：8 路炮隔着他的前炮，打掉后面那门炮。他叠起来的炮，恰好给你当了炮架。' },
+      { t: '车九进二', why: '红方抬车，想横着把你的炮捉回来。' },
+      { t: '炮8进1', why: '炮再进一步，躲开车的横线。' },
+    ],
+    trap: [
+      { t: '车9平8', why: '照常出车到 8 路。' },
+      { t: '前炮进六', why: '前炮隔着你的 8 路炮，一下打掉你的车。' },
+    ],
+    principle: '对方把两个子摆在一条线上，先看这条线：谁是炮架、谁能打谁。你能先打，就先打。',
+    verified: { trickLoss: 256, refuteScore: 331, trapLoss: 1173 },
+  },
+  {
+    id: 'xiayangou',
+    name: '瞎眼狗（对仙人指路送 3 卒）',
+    by: 'b',
+    level: '初级',
+    lure: '你走仙人指路，他马上把 3 卒顶上来送给你吃，再飞象、跳马、出车来回捉你那个过河兵。赌你不敢吃——你一不吃，他的卒吃掉你的兵，一路往下拱着捉你的马。',
+    pre: ['兵七进一'],
+    trick: { t: '卒3进1', why: '你刚挺七兵，他马上也挺 3 卒顶上来，把卒送到你的兵口上。' },
+    refute: [
+      { t: '兵七进一', why: '吃！卒是白送的，吃了你的兵还过了河。' },
+      { t: '卒7进1', why: '黑方挺卒，准备出子。' },
+      { t: '马八进七', why: '正常出马。不用急着保那个兵——你多一个兵、出子也不慢，局面就是好的。' },
+    ],
+    trap: [
+      { t: '马八进七', why: '不敢吃，先跳马。' },
+      { t: '卒3进1', why: '他的卒吃掉你的兵，过了河。' },
+      { t: '马二进三', why: '你照常出子。' },
+      { t: '卒3进1', why: '卒再往下拱，顶到你马的头上——' },
+      { t: '马七退五', why: '马只好往回退。你白丢一个兵，出子还被他搅乱了。' },
+    ],
+    principle: '送上门的兵卒就吃；吃了之后正常出子，别被他来回捉着走。',
+    verified: { trickLoss: 103, refuteScore: 187, trapLoss: 443 },
+  },
 ];
 
 export const trickById = (id: string) => TRICKS.find((t) => t.id === id);
+
+/**
+ * 破解谱、上当谱往深里走的那一截（tools/deepen-tricks.ts 让皮卡鱼接着人写的部分算出来的）。
+ * 人写的破解只有三五手，破解往往要十几步才算把便宜拿稳；这一截接在人写的后面，每一手都有说明。
+ */
+const DEEP = deep as Record<string, { refute: TrickStep[]; trap: TrickStep[] } | undefined>;
+
+/** 完整的破解谱：人写的几手 + 引擎延伸的 */
+export function refuteLine(t: TrickOpening): TrickStep[] {
+  return [...t.refute, ...(DEEP[t.id]?.refute ?? [])];
+}
+
+/** 完整的上当谱（从分岔处起）：人写的几手 + 引擎延伸的 */
+export function trapLine(t: TrickOpening): TrickStep[] {
+  return [...t.trap, ...(DEEP[t.id]?.trap ?? [])];
+}
 
 /** 一串着法从开局走下去，走不通返回 null */
 export function walkMoves(texts: string[]): { board: Board; color: Color; moves: Move[] } | null {
@@ -277,9 +499,35 @@ export function trickAt(board: Board, toMove: Color): TrickOpening | null {
   return index().get(toFen(board, toMove)) ?? null;
 }
 
+/** 走到陷阱分岔处的着法：前缀 + 邪门着 + 破解的前 trapAfter 手 */
+export function lineToTrap(t: TrickOpening): string[] {
+  return [...t.pre, t.trick.t, ...t.refute.slice(0, t.trapAfter ?? 0).map((s) => s.t)];
+}
+
+let byStage: Map<string, TrickOpening> | null = null;
+
+/**
+ * 这个局面是不是某条套路的"第二关"：邪门着已经破了（子吃到手了），
+ * 对方刚走完捉子的那一手，轮到你——舍不得还子、往回救，就在这一步上当。
+ * 只有 trapAfter > 0 的套路才有第二关。
+ */
+export function trickStageAt(board: Board, toMove: Color): TrickOpening | null {
+  if (!byStage) {
+    const map = new Map<string, TrickOpening>();
+    for (const t of TRICKS) {
+      if (!t.trapAfter) continue;
+      const w = walkMoves(lineToTrap(t));
+      if (w) map.set(toFen(w.board, w.color), t);
+    }
+    byStage = map;
+  }
+  return byStage.get(toFen(board, toMove)) ?? null;
+}
+
 /**
  * 陪练"走邪门布局"时，对手这一步该走什么：
  * 对局从开局起的着法恰好是某一条套路（前缀 + 邪门着）的开头、而且轮到对手走，就按那一条走下一手。
+ * 陷阱在后面的套路（敢死炮、铁滑车），你吃了子之后它还会按套路出车来捉，一直走到第二关。
  * 有好几条都对得上时随机挑一条，但一旦挑定就一直走这一条（prefer）。
  * 对不上任何一条返回 null，对手照常走。
  */
@@ -287,7 +535,7 @@ export function trickMoveFor(moves: Move[], ai: Color, prefer?: string, rand = M
   const fits: { move: Move; trick: TrickOpening }[] = [];
   for (const t of TRICKS) {
     if (t.by !== ai) continue;
-    const line = [...t.pre, t.trick.t];
+    const line = lineToTrap(t);
     if (moves.length >= line.length) continue;
     const w = walkMoves(line.slice(0, moves.length + 1));
     if (!w) continue;

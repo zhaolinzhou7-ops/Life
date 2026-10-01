@@ -34,10 +34,16 @@ const firstSentence = (html: string) => html.replace(/<[^>]+>/g, '').split('。'
 
 function build(): Map<string, BookMove[]> {
   const map = new Map<string, BookMove[]>();
-  for (const o of OPENINGS) {
+  // 只有谱上的着法（人写的定式）算定式；引擎延伸出来的那一截不算——它们是"好棋"，不是"定式"
+  const lines = OPENINGS.flatMap((o) => [
+    { name: o.name, moves: o.moves },
+    ...o.variations.map((v) => ({ name: o.name, moves: [...o.moves.slice(0, v.at), ...v.moves] })),
+  ]);
+  for (const o of lines) {
     let b = initialBoard();
     let c: Color = 'r';
     for (const om of o.moves) {
+      if (!om.book) break;
       const m = textToMove(b, c, om.t, legalMoves(b, c));
       if (!m) break; // 数据有误就停在这里，不往下猜
       const key = toFen(b, c);
@@ -74,7 +80,9 @@ function build(): Map<string, BookMove[]> {
         const list = map.get(key) ?? [];
         for (const tx of [st.t, ...(st.alts ?? [])]) {
           const mm = textToMove(b, c, tx, legalMoves(b, c));
-          if (mm && !list.some((x) => same(x.move, mm))) list.push({ move: mm, text: tx, why: firstSentence(st.why), opening: `破解「${t.name}」` });
+          // 备选着不能套用正解的理由（"先不急着吃回"配在"马上吃回"上就是在说反话）
+          const why = tx === st.t ? firstSentence(st.why) : st.altWhy ? firstSentence(st.altWhy) : `和 ${st.t} 一样破得了。`;
+          if (mm && !list.some((x) => same(x.move, mm))) list.push({ move: mm, text: tx, why, opening: `破解「${t.name}」` });
         }
         map.set(key, list);
       }

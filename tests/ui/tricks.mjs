@@ -52,9 +52,10 @@ await page.waitForTimeout(200);
 const say1 = await page.evaluate(() => window.__xqReplay.say());
 console.log('   你走 马三进五：' + say1.slice(0, 60));
 ok('走对了', say1.includes('猜对了'));
-for (let i = 0; i < 6; i++) {
+// 破解谱现在走十几个回合（人写的几手 + 皮卡鱼延伸）：后面照谱一手一手走完
+for (let i = 0; i < 60; i++) {
   if (await page.evaluate(() => window.__xqReplay.waiting())) {
-    await page.evaluate(() => window.__xqReplay.guess('马八进七'));
+    await page.evaluate(() => window.__xqReplay.guess(window.__xqReplay.expected()));
   } else {
     const b = page.locator('#rp-next');
     if (!(await b.count())) break;
@@ -64,6 +65,50 @@ for (let i = 0; i < 6; i++) {
 }
 ok('全对之后记为"已破"', await until(page, () => (localStorage.getItem('xq-tricks-done') ?? '').includes('hei-pao-zhongbing-check'), null, 3000));
 await page.screenshot({ path: OUT + '/tricks-guess.png' });
+
+// ───────── 1b. 敢死炮：送的炮该吃，坑在第二关 ─────────
+await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
+await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(700);
+if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(600); }
+await page.getByText('🗡 邪门布局破解').first().click(); await page.waitForTimeout(500);
+const listText = await page.locator('.xq-coach-report').innerText();
+ok('列表里有敢死炮、铁滑车、叠炮、瞎眼狗', ['敢死炮', '铁滑车', '双铁滑车', '叠炮', '瞎眼狗'].every((n) => listText.includes(n)));
+ok('敢死炮标着"两关"', (await page.locator('[data-trick="gansipao-red"]').innerText()).includes('两关'));
+await page.locator('[data-trick="gansipao-red"]').click(); await page.waitForTimeout(300);
+const gs = (await page.locator('.xq-coach-report').innerText()).replace(/\s+/g, ' ');
+console.log('   敢死炮：' + gs.slice(0, 260));
+ok('敢死炮详情：第一步吃（炮8进5），第二关回窝心马（马3退5）', gs.includes('炮8进5') && gs.includes('第二关') && gs.includes('马3退5'));
+await page.screenshot({ path: OUT + '/tricks-gansipao.png' });
+await page.locator('[data-act="trick-trap"]').click(); await page.waitForTimeout(300);
+ok('上当演示先说明"前面是对的，坑在后面"', (await page.locator('.xq-coach-stage').innerText()).includes('坑在后面'));
+for (let i = 0; i < 12; i++) { const b = page.locator('#rp-next'); if (!(await b.count())) break; await b.click(); await page.waitForTimeout(120); }
+const gsTrap = await page.locator('.xq-rp-trail').innerText();
+ok('上当那一段：吃了炮、舍不得往回退、被车吃回', gsTrap.includes('炮8进5') && gsTrap.includes('炮8退1') && gsTrap.includes('车二进三'));
+await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
+await page.locator('[data-act="trick-guess"]').click(); await page.waitForTimeout(300);
+const answers = ['炮8进5', '马3退5', '炮2平8'];
+let got = 0;
+let mine = 0;
+for (let i = 0; i < 60; i++) {
+  if (await page.evaluate(() => window.__xqReplay.waiting())) {
+    // 前三手是两关的要点，自己写死；后面是皮卡鱼延伸的十来手，照谱走完。
+    // 最后一手猜完直接进"走完了"的收尾——对不对看最后有没有记为"已破"（要每手都对）
+    const m = got < answers.length ? answers[got] : await page.evaluate(() => window.__xqReplay.expected());
+    if (got < answers.length && (await page.evaluate(() => window.__xqReplay.expected())) !== m) break;
+    if (!(await page.evaluate((x) => window.__xqReplay.guess(x), m))) break;
+    if (got < answers.length) got++;
+    mine++;
+    await page.waitForTimeout(150);
+  } else {
+    const b = page.locator('#rp-next');
+    if (!(await b.count())) break;
+    await b.click();
+    await page.waitForTimeout(150);
+  }
+}
+console.log(`   敢死炮破解一共走了 ${mine} 手`);
+ok('两关都自己走对（炮8进5 → 马3退5 → 炮2平8），破解谱走到底（十手以上），记为"已破"', got === 3 && mine >= 10 && (await until(page, () => (localStorage.getItem('xq-tricks-done') ?? '').includes('gansipao-red'), null, 3000)));
 
 // ───────── 2. 对局：对手走邪门布局，教练点破，破解那一手不拦 ─────────
 await page.goto(BASE, { waitUntil: 'networkidle' });

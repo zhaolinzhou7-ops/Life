@@ -68,9 +68,11 @@ describe('实战分', () => {
   });
 
   it('推荐的对手在实战分附近', () => {
-    expect(AI_LEVEL_NAMES[suggestLevel(1150)]).toBe('中级');
-    expect(AI_LEVEL_NAMES[suggestLevel(800)]).toBe('入门');
-    expect(suggestLevel(1450)).toBe(DAMEI);
+    // 实战分正好等于某一档：就推荐那一档（赢一半输一半最涨棋）
+    AI_LEVEL_RATING.forEach((r, i) => expect(suggestLevel(r), AI_LEVEL_NAMES[i]).toBe(i));
+    expect(AI_LEVEL_NAMES[suggestLevel(AI_LEVEL_RATING[2] + 60)]).toBe('中级');
+    expect(AI_LEVEL_NAMES[suggestLevel(300)]).toBe('入门');
+    expect(suggestLevel(AI_LEVEL_RATING[DAMEI])).toBe(DAMEI);
   });
 });
 
@@ -148,5 +150,35 @@ describe('老存档补算实战分', async () => {
     expect(p.r).toBeLessThan(1450);
     backfillPlay([{ ts: 9, level: '棋王', result: 'win', moves: long }]);
     expect(getPlay()!.n).toBe(3);
+  });
+});
+
+describe('每日训练轮换：布局体系、中局组合、残局阶梯都排得进来', () => {
+  const plan = async (stageId: number, day: number) => {
+    const { dailyPlan } = await import('../src/xiangqi/curriculum');
+    const dims = ['safety', 'mate', 'tactic', 'endgame', 'opening'] as const;
+    const r = Object.fromEntries(dims.map((d) => [d, { r: 1300 }])) as never;
+    const by = Object.fromEntries(dims.map((d) => [d, 0])) as never;
+    return dailyPlan({
+      stage: STAGES[stageId - 1],
+      ratings: r,
+      loss: { by, games: 0, total: 0 },
+      accuracy: () => null,
+      dueCount: 0,
+      daysSinceQuiz: 1,
+      play: { r: 1300, n: 5 },
+      day,
+    }).map((b) => b.kind);
+  };
+
+  it('一周里三样都轮得到', async () => {
+    const week = new Set<string>();
+    for (let d = 0; d < 7; d++) for (const k of await plan(3, d)) week.add(k);
+    for (const k of ['opening', 'combo', 'ladder', 'endgame']) expect([...week], k).toContain(k);
+  });
+
+  it('中局组合从阶段2开始，阶段1还在练不漏着', async () => {
+    expect(await plan(1, 1)).not.toContain('combo');
+    expect(await plan(2, 1)).toContain('combo');
   });
 });

@@ -94,11 +94,21 @@ export function ttNear(r: number) {
  * 被说成"专业级"，可实际连"大师"档都下不赢——做题会做和下得赢是两回事。
  * 现在"你是什么水平"以**跟这几档 AI 下棋的输赢**为准（Elo），做题分只用来看五维里哪一维弱。
  *
- * 这几个数是估的：前五档是自带引擎（搜索时间和随机扰动不同），后两档是皮卡鱼（职业以上的水准）。
- * 估得不准也不要紧——你的实战分是跟着输赢走的，赢了往上、输了往下，几盘之后自己会落到对的位置；
- * 只要档与档之间的高低顺序对，结论就不会离谱。
+ * 七档都是皮卡鱼（pikalevel.ts）。分数是 tools/calibrate-levels.ts 对下实测的，
+ * 以旧版的「高级」1300、「大师」1450 为锚（旧版前五档是自带引擎，实战分以前就是在这两档附近算的）：
+ *   入门   650   和初级互下 2 比 22，分差打六折推的（误差大）
+ *   初级   880   对旧高级 6 盘 0.5 分
+ *   中级  1050   对旧高级 8 盘 1.5 分
+ *   高级  1300   对旧高级 12 盘五五开
+ *   大师  1420   对旧大师 10 盘 4.5 分
+ *   特级  1690   对旧大师 10 盘 8 分
+ *   棋王  2200   全力皮卡鱼，比特级强出一大截（互下一边倒），按打折的分差推的
+ * 同一个引擎自己跟自己下会把差距放大，所以只要能对旧档下的，都按对旧档的结果算。
+ * 估得不准也不要紧——你的实战分跟着输赢走，几盘之后自己会落到对的位置。
  */
-export const AI_LEVEL_RATING = [750, 950, 1150, 1300, 1450, 1900, 2100];
+export const AI_LEVEL_RATING = [650, 880, 1050, 1300, 1420, 1690, 2200];
+/** 旧版本各档（前五档是自带引擎）的分：只给补算老存档里的棋用 */
+export const LEGACY_LEVEL_RATING = [750, 950, 1150, 1300, 1450, 1900, 2100];
 /** 和对弈设置页的难度名一一对应（单元测试核对） */
 export const AI_LEVEL_NAMES = ['入门', '初级', '中级', '高级', '大师', '特级大师', '棋王'];
 
@@ -450,12 +460,16 @@ export function recentAccuracy(dim: Dim, n = 20): { acc: number; n: number } | n
  *
  * 阶梯从易到难单调排列，每一档给一个大致的对应分，只用来显示，不参与出题。
  */
-export const LADDER: { id: string; name: string; desc: string; strip: number; depth: number; approx: number }[] = [
-  { id: 'h2', name: '让双马', desc: '对手少两个马', strip: 2, depth: 6, approx: 900 },
-  { id: 'h1', name: '让单马', desc: '对手少一个马', strip: 1, depth: 6, approx: 1100 },
-  { id: 'e0', name: '分先 · 进阶', desc: '子力相同，对手算 6 层', strip: 0, depth: 6, approx: 1300 },
-  { id: 'e1', name: '分先 · 高手', desc: '子力相同，对手算 10 层', strip: 0, depth: 10, approx: 1550 },
-  { id: 'e2', name: '分先 · 大师', desc: '子力相同，对手算 14 层', strip: 0, depth: 14, approx: 1800 },
+/**
+ * 让子阶梯。对手是皮卡鱼的某一档（lv = 对手档位下标），再拿掉几个马。
+ * 让一个马大约值 250 分（按对手档位的分数往下折），分数只是参考，升降档看的是输赢。
+ */
+export const LADDER: { id: string; name: string; desc: string; strip: number; lv: number; approx: number }[] = [
+  { id: 'h2', name: '让双马', desc: '对手（高级）少两个马', strip: 2, lv: 3, approx: AI_LEVEL_RATING[3] - 450 },
+  { id: 'h1', name: '让单马', desc: '对手（高级）少一个马', strip: 1, lv: 3, approx: AI_LEVEL_RATING[3] - 250 },
+  { id: 'e0', name: '分先 · 进阶', desc: '子力相同，对手是高级', strip: 0, lv: 3, approx: AI_LEVEL_RATING[3] },
+  { id: 'e1', name: '分先 · 高手', desc: '子力相同，对手是大师', strip: 0, lv: 4, approx: AI_LEVEL_RATING[4] },
+  { id: 'e2', name: '分先 · 大师', desc: '子力相同，对手是特级大师', strip: 0, lv: 5, approx: AI_LEVEL_RATING[5] },
 ];
 
 export interface LadderState {
@@ -818,7 +832,8 @@ export function backfillPlay(games: { ts: number; level: string; result: 'win' |
   d.play = { r: seedRating(), n: 0, log: [] };
   store(d);
   for (const { g, lv } of list) {
-    recordPlay({ opp: AI_LEVEL_RATING[lv], res: g.result === 'win' ? 1 : g.result === 'draw' ? 0.5 : 0, w: 0.6, who: g.level });
+    // 补算的都是旧版本下的棋，那时前五档是自带引擎：按当时的分算，不能套现在皮卡鱼各档的分
+    recordPlay({ opp: LEGACY_LEVEL_RATING[lv], res: g.result === 'win' ? 1 : g.result === 'draw' ? 0.5 : 0, w: 0.6, who: g.level });
   }
 }
 

@@ -4,7 +4,7 @@
  *   - 所有着法走得通（前缀、邪门着、破解、上当）
  *   - 邪门着本身确实亏（比最好的走法差 60 以上）——不亏的不叫邪门，是正常布局
  *   - 破解那一手是（接近）最好的：和引擎首选差不到 150
- *   - 上当那一手确实亏：比破解差 150 以上
+ *   - 上当那一手确实亏：比破解差 150 以上（陷阱在后面的套路，在分岔那一步比；分岔处的破解也要接近最好）
  *   - 破解之后，破解方比邪门着之前的处境好（对方白亏了）
  *   - 写在数据里的数和复核结果对得上（差 250 以内——引擎每次算的深浅不同，数会浮动）
  * 用法：node tools/run.mjs check-tricks
@@ -13,7 +13,7 @@ import { startPikafish } from './pikafish-node';
 import { applyMove, legalMoves, type Move } from '../src/xiangqi/rules';
 import { textToMove } from '../src/xiangqi/notation';
 import { moveToUci, parseInfo, type PvLine } from '../src/xiangqi/pikafish';
-import { TRICKS, walkMoves } from '../src/xiangqi/tricks';
+import { TRICKS, lineToTrap, walkMoves } from '../src/xiangqi/tricks';
 
 const MS = Number(process.env.MS ?? 2500);
 const e = await startPikafish(256);
@@ -39,8 +39,9 @@ for (const t of TRICKS) {
   const pre = walkMoves(t.pre);
   const all = walkMoves([...t.pre, t.trick.t]);
   const refute = walkMoves([...t.pre, t.trick.t, ...t.refute.map((s) => s.t)]);
-  const trap = walkMoves([...t.pre, t.trick.t, ...t.trap.map((s) => s.t)]);
-  if (!pre || !all || !refute || !trap) {
+  const fork = walkMoves(lineToTrap(t));
+  const trap = walkMoves([...lineToTrap(t), ...t.trap.map((s) => s.t)]);
+  if (!pre || !all || !refute || !trap || !fork) {
     fail(t.id, '有着法走不通');
     continue;
   }
@@ -55,12 +56,21 @@ for (const t of TRICKS) {
   // 邪门着之后：最好的应法、破解、上当（破解方视角）
   const top = best(all.moves);
   const r0 = textToMove(all.board, all.color, t.refute[0].t, legalMoves(all.board, all.color))!;
-  const w0 = textToMove(all.board, all.color, t.trap[0].t, legalMoves(all.board, all.color))!;
   const rs = only(all.moves, r0);
-  const ws = only(all.moves, w0);
-  const trapLoss = rs - ws;
+  // 上当在分岔处比：分岔处该走的那一手（refute[k]）和上当那一手（trap[0]）
+  const k = t.trapAfter ?? 0;
+  if (k % 2) fail(t.id, `trapAfter 必须是偶数（轮到破解方），现在是 ${k}`);
+  const rk = textToMove(fork.board, fork.color, t.refute[k].t, legalMoves(fork.board, fork.color))!;
+  const w0 = textToMove(fork.board, fork.color, t.trap[0].t, legalMoves(fork.board, fork.color))!;
+  const rks = k ? only(fork.moves, rk) : rs;
+  const ws = only(fork.moves, w0);
+  const trapLoss = rks - ws;
+  if (k) {
+    const topK = best(fork.moves);
+    if (topK - rks > 150) fail(t.id, `第二关的破解 ${t.refute[k].t} 比引擎首选差 ${topK - rks}`);
+  }
   console.log(
-    `${t.name}：邪门着亏 ${trickLoss}｜破解 ${t.refute[0].t} ${rs}（首选 ${top}）｜上当 ${t.trap[0].t} ${ws}，亏 ${trapLoss}`,
+    `${t.name}：邪门着亏 ${trickLoss}｜破解 ${t.refute[0].t} ${rs}（首选 ${top}）｜${k ? `第二关 ${t.refute[k].t} ${rks}，` : ''}上当 ${t.trap[0].t} ${ws}，亏 ${trapLoss}`,
   );
   if (trickLoss < 60) fail(t.id, `邪门着只亏 ${trickLoss}，算不上邪门`);
   if (top - rs > 150) fail(t.id, `破解比引擎首选差 ${top - rs}`);

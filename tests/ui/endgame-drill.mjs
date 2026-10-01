@@ -37,7 +37,7 @@ async function openDrill(group) {
 // ───────── 1. 单车对双士：跟着教练的首选走，要赢下来 ─────────
 await openDrill('单车对双士');
 ok('进了残局练习', (await page.locator('.xq-po').count()) === 1);
-ok('你进攻时，默认由专业引擎来守', (await page.evaluate(() => window.__xqPlay.opp().setting)) === 'pro');
+ok('对手是皮卡鱼（不再有换成自带引擎的开关）', (await page.evaluate(() => window.__xqPlay.opp().setting)) === 'pro' && (await page.locator('button.xq-po-opp').count()) === 0);
 ok('教练在算，并按目标说局面（胜势）', await until(page, () => /胜势/.test(window.__xqPlay.coach() ?? '') && (window.__xqPlay.study()?.depth ?? 0) >= 10, null, 20000));
 console.log('   教练：' + (await page.evaluate(() => window.__xqPlay.coach())));
 
@@ -110,10 +110,6 @@ if (blunder) {
   ok('悔棋回到走之前', st.turn === 'r' && st.myMoves === 0);
 }
 
-// ───────── 3. 换对手 ─────────
-await page.locator('.xq-po-opp').click();
-ok('对手换成自带引擎并记住', (await page.evaluate(() => [window.__xqPlay.opp().setting, localStorage.getItem('xq-po-opp')].join())) === 'local,local');
-await page.locator('.xq-po-opp').click();
 
 // ───────── 4. 守方练习：不问"能不能赢"；提和引擎同意就算守住；操作条一直在 ─────────
 await page.goto(BASE, { waitUntil: 'networkidle' });

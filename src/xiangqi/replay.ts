@@ -32,9 +32,15 @@ export interface ReplayOpts {
   startAt?: number;
   /** 底部提示条 */
   notes?: string[];
+  /** 走完时的局面判断（布局谱：走到这里谁好、好多少） */
+  outro?: string;
   /** 走完时回调：猜着法模式下猜中几手、一共猜了几手 */
   onFinish?: (right: number, tried: number) => void;
   onExit: () => void;
+  /** 走完之后的下一步（比如邪门布局"破解到底"），放在收尾那一栏最前面 */
+  next?: { label: string; run: () => void };
+  /** 猜着法时走了原谱之外的着法：判它是不是一样好（皮卡鱼），null = 判不了，只认原谱 */
+  judge?: (board: Board, color: Color, mine: Move, expected: Move) => Promise<{ ok: boolean; loss: number } | null>;
 }
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
@@ -95,23 +101,39 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
     }
   }
 
-  function submitGuess(mv: Move) {
+  async function submitGuess(mv: Move) {
     const mine = moveToText(board, mv);
     const real = opts.moves[idx].t;
-    const alt = mine !== real && (opts.moves[idx].alts ?? []).includes(mine);
-    tried++;
-    if (mine === real || alt) right++;
+    let alt = mine !== real && (opts.moves[idx].alts ?? []).includes(mine);
+    let judged = '';
     waiting = false;
     sel = null;
     view.setMarks([]);
+    // 不是原谱、也不在备选里：让皮卡鱼判是不是一样好（谱长了，同样好的着法很多）
+    if (mine !== real && !alt && opts.judge) {
+      const exp = textToMove(board, turn, real, legalMoves(board, turn));
+      if (exp) {
+        const at = idx;
+        elSay.className = 'xq-rp-say ask';
+        elSay.innerHTML = `<div class="h">你走的是 ${mine}，不是原谱那一手——皮卡鱼在核对…</div>`;
+        const j = await opts.judge(board, turn, mv, exp);
+        if (at !== idx) return; // 期间重来了
+        if (j?.ok) {
+          alt = true;
+          judged = '皮卡鱼核对过';
+        } else if (j) judged = `皮卡鱼核对过：比原谱差约 ${(j.loss / 100).toFixed(1)} 个兵`;
+      }
+    }
+    tried++;
+    if (mine === real || alt) right++;
     const why = opts.moves[idx].why ? `<div class="w">${opts.moves[idx].why}</div>` : '';
     elSay.className = `xq-rp-say ${mine === real || alt ? 'ok' : 'no'}`;
     elSay.innerHTML =
       mine === real
         ? `<div class="h">✅ 猜对了 · ${real}</div>${why}`
         : alt
-          ? `<div class="h">✅ 也对 · 你走的 ${mine} 和 <b>${real}</b> 一样好</div>${why}`
-          : `<div class="h">❌ 你走的是 ${mine}，原谱走的是 <b>${real}</b></div>${why}`;
+          ? `<div class="h">✅ 也对 · 你走的 ${mine} 和 <b>${real}</b> 一样好${judged ? `（${judged}）` : ''}</div>${why}`
+          : `<div class="h">❌ 你走的是 ${mine}，原谱走的是 <b>${real}</b>${judged ? `（${judged}）` : ''}</div>${why}`;
     play(); // 不管猜没猜中，都按原谱往下走
     renderBar();
     // ⚠️ 猜中最后一手之后要收尾。少了这一句，renderBar() 因为已经走完而
@@ -171,6 +193,7 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
     elSay.className = 'xq-rp-say done';
     elSay.innerHTML =
       `<div class="h">走完了</div>` +
+      (opts.outro ? `<div class="w">${opts.outro}</div>` : '') +
       (opts.guessFor && tried
         ? `<div class="w">你猜中 <b>${right}/${tried}</b> 手。猜不中很正常——真正有用的是<b>看清楚原谱为什么那么走</b>，
            而不是猜中的次数。</div>`
@@ -180,9 +203,13 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
             .map((n) => `<li>${n}</li>`)
             .join('')}</ul></div>`
         : '');
-    elBar.innerHTML = '<button class="xq-btn primary" id="rp-again">再看一遍</button><button class="xq-btn ghost" id="rp-out">← 返回</button>';
+    elBar.innerHTML =
+      (opts.next ? `<button class="xq-btn primary" id="rp-next-step">${opts.next.label}</button>` : '') +
+      `<button class="xq-btn${opts.next ? '' : ' primary'}" id="rp-again">再看一遍</button><button class="xq-btn ghost" id="rp-out">← 返回</button>`;
     (elBar.querySelector('#rp-again') as HTMLButtonElement).onclick = () => reset();
     (elBar.querySelector('#rp-out') as HTMLButtonElement).onclick = opts.onExit;
+    const nx = elBar.querySelector('#rp-next-step') as HTMLButtonElement | null;
+    if (nx && opts.next) nx.onclick = opts.next.run;
   }
 
   function reset() {
@@ -247,6 +274,9 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
       },
       waiting: () => waiting,
       idx: () => idx,
+      /** 原谱下一手（UI 测试照谱走） */
+      expected: () => opts.moves[idx]?.t ?? null,
+      total: () => opts.moves.length,
       say: () => elSay.textContent,
     };
   }

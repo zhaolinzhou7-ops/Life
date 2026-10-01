@@ -14,14 +14,14 @@ describe('开局定式', () => {
     expect(texts).toContain('兵七进一');
   });
 
-  it('每一套定式走下去，每一步都能在索引里查到，而且都是合法着法', () => {
+  it('每一套走下去都是合法着法；谱上的（人写的定式）每一步都能在索引里查到', () => {
     for (const o of OPENINGS) {
       let b = initialBoard();
       let c: 'r' | 'b' = 'r';
       for (const om of o.moves) {
         const m = textToMove(b, c, om.t, legalMoves(b, c));
         expect(m, `${o.name} 的 ${om.t} 不合法`).not.toBeNull();
-        expect(isBookMove(b, c, m!), `${o.name} 的 ${om.t} 查不到`).toBe(true);
+        if (om.book) expect(isBookMove(b, c, m!), `${o.name} 的 ${om.t} 查不到`).toBe(true);
         b = applyMove(b, m!);
         c = c === 'r' ? 'b' : 'r';
       }

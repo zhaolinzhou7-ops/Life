@@ -29,6 +29,7 @@
     "test:ui:review": "node tests/ui/review-score.mjs",
     "test:ui:resume": "node tests/ui/resume.mjs",
     "test:ui:tricks": "node tests/ui/tricks.mjs",
+    "test:ui:grow": "LANG=C.UTF-8 node tests/ui/grow.mjs",
     "check:tricks": "node tools/run.mjs check-tricks"
   },
   "dependencies": {
