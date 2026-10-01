@@ -11,8 +11,8 @@
  */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { fromFen, textToMove } from '../src/xiangqi/notation';
-import { applyMove, legalMoves, statusAfter, type Board, type Color } from '../src/xiangqi/rules';
-import { PIECE_VALUE } from '../src/xiangqi/teach';
+import { applyMove, isInCheck, legalMoves, statusAfter, type Board, type Color, type Move } from '../src/xiangqi/rules';
+import { PIECE_VALUE, hangingPieces } from '../src/xiangqi/teach';
 import { rateDifficulty } from './rate-difficulty';
 
 const PUZ = 'src/xiangqi/puzzles.json';
@@ -37,6 +37,19 @@ function material(b: Board, c: Color): number {
   let s = 0;
   for (const row of b) for (const p of row) if (p && p.t !== 'K') s += (p.c === c ? 1 : -1) * PIECE_VALUE[p.t];
   return s;
+}
+
+/**
+ * 捉双、将军抽子要严格：这一手走完，对方**新出现**真会丢的子（白丢 1.5 个兵以上）——
+ * 捉双是不将军、新挂两个以上；将军抽子是将军的同时新挂一个以上。
+ * 生成时只数"走完对方有几个子挂着"，原来就挂着的、丢了也不亏的都算进去，56 道题标了 36 道捉双。
+ */
+function newlyHanging(before: Board, m: Move, me: Color): { check: boolean; n: number } {
+  const opp: Color = me === 'r' ? 'b' : 'r';
+  const after = applyMove(before, m);
+  const was = new Set(hangingPieces(before, opp).map((h) => `${h.x},${h.y}`));
+  const n = hangingPieces(after, opp).filter((h) => h.loss >= 150 && !was.has(`${h.x},${h.y}`)).length;
+  return { check: isInCheck(after, opp), n };
 }
 
 const puzzles = JSON.parse(readFileSync(PUZ, 'utf8')) as Rec[];
@@ -81,11 +94,18 @@ for (const r of recs) {
   let c: Color = pos.toMove;
   const me = c;
   let ok = true;
+  let fork = false;
+  let checkWin = false;
   for (const t of r.line) {
     const m = textToMove(b, c, t, legalMoves(b, c));
     if (!m) {
       ok = false;
       break;
+    }
+    if (c === me) {
+      const h = newlyHanging(b, m, me);
+      if (!h.check && h.n >= 2) fork = true;
+      if (h.check && h.n >= 1) checkWin = true;
     }
     b = applyMove(b, m);
     c = c === 'r' ? 'b' : 'r';
@@ -110,6 +130,10 @@ for (const r of recs) {
     }
     delete r.mateIn;
   }
+  r.themes = r.themes.filter((t) => t !== '捉双' && t !== '将军抽子' && t !== '组合');
+  if (fork) r.themes.push('捉双');
+  if (checkWin && r.goal !== 'mate') r.themes.push('将军抽子');
+  if (!r.themes.length) r.themes = ['组合'];
   const base = rateDifficulty(pos.board, me, r.answer, r.goal === 'mate' ? r.mateIn : undefined);
   r.rating = Math.min(2200, Math.max(base, 760 + (r.steps - 1) * 170 + (r.themes.includes('弃子') ? 80 : 0)));
   fens.add(r.fen);

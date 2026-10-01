@@ -25,7 +25,7 @@ export function tierOf(n: number): number | null {
 }
 
 const recs: Rec[] = [];
-for (const f of fs.readdirSync(CACHE).filter((n) => /^(ladder|longladder|ladder20)-\d+\.jsonl$/.test(n)).sort()) {
+for (const f of fs.readdirSync(CACHE).filter((n) => /^(ladder|longladder|ladder20|ladder20b)-\d+\.jsonl$/.test(n)).sort()) {
   for (const l of fs.readFileSync(`${CACHE}/${f}`, 'utf8').split('\n')) if (l.trim()) recs.push(JSON.parse(l));
 }
 const seen = new Set<string>();
