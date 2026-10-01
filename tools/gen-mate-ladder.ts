@@ -24,7 +24,9 @@ const TIERS = (process.env.TIERS ?? '5,10,15,20').split(',').map(Number);
 // 素材：默认是残局库里的胜局；INPUT=xxx.jsonl 换成别的局面（比如 gen-long-mates 找的长杀局面）
 const INPUT = process.env.INPUT ?? '';
 const TAG = process.env.TAG ?? 'ladder';
-const PLAY_MS = 1200;
+// 双方下到将死时每手的时间。长线残局要用长一点（PLAY_MS=3000）：时间短了守方守得松，
+// 18 步的杀 12 步就杀完了，切不出 20 步那一档
+const PLAY_MS = Number(process.env.PLAY_MS ?? 1200);
 const VERIFY_MS = 8000;
 
 const lib = (INPUT

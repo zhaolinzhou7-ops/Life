@@ -134,13 +134,18 @@ for (let g = 0; g < GAMES; g++) {
     if (ply >= 14 && ply - lastHit >= 6) {
       const q = search(moves, 2, 'nodes 60000');
       if (process.env.DEBUG && q.length >= 2 && val(q[0]) - val(q[1]) >= 150) console.log(`  快看 ply ${ply}：最好 ${val(q[0])} 第二 ${val(q[1])}`);
+      // 快看只筛"最好的比第二好的强出一截"；"第二好的保不住优势"留给深算判（浅算的第二名分数不准，在这里卡掉的多半是好题）
       if (q.length >= 2 && val(q[0]) >= 250 && val(q[0]) - val(q[1]) >= 250) {
         // 深算复核
         const d = search(moves, 2, 'movetime 3000');
-        if (d.length >= 2 && val(d[0]) - val(d[1]) >= 250 && (d[0].mateIn !== undefined ? d[0].mateIn > 0 && d[0].mateIn <= 8 : d[0].score >= 250)) {
+        if (
+          d.length >= 2 &&
+          val(d[0]) - val(d[1]) >= 250 &&
+          (d[0].mateIn !== undefined ? d[0].mateIn > 0 && d[0].mateIn <= 8 : d[0].score >= 250 && val(d[1]) <= 200)
+        ) {
           const a = analyse(b, c, d[0].pv, d[0].mateIn !== undefined && d[0].mateIn > 0 ? d[0].mateIn : undefined);
           if (process.env.DEBUG) console.log(`    候选 ply ${ply}：gap ${val(d[0]) - val(d[1])} 最好 ${val(d[0])}，主变步数 ${a.steps}（${a.line.join(' ')}）`);
-          if (a.steps >= 2) {
+          if (a.steps >= 2 && a.steps <= 7) {
             lastHit = ply;
             found++;
             const rec = {

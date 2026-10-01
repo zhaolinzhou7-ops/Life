@@ -1,5 +1,5 @@
 /**
- * 把 gen-mate-ladder 的产出（node_modules/.cache/ladder-*.jsonl、longladder-*.jsonl）并成残局阶梯：
+ * 把 gen-mate-ladder 的产出（node_modules/.cache/ladder-*.jsonl、longladder-*.jsonl、ladder20-*.jsonl）并成残局阶梯：
  * 按步数分四档（5 / 10 / 15 / 20 步杀），同一档里按子力体系排；
  * 每一题再用规则引擎走一遍：局面读得出、解法走得通、最后一手将死。
  *
@@ -25,10 +25,11 @@ export function tierOf(n: number): number | null {
 }
 
 const recs: Rec[] = [];
-for (const f of fs.readdirSync(CACHE).filter((n) => /^(ladder|longladder)-\d+\.jsonl$/.test(n))) {
+for (const f of fs.readdirSync(CACHE).filter((n) => /^(ladder|longladder|ladder20)-\d+\.jsonl$/.test(n)).sort()) {
   for (const l of fs.readFileSync(`${CACHE}/${f}`, 'utf8').split('\n')) if (l.trim()) recs.push(JSON.parse(l));
 }
 const seen = new Set<string>();
+const ids = new Set<string>();
 const out: (Rec & { tier: number })[] = [];
 let bad = 0;
 for (const r of recs) {
@@ -64,7 +65,11 @@ for (const r of recs) {
     continue;
   }
   seen.add(r.fen);
-  out.push({ ...r, mateIn, solved, tier: t2 });
+  // 不同轮次从同一个局面切出同样步数的题，id 会撞；局面不同就加个后缀
+  let id = r.id;
+  for (let k = 2; ids.has(id); k++) id = `${r.id}-${k}`;
+  ids.add(id);
+  out.push({ ...r, id, mateIn, solved, tier: t2 });
 }
 out.sort((a, b) => a.tier - b.tier || CAT_ORDER.indexOf(a.category) - CAT_ORDER.indexOf(b.category) || a.mateIn - b.mateIn);
 fs.writeFileSync(OUT, JSON.stringify(out));
