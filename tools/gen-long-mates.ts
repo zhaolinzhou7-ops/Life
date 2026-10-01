@@ -25,6 +25,9 @@ const MS = Number(process.env.MS ?? 2500);
 const TAG = process.env.TAG ?? 'longmate';
 const ONLY = new Set((process.env.ONLY ?? '').split(',').filter(Boolean));
 const TRIES = Number(process.env.TRIES ?? 160);
+// 算不出杀、但分数已经很高的局面也收（WINCP=650）：这类往往是十几二十步才杀得死的长线胜局——
+// 探针实测：双马对士象全分数九百到一千一的五个局面，真下下去是 15～23 步杀
+const WINCP = process.env.WINCP ? Number(process.env.WINCP) : null;
 
 const LONG: GroupSpec[] = [
   { name: '单车对单缺士', category: '车类', att: 'R', def: 'AEE', you: 'att' },
@@ -67,11 +70,12 @@ for (let gi = SHARD; gi < groups.length; gi += SHARDS) {
     e.send(`position fen ${fen} - - 0 1`);
     const ls = e.send(`go movetime ${MS}`).map(parseInfo).filter((x): x is PvLine => !!x && !x.bound);
     const l = ls[ls.length - 1];
-    if (!l || l.mateIn === undefined || l.mateIn < MIN || l.mateIn > MAX) continue;
+    const longWin = WINCP !== null && l && l.mateIn === undefined && l.score >= WINCP;
+    if (!l || (!longWin && (l.mateIn === undefined || l.mateIn < MIN || l.mateIn > MAX))) continue;
     got++;
     total++;
     out.write(JSON.stringify({ id: `${TAG === 'longmate' ? 'lm' : TAG}-${g.name}-${SHARD}-${got}`, name: g.name, category: g.category, material: g.name, fen, you: attacker, target: 'win' }) + '\n');
-    console.log(`  ${g.name}：${l.mateIn} 步杀（第 ${tries + 1} 次摆）`);
+    console.log(`  ${g.name}：${l.mateIn !== undefined ? `${l.mateIn} 步杀` : `算不出杀，分数 ${l.score}`}（第 ${tries + 1} 次摆）`);
   }
   console.log(`[${g.name}] ${got} 个`);
 }

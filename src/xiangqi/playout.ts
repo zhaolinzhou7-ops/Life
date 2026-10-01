@@ -64,6 +64,8 @@ export interface PlayoutOpts {
   onExit: () => void;
   /** 重新开始同一个局面 */
   onRestart?: () => void;
+  /** 结束之后多一个按钮（残局阶梯：看示范解法） */
+  extra?: { label: string; run: () => void };
 }
 
 /** 这一局你是怎么下下来的：做题要据此判"自己做出来的"还是"靠提示/悔棋做出来的" */
@@ -634,8 +636,11 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
       <div class="xq-po-btns">
         ${stats.adjudicated ? '<button class="xq-btn primary" id="xq-po-on">接着下到将死</button>' : ''}
         <button class="xq-btn${stats.adjudicated ? '' : ' primary'}" id="xq-po-again">再来一次</button>
+        ${opts.extra ? `<button class="xq-btn" id="xq-po-extra">${opts.extra.label}</button>` : ''}
         <button class="xq-btn" id="xq-po-next">${pass ? '下一个 →' : '换一个'}</button>
       </div>`;
+    const ex = elBar.querySelector('#xq-po-extra') as HTMLButtonElement | null;
+    if (ex && opts.extra) ex.onclick = opts.extra.run;
     (elBar.querySelector('#xq-po-again') as HTMLButtonElement).onclick = () => opts.onRestart?.();
     (elBar.querySelector('#xq-po-next') as HTMLButtonElement).onclick = () => opts.onExit();
     const on = elBar.querySelector('#xq-po-on') as HTMLButtonElement | null;

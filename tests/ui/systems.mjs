@@ -106,6 +106,19 @@ const vTrail0 = (await page.locator('.xq-rp-trail').innerText()).trim();
 ok('变化前面那几手已经摆好', vTrail0.length > 0);
 await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
 
+// 从主线走完的局面实战：谱上那些着法都摆好了，轮到谁走就谁走
+if (await page.locator('[data-act="op-play"]').count()) {
+  await page.locator('[data-act="op-play"]').click();
+  const moved = await until(page, () => (window.__xq?.moves?.() ?? []).length >= 24, null, 15000);
+  const n = await page.evaluate(() => (window.__xq?.moves?.() ?? []).length);
+  console.log(`   从主线终局实战：棋盘上已经走了 ${n} 手`);
+  ok('从布局主线走完的局面直接实战', moved);
+  await page.screenshot({ path: OUT + '/systems-play.png' });
+  await coachHome();
+  await page.getByText('📖 布局体系').first().click(); await page.waitForTimeout(400);
+  await page.locator('[data-opening="pfm-niutougun"]').click(); await page.waitForTimeout(300);
+} else ok('详情页有"从主线走完的局面实战"', false);
+
 // 点名的另外几套也点得开
 for (const id of ['guogong', 'shijiao', 'feixiang', 'dantima', 'pfm-jijin', 'pfm-xunhe']) {
   await page.locator('.btn.ghost', { hasText: '返回' }).first().click(); await page.waitForTimeout(250);
@@ -156,6 +169,26 @@ await page.locator('[data-ml]').first().click(); await page.waitForTimeout(800);
 const pl = (await page.locator('.xq-coach-stage').innerText()).replace(/\s+/g, ' ');
 console.log('   阶梯题：' + pl.slice(0, 140));
 ok('和皮卡鱼下到将死：标着最快几步、走了几步', pl.includes('步') && /最快 \d+ 步/.test(pl));
+
+// 下完（这里直接认输）可以看示范解法：从题目局面开始，一手一手讲到将死
+page.once('dialog', (d) => d.accept());
+await page.locator('[data-act="resign"]').click(); await page.waitForTimeout(600);
+const demoBtn = page.locator('#xq-po-extra');
+ok('下完之后有"看示范解法"', (await demoBtn.count()) === 1 && (await demoBtn.innerText()).includes('示范'));
+await demoBtn.click(); await page.waitForTimeout(400);
+let demoSteps = 0;
+let demoSilent = 0;
+for (let i = 0; i < 60; i++) {
+  const b = page.locator('#rp-next');
+  if (!(await b.count())) break;
+  await b.click(); await page.waitForTimeout(50);
+  demoSteps++;
+  if ((await page.locator('.xq-rp-say').innerText()).trim().length < 4) demoSilent++;
+}
+const demoEnd = (await page.locator('.xq-rp-say').innerText()).replace(/\s+/g, ' ');
+console.log(`   示范解法：${demoSteps} 手，收尾：${demoEnd.slice(0, 60)}`);
+ok('示范解法从题目局面走到将死，每一手都有说明', demoSteps >= 7 && demoSilent === 0 && demoEnd.includes('杀死'));
+await page.screenshot({ path: OUT + '/systems-demo.png' });
 
 // 解锁只认真题号：乱写的星不算
 await coachHome();

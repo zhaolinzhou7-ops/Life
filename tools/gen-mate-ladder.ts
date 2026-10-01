@@ -28,6 +28,7 @@ const TAG = process.env.TAG ?? 'ladder';
 // 18 步的杀 12 步就杀完了，切不出 20 步那一档
 const PLAY_MS = Number(process.env.PLAY_MS ?? 1200);
 const VERIFY_MS = 8000;
+const LONG_MS = Number(process.env.LONG_MS ?? 30000);
 
 const lib = (INPUT
   ? fs.readFileSync(INPUT, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
@@ -105,16 +106,23 @@ for (let i = SHARD; i < wins.length; i += SHARDS) {
     const k = attackIdx[A - t];
     const fen = g.fens[k];
     const v = best(fen, VERIFY_MS);
-    const d = v.mateIn !== undefined && v.mateIn > 0 ? v.mateIn : null;
-    if (!d || seen.has(d)) continue;
-    // 引擎找到了更快的杀：按引擎的步数算，解法也重新按引擎走一遍
+    let d = v.mateIn !== undefined && v.mateIn > 0 ? v.mateIn : null;
+    if (!d) continue;
     let line = g.texts.slice(k);
     if (d !== t) {
-      const pf = fromFen(fen)!;
-      const re = playOut(pf.board, pf.toMove, 2 * d + 4, 3000);
-      if (!re.mated) continue;
-      line = re.texts;
+      // 复核的步数和下出来的对不上：多算一会儿（30 秒）再定，然后两边每手 5 秒重新下到将死，
+      // 示范正好是这个步数才收——"最快几步"说不准的题宁可不要
+      const v2 = best(fen, LONG_MS);
+      d = v2.mateIn !== undefined && v2.mateIn > 0 ? v2.mateIn : null;
+      if (!d) continue;
+      if (d !== t) {
+        const pf = fromFen(fen)!;
+        const re = playOut(pf.board, pf.toMove, 2 * d + 8, 5000);
+        if (!re.mated || Math.ceil(re.texts.length / 2) !== d) continue;
+        line = re.texts;
+      }
     }
+    if (seen.has(d)) continue;
     const myMoves = Math.ceil(line.length / 2);
     seen.add(d);
     found++;

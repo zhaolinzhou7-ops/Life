@@ -31,7 +31,7 @@ describe('残局阶梯', () => {
     }
   });
 
-  it('解法每一手合法、最后一手将死、不比标的最快步数短', () => {
+  it('解法每一手合法、最后一手将死、步数和标的最快步数一样', () => {
     for (const x of LADDER) {
       const p = fromFen(x.fen);
       expect(p, x.id).not.toBeNull();
@@ -45,9 +45,8 @@ describe('残局阶梯', () => {
         c = c === 'r' ? 'b' : 'r';
       }
       expect(statusAfter(b, c), x.id).not.toBe('playing');
-      // 解法是攻方走最后一手；示范解法可能比最快的多绕一两步，但不会比标的最快步数还短
-      expect(x.line.length % 2, x.id).toBe(1);
-      expect(Math.ceil(x.line.length / 2), x.id).toBeGreaterThanOrEqual(x.mateIn);
+      // 示范解法正好是标的最快步数：步数对不上的题说明"最快几步"本身说不准，不收
+      expect(x.line.length, x.id).toBe(x.mateIn * 2 - 1);
     }
   });
 

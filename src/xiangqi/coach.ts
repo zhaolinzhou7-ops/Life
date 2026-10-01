@@ -65,7 +65,8 @@ import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
 import { runReplay } from './replay';
-import type { Color, Move } from './rules';
+import { applyMove, legalMoves, type Color, type Move } from './rules';
+import { noteMove } from './movenote';
 import { OPENINGS, SYSTEM_ORDER, moveNote, type Opening } from './openings';
 import { judgeAgainst } from './altjudge';
 import { TRICKS, refuteLine, trapLine, walkMoves, type TrickOpening } from './tricks';
@@ -73,7 +74,7 @@ import { outlookOf } from './plan';
 import { roleOf } from './endgame';
 import { inPieces } from './teach';
 import { Board2D } from './board2d';
-import { fromFen, toFen } from './notation';
+import { fromFen, textToMove, toFen } from './notation';
 import { STAGES, stageFor, gameGate, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block } from './curriculum';
 
 /** 残局阶梯的一题（tools/gen-mate-ladder.ts 生成，merge-mate-ladder 并成 mateladder.json） */
@@ -1799,6 +1800,7 @@ export function runCoach(
     mk('📖 看主线（每一手都讲）', () => runOpening(o, undefined), 'op-watch');
     mk('🎯 你执红走一遍', () => runOpening(o, 'r'), 'op-red');
     mk('🎯 你执黑走一遍', () => runOpening(o, 'b'), 'op-black');
+    if (startFrom) mk(`⚔️ 从主线走完的局面实战（你执${o.side === 'red' ? '红' : '黑'}）`, () => playFromOpening(o.moves.map((m) => m.t), o.side === 'red' ? 'r' : 'b'), 'op-play');
     if (o.variations.length) {
       const h = document.createElement('div');
       h.className = 'xq-sec';
@@ -1872,8 +1874,20 @@ export function runCoach(
         : undefined,
       outro: `<b>${v ? v.final : o.final}</b>（皮卡鱼评估）。${o.breaks}`,
       notes: o.traps,
+      // 谱走完了，中局才开始：从这个局面和对手接着下，把布局的思路用到实战里
+      next: startFrom
+        ? { label: '⚔️ 从这里接着下', run: () => playFromOpening(line.map((m) => m.t), guessFor ?? (o.side === 'red' ? 'r' : 'b')) }
+        : undefined,
       onExit: () => showOpening(o),
     });
+  }
+
+  /** 从布局谱的终局和对手接着下（对手按实战分推荐的档位） */
+  function playFromOpening(texts: string[], me: Color) {
+    const w = walkMoves(texts);
+    if (!w || !startFrom) return;
+    const play = getPlay();
+    startFrom(w.moves, me, play && play.n >= 3 ? suggestLevel(play.r) : undefined);
   }
 
   // ---------------- 中局组合：按主题、按步数 ----------------
@@ -2086,6 +2100,39 @@ export function runCoach(
     return open.sort((a, b) => (st[a.id] ?? 0) - (st[b.id] ?? 0))[0] ?? null;
   }
 
+  /**
+   * 示范解法：皮卡鱼两边都按最好的走、最快几步杀死的那条线，每一手配说明。
+   * 只在你自己下过之后给（下完的小结里点开）——先自己想，再对答案。
+   */
+  function showLadderDemo(it: LadderItem, exit?: () => void) {
+    clear();
+    const host = document.createElement('div');
+    host.className = 'xq-coach-stage';
+    wrap.appendChild(host);
+    const p = fromFen(it.fen);
+    let b = p?.board;
+    let c: Color = it.you;
+    const moves = it.line.map((t) => {
+      if (!b) return { t };
+      const m = textToMove(b, c, t, legalMoves(b, c));
+      if (!m) return { t };
+      const why = noteMove(b, m, c);
+      b = applyMove(b, m);
+      c = c === 'r' ? 'b' : 'r';
+      return { t, why };
+    });
+    disposeScreen = runReplay(host, {
+      title: `示范解法 · ${it.material}`,
+      subtitle: `${it.mateIn} 步杀 · 皮卡鱼两边都按最好的走`,
+      intro: `这是最快的杀法：${it.mateIn} 步。看的时候想一想——每一步是在封将的退路、换攻击的线，还是在等对方自己走坏？`,
+      moves,
+      fen: it.fen,
+      flip: it.you === 'b',
+      outro: `${it.mateIn} 步杀死。想练熟就回去再下一遍，照着这个思路收。`,
+      onExit: () => runMateLadder(it, exit),
+    });
+  }
+
   function runMateLadder(it: LadderItem, exit?: () => void) {
     clear();
     const host = document.createElement('div');
@@ -2106,6 +2153,7 @@ export function runCoach(
       subtitle: `${it.category} · 残局阶梯 ${it.tier} 步档`,
       tips,
       onRestart: () => runMateLadder(it, exit),
+      extra: { label: '📖 看示范解法', run: () => showLadderDemo(it, exit) },
       onDone: (r, my, stats) => {
         const stars = r !== 'win' ? 0 : stats.hints || stats.undos ? 1 : my <= N ? 3 : my <= N + Math.max(2, Math.round(N * 0.3)) ? 2 : 1;
         if (stars) setMlStars(it.id, stars);

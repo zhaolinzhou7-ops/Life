@@ -10,7 +10,7 @@
  * 有效训练的共同点，和做题界面不给你直接看答案是同一个道理。
  */
 import { initialBoard, legalMoves, applyMove, isInCheck, type Board, type Color, type Move } from './rules';
-import { moveToText, textToMove } from './notation';
+import { fromFen, moveToText, textToMove } from './notation';
 import { Board2D, type Mark } from './board2d';
 
 export interface ReplayMove {
@@ -30,6 +30,10 @@ export interface ReplayOpts {
   guessFor?: Color;
   /** 前这么多手直接摆好，从这之后才开始讲/猜（练破解时，套路那几手不用你猜） */
   startAt?: number;
+  /** 从这个局面开始（不给就是开局）：残局阶梯的示范解法 */
+  fen?: string;
+  /** 黑方在下面（不给就看猜着法时执哪方） */
+  flip?: boolean;
   /** 底部提示条 */
   notes?: string[];
   /** 走完时的局面判断（布局谱：走到这里谁好、好多少） */
@@ -50,8 +54,11 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
   wrap.className = 'xq-rp';
   host.appendChild(wrap);
 
-  let board: Board = initialBoard();
-  let turn: Color = 'r';
+  const start = opts.fen ? fromFen(opts.fen) : null;
+  const startBoard = (): Board => (start ? start.board : initialBoard());
+  const startTurn: Color = start ? start.toMove : 'r';
+  let board: Board = startBoard();
+  let turn: Color = startTurn;
   let idx = 0; // 下一手的下标
   let right = 0;
   let tried = 0;
@@ -73,7 +80,7 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
   const elBar = wrap.querySelector('.xq-rp-bar') as HTMLElement;
   const elTrail = wrap.querySelector('.xq-rp-trail') as HTMLElement;
 
-  const view = new Board2D(elBoard, { flip: opts.guessFor === 'b', onTap: (x, y) => onTap(x, y) });
+  const view = new Board2D(elBoard, { flip: opts.flip ?? opts.guessFor === 'b', onTap: (x, y) => onTap(x, y) });
   view.setBoard(board);
 
   const legal = () => legalMoves(board, turn).filter((m) => !isInCheck(applyMove(board, m), turn));
@@ -213,8 +220,8 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
   }
 
   function reset() {
-    board = initialBoard();
-    turn = 'r';
+    board = startBoard();
+    turn = startTurn;
     idx = 0;
     right = 0;
     tried = 0;

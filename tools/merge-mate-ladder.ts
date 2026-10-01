@@ -1,7 +1,8 @@
 /**
  * 把 gen-mate-ladder 的产出（node_modules/.cache/ladder-*.jsonl、longladder-*.jsonl、ladder20-*.jsonl）并成残局阶梯：
  * 按步数分四档（5 / 10 / 15 / 20 步杀），同一档里按子力体系排；
- * 每一题再用规则引擎走一遍：局面读得出、解法走得通、最后一手将死。
+ * 每一题再用规则引擎走一遍：局面读得出、解法走得通、最后一手将死，
+ * 而且示范解法正好是复核的最快步数（对不上的先交给 reverify-ladder 用 30 秒复核）。
  *
  *   node tools/run.mjs merge-mate-ladder
  */
@@ -25,8 +26,30 @@ export function tierOf(n: number): number | null {
 }
 
 const recs: Rec[] = [];
-for (const f of fs.readdirSync(CACHE).filter((n) => /^(ladder|longladder|ladder20|ladder20b|ladder20c)-\d+\.jsonl$/.test(n)).sort()) {
+for (const f of fs.readdirSync(CACHE).filter((n) => /^(ladder|longladder|ladder20[a-z]*)-\d+\.jsonl$/.test(n)).sort()) {
   for (const l of fs.readFileSync(`${CACHE}/${f}`, 'utf8').split('\n')) if (l.trim()) recs.push(JSON.parse(l));
+}
+// reverify-ladder 的结论：步数对不上的题，30 秒复核之后留不留、留下的话几步、换成哪条示范
+const fixes = new Map<string, { keep: boolean; mateIn?: number; line?: string[] }>();
+for (const f of fs.readdirSync(CACHE).filter((n) => /^reverify-\d+\.jsonl$/.test(n))) {
+  for (const l of fs.readFileSync(`${CACHE}/${f}`, 'utf8').split('\n')) {
+    if (!l.trim()) continue;
+    const v = JSON.parse(l);
+    fixes.set(v.fen, v);
+  }
+}
+for (let i = recs.length - 1; i >= 0; i--) {
+  const r = recs[i];
+  if (r.mateIn === r.solved) continue;
+  const v = fixes.get(r.fen);
+  // 没核过、或者核下来对不上的，一律不收：宁可少一道，不标一个说不准的步数
+  if (!v || !v.keep) {
+    recs.splice(i, 1);
+    continue;
+  }
+  r.mateIn = v.mateIn!;
+  r.line = v.line!;
+  r.solved = Math.ceil(r.line.length / 2);
 }
 const seen = new Set<string>();
 const ids = new Set<string>();
@@ -56,11 +79,11 @@ for (const r of recs) {
     bad++;
     continue;
   }
-  // 解法比引擎复核的步数还短：复核那一下没算到最快，按解法实际的步数算（再重新归档）
+  // 示范解法的步数必须和复核的最快步数一样（对不上的上面已经按 30 秒复核处理过了）
   const solved = Math.ceil(r.line.length / 2);
-  const mateIn = Math.min(r.mateIn, solved);
+  const mateIn = r.mateIn;
   const t2 = tierOf(mateIn);
-  if (!t2 || r.line.length % 2 === 0) {
+  if (!t2 || r.line.length % 2 === 0 || solved !== mateIn) {
     bad++;
     continue;
   }
