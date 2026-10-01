@@ -35,6 +35,18 @@ body {
   inset: 0;
 }
 
+/* 全屏层的高度跟着实际可见区域（main.ts 里按 visualViewport 设 --app-h）：
+   手机浏览器的工具栏盖住页面底部时，底下那行操作按钮跟着往上收，不会被盖住 */
+.vvh #app,
+.vvh .screen,
+.vvh .moba-root,
+.vvh .sing-root,
+.vvh .mj-root,
+.vvh .xq-root {
+  bottom: auto;
+  height: var(--app-h);
+}
+
 canvas {
   display: block;
   touch-action: none;
@@ -2750,6 +2762,7 @@ canvas {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
   padding: calc(env(safe-area-inset-top) + 6px) 10px calc(env(safe-area-inset-bottom) + 10px);
   gap: 8px;
 }
@@ -2793,6 +2806,8 @@ canvas {
 .xq-tr-fb {
   flex: 0 0 auto;
   min-height: 46px;
+  max-height: calc(var(--app-h, 100vh) * 0.26);
+  overflow-y: auto;
   border-radius: 10px;
   padding: 7px 11px;
   font-size: 13px;
@@ -3024,6 +3039,8 @@ canvas {
   display: flex;
   flex-direction: column;
   gap: 7px;
+  /* 极矮的屏上要领、结果都展开时放不下：宁可整页能往下滑，也不能把底下的按钮裁掉 */
+  overflow-y: auto;
   padding: calc(env(safe-area-inset-top) + 8px) 10px calc(env(safe-area-inset-bottom) + 10px);
 }
 .xq-po-top {
@@ -3063,6 +3080,7 @@ canvas {
 }
 .xq-po-board {
   flex: 1;
+  /* 棋盘按剩下的空间缩：按钮那一行永远留在屏幕上（要领、小结展开时棋盘让位，不是把按钮挤出去） */
   min-height: 0;
   position: relative;
 }
@@ -3085,6 +3103,9 @@ canvas {
   font-size: 12px;
   line-height: 1.7;
   opacity: 0.85;
+  /* 要领再长也只占一截，在框里滚 */
+  max-height: calc(var(--app-h, 100vh) * 0.18);
+  overflow-y: auto;
 }
 .xq-po-tip-list ul {
   margin: 2px 0 0;
@@ -3119,6 +3140,11 @@ canvas {
   opacity: 0.82;
   margin-top: 3px;
   line-height: 1.6;
+}
+/* 小结可能很长（准确率、哪几手让结果变了……）：限高、框里滚，下面那排按钮不被挤出屏幕 */
+.xq-po-result {
+  max-height: calc(var(--app-h, 100vh) * 0.24);
+  overflow-y: auto;
 }
 .xq-po-btns {
   display: flex;
@@ -3731,8 +3757,8 @@ canvas {
 }
 
 /* 复盘面板打开时，棋盘让出下半屏，托盘藏起来 */
-.xq-root:has(.xq-rv) .xq-play { bottom: 48vh; }
-.xq-root:has(.xq-rv.mini) .xq-play { bottom: 28vh; }
+.xq-root:has(.xq-rv) .xq-play { bottom: calc(var(--app-h, 100vh) * 0.48); }
+.xq-root:has(.xq-rv.mini) .xq-play { bottom: calc(var(--app-h, 100vh) * 0.28); }
 .xq-root:has(.xq-rv) .xq-tray { display: none; }
 
 /* ---------- 吃子托盘 + 棋谱 ---------- */

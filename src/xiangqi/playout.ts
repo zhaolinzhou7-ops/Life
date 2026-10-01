@@ -592,6 +592,8 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
     if (over) return;
     over = true;
     elActs.hidden = true;
+    // 结束了要领用不上：收起来，把地方让给棋盘和结果那一排按钮
+    tipList.classList.add('hidden');
     dropStudy();
     closeHint();
     elCoach.className = 'xq-po-coach';

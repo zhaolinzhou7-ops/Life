@@ -2,6 +2,27 @@ import './style.css';
 
 const app = document.getElementById('app') as HTMLElement;
 
+/**
+ * 页面高度跟着"真正看得见的那一块"走。
+ *
+ * 手机浏览器的地址栏、底栏（Safari、微信里打开）会盖掉页面最下面一截，而全屏层按布局视口铺满——
+ * 工具栏一出来，最底下那行"重来 / 认输 / 下一个"就被盖住了（用户原话："有时在底下看不到操作按钮"）。
+ * visualViewport 给的是实际可见的高度，工具栏出来、收起、横竖屏切换都跟着更新。
+ */
+function trackVisibleHeight() {
+  const vv = window.visualViewport;
+  const set = () => {
+    const h = Math.round(vv ? vv.height : window.innerHeight);
+    document.documentElement.style.setProperty('--app-h', `${h}px`);
+  };
+  set();
+  document.documentElement.classList.add('vvh');
+  vv?.addEventListener('resize', set);
+  window.addEventListener('resize', set);
+  window.addEventListener('orientationchange', () => setTimeout(set, 250));
+}
+trackVisibleHeight();
+
 let dispose: (() => void) | null = null;
 
 function clear() {
