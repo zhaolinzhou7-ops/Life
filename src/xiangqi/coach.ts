@@ -64,7 +64,6 @@ import { loadPuzzles, pickNear, byId, ratingRange, freshCount, combos, type Puzz
 import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
-import mateLadderData from './mateladder.json';
 import { runReplay } from './replay';
 import type { Color, Move } from './rules';
 import { OPENINGS, SYSTEM_ORDER, moveNote, type Opening } from './openings';
@@ -77,8 +76,8 @@ import { Board2D } from './board2d';
 import { fromFen, toFen } from './notation';
 import { STAGES, stageFor, gameGate, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block } from './curriculum';
 
-/** 残局阶梯的题（tools/gen-mate-ladder.ts 生成，merge-mate-ladder 并成这一份） */
-const MATE_LADDER = mateLadderData as unknown as {
+/** 残局阶梯的一题（tools/gen-mate-ladder.ts 生成，merge-mate-ladder 并成 mateladder.json） */
+interface LadderItem {
   id: string;
   name: string;
   category: string;
@@ -89,7 +88,21 @@ const MATE_LADDER = mateLadderData as unknown as {
   solved: number;
   line: string[];
   tier: number;
-}[];
+}
+/** 题库一百多 KB，只有进残局阶梯才用得到：按需加载，不拖慢首页 */
+let MATE_LADDER: LadderItem[] = [];
+let ladderLoading: Promise<void> | null = null;
+function loadLadder(): Promise<void> {
+  ladderLoading ??= import('./mateladder.json')
+    .then((m) => {
+      MATE_LADDER = (m.default ?? m) as unknown as LadderItem[];
+    })
+    .catch(() => {
+      // 加载失败不能把学棋拖垮：阶梯页显示为空，下次再试
+      ladderLoading = null;
+    });
+  return ladderLoading;
+}
 
 const DIM_KIND: Record<Dim, PuzzleKind> = {
   safety: 'safety',
@@ -290,13 +303,13 @@ export function runCoach(
       },
       {
         t: '🧠 中局组合',
-        d: '要连走好几步才拿到便宜的得子和杀棋，按步数（2–3 / 4–5 / 6 步以上）和主题（连将杀、弃子、抽将、捉双……）分开练。每一步都判，走到便宜拿到手才算对。',
+        d: '要连走好几步才拿到便宜的得子和杀棋，按步数（2–3 / 4–5 / 6–7 步）和主题（连将杀、弃子、抽将、捉双……）分开练。每一步都判，走到便宜拿到手才算对。',
         go: () => void showCombos(),
       },
       {
-        t: `🪜 残局阶梯${Object.keys(mlStars()).length ? `（已过 ${Object.keys(mlStars()).length}）` : ''}`,
+        t: `🧗 残局阶梯${Object.keys(mlStars()).length ? `（已过 ${Object.keys(mlStars()).length}）` : ''}`,
         d: '5 步杀 → 10 步杀 → 15 步杀 → 20 步杀，按子力体系分组，和皮卡鱼下到将死。从终点往回学：先练最后几步怎么收，再一档档往前推。',
-        go: () => showMateLadder(),
+        go: () => void showMateLadder(),
       },
       {
         t: `🗡 邪门布局破解${tricksDone().size ? `（已练 ${tricksDone().size}/${TRICKS.length}）` : ''}`,
@@ -680,9 +693,9 @@ export function runCoach(
         list.appendChild(eg);
         const ml = document.createElement('div');
         ml.className = 'card home-card';
-        ml.innerHTML = `<div class="title">🪜 残局阶梯 · 5 / 10 / 15 / 20 步杀</div><div class="desc">同一个残局从终点往回切：先练最后 5 步怎么收，
+        ml.innerHTML = `<div class="title">🧗 残局阶梯 · 5 / 10 / 15 / 20 步杀</div><div class="desc">同一个残局从终点往回切：先练最后 5 步怎么收，
           再往前推到 10 步、15 步、20 步。和皮卡鱼下到将死，按用了几步给星。</div>`;
-        ml.onclick = () => showMateLadder();
+        ml.onclick = () => void showMateLadder();
         list.appendChild(ml);
       }
     }
@@ -1480,9 +1493,12 @@ export function runCoach(
       return;
     }
     if (b.kind === 'ladder') {
-      const it = nextLadderItem();
-      if (!it) return goNext();
-      runMateLadder(it, goNext);
+      void loadLadder().then(() => {
+        if (!wrap.isConnected) return;
+        const it = nextLadderItem();
+        if (!it) return goNext();
+        runMateLadder(it, goNext);
+      });
       return;
     }
     if (b.kind === 'mate-shape') {
@@ -1873,7 +1889,7 @@ export function runCoach(
   const COMBO_TIERS = [
     { name: '2–3 步', min: 2, max: 3 },
     { name: '4–5 步', min: 4, max: 5 },
-    { name: '6 步以上', min: 6, max: 99 },
+    { name: '6–7 步', min: 6, max: 99 },
   ];
 
   async function showCombos() {
@@ -1979,12 +1995,14 @@ export function runCoach(
     return prev.filter((x) => (st[x.id] ?? 0) > 0).length >= Math.min(5, Math.ceil(prev.length / 2));
   }
 
-  function showMateLadder() {
+  async function showMateLadder() {
     clear();
+    await loadLadder();
+    if (!wrap.isConnected) return;
     const st = mlStars();
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-home';
-    scr.innerHTML = `<h1>🪜 残局阶梯</h1>
+    scr.innerHTML = `<h1>🧗 残局阶梯</h1>
       <div class="sub">5 步杀 → 10 步杀 → 15 步杀 → 20 步杀，一档一档往上走</div>
       <div class="xq-advice"><b>为什么这样排</b>
         <p>每一题都是皮卡鱼两边下到将死、再从终点往回切出来的：同一个残局，最后 5 步怎么收在第一档，
@@ -2051,13 +2069,13 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = showMateLadder;
+    back.onclick = () => void showMateLadder();
     scr.appendChild(back);
     wrap.appendChild(scr);
   }
 
   /** 每日训练里的"往上爬一题"：已解锁的最高一档里还没杀过的第一题；都杀过了就挑星最少的 */
-  function nextLadderItem(): (typeof MATE_LADDER)[number] | null {
+  function nextLadderItem(): LadderItem | null {
     const st = mlStars();
     for (let k = ML_TIERS.length - 1; k >= 0; k--) {
       if (!mlUnlocked(k)) continue;
@@ -2068,7 +2086,7 @@ export function runCoach(
     return open.sort((a, b) => (st[a.id] ?? 0) - (st[b.id] ?? 0))[0] ?? null;
   }
 
-  function runMateLadder(it: (typeof MATE_LADDER)[number], exit?: () => void) {
+  function runMateLadder(it: LadderItem, exit?: () => void) {
     clear();
     const host = document.createElement('div');
     host.className = 'xq-coach-stage';

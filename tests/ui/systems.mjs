@@ -135,7 +135,7 @@ if (await page.locator('[data-combo="steps-4"]').count()) {
 
 // ───────── 3. 残局阶梯 ─────────
 await coachHome();
-await page.getByText('🪜 残局阶梯').first().click(); await page.waitForTimeout(400);
+await page.getByText('🧗 残局阶梯').first().click(); await page.waitForTimeout(400);
 const tiers = await page.locator('[data-tier]').evaluateAll((els) => els.map((e) => [e.dataset.tier, e.className.includes('locked')]));
 console.log('   档位：' + JSON.stringify(tiers));
 ok('四档都在：5 / 10 / 15 / 20 步杀', ['5', '10', '15', '20'].every((t) => tiers.some((x) => x[0] === t)));
@@ -165,7 +165,7 @@ await page.evaluate(() => {
   for (let i = 0; i < 40; i++) s['ml-x' + i] = 3;
   localStorage.setItem('xq-mate-ladder', JSON.stringify(s));
 });
-await page.getByText('🪜 残局阶梯').first().click(); await page.waitForTimeout(400);
+await page.getByText('🧗 残局阶梯').first().click(); await page.waitForTimeout(400);
 const t10 = await page.locator('[data-tier="10"]').getAttribute('class');
 ok('乱写的题号不算数：10 步档还是锁着', (t10 ?? '').includes('locked'));
 
