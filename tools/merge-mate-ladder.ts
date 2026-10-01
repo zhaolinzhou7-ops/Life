@@ -55,8 +55,16 @@ for (const r of recs) {
     bad++;
     continue;
   }
+  // 解法比引擎复核的步数还短：复核那一下没算到最快，按解法实际的步数算（再重新归档）
+  const solved = Math.ceil(r.line.length / 2);
+  const mateIn = Math.min(r.mateIn, solved);
+  const t2 = tierOf(mateIn);
+  if (!t2 || r.line.length % 2 === 0) {
+    bad++;
+    continue;
+  }
   seen.add(r.fen);
-  out.push({ ...r, tier });
+  out.push({ ...r, mateIn, solved, tier: t2 });
 }
 out.sort((a, b) => a.tier - b.tier || CAT_ORDER.indexOf(a.category) - CAT_ORDER.indexOf(b.category) || a.mateIn - b.mateIn);
 fs.writeFileSync(OUT, JSON.stringify(out));

@@ -326,8 +326,8 @@ export function runCoach(
         go: () => void startTimed(),
       },
       {
-        t: '📖 布局定式',
-        d: '中炮对屏风马、中炮对反宫马、仙人指路。每一手都讲"在干什么"，还能用猜着法过一遍——光看谱你会以为自己都想得到。',
+        t: '📖 布局体系',
+        d: '屏风马（对过河车、急进中兵、牛头滚、五七炮、巡河炮）、过宫炮、士角炮、飞相局、仙人指路、顺炮、列炮、单提马、反宫马。每套按谱走 15 回合上下，每一手讲在干什么、对方走偏了怎么破，还能执一方自己走一遍。',
         go: () => showOpenings(),
       },
       {
@@ -1455,6 +1455,21 @@ export function runCoach(
       void showGames();
       return;
     }
+    if (b.kind === 'combo') {
+      void loadPuzzles().then(() => {
+        if (!wrap.isConnected) return;
+        const all = combos();
+        if (!all.length) return goNext();
+        runComboSession(all, '今日组合', 5, goNext);
+      });
+      return;
+    }
+    if (b.kind === 'ladder') {
+      const it = nextLadderItem();
+      if (!it) return goNext();
+      runMateLadder(it, goNext);
+      return;
+    }
     if (b.kind === 'mate-shape') {
       void loadLibrary().then(() => {
         if (!wrap.isConnected) return;
@@ -1709,7 +1724,10 @@ export function runCoach(
         const el = document.createElement('div');
         el.className = 'card home-card';
         el.dataset.opening = o.id;
-        el.innerHTML = `<div class="title">${o.name}<span class="tag">${o.side === 'red' ? '先手' : '后手'}</span></div>
+        const best = openingBest(o.id);
+        el.innerHTML = `<div class="title">${o.name}<span class="tag">${o.side === 'red' ? '先手' : '后手'}</span>${
+          best !== null ? `<span class="tag ${best >= 80 ? 'ok' : 'warn'}">已走 ${best}%</span>` : ''
+        }</div>
           <div class="desc">${o.tag}<br><span class="dim">主线 ${Math.ceil(o.moves.length / 2)} 回合${
             o.variations.length ? ` · ${o.variations.length} 个变化` : ''
           }</span></div>`;
@@ -1774,6 +1792,32 @@ export function runCoach(
     wrap.appendChild(scr);
   }
 
+  /** 布局自己走过的成绩：key = 套路 id + 执哪方（+ 变化号），值 = 最好的一次猜对几成 */
+  const OP_KEY = 'xq-openings-done';
+  function openingScores(): Record<string, number> {
+    try {
+      return JSON.parse(localStorage.getItem(OP_KEY) ?? '{}') as Record<string, number>;
+    } catch {
+      return {};
+    }
+  }
+  function setOpeningScore(key: string, pct: number) {
+    const s = openingScores();
+    if ((s[key] ?? -1) >= pct) return;
+    s[key] = pct;
+    try {
+      localStorage.setItem(OP_KEY, JSON.stringify(s));
+    } catch {
+      /* 存不下就算了 */
+    }
+  }
+  /** 这一套最好的成绩（主线红黑两边取高的） */
+  const openingBest = (id: string) => {
+    const s = openingScores();
+    const v = [s[`${id}:r`], s[`${id}:b`]].filter((x) => x !== undefined);
+    return v.length ? Math.max(...v) : null;
+  };
+
   function runOpening(o: Opening, guessFor: Color | undefined, variation?: number) {
     clear();
     const host = document.createElement('div');
@@ -1789,6 +1833,12 @@ export function runCoach(
       guessFor,
       startAt: v ? v.at : undefined,
       judge: guessFor ? (b, c, mine, exp) => judgeAgainst(b, c, mine, exp) : undefined,
+      onFinish: guessFor
+        ? (right, tried) => {
+            if (tried) setOpeningScore(`${o.id}:${guessFor}${v ? `:${variation}` : ''}`, Math.round((right / tried) * 100));
+            checkIn();
+          }
+        : undefined,
       notes: [o.breaks, ...o.traps],
       onExit: () => showOpening(o),
     });
@@ -1859,7 +1909,7 @@ export function runCoach(
   }
 
   /** 一组 10 道：没做过的先出，难度贴近你的战术分 */
-  function runComboSession(items: Puzzle[], title: string) {
+  function runComboSession(items: Puzzle[], title: string, count = 10, onDone: () => void = () => void showCombos()) {
     const seen = attemptedMap();
     const r = getRatings().tactic.r;
     const order = [...items].sort((a, b) => {
@@ -1867,11 +1917,11 @@ export function runCoach(
       const fb = b.id in seen ? 1 : 0;
       return fa - fb || Math.abs(a.rating - r) - Math.abs(b.rating - r);
     });
-    const pick = order.slice(0, 10);
+    const pick = order.slice(0, count);
     let i = 0;
     let right = 0;
     const step = () => {
-      if (i >= pick.length) return finishSession(`中局组合 · ${title}`, right, pick.length, () => void showCombos());
+      if (i >= pick.length) return finishSession(`中局组合 · ${title}`, right, pick.length, onDone);
       const p = pick[i++];
       runOne(p, 'tactic', `${title} ${i}/${pick.length} · ${(p.themes ?? []).join('、')}`, (ok) => {
         if (ok) right++;
@@ -1990,7 +2040,19 @@ export function runCoach(
     wrap.appendChild(scr);
   }
 
-  function runMateLadder(it: (typeof MATE_LADDER)[number]) {
+  /** 每日训练里的"往上爬一题"：已解锁的最高一档里还没杀过的第一题；都杀过了就挑星最少的 */
+  function nextLadderItem(): (typeof MATE_LADDER)[number] | null {
+    const st = mlStars();
+    for (let k = ML_TIERS.length - 1; k >= 0; k--) {
+      if (!mlUnlocked(k)) continue;
+      const todo = mlTier(ML_TIERS[k]).filter((x) => !st[x.id]);
+      if (todo.length) return todo[0];
+    }
+    const open = ML_TIERS.filter((_, k) => mlUnlocked(k)).flatMap((t) => mlTier(t));
+    return open.sort((a, b) => (st[a.id] ?? 0) - (st[b.id] ?? 0))[0] ?? null;
+  }
+
+  function runMateLadder(it: (typeof MATE_LADDER)[number], exit?: () => void) {
     clear();
     const host = document.createElement('div');
     host.className = 'xq-coach-stage';
@@ -2009,14 +2071,14 @@ export function runCoach(
       title: `${N} 步杀 · ${it.material}`,
       subtitle: `${it.category} · 残局阶梯 ${it.tier} 步档`,
       tips,
-      onRestart: () => runMateLadder(it),
+      onRestart: () => runMateLadder(it, exit),
       onDone: (r, my, stats) => {
         const stars = r !== 'win' ? 0 : stats.hints || stats.undos ? 1 : my <= N ? 3 : my <= N + Math.max(2, Math.round(N * 0.3)) ? 2 : 1;
         if (stars) setMlStars(it.id, stars);
         if (firstAttempt(it.id)) updateRating('endgame', ML_RATING[it.tier] ?? 1200, stars >= 2);
         checkIn();
       },
-      onExit: () => showMateTier(it.tier),
+      onExit: exit ?? (() => showMateTier(it.tier)),
     });
   }
 

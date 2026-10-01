@@ -2722,6 +2722,10 @@ canvas {
   background: #e8703d;
   color: #10161d;
 }
+.xq-coach .card .tag.ok {
+  background: #3dbb7a;
+  color: #10161d;
+}
 
 /* ===================== 象棋：做题界面 ===================== */
 .xq-coach-stage {

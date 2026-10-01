@@ -31,10 +31,16 @@ function renote(prefix: string[], line: M[]) {
 }
 
 const OL = 'src/xiangqi/openinglib.json';
-const lib = JSON.parse(fs.readFileSync(OL, 'utf8')) as { moves: M[]; variations: { at: number; moves: M[] }[] }[];
+const lib = JSON.parse(fs.readFileSync(OL, 'utf8')) as { moves: M[]; final: string; variations: { at: number; moves: M[]; final: string }[] }[];
+// 均势不分红黑（原来写成"红方均势"）
+const fixFinal = (s: string) => s.replace(/(红方|黑方)均势/, '双方均势');
 for (const o of lib) {
   renote([], o.moves);
-  for (const v of o.variations) renote(o.moves.slice(0, v.at).map((m) => m.t), v.moves);
+  o.final = fixFinal(o.final);
+  for (const v of o.variations) {
+    renote(o.moves.slice(0, v.at).map((m) => m.t), v.moves);
+    v.final = fixFinal(v.final);
+  }
 }
 fs.writeFileSync(OL, JSON.stringify(lib));
 const TD = 'src/xiangqi/trickdeep.json';

@@ -160,7 +160,7 @@ export function graduateStatus(stage: Stage, ratings: Record<Dim, { r: number }>
 
 // ---------------- 每日训练 ----------------
 
-export type BlockKind = 'warmup' | 'srs' | 'focus' | 'mate-shape' | 'endgame' | 'game' | 'quiz' | 'timed' | 'opening' | 'replay';
+export type BlockKind = 'warmup' | 'srs' | 'focus' | 'mate-shape' | 'endgame' | 'game' | 'quiz' | 'timed' | 'opening' | 'replay' | 'combo' | 'ladder';
 
 export interface Block {
   kind: BlockKind;
@@ -197,6 +197,8 @@ export interface TrainInput {
   play?: { r: number; n: number } | null;
   /** 某一维还有多少道没做过的题 */
   fresh?: (d: Dim) => number;
+  /** 星期几（0 = 周日）。不给就取今天；测试里固定下来 */
+  day?: number;
 }
 
 /**
@@ -326,8 +328,11 @@ export function dailyPlan(inp: TrainInput): Block[] {
    *   布局定式 —— 到 1500 以上布局才成为真瓶颈，但那时候临时补来不及
    *   打谱     —— 最老的一项训练，练的是"先自己想一手"的习惯
    * 按星期几轮，保证一周里每样都轮得到，又不会天天占时间。
+   *
+   * 一三五轮的是中局组合：要连走好几步、每一步都逼着对方走的得子和杀棋。
+   * 一两步的战术题练的是"看见"，组合练的是"算到底"——到了阶段2，单步题已经不是瓶颈。
    */
-  const rotate = new Date().getDay();
+  const rotate = inp.day ?? new Date().getDay();
   if (rotate === 2 && stage.id >= 2) {
     blocks.push({
       kind: 'timed',
@@ -339,10 +344,18 @@ export function dailyPlan(inp: TrainInput): Block[] {
   } else if (rotate === 4 && stage.id >= 3) {
     blocks.push({
       kind: 'opening',
-      title: '布局定式：过一套',
-      desc: '中炮对屏风马 / 反宫马 / 仙人指路。看完再用猜着法过一遍。',
+      title: '布局体系：按谱过一套',
+      desc: '屏风马、过宫炮、士角炮、飞相局、单提马……每套 15 回合上下，前面是定式、后面皮卡鱼延伸。先看讲解，再执一方猜着法。',
       minutes: 8,
-      why: '布局排在后面不是因为不重要，是因为前面没练好时布局那点便宜守不住。你现在到阶段3了，可以开始补。',
+      why: '布局排在后面不是因为不重要，是因为前面没练好时布局那点便宜守不住。你现在到阶段3了，可以开始补——要学的不是招法表，是每一手在干什么、对方走偏了怎么破。',
+    });
+  } else if ((rotate === 1 || rotate === 3 || rotate === 5) && stage.id >= 2) {
+    blocks.push({
+      kind: 'combo',
+      title: '中局组合（5 题）',
+      desc: '每题要连走几步才拿到便宜：连将杀、弃子、抽将、捉双……走到子吃到手或者将死才算对。',
+      minutes: 7,
+      why: '一两步的战术题练的是"看见"，组合练的是"算到底"。实战里错过的大便宜，多半是第一步看见了、第三步没算到。',
     });
   } else if (rotate === 6) {
     blocks.push({
@@ -362,6 +375,14 @@ export function dailyPlan(inp: TrainInput): Block[] {
       desc: '马后炮、闷宫、双车错…… 有名字的杀棋一共就那么多。认熟了是条件反射，这比多算两层管用。',
       minutes: 5,
       why: '这个阶段最划算的投入是"认图形"。图形有名字才记得住，记住了下次一眼就认出来。',
+    });
+  } else if (rotate % 2 === 0) {
+    blocks.push({
+      kind: 'ladder',
+      title: '残局阶梯：往上爬一题',
+      desc: '5 步杀 → 10 步杀 → 15 步杀 → 20 步杀。和皮卡鱼下到将死，用最快步数杀死拿三星。',
+      minutes: 7,
+      why: '残局阶梯是从终点往回切的：同一个残局，最后几步怎么收在低档，再往前推几步在高档。从终点往回学，前面每一步都知道是为了走到哪个杀法。',
     });
   } else {
     blocks.push({

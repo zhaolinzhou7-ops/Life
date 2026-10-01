@@ -125,6 +125,7 @@ function build(prefix: Move[], seed: SeedMove[], plies: number, tag: string): Bu
 }
 
 function finalWord(ev: number): string {
+  if (Math.abs(ev) < 60) return '走到这里：双方均势';
   return `走到这里：${ev >= 0 ? '红方' : '黑方'}${outlookOf(Math.abs(ev)).replace(/^你/, '')}`;
 }
 

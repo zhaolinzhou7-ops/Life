@@ -94,7 +94,8 @@ export function noteMove(before: Board, m: Move, mover: Color): string {
   // 捉子：走完之后对方新出现的被捉的子
   const before2 = new Set(hangingPieces(before, opp).map((h) => `${h.x},${h.y}`));
   const caught = hangingPieces(after, opp).filter((h) => !before2.has(`${h.x},${h.y}`));
-  if (caught.length >= 2) parts.push(`一手捉住${caught.map((h) => nm(after[h.y][h.x]!.t, opp)).join('和')}`);
+  if (caught.length >= 3) parts.push(`同时捉住${caught.map((h) => nm(after[h.y][h.x]!.t, opp)).join('、')}`);
+  else if (caught.length === 2) parts.push(`一手捉住${caught.map((h) => nm(after[h.y][h.x]!.t, opp)).join('和')}`);
   else if (caught.length === 1) parts.push(`捉${nm(after[caught[0].y][caught[0].x]!.t, opp)}`);
   if (intents.includes('escape')) parts.push('把被捉的子挪开');
   else if (intents.includes('defend')) parts.push('顺手保护了被捉的子');

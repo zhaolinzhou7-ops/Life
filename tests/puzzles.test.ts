@@ -226,3 +226,40 @@ describe('题目问法和局面对得上', () => {
     expect(pawn.length).toBeGreaterThan(40);
   });
 });
+
+describe('中局组合', () => {
+  const combos = puzzles.filter((p) => p.id.startsWith('cb-'));
+  const THEMES = ['连将杀', '杀', '弃子', '抽将', '捉双', '将军抽子', '组合'];
+
+  it('组合题够多，按步数分得开档', () => {
+    expect(combos.length).toBeGreaterThanOrEqual(40);
+    expect(combos.filter((p) => (p.steps ?? 0) >= 4).length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('每道都要连走几步，主变到你拿到便宜那一手为止', () => {
+    for (const p of combos) {
+      expect(p.kind, p.id).toBe('tactic');
+      expect(p.steps!, p.id).toBeGreaterThanOrEqual(2);
+      expect(p.line.length, p.id).toBe(p.steps! * 2 - 1);
+      expect(p.themes!.length, p.id).toBeGreaterThan(0);
+      for (const t of p.themes!) expect(THEMES, p.id).toContain(t);
+    }
+  });
+
+  it('杀棋组合真的走到将死', () => {
+    for (const p of combos.filter((x) => x.goal === 'mate')) {
+      const f = fromFen(p.fen)!;
+      let b = f.board;
+      let c = f.toMove;
+      for (const t of p.line) {
+        b = applyMove(b, textToMove(b, c, t, legalMoves(b, c))!);
+        c = c === 'r' ? 'b' : 'r';
+      }
+      expect(statusAfter(b, c), p.id).not.toBe('playing');
+    }
+  });
+
+  it('步数越多的组合难度分越高（按步数保底）', () => {
+    for (const p of combos) expect(p.rating, p.id).toBeGreaterThanOrEqual(Math.min(2200, 760 + (p.steps! - 1) * 170));
+  });
+});

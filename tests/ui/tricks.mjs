@@ -52,9 +52,10 @@ await page.waitForTimeout(200);
 const say1 = await page.evaluate(() => window.__xqReplay.say());
 console.log('   你走 马三进五：' + say1.slice(0, 60));
 ok('走对了', say1.includes('猜对了'));
-for (let i = 0; i < 6; i++) {
+// 破解谱现在走十几个回合（人写的几手 + 皮卡鱼延伸）：后面照谱一手一手走完
+for (let i = 0; i < 60; i++) {
   if (await page.evaluate(() => window.__xqReplay.waiting())) {
-    await page.evaluate(() => window.__xqReplay.guess('马八进七'));
+    await page.evaluate(() => window.__xqReplay.guess(window.__xqReplay.expected()));
   } else {
     const b = page.locator('#rp-next');
     if (!(await b.count())) break;
@@ -88,11 +89,16 @@ await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
 await page.locator('[data-act="trick-guess"]').click(); await page.waitForTimeout(300);
 const answers = ['炮8进5', '马3退5', '炮2平8'];
 let got = 0;
-for (let i = 0; i < 12 && got < answers.length; i++) {
+let mine = 0;
+for (let i = 0; i < 60; i++) {
   if (await page.evaluate(() => window.__xqReplay.waiting())) {
-    // 最后一手猜完直接进"走完了"的收尾，不再显示"猜对了"——对不对看最后有没有记为"已破"（要每手都对）
-    if (!(await page.evaluate((m) => window.__xqReplay.guess(m), answers[got]))) break;
-    got++;
+    // 前三手是两关的要点，自己写死；后面是皮卡鱼延伸的十来手，照谱走完。
+    // 最后一手猜完直接进"走完了"的收尾——对不对看最后有没有记为"已破"（要每手都对）
+    const m = got < answers.length ? answers[got] : await page.evaluate(() => window.__xqReplay.expected());
+    if (got < answers.length && (await page.evaluate(() => window.__xqReplay.expected())) !== m) break;
+    if (!(await page.evaluate((x) => window.__xqReplay.guess(x), m))) break;
+    if (got < answers.length) got++;
+    mine++;
     await page.waitForTimeout(150);
   } else {
     const b = page.locator('#rp-next');
@@ -101,7 +107,8 @@ for (let i = 0; i < 12 && got < answers.length; i++) {
     await page.waitForTimeout(150);
   }
 }
-ok('两关都自己走对（炮8进5 → 马3退5 → 炮2平8），记为"已破"', got === 3 && (await until(page, () => (localStorage.getItem('xq-tricks-done') ?? '').includes('gansipao-red'), null, 3000)));
+console.log(`   敢死炮破解一共走了 ${mine} 手`);
+ok('两关都自己走对（炮8进5 → 马3退5 → 炮2平8），破解谱走到底（十手以上），记为"已破"', got === 3 && mine >= 10 && (await until(page, () => (localStorage.getItem('xq-tricks-done') ?? '').includes('gansipao-red'), null, 3000)));
 
 // ───────── 2. 对局：对手走邪门布局，教练点破，破解那一手不拦 ─────────
 await page.goto(BASE, { waitUntil: 'networkidle' });

@@ -271,6 +271,9 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
       },
       waiting: () => waiting,
       idx: () => idx,
+      /** 原谱下一手（UI 测试照谱走） */
+      expected: () => opts.moves[idx]?.t ?? null,
+      total: () => opts.moves.length,
       say: () => elSay.textContent,
     };
   }

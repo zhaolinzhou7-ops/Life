@@ -4,9 +4,9 @@
  * 这里锁死的是数据本身的一致性。
  */
 import { describe, expect, it } from 'vitest';
-import { TRICKS, lineToTrap, trickAt, trickMoveFor, trickStageAt, walkMoves } from '../src/xiangqi/tricks';
+import { TRICKS, lineToTrap, refuteLine, trapLine, trickAt, trickMoveFor, trickStageAt, walkMoves } from '../src/xiangqi/tricks';
 import { bookMoves, isBookMove } from '../src/xiangqi/book';
-import { initialBoard, legalMoves } from '../src/xiangqi/rules';
+import { initialBoard, legalMoves, statusAfter } from '../src/xiangqi/rules';
 import { moveToText, textToMove } from '../src/xiangqi/notation';
 
 describe('邪门布局数据', () => {
@@ -157,6 +157,29 @@ describe('破解算定式', () => {
       const w = walkMoves(lineToTrap(t))!;
       const k = t.trapAfter!;
       expect(bookMoves(w.board, w.color).some((b) => b.text === t.refute[k].t && b.opening.includes('破解')), t.id).toBe(true);
+    }
+  });
+});
+
+describe('破解走得够深', () => {
+  // 用户原话："破解往往不是三四步的事，可能需要十几步甚至更深入的思考"
+  it('每一条破解谱从邪门着之后至少走 10 个回合（除非中途已经将死）', () => {
+    for (const t of TRICKS) {
+      const line = refuteLine(t);
+      const w = walkMoves([...t.pre, t.trick.t, ...line.map((s) => s.t)]);
+      expect(w, `${t.id} 破解谱走不通`).not.toBeNull();
+      if (statusAfter(w!.board, w!.color) === 'playing') expect(line.length, t.id).toBeGreaterThanOrEqual(20);
+    }
+  });
+
+  it('上当谱也延伸到对方把便宜兑现，每一手都有说明', () => {
+    for (const t of TRICKS) {
+      const line = trapLine(t);
+      const w = walkMoves([...lineToTrap(t), ...line.map((s) => s.t)]);
+      expect(w, `${t.id} 上当谱走不通`).not.toBeNull();
+      const short = walkMoves([...lineToTrap(t), ...t.trap.map((s) => s.t)])!;
+      if (statusAfter(short.board, short.color) === 'playing') expect(line.length, t.id).toBeGreaterThan(t.trap.length);
+      for (const s of [...refuteLine(t), ...line]) expect(s.why.length, `${t.id} ${s.t}`).toBeGreaterThan(1);
     }
   });
 });
