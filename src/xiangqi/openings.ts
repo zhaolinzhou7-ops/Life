@@ -55,8 +55,8 @@ export interface Opening {
 
 export const OPENINGS: Opening[] = lib as unknown as Opening[];
 
-/** 体系的排列顺序：先最常见的屏风马，再是红方各种起手，最后是后手的其它体系 */
-export const SYSTEM_ORDER = ['屏风马', '过宫炮', '士角炮', '飞相局', '仙人指路', '顺炮', '列炮', '单提马', '反宫马'];
+/** 体系的排列顺序：先中炮对各种应法（屏风马最常见），再是红方不走中炮的各种起手 */
+export const SYSTEM_ORDER = ['屏风马', '三步虎', '左炮封车', '单提马', '反宫马', '顺炮', '列炮', '过宫炮', '士角炮', '飞相局', '仙人指路', '起马局'];
 
 export const openingById = (id: string) => OPENINGS.find((o) => o.id === id);
 

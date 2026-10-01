@@ -32,6 +32,8 @@ export interface ReplayOpts {
   startAt?: number;
   /** 底部提示条 */
   notes?: string[];
+  /** 走完时的局面判断（布局谱：走到这里谁好、好多少） */
+  outro?: string;
   /** 走完时回调：猜着法模式下猜中几手、一共猜了几手 */
   onFinish?: (right: number, tried: number) => void;
   onExit: () => void;
@@ -191,6 +193,7 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
     elSay.className = 'xq-rp-say done';
     elSay.innerHTML =
       `<div class="h">走完了</div>` +
+      (opts.outro ? `<div class="w">${opts.outro}</div>` : '') +
       (opts.guessFor && tried
         ? `<div class="w">你猜中 <b>${right}/${tried}</b> 手。猜不中很正常——真正有用的是<b>看清楚原谱为什么那么走</b>，
            而不是猜中的次数。</div>`

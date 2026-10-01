@@ -74,7 +74,11 @@ function playOut(board: Board, color: Color, maxPlies: number, ms: number) {
   return { fens, moves, texts, mated, loser: c };
 }
 
-const out = fs.createWriteStream(`node_modules/.cache/${TAG}-${SHARD}.jsonl`);
+// 逐条同步追加：引擎调用是同步阻塞的，事件循环转不起来，createWriteStream 的内容要到最后才落盘，
+// 而结尾的 process.exit() 不等它——整轮跑完一个字都没写进去（残局阶梯第一轮就这样丢了一百分钟的结果）
+const OUT_FILE = `node_modules/.cache/${TAG}-${SHARD}.jsonl`;
+fs.writeFileSync(OUT_FILE, '');
+const out = { write: (s: string) => fs.appendFileSync(OUT_FILE, s), end: () => {} };
 const wins = lib.filter((x) => x.target === 'win');
 let done = 0;
 let found = 0;

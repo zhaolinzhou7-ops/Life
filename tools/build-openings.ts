@@ -6,7 +6,8 @@
  *   3. 主线上双方"第二好的一手和最好的一样好"的地方，补成变化（最多两个），也往后延伸；
  *   4. 人写的变化照样核对、延伸。
  *
- *   node tools/run.mjs build-openings [只生成某个 id] [每手毫秒数]
+ *   node tools/run.mjs build-openings [只生成这几套 id，逗号隔开] [每手毫秒数]
+ *   CHECK=1 只核对种子谱
  */
 import fs from 'fs';
 import { startPikafish } from './pikafish-node';
@@ -17,7 +18,9 @@ import { noteMove } from '../src/xiangqi/movenote';
 import { outlookOf } from '../src/xiangqi/plan';
 import { OPENING_SPECS, type OpeningSpec, type SeedMove } from '../src/xiangqi/openingspecs';
 
-const [, , only = '', msArg = '2500'] = process.argv;
+const [, , onlyArg = '', msArg = '2500'] = process.argv;
+/** 只生成这几套（逗号隔开）；其余照搬上一次的结果 */
+const only = new Set(onlyArg.split(',').filter(Boolean));
 const MS = Number(msArg);
 const OUT = 'src/xiangqi/openinglib.json';
 const e = await startPikafish(256);
@@ -133,6 +136,7 @@ const prev = fs.existsSync(OUT) ? (JSON.parse(fs.readFileSync(OUT, 'utf8')) as R
 const result: Record<string, unknown>[] = [];
 const CHECK = process.env.CHECK === '1';
 for (const spec of OPENING_SPECS as OpeningSpec[]) {
+  if (CHECK && only.size && !only.has(spec.id)) continue;
   if (CHECK) {
     // 只核对种子：每一套主线和人写的变化走到种子末尾
     try {
@@ -144,7 +148,7 @@ for (const spec of OPENING_SPECS as OpeningSpec[]) {
     }
     continue;
   }
-  if (only && spec.id !== only) {
+  if (only.size && !only.has(spec.id)) {
     const old = prev.find((x) => x.id === spec.id);
     if (old) result.push(old);
     continue;

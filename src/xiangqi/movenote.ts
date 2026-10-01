@@ -61,7 +61,7 @@ export function noteMove(before: Board, m: Move, mover: Color): string {
         if (m.tx === 4 && m.fx !== 4) parts.push('架中炮，瞄住中路');
         else if (from <= 2 && to === 4) parts.push('炮巡河，控制河沿');
         else if (from < 5 && to >= 5) parts.push(to >= 7 ? '炮沉到对方底线附近' : '炮过河骚扰');
-        else if ((m.tx === 0 || m.tx === 8) && m.fy === m.ty) parts.push('平边炮，让出车路、准备兑车');
+        else if ((m.tx === 0 || m.tx === 8) && m.fy === m.ty) parts.push('平边炮');
         else if (m.fy === m.ty && (m.tx === 3 || m.tx === 5)) parts.push('炮平到士角');
         else if (fwd < 0) parts.push('退炮，调整炮位');
         else if (m.fy === m.ty) parts.push('炮平移，换一条线');
@@ -91,9 +91,9 @@ export function noteMove(before: Board, m: Move, mover: Color): string {
 
   if (intents.includes('check')) parts.push('将军');
   else if (intents.includes('mate-threat')) parts.push('下一步有杀');
-  // 捉子：走完之后对方新出现的被捉的子
+  // 捉子：走完之后对方新出现的被捉的子。只说车马炮兵——"捉士""捉相"多半是顺带的，说出来反而让人摸不着头脑
   const before2 = new Set(hangingPieces(before, opp).map((h) => `${h.x},${h.y}`));
-  const caught = hangingPieces(after, opp).filter((h) => !before2.has(`${h.x},${h.y}`));
+  const caught = hangingPieces(after, opp).filter((h) => !before2.has(`${h.x},${h.y}`) && 'RHCP'.includes(after[h.y][h.x]!.t));
   if (caught.length >= 3) parts.push(`同时捉住${caught.map((h) => nm(after[h.y][h.x]!.t, opp)).join('、')}`);
   else if (caught.length === 2) parts.push(`一手捉住${caught.map((h) => nm(after[h.y][h.x]!.t, opp)).join('和')}`);
   else if (caught.length === 1) parts.push(`捉${nm(after[caught[0].y][caught[0].x]!.t, opp)}`);

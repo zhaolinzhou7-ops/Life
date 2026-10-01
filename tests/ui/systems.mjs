@@ -70,6 +70,7 @@ await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
 await page.locator('[data-act="op-black"]').click(); await page.waitForTimeout(300);
 let mine = 0;
 let offbook = '';
+let judged = '';
 for (let i = 0; i < 30 && mine < 6; i++) {
   if (await page.evaluate(() => window.__xqReplay.waiting())) {
     if (mine === 4) {
@@ -79,7 +80,8 @@ for (let i = 0; i < 30 && mine < 6; i++) {
         if (t === exp) continue;
         if (await page.evaluate((x) => window.__xqReplay.guess(x), t)) { offbook = t; break; }
       }
-      await until(page, () => !/核对/.test(document.querySelector('.xq-rp-say')?.textContent ?? ''), null, 20000);
+      await until(page, () => !/在核对/.test(document.querySelector('.xq-rp-say')?.textContent ?? ''), null, 20000);
+      judged = await page.evaluate(() => window.__xqReplay.say());
     } else {
       await page.evaluate(() => window.__xqReplay.guess(window.__xqReplay.expected()));
     }
@@ -91,7 +93,6 @@ for (let i = 0; i < 30 && mine < 6; i++) {
     await b.click(); await page.waitForTimeout(100);
   }
 }
-const judged = await page.evaluate(() => window.__xqReplay.say());
 console.log(`   谱外走 ${offbook}：${judged.slice(0, 80)}`);
 ok('走了谱外的着法，皮卡鱼核对后给出判断（一样好 / 差多少）', !!offbook && (judged.includes('皮卡鱼核对过') || judged.includes('原谱走的是')));
 await page.screenshot({ path: OUT + '/systems-guess.png' });
@@ -125,10 +126,12 @@ console.log('   组合卡：' + cKeys.join(' '));
 ok('按步数分档（2–3 步、4–5 步）', cKeys.includes('steps-2') && cKeys.includes('steps-4'));
 ok('按主题分卡（至少四个主题）', cKeys.filter((k) => k.startsWith('theme-')).length >= 4);
 await page.screenshot({ path: OUT + '/systems-combos.png' });
-await page.locator('[data-combo="steps-4"]').click(); await page.waitForTimeout(800);
-const head = (await page.locator('.xq-coach-stage').innerText()).replace(/\s+/g, ' ');
-console.log('   组合题：' + head.slice(0, 120));
-ok('进到一道组合题（标着第几题和主题）', /1\/\d+/.test(head));
+if (await page.locator('[data-combo="steps-4"]').count()) {
+  await page.locator('[data-combo="steps-4"]').click(); await page.waitForTimeout(800);
+  const head = (await page.locator('.xq-coach-stage').innerText()).replace(/\s+/g, ' ');
+  console.log('   组合题：' + head.slice(0, 120));
+  ok('进到一道组合题（标着第几题和主题）', /1\/\d+/.test(head));
+}
 
 // ───────── 3. 残局阶梯 ─────────
 await coachHome();
@@ -138,6 +141,11 @@ console.log('   档位：' + JSON.stringify(tiers));
 ok('四档都在：5 / 10 / 15 / 20 步杀', ['5', '10', '15', '20'].every((t) => tiers.some((x) => x[0] === t)));
 ok('第一档开着，后面三档锁着', tiers.find((x) => x[0] === '5')?.[1] === false && tiers.filter((x) => x[0] !== '5').every((x) => x[1] === true));
 await page.screenshot({ path: OUT + '/systems-ladder.png' });
+if (!(await page.locator('[data-tier="10"]').count())) {
+  console.log(errs.length ? `\n✗ ${errs.length} 项不通过：\n  ${errs.join('\n  ')}` : '\n全部通过');
+  await browser.close();
+  process.exit(1);
+}
 await page.locator('[data-tier="10"]').click(); await page.waitForTimeout(300);
 ok('锁着的档点不进去', (await page.locator('[data-tier]').count()) === 4);
 await page.locator('[data-tier="5"]').click(); await page.waitForTimeout(300);

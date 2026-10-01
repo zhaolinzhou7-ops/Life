@@ -115,7 +115,11 @@ function analyse(board: Board, me: Color, pv: string[], mateIn?: number) {
   return { line, steps: Math.ceil(line.length / 2), themes: [...themes] };
 }
 
-const out = fs.createWriteStream(`node_modules/.cache/combo-${SHARD}.jsonl`);
+// 逐条同步追加：引擎调用是同步阻塞的，事件循环转不起来，createWriteStream 的内容要到最后才落盘，
+// 而结尾的 process.exit() 不等它——整轮跑完一个字都没写进去（残局阶梯第一轮就这样丢了一百分钟的结果）
+const OUT_FILE = `node_modules/.cache/combo-${SHARD}.jsonl`;
+fs.writeFileSync(OUT_FILE, '');
+const out = { write: (s: string) => fs.appendFileSync(OUT_FILE, s), end: () => {} };
 let found = 0;
 for (let g = 0; g < GAMES; g++) {
   e.send('ucinewgame');

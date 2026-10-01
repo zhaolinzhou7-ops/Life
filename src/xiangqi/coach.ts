@@ -647,7 +647,22 @@ export function runCoach(
       }</div><div class="desc">${DIM_INFO[d].desc}</div>`;
       el.onclick = () => startPractice(d);
       list.appendChild(el);
+      // 组合放在战术题旁边：单步战术练"看见"，组合练"算到底"
+      if (d === 'tactic') {
+        const cb = document.createElement('div');
+        cb.className = 'card home-card';
+        cb.innerHTML = `<div class="title">🧠 中局组合 · 连走几步</div><div class="desc">连将杀、弃子、抽将、捉双……要连走好几步才拿到便宜，
+          每一步都判，走到子吃到手或者将死才算对。按步数、按主题分开练。</div>`;
+        cb.onclick = () => void showCombos();
+        list.appendChild(cb);
+      }
       if (d === 'opening') {
+        const op = document.createElement('div');
+        op.className = 'card home-card';
+        op.innerHTML = `<div class="title">📖 布局体系</div><div class="desc">屏风马、过宫炮、士角炮、飞相局、单提马……每套按谱走 15 回合上下，
+          每一手讲在干什么、对方走偏了怎么破，再执一方自己走一遍。</div>`;
+        op.onclick = () => showOpenings();
+        list.appendChild(op);
         const tk = document.createElement('div');
         tk.className = 'card home-card';
         tk.innerHTML = `<div class="title">🗡 邪门布局破解</div><div class="desc">炮打中卒、炮打底马、急冲中兵……
@@ -1839,7 +1854,8 @@ export function runCoach(
             checkIn();
           }
         : undefined,
-      notes: [o.breaks, ...o.traps],
+      outro: `<b>${v ? v.final : o.final}</b>（皮卡鱼评估）。${o.breaks}`,
+      notes: o.traps,
       onExit: () => showOpening(o),
     });
   }
