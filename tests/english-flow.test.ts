@@ -1,0 +1,804 @@
+/**
+ * 端到端流程自测
+ *
+ * 前两个文件测的是零件。这个文件测的是**整条链**：
+ *
+ *   建档 → 测评 → 生成今日任务 → 做完活动 → 分析回写 →
+ *   存档 → 第二天重新进来 → 复习到期的词 → 薄弱点变化 → 任务跟着变
+ *
+ * 这条链上任何一环断了，产品就退化成「每天随机出几个词的玩具」。
+ * 单元测试看不出这种断裂——每个零件都是对的，但它们没接上。
+ *
+ * 同时覆盖存档层的真实故障：隐私模式写不进去、存档损坏、跨设置重算、
+ * 一键删除。这些都是用户真的会遇到的。
+ */
+import { beforeEach, describe, expect, it } from 'vitest';
+import { memStore } from './setup-dom';
+import {
+  activeChildId,
+  addChild,
+  eraseEverything,
+  getChildData,
+  listChildren,
+  removeChild,
+  saveChild,
+  setParentPin,
+  getParentPin,
+  type ChildData,
+} from '../src/english/store';
+import { newChild } from '../src/english/engine/profile';
+import { buildAssessment, scoreAssessment } from '../src/english/engine/level';
+import { ensureMission, allDone, nextStep, currentWeaknesses } from '../src/english/plan';
+import {
+  commitActivity,
+  finishSession,
+  startSession,
+  dailyMinutes,
+  minutesToday,
+  noteSafety,
+  storyHistory,
+  studiedToday,
+} from '../src/english/session';
+import { detectWeakness, focusThemes } from '../src/english/engine/weakness';
+import { newMemory } from '../src/english/engine/review';
+import { getWord } from '../src/english/data/vocab';
+import { getStory } from '../src/english/data/stories';
+import { getGame } from '../src/english/data/games';
+import { dayKey } from '../src/english/engine/util';
+import type { ActivityDraft } from '../src/english/session';
+import type { AssessAnswer, MissionStep, Outcome, ResultTag } from '../src/english/types';
+
+const DAY = 86400000;
+
+beforeEach(() => {
+  memStore.clear();
+  memStore.full = false;
+});
+
+/** 建一个做完测评的孩子 */
+function setup(age = 5, answerAll: ResultTag = 'right'): ChildData {
+  const child = newChild('Mimi', age, '🐣');
+  const data = addChild(child);
+  const items = buildAssessment(age, 11);
+  const answers: AssessAnswer[] = items.map((i) => ({
+    itemId: i.id,
+    result: answerAll,
+    hinted: false,
+    ms: 900,
+  }));
+  const out = scoreAssessment(age, items, answers);
+  data.profile = { ...data.profile, english: out.profile, level: out.level, assessedAt: Date.now() };
+  saveChild(data);
+  return data;
+}
+
+/**
+ * 把一个任务步骤按真实界面会产生的作答做完。
+ *
+ * 要尽量贴近界面：单词和复习环节每个词都有一次跟读（界面里的 Repeat），
+ * 对话环节是开口说。早先这里只产生「认词」一种作答，模拟出来的孩子一句话都没说过，
+ * 一周后引擎就（正确地）判定他不愿开口、不再排对话——测出来的是模拟的毛病，不是产品的。
+ */
+function doStep(data: ChildData, step: MissionStep, result: ResultTag, now = Date.now()): ActivityDraft {
+  void data;
+  const one = (id: string, skill: Outcome['skill'], stage: Outcome['stage']): Outcome => ({
+    wordId: id,
+    skill,
+    result,
+    hinted: false,
+    stage,
+    at: now,
+  });
+  const outcomes: Outcome[] = step.wordIds.flatMap((id): Outcome[] => {
+    switch (step.kind) {
+      case 'word':
+      case 'listen':
+        return [one(id, 'vocabulary', 'recognize'), one(id, 'speaking', 'speak')];
+      case 'game':
+        return [one(id, 'listening', 'listen')];
+      case 'story':
+        return [one(id, 'comprehension', 'use')];
+      case 'talk':
+        return [one(id, 'speaking', 'use')];
+      default:
+        return [one(id, 'vocabulary', 'recognize')];
+    }
+  });
+  return {
+    kind: step.kind,
+    refId: step.id,
+    title: step.titleZh,
+    learningOutcome: step.learningOutcome,
+    outcomes,
+    startedAt: now - 60000,
+  };
+}
+
+// ════════════════════ 一次完整的学习 ════════════════════
+
+describe('儿童流程：进入 → 任务 → 学完', () => {
+  it('★ 新用户从零走到完成一次学习，全程不需要任何配置', () => {
+    const data = setup();
+    const today = dayKey();
+
+    // 今日任务
+    const mission = ensureMission(data, today);
+    expect(mission.steps.length).toBeGreaterThan(0);
+    expect(mission.estimateMin).toBeGreaterThan(0);
+    expect(nextStep(mission)).toBeTruthy();
+
+    // 一步一步做完
+    let session = startSession(data.profile.id);
+    for (const step of [...mission.steps]) {
+      session = commitActivity(data, session, doStep(data, step, 'right'), mission);
+    }
+    expect(allDone(mission)).toBe(true);
+
+    const done = finishSession(data, session);
+    expect(done.completed).toBe(true);
+    expect(done.activities.length).toBe(mission.steps.length);
+    expect(data.profile.streak).toBe(1);
+
+    // 学过的词进了记忆
+    expect(data.memories.length).toBeGreaterThan(0);
+    for (const m of data.memories) expect(m.seen).toBeGreaterThan(0);
+  });
+
+  it('★ 每个活动都留下了「学会了什么」，完成页要用它', () => {
+    const data = setup();
+    const mission = ensureMission(data, dayKey());
+    let session = startSession(data.profile.id);
+    for (const step of [...mission.steps]) {
+      session = commitActivity(data, session, doStep(data, step, 'right'), mission);
+    }
+    for (const a of session.activities) {
+      expect(a.learningOutcome.length, a.title).toBeGreaterThan(5);
+    }
+  });
+
+  it('★ 中途退出：已经做完的步骤不用重做', () => {
+    const data = setup();
+    const today = dayKey();
+    const mission = ensureMission(data, today);
+    const first = mission.steps[0];
+
+    let session = startSession(data.profile.id);
+    session = commitActivity(data, session, doStep(data, first, 'right'), mission);
+    saveChild(data);
+
+    // 「关掉页面再进来」
+    const reloaded = getChildData(data.profile.id)!;
+    const again = ensureMission(reloaded, today);
+    expect(again.steps.find((s) => s.id === first.id)?.done).toBe(true);
+    expect(nextStep(again)?.id).not.toBe(first.id);
+  });
+
+  it('答错的词会当场重新排队，同一次学习里就能再遇到', () => {
+    const data = setup();
+    const mission = ensureMission(data, dayKey());
+    const words = mission.steps.find((s) => s.id === 'm-words')!;
+    const session = startSession(data.profile.id);
+    commitActivity(data, session, doStep(data, words, 'wrong'), mission);
+
+    const now = Date.now();
+    for (const id of words.wordIds) {
+      const m = data.memories.find((x) => x.wordId === id)!;
+      expect(m.dueAt, id).toBeLessThanOrEqual(now);
+      expect(m.wrong, id).toBeGreaterThan(0);
+    }
+  });
+
+  it('星星只加不减，答错也不会被扣', () => {
+    const data = setup();
+    const mission = ensureMission(data, dayKey());
+    let session = startSession(data.profile.id);
+    const before = session.stars;
+    session = commitActivity(data, session, doStep(data, mission.steps[0], 'wrong'), mission);
+    expect(session.stars).toBeGreaterThanOrEqual(before);
+  });
+});
+
+// ════════════════════ 跨天：复习闭环 ════════════════════
+
+describe('复习闭环', () => {
+  it('★ 今天学的词，明天会回到任务里复习（§19）', () => {
+    const data = setup();
+    const d1 = '2026-05-01';
+    const t1 = Date.parse(`${d1}T09:00:00`);
+
+    const m1 = ensureMission(data, d1, t1);
+    const words = m1.steps.find((s) => s.id === 'm-words')!;
+    const learned = [...words.wordIds];
+    let session = startSession(data.profile.id, d1);
+    session = commitActivity(data, session, doStep(data, words, 'right', t1), m1);
+    finishSession(data, session);
+
+    // 第二天
+    const d2 = '2026-05-02';
+    const t2 = t1 + DAY;
+    data.mission = undefined;
+    const m2 = ensureMission(data, d2, t2);
+    const review = m2.steps.find((s) => s.id === 'm-review');
+    expect(review, '第二天没有排复习').toBeTruthy();
+    const overlap = review!.wordIds.filter((id) => learned.includes(id));
+    expect(overlap.length, '昨天学的词没有进复习').toBeGreaterThan(0);
+  });
+
+  it('★ 连续答对的词复习间隔会拉长，不再天天出现', () => {
+    const data = setup();
+    let t = Date.parse('2026-05-01T09:00:00');
+    const target = 'w-apple';
+    data.memories = [newMemory(target, t)];
+
+    // 连续四天都答对
+    for (let day = 0; day < 4; day++) {
+      const date = dayKey(new Date(t));
+      const session = startSession(data.profile.id, date);
+      commitActivity(
+        data,
+        session,
+        {
+          kind: 'word',
+          refId: 'x',
+          title: 't',
+          learningOutcome: 'o',
+          startedAt: t,
+          outcomes: [{ wordId: target, skill: 'vocabulary', result: 'right', hinted: false, at: t }],
+        },
+        undefined,
+      );
+      t += DAY;
+    }
+    const m = data.memories.find((x) => x.wordId === target)!;
+    expect(m.mastered).toBe(true);
+    // 掌握之后间隔至少 8 天
+    expect(m.dueAt - (t - DAY)).toBeGreaterThanOrEqual(8 * DAY);
+  });
+
+  it('★ 一直答错的词不会被放过，而且会被薄弱点抓到', () => {
+    const data = setup();
+    const t = Date.parse('2026-05-01T09:00:00');
+    const stubborn = ['w-yellow', 'w-green', 'w-blue'];
+    data.memories = stubborn.map((id) => newMemory(id, t));
+
+    for (let round = 0; round < 4; round++) {
+      const session = startSession(data.profile.id);
+      commitActivity(
+        data,
+        session,
+        {
+          kind: 'word',
+          refId: 'x',
+          title: 't',
+          learningOutcome: 'o',
+          startedAt: t,
+          outcomes: stubborn.map((id) => ({
+            wordId: id,
+            skill: 'vocabulary' as const,
+            result: 'wrong' as const,
+            hinted: false,
+            stage: 'recognize' as const,
+            at: t,
+          })),
+        },
+        undefined,
+      );
+    }
+
+    const ws = currentWeaknesses(data, t);
+    expect(ws.length).toBeGreaterThan(0);
+    const ids = ws.flatMap((w) => w.prescription.focusWordIds);
+    expect(stubborn.some((id) => ids.includes(id)), '顽固错词没有被排进重点').toBe(true);
+    // 颜色主题应该被识别出来
+    expect(ws.some((w) => w.id === 'theme-color')).toBe(true);
+  });
+
+  it('★ 薄弱点会真的改变第二天的任务', () => {
+    const data = setup();
+    const t = Date.parse('2026-05-01T09:00:00');
+
+    // 造一个「不敢开口」的孩子
+    data.profile.english.speaking = 12;
+    data.profile.english.pronunciation = 12;
+    data.profile.english.vocabulary = 62;
+    data.profile.english.participation = {
+      attempts: 40,
+      skips: 16,
+      hintsUsed: 22,
+      voluntarySpeak: 1,
+      promptedSpeak: 2,
+      updatedAt: t,
+    };
+    data.mission = undefined;
+
+    const m = ensureMission(data, '2026-05-02', t + DAY);
+    expect(m.steps.some((s) => s.kind === 'talk'), '不敢开口的孩子不该被排自由对话').toBe(false);
+    expect(m.steps.find((s) => s.kind === 'game')?.gameId).not.toBe('echo');
+    expect(m.reason).toMatch(/跟读|低压力|开口/);
+  });
+});
+
+// ════════════════════ 家长流程 ════════════════════
+
+describe('家长流程', () => {
+  it('★ 家长能看到孩子学了什么、掌握了多少、哪里弱', () => {
+    const data = setup();
+    const today = dayKey();
+    const mission = ensureMission(data, today);
+    let session = startSession(data.profile.id);
+    for (const step of [...mission.steps]) {
+      session = commitActivity(data, session, doStep(data, step, 'right'), mission);
+    }
+    finishSession(data, session);
+
+    // 今日学习时长
+    expect(minutesToday(data, today)).toBeGreaterThan(0);
+    // 一周趋势有七天数据（没学的那天是 0，不是缺失）
+    const week = dailyMinutes(data, 7, today);
+    expect(week.length).toBe(7);
+    expect(week[6].date).toBe(today);
+    expect(week[6].min).toBeGreaterThan(0);
+    expect(week[6].sessions).toBeGreaterThan(0);
+    // 任务的理由要能给家长看
+    expect(mission.reason.length).toBeGreaterThan(8);
+  });
+
+  it('★ 学了不到一分钟也必须算「学过了」，不能被四舍五入抹成没学', () => {
+    const data = setup();
+    const today = dayKey();
+    const mission = ensureMission(data, today);
+    const session = startSession(data.profile.id);
+    // 20 秒就被叫去吃饭了——这是最常见的真实情况
+    const draft = doStep(data, mission.steps[0], 'right');
+    draft.startedAt = Date.now() - 20_000;
+    commitActivity(data, session, draft, mission);
+
+    expect(studiedToday(data, today), '学过了却报告没学').toBe(true);
+    expect(minutesToday(data, today), '不足一分钟被抹成 0').toBeGreaterThanOrEqual(1);
+    const week = dailyMinutes(data, 7, today);
+    expect(week[6].sessions).toBe(1);
+    // 家长端「学习天数」按有没有学过来数，不按分钟
+    expect(week.filter((d) => d.sessions > 0).length).toBe(1);
+  });
+
+  it('★ 改设置之后，今天的任务会按新设置重算，但已完成的步骤保留', () => {
+    const data = setup();
+    const today = dayKey();
+    const m1 = ensureMission(data, today);
+    const firstId = m1.steps[0].id;
+    const session = startSession(data.profile.id);
+    commitActivity(data, session, doStep(data, m1.steps[0], 'right'), m1);
+
+    // 家长把时长从 10 改到 20
+    data.profile.settings = { ...data.profile.settings, dailyMinutes: 20 };
+    const m2 = ensureMission(data, today);
+    expect(m2.estimateMin).toBeGreaterThanOrEqual(m1.estimateMin);
+    expect(m2.steps.find((s) => s.id === firstId)?.done, '已完成的步骤被重置了').toBe(true);
+  });
+
+  it('★ 关掉麦克风后，任务里不会出现任何需要说话的环节', () => {
+    const data = setup();
+    data.profile.settings = { ...data.profile.settings, allowVoice: false };
+    data.mission = undefined;
+    for (const d of ['2026-06-01', '2026-06-02', '2026-06-03']) {
+      const m = ensureMission(data, d, Date.parse(`${d}T09:00:00`));
+      expect(m.steps.some((s) => s.kind === 'talk'), d).toBe(false);
+      const g = m.steps.find((s) => s.kind === 'game');
+      if (g?.gameId) expect(getGame(g.gameId).needsVoice, d).not.toBe(true);
+      data.mission = undefined;
+    }
+  });
+
+  it('家长密码能设也能清', () => {
+    setup();
+    expect(getParentPin()).toBeUndefined();
+    setParentPin('1234');
+    expect(getParentPin()).toBe('1234');
+    setParentPin(undefined);
+    expect(getParentPin()).toBeUndefined();
+  });
+});
+
+// ════════════════════ 存档层 ════════════════════
+
+describe('存档', () => {
+  it('★ 刷新页面之后数据还在', () => {
+    const data = setup();
+    const mission = ensureMission(data, dayKey());
+    const session = startSession(data.profile.id);
+    commitActivity(data, session, doStep(data, mission.steps[0], 'right'), mission);
+
+    const reloaded = getChildData(data.profile.id)!;
+    expect(reloaded.profile.name).toBe('Mimi');
+    expect(reloaded.memories.length).toBeGreaterThan(0);
+    expect(reloaded.sessions.length).toBe(1);
+  });
+
+  it('★ 隐私模式写不进去时，产品照常能跑完一次学习', () => {
+    const data = setup();
+    memStore.full = true;
+    const mission = ensureMission(data, dayKey());
+    let session = startSession(data.profile.id);
+    expect(() => {
+      for (const step of [...mission.steps]) {
+        session = commitActivity(data, session, doStep(data, step, 'right'), mission);
+      }
+      finishSession(data, session);
+    }).not.toThrow();
+    // 内存里的数据是对的，只是没落盘
+    expect(data.memories.length).toBeGreaterThan(0);
+  });
+
+  it('★ 存档损坏时当作新用户，而不是白屏', () => {
+    memStore.setItem('english-save', 'not json at all {{{');
+    expect(listChildren()).toEqual([]);
+    expect(activeChildId()).toBeUndefined();
+    expect(getChildData()).toBeUndefined();
+  });
+
+  it('★ 一键删除是真的删掉，不是清空字段', () => {
+    setup();
+    expect(listChildren().length).toBe(1);
+    eraseEverything();
+    expect(memStore.getItem('english-save')).toBeNull();
+    expect(listChildren()).toEqual([]);
+  });
+
+  it('★ 默认不保存语音转写；打开开关才保存', () => {
+    const data = setup();
+    data.transcripts = [{ at: Date.now(), role: 'child', text: 'I like cats' }];
+    saveChild(data);
+    expect(getChildData(data.profile.id)!.transcripts).toEqual([]);
+
+    data.profile.settings = { ...data.profile.settings, keepTranscripts: true };
+    data.transcripts = [{ at: Date.now(), role: 'child', text: 'I like cats' }];
+    saveChild(data);
+    expect(getChildData(data.profile.id)!.transcripts.length).toBe(1);
+  });
+
+  it('90 天以外的学习记录会被裁掉，不会把存储写满', () => {
+    const data = setup();
+    const old = dayKey(new Date(Date.now() - 200 * DAY));
+    data.sessions.push({
+      id: 'old',
+      childId: data.profile.id,
+      date: old,
+      startedAt: 0,
+      seconds: 600,
+      activities: [],
+      newWords: [],
+      reviewWords: [],
+      stars: 1,
+      completed: true,
+    });
+    saveChild(data);
+    expect(getChildData(data.profile.id)!.sessions.some((s) => s.id === 'old')).toBe(false);
+  });
+
+  it('支持多个孩子，各自独立', () => {
+    const a = addChild(newChild('A', 5, '🐣'));
+    const b = addChild(newChild('B', 9, '🦊'));
+    expect(listChildren().length).toBe(2);
+    expect(activeChildId()).toBe(b.profile.id);
+
+    a.memories = [newMemory('w-apple', Date.now())];
+    saveChild(a);
+    expect(getChildData(a.profile.id)!.memories.length).toBe(1);
+    expect(getChildData(b.profile.id)!.memories.length).toBe(0);
+
+    removeChild(b.profile.id);
+    expect(listChildren().length).toBe(1);
+    expect(activeChildId()).toBe(a.profile.id);
+  });
+});
+
+// ════════════════════ 长期运行 ════════════════════
+
+describe('长期运行', () => {
+  it('★ 连学 30 天不会崩，也不会没内容可学', () => {
+    const data = setup(6);
+    let t = Date.parse('2026-01-05T09:00:00');
+    let totalNew = 0;
+
+    for (let day = 0; day < 30; day++) {
+      const date = dayKey(new Date(t));
+      data.mission = undefined;
+      const mission = ensureMission(data, date, t);
+      expect(mission.steps.length, `第 ${day + 1} 天没有任务`).toBeGreaterThan(0);
+      expect(mission.estimateMin, `第 ${day + 1} 天超时`).toBeLessThanOrEqual(
+        data.profile.settings.dailyMinutes + 2,
+      );
+
+      let session = startSession(data.profile.id, date);
+      for (const step of [...mission.steps]) {
+        // 八成答对，两成答错——模拟一个真实的孩子
+        const result: ResultTag = day % 5 === 0 ? 'wrong' : 'right';
+        session = commitActivity(data, session, doStep(data, step, result, t), mission);
+      }
+      totalNew += session.newWords.length;
+      finishSession(data, session);
+      t += DAY;
+    }
+
+    expect(totalNew).toBeGreaterThan(30);
+    expect(data.memories.length).toBeGreaterThan(20);
+    expect(data.memories.some((m) => m.mastered), '三十天下来一个词都没掌握').toBe(true);
+    // 能力画像没有跑出边界
+    for (const k of ['listening', 'vocabulary', 'speaking', 'retention'] as const) {
+      const v = data.profile.english[k];
+      expect(v, k).toBeGreaterThan(0);
+      expect(v, k).toBeLessThanOrEqual(100);
+    }
+    expect(data.profile.streak).toBe(30);
+    // 存档没有无限膨胀
+    expect(data.sessions.length).toBeLessThanOrEqual(90);
+  });
+
+  it('★ 每一天的任务都指向真实存在的词、故事和游戏', () => {
+    const data = setup(7);
+    let t = Date.parse('2026-02-01T09:00:00');
+    for (let day = 0; day < 14; day++) {
+      const date = dayKey(new Date(t));
+      data.mission = undefined;
+      const m = ensureMission(data, date, t);
+      for (const s of m.steps) {
+        for (const id of s.wordIds) expect(getWord(id), `${date} ${s.id} 引用了不存在的词 ${id}`).toBeTruthy();
+        if (s.storyId) expect(getStory(s.storyId), `${date} 引用了不存在的故事`).toBeTruthy();
+        if (s.gameId) expect(() => getGame(s.gameId!), `${date} 引用了不存在的游戏`).not.toThrow();
+      }
+      let session = startSession(data.profile.id, date);
+      for (const step of [...m.steps]) session = commitActivity(data, session, doStep(data, step, 'right', t), m);
+      finishSession(data, session);
+      t += DAY;
+    }
+  });
+});
+
+// ════════════════════ 数字的诚实性 ════════════════════
+
+describe('「今天学了多少」必须说实话', () => {
+  it('★ 只有单词环节正式教过的才算「新学」', () => {
+    const data = setup();
+    const today = dayKey();
+    const mission = ensureMission(data, today);
+    const wordStep = mission.steps.find((s) => s.id === 'm-words')!;
+    const taught = [...wordStep.wordIds];
+
+    let session = startSession(data.profile.id);
+    for (const step of [...mission.steps]) {
+      session = commitActivity(data, session, doStep(data, step, 'right'), mission);
+    }
+
+    // 新学的正好是单词环节教的那几个，一个不多
+    expect(session.newWords.sort()).toEqual(taught.sort());
+    // 游戏和故事里第一次碰到的词单独一栏，不算进新学
+    for (const id of session.metWords) {
+      expect(taught, `${id} 既算教过又算碰到`).not.toContain(id);
+    }
+    // 这两栏加起来才是「今天一共接触到的新词」
+    const all = new Set([...session.newWords, ...session.metWords]);
+    expect(all.size).toBe(session.newWords.length + session.metWords.length);
+  });
+
+  it('★ 新学 / 见到 / 复习 三栏互斥，同一个词不会同时出现在两栏里', () => {
+    const data = setup();
+    const mission = ensureMission(data, dayKey());
+    let session = startSession(data.profile.id);
+    // 故意把单词环节做两遍：第二遍时这些词已经在记忆库里了
+    for (const step of [...mission.steps, mission.steps[0]]) {
+      session = commitActivity(data, session, doStep(data, step, 'right'), mission);
+    }
+    const buckets = [session.newWords, session.metWords, session.reviewWords];
+    const total = buckets.reduce((a, b) => a + b.length, 0);
+    const union = new Set(buckets.flat());
+    expect(union.size, '有词被重复计入了不同的栏').toBe(total);
+  });
+
+  it('★ 新学数量不该超过任务里写的数量', () => {
+    const data = setup();
+    const mission = ensureMission(data, dayKey());
+    const planned = mission.steps.find((s) => s.id === 'm-words')?.wordIds.length ?? 0;
+    let session = startSession(data.profile.id);
+    for (const step of [...mission.steps]) {
+      session = commitActivity(data, session, doStep(data, step, 'right'), mission);
+    }
+    expect(session.newWords.length).toBeLessThanOrEqual(planned);
+  });
+});
+
+// ════════════════════ 内容续航：「能长期用」要能被测出来 ════════════════════
+//
+// 这组测试把「每天学、学三个月」模拟一遍。第一版上线时只有 84 个词、9 个故事、
+// 每级一条对话，起步阶段的孩子第 14 天就没有新词了，读者和表达阶段的孩子
+// 永远碰不到 tier 3——这些单元测试全看不出来，只有把日子一天天过下去才看得见。
+
+describe('内容续航', () => {
+  function simulate(level: ChildData['profile']['level'], age: number, minutes: number, days: number) {
+    const data = setup(age);
+    data.profile.level = level;
+    data.profile.settings.dailyMinutes = minutes;
+    let t = Date.parse('2026-01-05T09:00:00');
+    let firstDryDay = -1;
+    const stories: string[] = [];
+    const talkStarts = new Set<string>();
+    const talks: string[] = [];
+    let storyRepeatsWithin3 = 0;
+    for (let day = 1; day <= days; day++) {
+      const date = dayKey(new Date(t));
+      data.mission = undefined;
+      const m = ensureMission(data, date, t);
+      if (!m.steps.some((s) => s.id === 'm-words') && firstDryDay < 0) firstDryDay = day;
+      const st = m.steps.find((s) => s.kind === 'story')?.storyId;
+      if (st) {
+        if (stories.slice(-3).includes(st)) storyRepeatsWithin3 += 1;
+        stories.push(st);
+      }
+      const talk = m.steps.find((s) => s.kind === 'talk')?.talkStart;
+      if (talk) {
+        talkStarts.add(talk);
+        talks.push(talk);
+      }
+      let session = startSession(data.profile.id, date);
+      for (const step of [...m.steps]) {
+        const draft = doStep(data, step, 'right', t);
+        draft.storyId = step.storyId;
+        draft.talkStart = step.talkStart;
+        session = commitActivity(data, session, draft, m);
+      }
+      finishSession(data, session);
+      data.profile.level = level; // 钉住等级，只测「内容够不够」
+      t += DAY;
+    }
+    const talkBackToBack = talks.filter((t, i) => i > 0 && talks[i - 1] === t).length;
+    const introCount = talks.filter((t) => t === 't1-hello').length;
+    return {
+      firstDryDay,
+      distinctStories: new Set(stories).size,
+      storyRepeatsWithin3,
+      talkStarts: talkStarts.size,
+      talkBackToBack,
+      introCount,
+      firstTalk: talks[0],
+    };
+  }
+
+  it('★ 起步阶段每天学，三个月都有新词', () => {
+    const r = simulate('starter', 5, 15, 90);
+    expect(r.firstDryDay, `第 ${r.firstDryDay} 天就没有新词了`).toBe(-1);
+  });
+
+  it('★ 其它阶段至少两个月有新词', () => {
+    for (const [lv, age] of [['explorer', 6], ['reader', 8], ['talker', 10]] as const) {
+      const r = simulate(lv, age, 15, 60);
+      expect(r.firstDryDay, `${lv} 第 ${r.firstDryDay} 天就没有新词了`).toBe(-1);
+    }
+  });
+
+  it('★ 三个月里读到足够多不同的故事，而且三天内不重复', () => {
+    for (const [lv, age] of [['starter', 5], ['explorer', 6], ['talker', 10]] as const) {
+      const r = simulate(lv, age, 15, 90);
+      expect(r.distinctStories, `${lv} 只读到 ${r.distinctStories} 个不同故事`).toBeGreaterThanOrEqual(15);
+      expect(r.storyRepeatsWithin3, `${lv} 有 ${r.storyRepeatsWithin3} 次三天内读到同一个故事`).toBe(0);
+    }
+  });
+
+  it('★ 对话每天换话题：连续两天不聊同一条，自我介绍只在第一次', () => {
+    const r = simulate('starter', 5, 20, 40);
+    expect(r.firstTalk, '第一次聊天应该是自我介绍').toBe('t1-hello');
+    expect(r.introCount, '自我介绍重复出现').toBe(1);
+    expect(r.talkBackToBack, '有连续两天聊同一条链').toBe(0);
+    expect(r.talkStarts, `40 天只聊过 ${r.talkStarts} 条不同的链`).toBeGreaterThanOrEqual(5);
+  });
+});
+
+// ════════════════════ 家长端：故事、安全记录、下周重点 ════════════════════
+
+describe('家长端补充信息', () => {
+  it('★ 故事完成情况：读了哪篇、哪天、问答对了几道，重新打开还在', () => {
+    const data = setup();
+    const today = dayKey();
+    const mission = ensureMission(data, today);
+    const story = mission.steps.find((s) => s.kind === 'story')!;
+    expect(story?.storyId).toBeTruthy();
+    let session = startSession(data.profile.id, today);
+
+    const at = Date.now();
+    const built = getStory(story.storyId!)!;
+    session = commitActivity(data, session, {
+      kind: 'story',
+      refId: story.id,
+      title: story.titleZh,
+      learningOutcome: story.learningOutcome,
+      outcomes: [
+        { skill: 'comprehension', result: 'right', hinted: false, stage: 'use', at },
+        { skill: 'comprehension', result: 'wrong', hinted: true, stage: 'use', at },
+        { skill: 'sentence', result: 'close', hinted: false, stage: 'use', at },
+      ],
+      startedAt: at - 90000,
+      storyId: built.id,
+      storyTitle: built.title,
+    }, mission);
+
+    // Coco 现编的故事不在内置库里，标题要靠记录本身带着
+    session = commitActivity(data, session, {
+      kind: 'story',
+      refId: 'extra',
+      title: '故事',
+      learningOutcome: '',
+      outcomes: [{ skill: 'comprehension', result: 'right', hinted: false, stage: 'use', at: at + 5 }],
+      startedAt: at - 60000,
+      storyId: 'st-ai-42',
+      storyTitle: 'The Gateway Tale',
+    });
+
+    const reload = getChildData(data.profile.id)!;
+    const h = storyHistory(reload);
+    expect(h).toHaveLength(2);
+    expect(h[0]).toMatchObject({ title: 'The Gateway Tale', generated: true, questions: 1, right: 1 });
+    expect(h[1]).toMatchObject({
+      storyId: built.id,
+      title: built.title,
+      generated: false,
+      date: today,
+      questions: 3,
+      right: 1,
+      close: 1,
+      skipped: 0,
+    });
+    // 读过的内置故事也进了 readStories，选下一篇时会降权
+    expect(reload.readStories).toContain(built.id);
+  });
+
+  it('非故事活动、老存档里没记 storyId 的故事，都不出现在故事列表里', () => {
+    const data = setup();
+    const mission = ensureMission(data, dayKey());
+    let session = startSession(data.profile.id);
+    session = commitActivity(data, session, doStep(data, mission.steps[0], 'right'), mission);
+    const story = mission.steps.find((s) => s.kind === 'story')!;
+    commitActivity(data, session, doStep(data, story, 'right'), mission); // 模拟老版本：没带 storyId
+    expect(storyHistory(getChildData(data.profile.id)!)).toEqual([]);
+  });
+
+  it('★ 安全记录落盘、只留说明、最多 50 条，删除孩子档案时一起删掉', () => {
+    const data = setup();
+    for (let i = 0; i < 55; i++) noteSafety(data, i % 2 ? 'talk' : 'story', `第 ${i} 条`);
+    const reload = getChildData(data.profile.id)!;
+    expect(reload.safetyLog).toHaveLength(50);
+    expect(reload.safetyLog![49].note).toBe('第 54 条');
+    expect(reload.safetyLog![0].note).toBe('第 5 条');
+    removeChild(data.profile.id);
+    expect(getChildData(data.profile.id)).toBeUndefined();
+  });
+
+  it('★ 下周重点主题：只从正在学、没掌握的主题里挑，被判薄弱的排最前', () => {
+    const now = Date.now();
+    const mem = (id: string, seen: number, wrong: number, mastered = false) => {
+      const m = newMemory(id, now);
+      m.seen = seen;
+      m.wrong = wrong;
+      m.correct = seen - wrong;
+      m.mastered = mastered;
+      return m;
+    };
+    const mems = [
+      // 颜色：错得多
+      mem('w-red', 5, 3),
+      mem('w-blue', 5, 3),
+      // 动物：还有没记牢的，错得少
+      mem('w-cat', 4, 0),
+      mem('w-dog', 4, 1),
+      // 数字：全部掌握了，不该出现在「继续强化」里
+      mem('w-one', 8, 0, true),
+      mem('w-two', 8, 0, true),
+    ];
+    const f = focusThemes(mems, detectWeakness(setup().profile.english, mems, now));
+    expect(f.map((x) => x.theme)).toEqual(['color', 'animal']);
+    expect(f[0].reason).toMatch(/错/);
+    expect(f.map((x) => x.theme)).not.toContain('number');
+
+    // 同一份数据每次给同一个结论
+    expect(focusThemes(mems, [])).toEqual(focusThemes(mems, []));
+    // 什么都没学过：不硬凑
+    expect(focusThemes([], [])).toEqual([]);
+  });
+});

@@ -1,0 +1,290 @@
+/**
+ * 一次学习会话的记录与收尾
+ *
+ * 每个活动结束时把作答结果攒进来，整次学习结束时一次性分析回写。
+ *
+ * 为什么不每答一题就写 localStorage：孩子一次学习会产生几十次作答，
+ * 每次都序列化整个存档，在低端安卓机上会卡出可感知的顿挫。
+ * 但也不能只在最后写——孩子中途退出的情况太常见了。折中是：
+ * **每个活动结束落一次盘**，粒度刚好，最坏情况只丢一个活动。
+ */
+
+import type { ActivityRecord, DailyMission, Outcome, SessionRecord } from './types';
+import type { ChildData, SafetyEvent } from './store';
+import { saveChild } from './store';
+import { analyzeSession, updateStreak } from './engine/analyze';
+import { dayKey, daysBetween, uid } from './engine/util';
+import { getStory } from './data/stories';
+
+export function startSession(childId: string, date = dayKey()): SessionRecord {
+  return {
+    id: uid('s'),
+    childId,
+    date,
+    startedAt: Date.now(),
+    seconds: 0,
+    activities: [],
+    newWords: [],
+    reviewWords: [],
+    metWords: [],
+    stars: 0,
+    completed: false,
+  };
+}
+
+export interface ActivityDraft {
+  kind: ActivityRecord['kind'];
+  refId: string;
+  title: string;
+  learningOutcome: string;
+  outcomes: Outcome[];
+  startedAt: number;
+  /** 故事活动实际读的是哪一个（可能是 AI 现编的，不一定是任务里排的那个） */
+  storyId?: string;
+  storyTitle?: string;
+  /** 对话活动聊的是哪条话题链 */
+  talkStart?: string;
+}
+
+/** 记一条安全事件，家长端「安全提醒」里能看到 */
+export function noteSafety(data: ChildData, where: SafetyEvent['where'], note: string): void {
+  (data.safetyLog ?? (data.safetyLog = [])).push({ at: Date.now(), where, note });
+  saveChild(data);
+}
+
+/** 记一次「聊过这条话题链」。和故事一样按时间排，重聊的挪到末尾 */
+export function noteTalk(data: ChildData, startId: string): void {
+  const list = data.recentTalks ?? (data.recentTalks = []);
+  const i = list.indexOf(startId);
+  if (i >= 0) list.splice(i, 1);
+  list.push(startId);
+}
+
+/**
+ * 记一次「读过这个故事」。
+ *
+ * 列表按阅读顺序排，重读的挪到末尾而不是重复追加——
+ * 选故事时要知道的是「多久以前读的」，不是「读过几次」。
+ */
+export function noteStory(data: ChildData, storyId: string): void {
+  const i = data.readStories.indexOf(storyId);
+  if (i >= 0) data.readStories.splice(i, 1);
+  data.readStories.push(storyId);
+}
+
+/**
+ * 一个活动结束：把结果并进会话，立刻分析回写，然后落盘。
+ *
+ * 分析放在这里而不是最后统一做，是为了让复习调度当场生效——
+ * 孩子在单词环节答错的词，接下来的游戏里就应该再出现一次。
+ */
+export function commitActivity(
+  data: ChildData,
+  session: SessionRecord,
+  draft: ActivityDraft,
+  mission?: DailyMission,
+): SessionRecord {
+  const act: ActivityRecord = {
+    kind: draft.kind,
+    refId: draft.refId,
+    title: draft.title,
+    learningOutcome: draft.learningOutcome,
+    outcomes: draft.outcomes,
+    seconds: Math.max(1, Math.round((Date.now() - draft.startedAt) / 1000)),
+    at: Date.now(),
+  };
+  if (draft.storyId) {
+    act.storyId = draft.storyId;
+    act.storyTitle = draft.storyTitle;
+  }
+
+  const known = new Set(data.memories.map((m) => m.wordId));
+  const touched = [...new Set(draft.outcomes.map((o) => o.wordId).filter((x): x is string => !!x))];
+  const fresh = touched.filter((id) => !known.has(id));
+  const again = touched.filter((id) => known.has(id));
+
+  /*
+   * 「新学」只算单词环节正式教过的。
+   *
+   * 游戏的选项、故事里的角色、对话里带出来的词，孩子确实是第一次碰到，
+   * 但那是输入，不是教学——把它们一起算进去，一次 10 分钟的学习会显示
+   * 「今天新学了 13 个词」，而实际教的只有 3 个。家长拿这个数字去考孩子，
+   * 得到的结论会是「学了等于没学」。
+   */
+  const taught = draft.kind === 'word' ? fresh : [];
+  const met = draft.kind === 'word' ? [] : fresh;
+
+  /*
+   * 三栏必须互斥，而且以**这次学习里第一次出现的身份**为准。
+   *
+   * 不这样的话：单词环节教了 nose，游戏里又练了一次 nose，
+   * 那一刻它已经在记忆库里了，于是又被算进「复习」——
+   * 完成页上同一个词出现在「新学」和「复习」两栏里，孩子和家长都会困惑。
+   * 优先级：新学 > 见到 > 复习。
+   */
+  const claimed = new Set([...session.newWords, ...(session.metWords ?? [])]);
+  const newWords = [...new Set([...session.newWords, ...taught])];
+  const metWords = [...new Set([...(session.metWords ?? []), ...met])].filter(
+    (id) => !newWords.includes(id),
+  );
+  const reviewWords = [...new Set([...session.reviewWords, ...again])].filter(
+    (id) => !claimed.has(id) && !newWords.includes(id) && !metWords.includes(id),
+  );
+
+  const next: SessionRecord = {
+    ...session,
+    activities: [...session.activities, act],
+    seconds: session.seconds + act.seconds,
+    newWords,
+    reviewWords,
+    metWords,
+    stars: session.stars + starsFor(draft.outcomes),
+  };
+
+  // 只分析这一个活动，避免把之前已经写过的结果重复算进去
+  const slice: SessionRecord = { ...next, activities: [act] };
+  const res = analyzeSession(data.profile, data.memories, slice);
+  data.profile = res.profile;
+  data.memories = res.memories;
+
+  if (draft.storyId) noteStory(data, draft.storyId);
+  if (draft.talkStart) noteTalk(data, draft.talkStart);
+
+  if (mission) {
+    const step = mission.steps.find((s) => s.id === draft.refId);
+    if (step) step.done = true;
+    data.mission = mission;
+  }
+
+  const i = data.sessions.findIndex((s) => s.id === next.id);
+  if (i >= 0) data.sessions[i] = next;
+  else data.sessions.push(next);
+
+  saveChild(data);
+  return next;
+}
+
+/**
+ * 给星星。
+ *
+ * 规则刻意简单而且慷慨：答对给一颗，接近也给一颗（鼓励开口比准确更重要），
+ * 答错和跳过不扣。星星是正向反馈，不是成绩单——扣星星会让孩子不敢答。
+ */
+export function starsFor(outcomes: Outcome[]): number {
+  let n = 0;
+  for (const o of outcomes) {
+    if (o.result === 'right' || o.result === 'close') n += 1;
+  }
+  return Math.min(5, Math.round(n / 2));
+}
+
+/**
+ * 整次学习结束。
+ *
+ * 连续天数按 **这次学习自己的日期** 算，不是按「现在几号」。
+ * 差别在跨零点的时候：晚上 11:55 开始学，12:05 结束，那依然是昨天的学习，
+ * 不该把今天的份也记掉——否则孩子今天再学一次，连续天数反而不涨。
+ */
+export function finishSession(data: ChildData, session: SessionRecord): SessionRecord {
+  const done: SessionRecord = { ...session, endedAt: Date.now(), completed: true };
+  const today = session.date || dayKey();
+  const gap = data.profile.lastStudyDate ? daysBetween(data.profile.lastStudyDate, today) : 99;
+  data.profile = updateStreak(data.profile, today, gap);
+  data.profile.stars += done.stars;
+
+  const i = data.sessions.findIndex((s) => s.id === done.id);
+  if (i >= 0) data.sessions[i] = done;
+  else data.sessions.push(done);
+
+  saveChild(data);
+  return done;
+}
+
+/**
+ * 秒 → 分钟。
+ *
+ * **学过就不能显示 0。** 四舍五入会把一次 25 秒的学习算成 0 分钟，
+ * 于是家长端一边把四个活动都打上勾，一边写着「今天还没有开始」，
+ * 同一屏自相矛盾。孩子打开做了两题就被叫走，这种短会话很常见。
+ * 只要真的学了，最少也记 1 分钟。
+ */
+function toMinutes(seconds: number): number {
+  if (seconds <= 0) return 0;
+  return Math.max(1, Math.round(seconds / 60));
+}
+
+/** 今天已经学了多少分钟 */
+export function minutesToday(data: ChildData, date = dayKey()): number {
+  return toMinutes(data.sessions.filter((s) => s.date === date).reduce((a, s) => a + s.seconds, 0));
+}
+
+/** 今天有没有学过（哪怕只学了十几秒） */
+export function studiedToday(data: ChildData, date = dayKey()): boolean {
+  return data.sessions.some((s) => s.date === date && s.activities.length > 0);
+}
+
+export interface StoryRead {
+  date: string;
+  at: number;
+  storyId: string;
+  title: string;
+  /** 是不是 AI 现编的（不在内置故事库里） */
+  generated: boolean;
+  /** 读完后的问答：一共几道、第一次就答对几道、说得接近几道、跳过几道 */
+  questions: number;
+  right: number;
+  close: number;
+  skipped: number;
+}
+
+/**
+ * 读过的故事，最近的在前（§17「故事完成情况」）。
+ *
+ * 故事活动只在孩子读完并答完题时才提交，中途退出不记——
+ * 所以这张表里每一条都是真的读完了的。
+ * 老存档里的故事活动没有记 storyId，那些就不列了，不去猜。
+ */
+export function storyHistory(data: ChildData, limit = 20): StoryRead[] {
+  const out: StoryRead[] = [];
+  for (const s of data.sessions) {
+    for (const a of s.activities) {
+      if (a.kind !== 'story' || !a.storyId) continue;
+      out.push({
+        date: s.date,
+        at: a.at,
+        storyId: a.storyId,
+        title: a.storyTitle || a.title,
+        generated: !getStory(a.storyId),
+        questions: a.outcomes.length,
+        right: a.outcomes.filter((o) => o.result === 'right').length,
+        close: a.outcomes.filter((o) => o.result === 'close').length,
+        skipped: a.outcomes.filter((o) => o.result === 'skip').length,
+      });
+    }
+  }
+  // 会话和活动本来就按时间顺序存，先倒过来；同一毫秒提交的两条也能保持「后读的在前」
+  return out.reverse().sort((a, b) => b.at - a.at).slice(0, limit);
+}
+
+export interface DayStat {
+  date: string;
+  min: number;
+  /** 这一天有几次学习。判断「学没学」用它，不要用 min——min 会被舍入抹平 */
+  sessions: number;
+}
+
+/** 最近 n 天每天的学习量，用于家长端趋势图 */
+export function dailyMinutes(data: ChildData, days: number, today = dayKey()): DayStat[] {
+  const out: DayStat[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.parse(`${today}T00:00:00`) - i * 86400000);
+    const key = dayKey(d);
+    const of = data.sessions.filter((s) => s.date === key && s.activities.length > 0);
+    out.push({
+      date: key,
+      min: toMinutes(of.reduce((a, s) => a + s.seconds, 0)),
+      sessions: of.length,
+    });
+  }
+  return out;
+}
