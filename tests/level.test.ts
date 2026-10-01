@@ -153,7 +153,7 @@ describe('老存档补算实战分', async () => {
   });
 });
 
-describe('每日训练轮换：布局体系、中局组合、残局阶梯都排得进来', () => {
+describe('每日训练轮换：布局体系、中局组合、绝地反杀都排得进来', () => {
   const plan = async (stageId: number, day: number) => {
     const { dailyPlan } = await import('../src/xiangqi/curriculum');
     const dims = ['safety', 'mate', 'tactic', 'endgame', 'opening'] as const;

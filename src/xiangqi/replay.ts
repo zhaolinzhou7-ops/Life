@@ -30,7 +30,7 @@ export interface ReplayOpts {
   guessFor?: Color;
   /** 前这么多手直接摆好，从这之后才开始讲/猜（练破解时，套路那几手不用你猜） */
   startAt?: number;
-  /** 从这个局面开始（不给就是开局）：残局阶梯的示范解法 */
+  /** 从这个局面开始（不给就是开局）：残局的示范解法 */
   fen?: string;
   /** 黑方在下面（不给就看猜着法时执哪方） */
   flip?: boolean;

@@ -53,6 +53,10 @@ export interface Puzzle {
   themes?: string[];
   /** 中局组合要连走几步才把便宜拿到手 */
   steps?: number;
+  /** 绝地反杀：对方下一步就能杀你的着法（界面上可以点开看） */
+  threat?: string[];
+  /** 自定义的提问（不按题型套） */
+  prompt?: string;
 }
 
 /** 中局组合：从对局里找出来的多步组合（带主题标签的战术题） */
@@ -100,6 +104,7 @@ function standing(ev: number | undefined): string {
  * 局面领先落后也一并说出来：落后时找的是防守，不是赢子。
  */
 export function promptOf(p: Puzzle): string {
+  if (p.prompt) return p.prompt;
   if (p.id.startsWith('own-')) return '实战里你在这里走错过——找出正确的一手';
   if (p.kind === 'mate' || p.goal === 'mate') return '找出杀棋';
   const st = standing(p.ev);

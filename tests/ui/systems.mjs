@@ -1,5 +1,5 @@
 /**
- * 布局体系、中局组合、残局阶梯：学棋里找得到、点得进去、走得通。
+ * 布局体系、中局组合、绝地反杀：学棋里找得到、点得进去、走得通。
  *   布局：按体系分组，点名的体系都在；主线走得够深，讲解每一手都有说明；
  *         执一方自己走，走了谱外的着法交给皮卡鱼判；变化从主线分出去。
  *   组合：按步数、按主题分卡；做一道要连走几步。
@@ -146,61 +146,64 @@ if (await page.locator('[data-combo="steps-4"]').count()) {
   ok('进到一道组合题（标着第几题和主题）', /1\/\d+/.test(head));
 }
 
-// ───────── 3. 残局阶梯 ─────────
+// ───────── 3. 绝地反杀 ─────────
+// 用户原话："我是红棋，对方是黑棋且下一步就能绝杀我，而我必须通过连续将军或者连环杀法，最后绝地反杀。"
 await coachHome();
-await page.getByText('🧗 残局阶梯').first().click(); await page.waitForTimeout(400);
-const tiers = await page.locator('[data-tier]').evaluateAll((els) => els.map((e) => [e.dataset.tier, e.className.includes('locked')]));
-console.log('   档位：' + JSON.stringify(tiers));
-ok('四档都在：5 / 10 / 15 / 20 步杀', ['5', '10', '15', '20'].every((t) => tiers.some((x) => x[0] === t)));
-ok('第一档开着，后面三档锁着', tiers.find((x) => x[0] === '5')?.[1] === false && tiers.filter((x) => x[0] !== '5').every((x) => x[1] === true));
-await page.screenshot({ path: OUT + '/systems-ladder.png' });
-if (!(await page.locator('[data-tier="10"]').count())) {
-  console.log(errs.length ? `\n✗ ${errs.length} 项不通过：\n  ${errs.join('\n  ')}` : '\n全部通过');
-  await browser.close();
-  process.exit(1);
+await page.evaluate(() => localStorage.removeItem('xq-counterkill'));
+await page.getByText('🔥 绝地反杀').first().click(); await page.waitForTimeout(500);
+const chs = await page.locator('[data-ck-chapter]').evaluateAll((els) => els.map((e) => [e.dataset.ckChapter, e.className.includes('locked')]));
+console.log('   章：' + JSON.stringify(chs));
+ok('五章都在', chs.length === 5);
+ok('第一章开着，后面四章锁着', chs[0][1] === false && chs.slice(1).every((x) => x[1] === true));
+await page.screenshot({ path: OUT + '/systems-ck.png' });
+await page.locator('[data-ck-chapter="2"]').click(); await page.waitForTimeout(300);
+ok('锁着的章点不进去', (await page.locator('[data-ck-chapter]').count()) === 5);
+await page.locator('[data-ck-chapter="1"]').click(); await page.waitForTimeout(300);
+const nLevels = await page.locator('[data-ck]').count();
+ok(`第一章有 ${nLevels} 关`, nLevels >= 5);
+ok('最后一关是关底', ((await page.locator('[data-ck]').last().getAttribute('class')) ?? '').includes('boss'));
+await page.screenshot({ path: OUT + '/systems-ck-grid.png' });
+await page.locator('[data-ck]').first().click(); await page.waitForTimeout(800);
+const ckHead = (await page.locator('.xq-tr').innerText()).replace(/\s+/g, ' ');
+console.log('   第一关：' + ckHead.slice(0, 120));
+ok('题面说清楚：对方下一步就杀你，红先连将杀', ckHead.includes('对方下一步就能杀你') && /红先 \d 步连?将?杀/.test(ckHead));
+await page.locator('.xq-tr-threat-btn').click(); await page.waitForTimeout(200);
+const thr = await page.locator('.xq-tr-threat-btn').innerText();
+console.log('   ' + thr);
+ok('点开能看到黑方的杀着', thr.includes('他的杀着'));
+await page.screenshot({ path: OUT + '/systems-ck-threat.png' });
+// 照解法一步步走到将死
+for (let i = 0; i < 30; i++) {
+  const st = await page.evaluate(() => window.__xqTrain.state());
+  if (st.answered) break;
+  if (!st.busy) await page.evaluate(() => window.__xqTrain.playRight());
+  await page.waitForTimeout(500);
 }
-await page.locator('[data-tier="10"]').click(); await page.waitForTimeout(300);
-ok('锁着的档点不进去', (await page.locator('[data-tier]').count()) === 4);
-await page.locator('[data-tier="5"]').click(); await page.waitForTimeout(300);
-const cats = await page.locator('.xq-sec').allInnerTexts();
-console.log('   5 步档分组：' + cats.join(' / '));
-ok('同一档按子力体系分组', cats.length >= 2);
-await page.locator('[data-ml]').first().click(); await page.waitForTimeout(800);
-const pl = (await page.locator('.xq-coach-stage').innerText()).replace(/\s+/g, ' ');
-console.log('   阶梯题：' + pl.slice(0, 140));
-ok('和皮卡鱼下到将死：标着最快几步、走了几步', pl.includes('步') && /最快 \d+ 步/.test(pl));
+const ckEnd = (await page.locator('.xq-tr-fb').innerText()).replace(/\s+/g, ' ');
+console.log('   结果：' + ckEnd.slice(0, 60));
+ok('连将杀死了', ckEnd.includes('将死'));
+await page.locator('#xq-tr-next').click(); await page.waitForTimeout(400);
+const firstStars = await page.locator('[data-ck]').first().innerText();
+ok('第一次不看提示做对：三颗星', firstStars.includes('★★★'));
 
-// 下完（这里直接认输）可以看示范解法：从题目局面开始，一手一手讲到将死
-page.once('dialog', (d) => d.accept());
-await page.locator('[data-act="resign"]').click(); await page.waitForTimeout(600);
-const demoBtn = page.locator('#xq-po-extra');
-ok('下完之后有"看示范解法"', (await demoBtn.count()) === 1 && (await demoBtn.innerText()).includes('示范'));
-await demoBtn.click(); await page.waitForTimeout(400);
-let demoSteps = 0;
-let demoSilent = 0;
-for (let i = 0; i < 60; i++) {
-  const b = page.locator('#rp-next');
-  if (!(await b.count())) break;
-  await b.click(); await page.waitForTimeout(50);
-  demoSteps++;
-  if ((await page.locator('.xq-rp-say').innerText()).trim().length < 4) demoSilent++;
-}
-const demoEnd = (await page.locator('.xq-rp-say').innerText()).replace(/\s+/g, ' ');
-console.log(`   示范解法：${demoSteps} 手，收尾：${demoEnd.slice(0, 60)}`);
-ok('示范解法从题目局面走到将死，每一手都有说明', demoSteps >= 7 && demoSilent === 0 && demoEnd.includes('杀死'));
-await page.screenshot({ path: OUT + '/systems-demo.png' });
+// 走闲着会被黑方杀：第二关故意走一手错的
+await page.locator('[data-ck]').nth(1).click(); await page.waitForTimeout(800);
+await page.evaluate(() => window.__xqTrain.playWrong());
+await until(page, () => (document.querySelector('.xq-tr-fb')?.textContent ?? '').length > 6 && !window.__xqTrain.state().busy, null, 20000);
+const wrong = (await page.locator('.xq-tr-fb').innerText()).replace(/\s+/g, ' ');
+console.log('   走错：' + wrong.slice(0, 80));
+ok('走错判错', wrong.includes('❌') || wrong.includes('不对'));
 
 // 解锁只认真题号：乱写的星不算
 await coachHome();
 await page.evaluate(() => {
   const s = {};
-  // 直接写星：这里测的是解锁逻辑，不是下棋
-  for (let i = 0; i < 40; i++) s['ml-x' + i] = 3;
-  localStorage.setItem('xq-mate-ladder', JSON.stringify(s));
+  for (let i = 0; i < 40; i++) s['ck-x' + i] = 3;
+  localStorage.setItem('xq-counterkill', JSON.stringify(s));
 });
-await page.getByText('🧗 残局阶梯').first().click(); await page.waitForTimeout(400);
-const t10 = await page.locator('[data-tier="10"]').getAttribute('class');
-ok('乱写的题号不算数：10 步档还是锁着', (t10 ?? '').includes('locked'));
+await page.getByText('🔥 绝地反杀').first().click(); await page.waitForTimeout(400);
+const ch2 = await page.locator('[data-ck-chapter="2"]').getAttribute('class');
+ok('乱写的关卡号不算数：第二章还是锁着', (ch2 ?? '').includes('locked'));
 
 console.log(errs.length ? `\n✗ ${errs.length} 项不通过：\n  ${errs.join('\n  ')}` : '\n全部通过');
 await browser.close();

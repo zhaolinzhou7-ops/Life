@@ -58,13 +58,13 @@ export interface PlayoutOpts {
   winAt?: number;
   /** 顶上那一行目标的说法（不给就按 target 说） */
   goal?: string;
-  /** 残局阶梯：最快几步杀（计数显示成"已走 k 步 / 最快 N 步杀"） */
+  /** 最快几步杀（计数显示成"已走 k 步 / 最快 N 步杀"） */
   par?: number;
   onDone: (r: PlayResult, moves: number, stats: PlayStats) => void;
   onExit: () => void;
   /** 重新开始同一个局面 */
   onRestart?: () => void;
-  /** 结束之后多一个按钮（残局阶梯：看示范解法） */
+  /** 结束之后多一个按钮（比如看示范解法） */
   extra?: { label: string; run: () => void };
 }
 

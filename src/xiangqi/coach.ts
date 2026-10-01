@@ -65,8 +65,7 @@ import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
 import { runReplay } from './replay';
-import { applyMove, legalMoves, type Color, type Move } from './rules';
-import { noteMove } from './movenote';
+import type { Color, Move } from './rules';
 import { OPENINGS, SYSTEM_ORDER, moveNote, type Opening } from './openings';
 import { judgeAgainst } from './altjudge';
 import { TRICKS, refuteLine, trapLine, walkMoves, type TrickOpening } from './tricks';
@@ -74,35 +73,40 @@ import { outlookOf } from './plan';
 import { roleOf } from './endgame';
 import { inPieces } from './teach';
 import { Board2D } from './board2d';
-import { fromFen, textToMove, toFen } from './notation';
+import { fromFen, toFen } from './notation';
 import { STAGES, stageFor, gameGate, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block } from './curriculum';
 
-/** 残局阶梯的一题（tools/gen-mate-ladder.ts 生成，merge-mate-ladder 并成 mateladder.json） */
-interface LadderItem {
+/** 绝地反杀的一关（tools/gen-counterkill.ts 生成，merge-counterkill 并成 counterkill.json） */
+interface CounterKill {
   id: string;
-  name: string;
-  category: string;
-  material: string;
   fen: string;
-  you: Color;
   mateIn: number;
-  solved: number;
+  /** 示范解法：红方每一步（几乎都是将军）+ 黑方最顽强的应法，最后一手将死 */
   line: string[];
-  tier: number;
+  /** 红方每一步都将军 */
+  allChecks: boolean;
+  /** 中间不将军的步数（0～2） */
+  quiet: number;
+  /** 轮到黑走的话，他一步就杀红的着法 */
+  threat: string[];
+  red: string;
+  black: string;
+  chapter: number;
+  rating: number;
 }
-/** 题库一百多 KB，只有进残局阶梯才用得到：按需加载，不拖慢首页 */
-let MATE_LADDER: LadderItem[] = [];
-let ladderLoading: Promise<void> | null = null;
-function loadLadder(): Promise<void> {
-  ladderLoading ??= import('./mateladder.json')
+/** 题库只有进绝地反杀才用得到：按需加载，不拖慢首页 */
+let COUNTERKILL: CounterKill[] = [];
+let ckLoading: Promise<void> | null = null;
+function loadCounterKill(): Promise<void> {
+  ckLoading ??= import('./counterkill.json')
     .then((m) => {
-      MATE_LADDER = (m.default ?? m) as unknown as LadderItem[];
+      COUNTERKILL = (m.default ?? m) as unknown as CounterKill[];
     })
     .catch(() => {
-      // 加载失败不能把学棋拖垮：阶梯页显示为空，下次再试
-      ladderLoading = null;
+      // 加载失败不能把学棋拖垮：页面显示为空，下次再试
+      ckLoading = null;
     });
-  return ladderLoading;
+  return ckLoading;
 }
 
 const DIM_KIND: Record<Dim, PuzzleKind> = {
@@ -308,9 +312,9 @@ export function runCoach(
         go: () => void showCombos(),
       },
       {
-        t: `🧗 残局阶梯${Object.keys(mlStars()).length ? `（已过 ${Object.keys(mlStars()).length}）` : ''}`,
-        d: '5 步杀 → 10 步杀 → 15 步杀 → 20 步杀，按子力体系分组，和皮卡鱼下到将死。从终点往回学：先练最后几步怎么收，再一档档往前推。',
-        go: () => void showMateLadder(),
+        t: `🔥 绝地反杀${Object.keys(ckStars()).length ? `（已过 ${Object.keys(ckStars()).length} 关）` : ''}`,
+        d: '黑方下一步就能杀你——只有连续将军，抢在他前面把他杀死。五章闯关，从两步杀到六七步的连杀，每一关都是皮卡鱼核对过"只有这一路能活"。',
+        go: () => void showCounterKill(),
       },
       {
         t: `🗡 邪门布局破解${tricksDone().size ? `（已练 ${tricksDone().size}/${TRICKS.length}）` : ''}`,
@@ -692,12 +696,12 @@ export function runCoach(
           教练一直陪着算，每一手告诉你还赢不赢、还守不守得住，卡住了给你计划。</div>`;
         eg.onclick = () => void showEndgameList();
         list.appendChild(eg);
-        const ml = document.createElement('div');
-        ml.className = 'card home-card';
-        ml.innerHTML = `<div class="title">🧗 残局阶梯 · 5 / 10 / 15 / 20 步杀</div><div class="desc">同一个残局从终点往回切：先练最后 5 步怎么收，
-          再往前推到 10 步、15 步、20 步。和皮卡鱼下到将死，按用了几步给星。</div>`;
-        ml.onclick = () => void showMateLadder();
-        list.appendChild(ml);
+        const ck = document.createElement('div');
+        ck.className = 'card home-card';
+        ck.innerHTML = `<div class="title">🔥 绝地反杀 · 连将反杀</div><div class="desc">黑方下一步就能杀你，你子力还不如他：
+          只有连续将军（或者一气呵成的连杀）抢在他前面杀死他。走一步闲着，他马上杀你。</div>`;
+        ck.onclick = () => void showCounterKill();
+        list.appendChild(ck);
       }
     }
     scr.appendChild(list);
@@ -1494,11 +1498,11 @@ export function runCoach(
       return;
     }
     if (b.kind === 'ladder') {
-      void loadLadder().then(() => {
+      void loadCounterKill().then(() => {
         if (!wrap.isConnected) return;
-        const it = nextLadderItem();
+        const it = nextCounterKill();
         if (!it) return goNext();
-        runMateLadder(it, goNext);
+        runCounterKill(it, goNext);
       });
       return;
     }
@@ -1977,70 +1981,81 @@ export function runCoach(
     step();
   }
 
-  // ---------------- 残局阶梯：5 / 10 / 15 / 20 步杀 ----------------
-  const ML_KEY = 'xq-mate-ladder';
-  const ML_TIERS = [5, 10, 15, 20];
-  /** 每一档的参考难度分（第一次做、没用提示悔棋、两星以上算做对） */
-  const ML_RATING: Record<number, number> = { 5: 1000, 10: 1250, 15: 1450, 20: 1650 };
-  const ML_CATS = ['兵类', '马类', '炮类', '车类', '组合'];
-  function mlStars(): Record<string, number> {
+  // ---------------- 绝地反杀：黑方下一步就杀你，只有连将反杀 ----------------
+  /**
+   * 用户原话："不要出那些优势非常明显、纯粹去算最优步数的必胜局……要那种形势很危急的：
+   * 我是红棋，对方是黑棋且下一步就能绝杀我，而我必须通过连续将军或者连环杀法，最后绝地反杀。"
+   *
+   * 闯关的结构照着天天象棋的残局闯关：分章、每章若干关、最后一关是关底，过一半才开下一章；
+   * 星级：第一次不看提示做对 ★★★，重做做对 ★★，用了提示做对 ★。
+   */
+  const CK_KEY = 'xq-counterkill';
+  const CK_CHAPTERS = [
+    { n: 1, name: '背水一战', desc: '两步杀：将一军、再将死。先练出一个反应——看到他要杀我，第一眼先找将军。' },
+    { n: 2, name: '绝处逢生', desc: '三步杀：每一步都要将军，让他只能应将，一步也腾不出手来杀你。' },
+    { n: 3, name: '反戈一击', desc: '四步杀：车马炮轮着上，一个子将完下一个子接着将，将的节奏不能断。' },
+    { n: 4, name: '力挽狂澜', desc: '五步杀：常常要先弃一个子——送掉一个车马，把他的士象引开，后面的将军才连得起来。' },
+    { n: 5, name: '起死回生', desc: '六步以上：中间可能有一步不将军的"闲着"，但那一步之后就是杀，他来不及杀你。' },
+  ];
+  function ckStars(): Record<string, number> {
     try {
-      return JSON.parse(localStorage.getItem(ML_KEY) ?? '{}') as Record<string, number>;
+      return JSON.parse(localStorage.getItem(CK_KEY) ?? '{}') as Record<string, number>;
     } catch {
       return {};
     }
   }
-  function setMlStars(id: string, n: number) {
-    const s = mlStars();
+  function setCkStars(id: string, n: number) {
+    const s = ckStars();
     if ((s[id] ?? 0) >= n) return;
     s[id] = n;
     try {
-      localStorage.setItem(ML_KEY, JSON.stringify(s));
+      localStorage.setItem(CK_KEY, JSON.stringify(s));
     } catch {
       /* 存不下就算了 */
     }
   }
-  const mlTier = (t: number) => MATE_LADDER.filter((x) => x.tier === t);
-  /** 上一档过了一半（最多要求 5 道）才解锁下一档：阶梯要一级一级上 */
-  function mlUnlocked(k: number): boolean {
-    if (k === 0) return true;
-    const prev = mlTier(ML_TIERS[k - 1]);
-    const st = mlStars();
-    return prev.filter((x) => (st[x.id] ?? 0) > 0).length >= Math.min(5, Math.ceil(prev.length / 2));
+  const ckChapter = (n: number) => COUNTERKILL.filter((x) => x.chapter === n);
+  /** 上一章过一半（最多要求 6 关）才开下一章：闯关要一关一关闯 */
+  function ckUnlocked(n: number): boolean {
+    if (n <= 1) return true;
+    const prev = ckChapter(n - 1);
+    const st = ckStars();
+    return prev.filter((x) => (st[x.id] ?? 0) > 0).length >= Math.min(6, Math.ceil(prev.length / 2));
   }
+  const ckName = (n: number) => CK_CHAPTERS.find((c) => c.n === n)?.name ?? `第 ${n} 章`;
 
-  async function showMateLadder() {
+  async function showCounterKill() {
     clear();
-    await loadLadder();
+    await loadCounterKill();
     if (!wrap.isConnected) return;
-    const st = mlStars();
+    const st = ckStars();
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-home';
-    scr.innerHTML = `<h1>🧗 残局阶梯</h1>
-      <div class="sub">5 步杀 → 10 步杀 → 15 步杀 → 20 步杀，一档一档往上走</div>
-      <div class="xq-advice"><b>为什么这样排</b>
-        <p>每一题都是皮卡鱼两边下到将死、再从终点往回切出来的：同一个残局，最后 5 步怎么收在第一档，
-        再往前推 5 步在第二档……<b>从终点往回学</b>，前面的每一步你都知道是为了走到哪个杀法。</p>
-        <p>每题都和皮卡鱼下到将死（它会用最顽强的守法）。用最快步数杀死 ★★★，多走几步 ★★，杀死了但绕得远 ★。
-        靠提示、悔棋杀死的只给一颗星。上一档过一半，下一档才解锁。</p>
+    scr.innerHTML = `<h1>🔥 绝地反杀</h1>
+      <div class="sub">黑方下一步就能杀你，你的子还不如他多——只有连续将军，抢在他前面杀死他</div>
+      <div class="xq-advice"><b>怎么闯</b>
+        <p>每一关都是<b>红先</b>，黑方已经有一步杀棋等着你。你的每一步都得将军（个别关中间有一步不将军，但下一步就杀，他来不及），
+        <b>走一步闲着，他马上杀你</b>。走错了会演给你看他怎么杀。</p>
+        <p>每一关都让皮卡鱼核对过：红方只有这一路能活，第二好的走法就是被杀。第一次不用提示做对 ★★★，重做做对 ★★，用了提示 ★。
+        上一章过一半，下一章才开。</p>
       </div>`;
     const list = document.createElement('div');
     list.className = 'card-list';
-    ML_TIERS.forEach((t, k) => {
-      const items = mlTier(t);
-      if (!items.length) return;
+    for (const c of CK_CHAPTERS) {
+      const items = ckChapter(c.n);
+      if (!items.length) continue;
       const done = items.filter((x) => (st[x.id] ?? 0) > 0).length;
       const stars = items.reduce((a, x) => a + (st[x.id] ?? 0), 0);
-      const open = mlUnlocked(k);
+      const open = ckUnlocked(c.n);
       const el = document.createElement('div');
       el.className = `card home-card${open ? '' : ' locked'}`;
-      el.dataset.tier = String(t);
-      el.innerHTML = `<div class="title">${t} 步杀<span class="tag">${items.length} 题</span>${
-        open ? (done ? `<span class="tag warn">已过 ${done} · ${stars}★</span>` : '') : '<span class="tag">🔒 上一档过一半解锁</span>'
-      }</div><div class="desc">${[...new Set(items.map((x) => x.category))].join('、')}</div>`;
-      if (open) el.onclick = () => showMateTier(t);
+      el.dataset.ckChapter = String(c.n);
+      el.innerHTML = `<div class="title">第${'一二三四五'[c.n - 1]}章 · ${c.name}<span class="tag">${items.length} 关</span>${
+        open ? (done ? `<span class="tag warn">已过 ${done} · ${stars}★</span>` : '') : '<span class="tag">🔒 上一章过一半解锁</span>'
+      }</div><div class="desc">${c.desc}</div>`;
+      if (open) el.onclick = () => showCkChapter(c.n);
       list.appendChild(el);
-    });
+    }
     scr.appendChild(list);
     const back = document.createElement('button');
     back.className = 'btn ghost';
@@ -2050,117 +2065,81 @@ export function runCoach(
     wrap.appendChild(scr);
   }
 
-  function showMateTier(t: number) {
+  /** 一章的关卡格子：1、2、3……最后一关是关底 */
+  function showCkChapter(n: number) {
     clear();
-    const st = mlStars();
-    const items = mlTier(t);
+    const st = ckStars();
+    const items = ckChapter(n);
+    const c = CK_CHAPTERS.find((x) => x.n === n)!;
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-home';
-    scr.innerHTML = `<h1>${t} 步杀</h1><div class="sub">按子力体系分组：同一类残局的杀法思路是相通的</div>`;
-    const list = document.createElement('div');
-    list.className = 'card-list';
-    for (const cat of [...ML_CATS, ...new Set(items.map((x) => x.category))]) {
-      const group = items.filter((x) => x.category === cat);
-      if (!group.length || list.querySelector(`[data-cat="${cat}"]`)) continue;
-      const h = document.createElement('div');
-      h.className = 'xq-sec';
-      h.dataset.cat = cat;
-      h.textContent = cat;
-      list.appendChild(h);
-      for (const it of group) {
-        const el = document.createElement('div');
-        el.className = 'card home-card';
-        el.dataset.ml = it.id;
-        const n = st[it.id] ?? 0;
-        el.innerHTML = `<div class="title">${it.material}<span class="tag">最快 ${it.mateIn} 步</span>${
-          n ? `<span class="tag warn">${'★'.repeat(n)}</span>` : ''
-        }</div><div class="desc">你执${it.you === 'r' ? '红' : '黑'}，皮卡鱼守</div>`;
-        el.onclick = () => runMateLadder(it);
-        list.appendChild(el);
-      }
-    }
-    scr.appendChild(list);
+    scr.innerHTML = `<h1>第${'一二三四五'[n - 1]}章 · ${c.name}</h1><div class="sub">${c.desc}</div>`;
+    const grid = document.createElement('div');
+    grid.className = 'xq-ck-grid';
+    items.forEach((it, k) => {
+      const b = document.createElement('button');
+      const boss = k === items.length - 1;
+      const sn = st[it.id] ?? 0;
+      b.className = `xq-ck-level${sn ? ' done' : ''}${boss ? ' boss' : ''}`;
+      b.dataset.ck = it.id;
+      b.innerHTML = `<b>${boss ? '👑' : k + 1}</b><i>${sn ? '★'.repeat(sn) + '☆'.repeat(3 - sn) : `${it.mateIn} 步`}</i>`;
+      b.title = `红 ${it.red} vs 黑 ${it.black} · ${it.mateIn} 步${it.allChecks ? '连将杀' : '连杀'}`;
+      b.onclick = () => runCounterKill(it);
+      grid.appendChild(b);
+    });
+    scr.appendChild(grid);
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = () => void showMateLadder();
+    back.onclick = () => void showCounterKill();
     scr.appendChild(back);
     wrap.appendChild(scr);
   }
 
-  /** 每日训练里的"往上爬一题"：已解锁的最高一档里还没杀过的第一题；都杀过了就挑星最少的 */
-  function nextLadderItem(): LadderItem | null {
-    const st = mlStars();
-    for (let k = ML_TIERS.length - 1; k >= 0; k--) {
-      if (!mlUnlocked(k)) continue;
-      const todo = mlTier(ML_TIERS[k]).filter((x) => !st[x.id]);
-      if (todo.length) return todo[0];
+  /** 每日训练里的"闯一关"：已开的章里，按顺序第一道还没过的 */
+  function nextCounterKill(): CounterKill | null {
+    const st = ckStars();
+    for (const c of CK_CHAPTERS) {
+      if (!ckUnlocked(c.n)) break;
+      const todo = ckChapter(c.n).find((x) => !st[x.id]);
+      if (todo) return todo;
     }
-    const open = ML_TIERS.filter((_, k) => mlUnlocked(k)).flatMap((t) => mlTier(t));
-    return open.sort((a, b) => (st[a.id] ?? 0) - (st[b.id] ?? 0))[0] ?? null;
+    return COUNTERKILL.find((x) => (st[x.id] ?? 0) < 3 && ckUnlocked(x.chapter)) ?? null;
   }
 
-  /**
-   * 示范解法：皮卡鱼两边都按最好的走、最快几步杀死的那条线，每一手配说明。
-   * 只在你自己下过之后给（下完的小结里点开）——先自己想，再对答案。
-   */
-  function showLadderDemo(it: LadderItem, exit?: () => void) {
+  function runCounterKill(it: CounterKill, exit?: () => void) {
     clear();
     const host = document.createElement('div');
     host.className = 'xq-coach-stage';
     wrap.appendChild(host);
-    const p = fromFen(it.fen);
-    let b = p?.board;
-    let c: Color = it.you;
-    const moves = it.line.map((t) => {
-      if (!b) return { t };
-      const m = textToMove(b, c, t, legalMoves(b, c));
-      if (!m) return { t };
-      const why = noteMove(b, m, c);
-      b = applyMove(b, m);
-      c = c === 'r' ? 'b' : 'r';
-      return { t, why };
-    });
-    disposeScreen = runReplay(host, {
-      title: `示范解法 · ${it.material}`,
-      subtitle: `${it.mateIn} 步杀 · 皮卡鱼两边都按最好的走`,
-      intro: `这是最快的杀法：${it.mateIn} 步。看的时候想一想——每一步是在封将的退路、换攻击的线，还是在等对方自己走坏？`,
-      moves,
+    const items = ckChapter(it.chapter);
+    const k = items.findIndex((x) => x.id === it.id);
+    const boss = k === items.length - 1;
+    const puzzle: Puzzle = {
+      id: it.id,
+      kind: 'mate',
+      goal: 'mate',
       fen: it.fen,
-      flip: it.you === 'b',
-      outro: `${it.mateIn} 步杀死。想练熟就回去再下一遍，照着这个思路收。`,
-      onExit: () => runMateLadder(it, exit),
-    });
-  }
-
-  function runMateLadder(it: LadderItem, exit?: () => void) {
-    clear();
-    const host = document.createElement('div');
-    host.className = 'xq-coach-stage';
-    wrap.appendChild(host);
-    const N = it.mateIn;
-    const tips = [
-      `最快 ${N} 步能杀。先想清楚最后的杀法图形是什么，再倒推前面每一步在为它做什么。`,
-      '对方会用最顽强的守法。走不动的时候点 🔍，看引擎的计划——但用了提示只给一颗星。',
-    ];
-    disposeScreen = runPlayout(host, {
-      fen: it.fen,
-      you: it.you,
-      target: 'win',
-      par: N,
-      goal: `🎯 将死对方：<b>${N}</b> 步内 ★★★`,
-      title: `${N} 步杀 · ${it.material}`,
-      subtitle: `${it.category} · 残局阶梯 ${it.tier} 步档`,
-      tips,
-      onRestart: () => runMateLadder(it, exit),
-      extra: { label: '📖 看示范解法', run: () => showLadderDemo(it, exit) },
-      onDone: (r, my, stats) => {
-        const stars = r !== 'win' ? 0 : stats.hints || stats.undos ? 1 : my <= N ? 3 : my <= N + Math.max(2, Math.round(N * 0.3)) ? 2 : 1;
-        if (stars) setMlStars(it.id, stars);
-        if (firstAttempt(it.id)) updateRating('endgame', ML_RATING[it.tier] ?? 1200, stars >= 2);
+      answer: it.line[0],
+      line: it.line,
+      mateIn: it.mateIn,
+      rating: it.rating,
+      threat: it.threat,
+      prompt: `红先 ${it.mateIn} 步${it.allChecks ? '连将' : ''}杀`,
+    };
+    const back = exit ?? (() => showCkChapter(it.chapter));
+    disposeScreen = runPuzzle(host, puzzle, {
+      caption: `第${'一二三四五'[it.chapter - 1]}章 ${ckName(it.chapter)} · ${boss ? '关底' : `第 ${k + 1} 关`}`,
+      onExit: back,
+      onDone: (r) => {
+        const first = firstAttempt(it.id);
+        const stars = r.correct ? (r.usedHint ? 1 : first ? 3 : 2) : 0;
+        if (stars) setCkStars(it.id, stars);
+        // 只有第一次计分：算进"杀法"这一维
+        if (first) updateRating('mate', it.rating, r.correct && !r.usedHint);
         checkIn();
+        back();
       },
-      onExit: exit ?? (() => showMateTier(it.tier)),
     });
   }
 
@@ -2743,6 +2722,13 @@ export function runCoach(
         const t = TRICKS.find((x) => x.id === id);
         if (t) runTrickFull(t);
         return !!t;
+      },
+      /** 直接打开实用残局第一组的第一个局面（量"下到底"那一屏的按钮用） */
+      endgame: async () => {
+        await loadLibrary();
+        const g = endgamesByName()[0];
+        if (g) runEndgame(g, 0);
+        return !!g;
       },
     };
   }

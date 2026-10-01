@@ -28,6 +28,8 @@ const [, , shardArg = '0', shardsArg = '1', wantArg = '40'] = process.argv;
 const SHARD = Number(shardArg);
 const WANT = Number(wantArg);
 const MAX_MATE = Number(process.env.MAX_MATE ?? 12);
+/** 只要这么多步以上的（2、3 步杀已经够多了，补长的时候 MIN_MATE=4） */
+const MIN_MATE = Number(process.env.MIN_MATE ?? 2);
 const e = await startPikafish(128);
 const same = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
 const rnd = (n: number) => Math.floor(Math.random() * n);
@@ -134,11 +136,11 @@ while (found < WANT) {
   const fen = toFen(b, 'r');
   e.send('ucinewgame');
   const q = search(fen, 300, 2);
-  if (!q.length || q[0].mateIn === undefined || q[0].mateIn < 2 || q[0].mateIn > MAX_MATE) continue;
+  if (!q.length || q[0].mateIn === undefined || q[0].mateIn < MIN_MATE || q[0].mateIn > MAX_MATE) continue;
   if (q[1] && q[1].mateIn !== undefined && q[1].mateIn > 0) continue;
   // 复核：多算一会儿，第二好的仍然不是杀
   const v = search(fen, 2500, 2);
-  if (!v.length || v[0].mateIn === undefined || v[0].mateIn < 2 || v[0].mateIn > MAX_MATE) continue;
+  if (!v.length || v[0].mateIn === undefined || v[0].mateIn < MIN_MATE || v[0].mateIn > MAX_MATE) continue;
   if (v[1] && v[1].mateIn !== undefined && v[1].mateIn > 0) continue;
   const d = v[0].mateIn;
   // 两边下到将死：示范解法

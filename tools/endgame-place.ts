@@ -1,5 +1,5 @@
 /**
- * 残局随机摆子（gen-endgames、gen-long-mates 共用）：士只能在九宫的五个点、象只能在七个点、
+ * 残局随机摆子（gen-endgames、gen-counterkill 共用）：士只能在九宫的五个点、象只能在七个点、
  * 兵只能在能走到的格子，将帅不照面。
  */
 import { kingsFacing, type Board, type Color, type PType } from '../src/xiangqi/rules';

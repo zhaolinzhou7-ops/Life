@@ -138,10 +138,15 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     <div class="xq-tr-top">
       ${opts.onExit ? '<button class="xq-tr-quit" title="退出练习">← 退出</button>' : ''}
       <span class="xq-tr-cap">${opts.caption ?? ''}</span>
-      <span class="xq-tr-ask">${promptOf(puzzle)}${puzzle.mateIn ? `（${puzzle.mateIn} 步杀）` : ''}</span>
+      <span class="xq-tr-ask">${promptOf(puzzle)}${puzzle.mateIn && !puzzle.prompt ? `（${puzzle.mateIn} 步杀）` : ''}</span>
       <span class="xq-tr-side">${me === 'r' ? '红方走' : '黑方走'} · 难度 ${puzzle.rating}</span>
     </div>
     <div class="xq-tr-steps"></div>
+    ${
+      puzzle.threat?.length
+        ? `<div class="xq-tr-threat">⚠️ 对方下一步就能杀你：你走一步闲着就输。<button class="xq-tr-threat-btn">👁 看他怎么杀</button></div>`
+        : ''
+    }
     <div class="xq-tr-board"></div>
     ${limit ? '<div class="xq-tr-clock"><i></i><span></span></div>' : ''}
     <div class="xq-tr-fb"></div>
@@ -157,6 +162,21 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
   // 执黑的题把棋盘转过来，让"自己"永远在下方，符合实战视角
   const view = new Board2D(elBoard, { flip: me === 'b', onTap: (x, y) => onTap(x, y) });
   view.setBoard(board);
+
+  // 绝地反杀：看对方的杀着（不算提示——看清楚危险在哪是读局面的一部分，看完照样得自己找出连将）
+  const elThreat = wrap.querySelector('.xq-tr-threat-btn') as HTMLButtonElement | null;
+  if (elThreat && puzzle.threat?.length) {
+    let shown = false;
+    elThreat.onclick = () => {
+      if (ply > 0) return;
+      shown = !shown;
+      const arrows = shown
+        ? puzzle.threat!.map((t) => textToMove(start, foe, t, legalMoves(start, foe))).filter((m): m is Move => !!m)
+        : [];
+      view.setArrows(arrows.map((m) => ({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, color: 'rgba(214,64,52,0.85)' })));
+      elThreat.textContent = shown ? `他的杀着：${puzzle.threat!.join('、')}（再点收起）` : '👁 看他怎么杀';
+    };
+  }
 
   /** 我方合法着法 */
   const legal = () => legalMoves(board, me).filter((m) => !isInCheck(applyMove(board, m), me));

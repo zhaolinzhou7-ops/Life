@@ -1,6 +1,6 @@
 /**
  * 底部操作按钮在手机上看得到：对局（悔棋/求和/认输/重开）、残局下到底（重来/提和/认输）、
- * 做题（提示/跳过）、打谱（下一手/返回）、残局阶梯结束后的按钮。
+ * 做题（提示/跳过）、打谱（下一手/返回）、残局下完之后的按钮。
  * 用户原话："我打开网页的时候，有时在底下看不到操作按钮，比如重来、继续或者认输。"
  * 手机浏览器的地址栏、底栏会占掉一截，真正能看到的高度只有 550～670 像素，这里按这些高度逐屏量。
  * 用法：npm run dev，然后 node tests/ui/bottom-bars.mjs
@@ -73,14 +73,14 @@ for (const [w, h] of SIZES) {
   ok(`${tag} 对局：浏览器底栏盖住 90 像素时也看得到 ${r.bad.join('；')}`, r.n === 4 && !r.bad.length);
   await page.screenshot({ path: `${OUT}/bars-game-${w}x${h}.png` });
 
-  // 2. 残局下到底（残局阶梯第一题，和皮卡鱼下到将死）
+  // 2. 残局下到底（实用残局第一组第一个局面）
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
   await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(600);
   if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(500); }
-  await page.locator('.xq-coach .card', { hasText: '残局阶梯' }).first().click(); await page.waitForTimeout(600);
-  await page.locator('[data-tier="5"]').click(); await page.waitForTimeout(300);
-  await page.locator('[data-ml]').first().click(); await page.waitForTimeout(900);
+  await page.locator('.xq-coach .card', { hasText: '实用残局' }).first().click(); await page.waitForTimeout(900);
+  await page.evaluate(() => window.__xqCoach?.endgame?.());
+  await page.waitForTimeout(900);
   if (await page.locator('.xq-po').count()) {
     r = await visible(page, '.xq-po-acts .xq-btn');
     ok(`${tag} 残局下到底：重来/提和/认输看得到 ${r.bad.join('；')}`, r.n >= 3 && !r.bad.length);

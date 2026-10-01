@@ -4472,3 +4472,54 @@ canvas {
 .xq-trick-steps li { margin: 3px 0; }
 .xq-trick-anatomy { border-color: rgba(232, 112, 61, 0.45); background: rgba(232, 112, 61, 0.07); }
 .xq-trick-anatomy p { margin: 6px 0 0; }
+
+/* 绝地反杀：对方已经有杀棋的警示条 */
+.xq-tr-threat {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  font-size: 12px;
+  color: #ffd2a6;
+  background: rgba(224, 67, 58, 0.14);
+  border: 1px solid rgba(224, 67, 58, 0.42);
+  border-radius: 9px;
+  padding: 5px 10px;
+}
+.xq-tr-threat-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: inherit;
+  border-radius: 8px;
+  font-size: 12px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+/* 闯关：一章的关卡格子 */
+.xq-ck-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  gap: 9px;
+  margin: 14px 0 18px;
+}
+.xq-ck-level {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+}
+.xq-ck-level b { font-size: 17px; }
+.xq-ck-level i { font-style: normal; font-size: 10px; opacity: 0.7; letter-spacing: 0; }
+.xq-ck-level.done { border-color: rgba(255, 215, 110, 0.55); background: rgba(255, 215, 110, 0.1); }
+.xq-ck-level.done i { color: #ffd76e; opacity: 1; }
+.xq-ck-level.boss { border-color: rgba(224, 67, 58, 0.6); background: rgba(224, 67, 58, 0.12); }

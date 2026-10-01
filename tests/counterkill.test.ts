@@ -1,0 +1,71 @@
+/**
+ * 绝地反杀：红先，黑方下一步就能杀红，红方只有连将（或者最多两步闲着的连杀）抢先杀死黑方。
+ * 用户原话："要那种形势很危急的：我是红棋，对方是黑棋且下一步就能绝杀我，
+ * 而我必须通过连续将军或者连环杀法，最后绝地反杀。"
+ * 这里把每一关都按规则走一遍；"只有这一路能活"由 tools/gen-counterkill.ts 让皮卡鱼核对。
+ */
+import { describe, expect, it } from 'vitest';
+import data from '../src/xiangqi/counterkill.json';
+import { fromFen, textToMove } from '../src/xiangqi/notation';
+import { applyMove, isInCheck, legalMoves, type Board, type Color } from '../src/xiangqi/rules';
+import { PIECE_VALUE } from '../src/xiangqi/teach';
+
+type Item = { id: string; fen: string; mateIn: number; line: string[]; allChecks: boolean; quiet: number; threat: string[]; chapter: number; rating: number };
+const CK = data as unknown as Item[];
+const legal = (b: Board, c: Color) => legalMoves(b, c).filter((m) => !isInCheck(applyMove(b, m), c));
+const mated = (b: Board, c: Color) => isInCheck(b, c) && legal(b, c).length === 0;
+const mat = (b: Board, c: Color) => b.flat().reduce((s, p) => s + (p && p.c === c && p.t !== 'K' ? PIECE_VALUE[p.t] : 0), 0);
+
+describe('绝地反杀', () => {
+  it('五章都有关，第一章最多，越往后越少', () => {
+    const by: Record<number, number> = {};
+    for (const x of CK) by[x.chapter] = (by[x.chapter] ?? 0) + 1;
+    for (const n of [1, 2, 3, 4, 5]) expect(by[n] ?? 0, `第 ${n} 章`).toBeGreaterThanOrEqual(5);
+    expect(CK.length).toBeGreaterThanOrEqual(120);
+  });
+
+  it('形势危急：红先、红方没被将军、子力不比黑方多，而且黑方真有一步杀', () => {
+    for (const x of CK) {
+      const p = fromFen(x.fen)!;
+      expect(p.toMove, x.id).toBe('r');
+      expect(isInCheck(p.board, 'r'), x.id).toBe(false);
+      expect(mat(p.board, 'r'), x.id).toBeLessThanOrEqual(mat(p.board, 'b'));
+      expect(x.threat.length, x.id).toBeGreaterThan(0);
+      for (const t of x.threat) {
+        const m = textToMove(p.board, 'b', t, legal(p.board, 'b'));
+        expect(m, `${x.id} 黑方的杀着 ${t}`).not.toBeNull();
+        expect(mated(applyMove(p.board, m!), 'r'), `${x.id} ${t} 真能杀`).toBe(true);
+      }
+    }
+  });
+
+  it('解法：红方步步将军（最多两步闲着），最后一手把黑将死，步数和标的一样', () => {
+    for (const x of CK) {
+      const p = fromFen(x.fen)!;
+      let b = p.board;
+      let c: Color = 'r';
+      let quiet = 0;
+      for (const t of x.line) {
+        const m = textToMove(b, c, t, legal(b, c));
+        expect(m, `${x.id} ${t}`).not.toBeNull();
+        b = applyMove(b, m!);
+        if (c === 'r' && !isInCheck(b, 'b')) quiet++;
+        c = c === 'r' ? 'b' : 'r';
+      }
+      expect(mated(b, 'b'), x.id).toBe(true);
+      expect(x.line.length, x.id).toBe(x.mateIn * 2 - 1);
+      expect(quiet, x.id).toBe(x.quiet);
+      expect(quiet, x.id).toBeLessThanOrEqual(2);
+      expect(x.allChecks, x.id).toBe(quiet === 0);
+    }
+  });
+
+  it('章按步数分：2 / 3 / 4 / 5 / 6 步以上；章内由易到难', () => {
+    for (const x of CK) expect(x.chapter, x.id).toBe(x.mateIn <= 2 ? 1 : x.mateIn >= 6 ? 5 : x.mateIn - 1);
+    for (let i = 1; i < CK.length; i++) {
+      if (CK[i].chapter === CK[i - 1].chapter) expect(CK[i].rating, CK[i].id).toBeGreaterThanOrEqual(CK[i - 1].rating);
+      else expect(CK[i].chapter).toBeGreaterThan(CK[i - 1].chapter);
+    }
+    expect(new Set(CK.map((x) => x.fen)).size).toBe(CK.length);
+  });
+});
