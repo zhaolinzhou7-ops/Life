@@ -4466,3 +4466,9 @@ canvas {
   opacity: 0.5;
   cursor: default;
 }
+
+/* 邪门布局详情：每一手的意思、陷阱拆解 */
+.xq-trick-steps { margin: 4px 0 6px; padding-left: 20px; font-size: 13px; line-height: 1.75; }
+.xq-trick-steps li { margin: 3px 0; }
+.xq-trick-anatomy { border-color: rgba(232, 112, 61, 0.45); background: rgba(232, 112, 61, 0.07); }
+.xq-trick-anatomy p { margin: 6px 0 0; }

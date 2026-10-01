@@ -2297,13 +2297,27 @@ export function runCoach(
       <div class="sub">对方执${sideWord(t.by)} · 你执${sideWord(me)}破解 · ${t.level}</div>
       <div class="xq-advice">
         <b>套路：它在赌什么</b><p>${t.lure}</p>
+        <b>这套是怎么走出来的（每一手的意思）</b>
+        <ol class="xq-trick-steps">${[...t.pre.map((m, i) => ({ t: m, why: t.preWhy[i] })), { t: t.trick.t, why: `<b>邪门着。</b>${t.trick.why}` }]
+          .map((m, i) => `<li><b>${i % 2 === 0 ? '红' : '黑'} ${m.t}</b>　${m.why}</li>`)
+          .join('')}</ol>
         <p class="dim">着法：${line}</p>
+      </div>
+      <div class="xq-advice xq-trick-anatomy" data-anatomy>
+        <b>🔍 陷阱拆解</b>
+        <p><b>表面上：</b>${t.anatomy.looks}</p>
+        <p><b>陷阱在哪：</b>${t.anatomy.bait}</p>
+        <p><b>上当之后：</b>${t.anatomy.punish}<span class="dim">（引擎算：比破解差约${inPieces(v.trapLoss)}）</span></p>
+        <p><b>怎么认出来：</b>${t.anatomy.spot}</p>
+      </div>
+      <div class="xq-advice">
         <b>怎么破</b><p><b>${t.refute[0].t}</b>——${t.refute[0].why}</p>
         ${
           k
             ? `<b>第二关</b><p>对方 <b>${t.refute[k - 1].t}</b>（${t.refute[k - 1].why}）这时走 <b>${t.refute[k].t}</b>——${t.refute[k].why}</p>`
             : ''
         }
+        <b>破了之后他会怎么走</b><p>${t.anatomy.after}</p>
         <b>要记住的道理</b><p>${t.principle}</p>
         <p class="dim">引擎复核：这一步邪门棋本身就亏约${inPieces(v.trickLoss)}；按破解走，局面是「${outlookOf(v.refuteScore)}」；
         ${k ? `第二关要是走 ${t.trap[0].t}（${t.trap[0].why.replace(/。$/, '')}）` : `上当的话（${t.trap[0].t}）`}，比破解差约${inPieces(v.trapLoss)}。</p>
@@ -2340,7 +2354,7 @@ export function runCoach(
     host.className = 'xq-coach-stage';
     wrap.appendChild(host);
     const me: Color = t.by === 'r' ? 'b' : 'r';
-    const pre = t.pre.map((x) => ({ t: x, why: '布局的正常着法。' }));
+    const pre = t.pre.map((x, i) => ({ t: x, why: t.preWhy[i] ?? '' }));
     const trick = { t: t.trick.t, why: `<b>邪门着。</b>${t.trick.why}` };
     // 陷阱在第二关的：先按破解走到分岔处，再接上当的那几手
     const tail = mode === 'trap' ? [...t.refute.slice(0, t.trapAfter ?? 0), ...trapLine(t)] : refuteLine(t);

@@ -23,14 +23,14 @@ const rnd = (n: number) => Math.floor(Math.random() * n);
 const pick = <T,>(a: T[]) => a[rnd(a.length)];
 
 /** 黑方（上方）视角的合法格；红方镜像 y → 9-y */
-const BLACK_ADVISOR = [
+export const BLACK_ADVISOR = [
   [3, 0],
   [5, 0],
   [4, 1],
   [3, 2],
   [5, 2],
 ];
-const BLACK_ELEPHANT = [
+export const BLACK_ELEPHANT = [
   [2, 0],
   [6, 0],
   [0, 2],
@@ -39,14 +39,14 @@ const BLACK_ELEPHANT = [
   [2, 4],
   [6, 4],
 ];
-const mirror = (sq: number[][]) => sq.map(([x, y]) => [x, 9 - y]);
+export const mirror = (sq: number[][]) => sq.map(([x, y]) => [x, 9 - y]);
 
-function empty(): Board {
+export function empty(): Board {
   return Array.from({ length: 10 }, () => Array(9).fill(null));
 }
 
 /** 过了河的兵：在对方半场任意格（红兵 y≤4，黑卒 y≥5）。偏向高兵，少量低兵、底兵 */
-function pawnSquares(c: Color): number[][] {
+export function pawnSquares(c: Color): number[][] {
   const out: number[][] = [];
   for (let x = 0; x < 9; x++)
     for (let y = 0; y < 10; y++) {
@@ -70,14 +70,14 @@ function defPawnSquares(c: Color): number[][] {
   return out;
 }
 
-function palace(c: Color): number[][] {
+export function palace(c: Color): number[][] {
   const ys = c === 'r' ? [7, 8, 9] : [0, 1, 2];
   const out: number[][] = [];
   for (const y of ys) for (let x = 3; x <= 5; x++) out.push([x, y]);
   return out;
 }
 
-function place(b: Board, c: Color, t: PType, squares: number[][]): boolean {
+export function place(b: Board, c: Color, t: PType, squares: number[][]): boolean {
   const free = squares.filter(([x, y]) => !b[y][x]);
   if (!free.length) return false;
   const [x, y] = pick(free);

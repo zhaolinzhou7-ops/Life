@@ -79,6 +79,11 @@ await page.locator('[data-trick="gansipao-red"]').click(); await page.waitForTim
 const gs = (await page.locator('.xq-coach-report').innerText()).replace(/\s+/g, ' ');
 console.log('   敢死炮：' + gs.slice(0, 260));
 ok('敢死炮详情：第一步吃（炮8进5），第二关回窝心马（马3退5）', gs.includes('炮8进5') && gs.includes('第二关') && gs.includes('马3退5'));
+ok('每一手的意思讲出来了：巡河炮是敢死炮的第一步', gs.includes('每一手的意思') && gs.includes('敢死炮的第一步'));
+const ana = (await page.locator('[data-anatomy]').innerText()).replace(/\s+/g, ' ');
+console.log('   陷阱拆解：' + ana.slice(0, 160));
+ok('陷阱拆解：表面上、陷阱在哪、上当之后、怎么认出来都在', ['表面上', '陷阱在哪', '上当之后', '怎么认出来'].every((k) => ana.includes(k)) && ana.includes('炮8退1'));
+ok('讲了破了之后他会怎么走', gs.includes('破了之后他会怎么走'));
 await page.screenshot({ path: OUT + '/tricks-gansipao.png' });
 await page.locator('[data-act="trick-trap"]').click(); await page.waitForTimeout(300);
 ok('上当演示先说明"前面是对的，坑在后面"', (await page.locator('.xq-coach-stage').innerText()).includes('坑在后面'));

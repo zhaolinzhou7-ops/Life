@@ -183,3 +183,37 @@ describe('破解走得够深', () => {
     }
   });
 });
+
+describe('套路讲透', () => {
+  // 用户原话："对方走这一步是什么意思、陷阱到底在哪里，肯定都有陷阱，这些要讲明白。"
+  it('套路的每一手都有自己的说明，不再是一句"布局的正常着法"', () => {
+    for (const t of TRICKS) {
+      expect(t.preWhy.length, t.id).toBe(t.pre.length);
+      for (const w of t.preWhy) {
+        expect(w.length, t.id).toBeGreaterThan(4);
+        expect(w, t.id).not.toContain('布局的正常着法');
+      }
+    }
+  });
+
+  it('陷阱拆解五样都写了：表面上、陷阱在哪、上当之后、怎么认出来、破了之后', () => {
+    for (const t of TRICKS) {
+      for (const k of ['looks', 'bait', 'punish', 'spot', 'after'] as const) expect(t.anatomy[k].length, `${t.id} ${k}`).toBeGreaterThan(15);
+    }
+  });
+
+  it('"上当之后"写的着法和上当谱一致：上当谱的每一手都按顺序出现', () => {
+    for (const t of TRICKS) {
+      let at = 0;
+      for (const s of t.trap) {
+        const i = t.anatomy.punish.indexOf(s.t, at);
+        expect(i, `${t.id}：上当之后没写到 ${s.t}`).toBeGreaterThanOrEqual(0);
+        at = i + s.t.length;
+      }
+    }
+  });
+
+  it('"破了之后"从破解的关键一手讲起', () => {
+    for (const t of TRICKS) expect(t.anatomy.after, t.id).toContain(t.refute[t.trapAfter ?? 0].t);
+  });
+});
