@@ -29,6 +29,7 @@ const TAG = process.env.TAG ?? 'ladder';
 const PLAY_MS = Number(process.env.PLAY_MS ?? 1200);
 const VERIFY_MS = 8000;
 const LONG_MS = Number(process.env.LONG_MS ?? 30000);
+const SPREAD = process.env.SPREAD === '1';
 
 const lib = (INPUT
   ? fs.readFileSync(INPUT, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
@@ -101,6 +102,24 @@ for (let i = SHARD; i < wins.length; i += SHARDS) {
   for (let k = 0; k < g.fens.length; k++) if (g.fens[k].split(' ')[1] === (p.you === 'r' ? 'w' : 'b')) attackIdx.push(k);
   const A = attackIdx.length;
   const seen = new Set<number>();
+  if (SPREAD) {
+    // 20 步档：剩 18～26 步之间挨个切，哪个切点 8 秒复核的步数正好等于这盘还剩的步数，就收那一个。
+    // 只在"剩 20 步"那一点切，复核一对不上就白下了一整盘——长线残局里这种对不上的最多
+    for (const t of [20, 19, 21, 18, 22, 23, 24, 25, 26]) {
+      if (t > A) continue;
+      const k = attackIdx[A - t];
+      const v = best(g.fens[k], VERIFY_MS);
+      if (v.mateIn !== t) continue;
+      found++;
+      const line = g.texts.slice(k);
+      const rec = { id: `ml-${p.id}-${t}`, src: p.id, name: p.name, category: p.category, material: p.material, fen: g.fens[k], you: p.you, mateIn: t, solved: t, line };
+      out.write(JSON.stringify(rec) + '\n');
+      console.log(`  ${p.id}：剩 ${t} 步处引擎确认 ${t} 步杀`);
+      break;
+    }
+    console.log(`[${done}] ${p.name} ${p.id}：整盘 ${A} 步杀`);
+    continue;
+  }
   for (const t of TIERS) {
     if (t > A) continue;
     const k = attackIdx[A - t];
