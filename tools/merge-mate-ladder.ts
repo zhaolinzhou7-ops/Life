@@ -92,7 +92,9 @@ for (const r of recs) {
   let id = r.id;
   for (let k = 2; ids.has(id); k++) id = `${r.id}-${k}`;
   ids.add(id);
-  out.push({ ...r, id, mateIn, solved, tier: t2 });
+  // 子力写法统一成残局库的"马兵 vs 士象全"（长杀局面那几批写的是"马兵对士象全"）
+  const material = r.material.includes(' vs ') ? r.material : r.material.replace('对', ' vs ');
+  out.push({ ...r, id, material, mateIn, solved, tier: t2 });
 }
 out.sort((a, b) => a.tier - b.tier || CAT_ORDER.indexOf(a.category) - CAT_ORDER.indexOf(b.category) || a.mateIn - b.mateIn);
 fs.writeFileSync(OUT, JSON.stringify(out));
