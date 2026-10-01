@@ -44,6 +44,8 @@ export interface Arrow {
   tx: number;
   ty: number;
   color?: string;
+  /** 箭头中间标一个字（选择题的 A / B / C / D） */
+  label?: string;
 }
 
 export interface Board2DOpts {
@@ -607,6 +609,23 @@ export class Board2D {
     g.lineTo(bx - ux * head - uy * head * 0.5, by - uy * head + ux * head * 0.5);
     g.closePath();
     g.fill();
+    if (ar.label) {
+      // 标签放在箭身靠终点的三分之二处，圆底白字，几条箭头交叉时也认得出是哪一条
+      const lx = ax + (bx - ax) * 0.62;
+      const ly = ay + (by - ay) * 0.62;
+      const r = Math.max(9, this.cell * 0.22);
+      g.beginPath();
+      g.arc(lx, ly, r, 0, Math.PI * 2);
+      g.fill();
+      g.lineWidth = 2;
+      g.strokeStyle = 'rgba(255,255,255,0.9)';
+      g.stroke();
+      g.fillStyle = '#fff';
+      g.font = `bold ${Math.round(r * 1.25)}px system-ui, sans-serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(ar.label, lx, ly + 1);
+    }
     g.restore();
   }
 }

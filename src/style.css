@@ -4523,3 +4523,23 @@ canvas {
 .xq-ck-level.done { border-color: rgba(255, 215, 110, 0.55); background: rgba(255, 215, 110, 0.1); }
 .xq-ck-level.done i { color: #ffd76e; opacity: 1; }
 .xq-ck-level.boss { border-color: rgba(224, 67, 58, 0.6); background: rgba(224, 67, 58, 0.12); }
+
+/* 花样题：题型标签、选择题按钮、结算页的分数变化 */
+.xq-quiz-type {
+  display: inline-block;
+  padding: 1px 7px;
+  margin-right: 4px;
+  border-radius: 6px;
+  background: rgba(74, 143, 212, 0.25);
+  color: #bcd8ff;
+  font-size: 10.5px;
+}
+.xq-quiz .xq-tr-bar { flex-wrap: wrap; }
+.xq-quiz-opt { min-width: 40%; }
+.xq-quiz-opt b { color: #ffd76e; margin-right: 4px; }
+.xq-score-line {
+  text-align: center;
+  font-size: 14px;
+  margin: 6px 0 4px;
+  color: #ffd76e;
+}

@@ -16,6 +16,7 @@ import {
   updateRating,
   firstAttempt,
   attemptedMap,
+  todayNum,
   weakestDim,
   overallOf,
   honestLevel,
@@ -65,6 +66,7 @@ import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
 import { runReplay } from './replay';
+import { runQuiz, tapThreatened, tapLoose, choiceQuestion, judgeQuestion, nameQuestion, type QuizQ } from './quiz';
 import type { Color, Move } from './rules';
 import { OPENINGS, SYSTEM_ORDER, moveNote, type Opening } from './openings';
 import { judgeAgainst } from './altjudge';
@@ -274,7 +276,15 @@ export function runCoach(
     list.className = 'card-list';
 
     const stage = stageFor(rs, gameEvidence());
+    const daily = dailyDone();
     const cards: { t: string; d: string; go: () => void; hide?: boolean }[] = [
+      {
+        t: `📅 每日一题${daily ? '（今天做过了 ✓）' : ''}`,
+        d: todayNum() % 2 === 0
+          ? '今天是一道绝地反杀：对方下一步就杀你，你只有连将反杀。每天一道，单双日轮着出绝地反杀和中局组合。'
+          : '今天是一道中局组合：要连走几步才拿到便宜。每天一道，单双日轮着出绝地反杀和中局组合。',
+        go: () => void startDaily(),
+      },
       {
         t: `📅 今日训练 · ${stage.emoji} 阶段${stage.id} ${stage.name}`,
         d: `${stage.goal}。一共 25 分钟：热身杀法 → 错题重练 → 专项 → 实战复盘。`,
@@ -717,16 +727,19 @@ export function runCoach(
   async function startPractice(dim: Dim, count = 10, then?: () => void, bias = 40) {
     clear();
     await loadPuzzles();
+    if (dim === 'mate') await loadLibrary();
     if (!wrap.isConnected) return;
     const used = new Set<string>();
     let i = 0;
     let right = 0;
     const TOTAL = count;
+    const startR = getRatings()[dim].r;
+    let last = '';
 
     const step = () => {
       if (i >= TOTAL) {
         if (then) then();
-        else finishSession(`${DIM_INFO[dim].emoji} ${DIM_INFO[dim].name}练习`, right, TOTAL, () => startPractice(dim));
+        else finishSession(`${DIM_INFO[dim].emoji} ${DIM_INFO[dim].name}练习`, right, TOTAL, () => startPractice(dim), scoreLine(dim, startR));
         return;
       }
       const r = getRatings()[dim].r;
@@ -735,17 +748,89 @@ export function runCoach(
       const p = pickNear(DIM_KIND[dim], r + bias, used);
       if (!p) {
         if (then) then();
-        else finishSession(`${DIM_INFO[dim].name}练习`, right, i, () => showHome());
+        else finishSession(`${DIM_INFO[dim].name}练习`, right, i, () => showHome(), scoreLine(dim, startR));
         return;
       }
       used.add(p.id);
       i++;
-      runOne(p, dim, `${DIM_INFO[dim].name} ${i}/${TOTAL}`, (ok) => {
+      const before = getRatings()[dim].r;
+      const cap = `${DIM_INFO[dim].name} ${i}/${TOTAL}${last ? ` · 上一题 ${last}` : ''}`;
+      const after = (ok: boolean) => {
         if (ok) right++;
+        const d = getRatings()[dim].r - before;
+        last = d ? `${d > 0 ? '+' : ''}${d}` : '';
         step();
-      });
+      };
+      // 换着花样问：同一个局面，眼力题可能让你点出被捉的子，战术题可能出成选择题
+      const q = variedQuestion(p, dim);
+      if (q) runQuizOne(q, cap, after);
+      else runOne(p, dim, cap, after);
     };
     step();
+  }
+
+  /** 这一组下来某一维的分动了多少："杀法分 1320 → 1356（+36）" */
+  function scoreLine(dim: Dim, startR: number): string {
+    const now = getRatings()[dim].r;
+    const d = now - startR;
+    return `${DIM_INFO[dim].name}分 ${startR} → ${now}（${d > 0 ? '+' : ''}${d}）`;
+  }
+
+  /**
+   * 换着花样出题。
+   * 用户原话："目前像眼力、战术之类的测验题目都千篇一律。这些东西都需要去向《天天象棋》看齐。"
+   * 一组里大约一半还是"走一步"的老问法（那是根本），另一半换成点子题、选择题、判断题、认杀法。
+   */
+  function variedQuestion(p: Puzzle, dim: Dim): QuizQ | null {
+    const r = Math.random();
+    if (dim === 'safety') {
+      if (r < 0.3) return tapThreatened(p) ?? tapLoose(p);
+      if (r < 0.48) return tapLoose(p);
+      if (r < 0.62) return judgeQuestion(p, dim);
+      return null;
+    }
+    if (dim === 'tactic') {
+      if (r < 0.3) return choiceQuestion(p, dim);
+      if (r < 0.5) return judgeQuestion(p, dim);
+      return null;
+    }
+    if (dim === 'mate') {
+      if (r < 0.22) {
+        const groups = matesByName();
+        const names = groups.map((g) => g.name);
+        const g = groups[Math.floor(Math.random() * groups.length)];
+        const m = g?.items[Math.floor(Math.random() * g.items.length)];
+        if (m && names.length >= 4) return nameQuestion(m, names);
+      }
+      if (r < 0.42) return choiceQuestion(p, dim);
+      return null;
+    }
+    return null;
+  }
+
+  /** 答一道花样题：答完当场显示这一题让分数动了多少（赢加输减） */
+  function runQuizOne(q: QuizQ, caption: string, done: (ok: boolean) => void, scored = true) {
+    clear();
+    const host = document.createElement('div');
+    host.className = 'xq-coach-stage';
+    wrap.appendChild(host);
+    const line = q.type === 'name' ? matesByName().flatMap((g) => g.items).find((m) => `name:${m.id}` === q.id)?.line : undefined;
+    disposeScreen = runQuiz(host, q, {
+      caption,
+      line,
+      onExit: () => showHome(),
+      onAnswer: (ok) => {
+        if (!scored) return '';
+        // 只有第一次做计分：做过的题再做对，多半是记住了答案
+        if (!firstAttempt(q.id)) return '这道题做过了，这次不计分';
+        const before = getRatings()[q.dim].r;
+        updateRating(q.dim, q.rating, ok);
+        const after = getRatings()[q.dim].r;
+        const d = after - before;
+        return `${DIM_INFO[q.dim].name}分 ${before} → ${after}（${d > 0 ? '+' : ''}${d}）`;
+      },
+      onDone: done,
+    });
   }
 
   /**
@@ -760,6 +845,7 @@ export function runCoach(
   async function startQuiz(then?: () => void) {
     clear();
     await loadPuzzles();
+    await loadLibrary();
     if (!wrap.isConnected) return;
     const used = new Set<string>();
     const plan: Dim[] = [];
@@ -783,10 +869,14 @@ export function runCoach(
       }
       used.add(p.id);
       i++;
-      runOne(p, dim, `小测 ${i}/${plan.length} · ${DIM_INFO[dim].name}`, (ok) => {
+      const cap = `小测 ${i}/${plan.length} · ${DIM_INFO[dim].name}`;
+      const after = (ok: boolean) => {
         if (ok) right++;
         step();
-      }, false);
+      };
+      const q = variedQuestion(p, dim);
+      if (q) runQuizOne(q, cap, after);
+      else runOne(p, dim, cap, after, false);
     };
     step();
   }
@@ -956,7 +1046,7 @@ export function runCoach(
     });
   }
 
-  function finishSession(title: string, right: number, total: number, again: () => void) {
+  function finishSession(title: string, right: number, total: number, again: () => void, score = '') {
     clear();
     checkIn();
     const { streak } = getStreak();
@@ -966,6 +1056,7 @@ export function runCoach(
     scr.innerHTML = `
       <h1>${title}完成</h1>
       <div class="xq-rank-big">${right}/${total} <span>正确率 ${rate}%</span></div>
+      ${score ? `<div class="xq-score-line" data-score>${score}</div>` : ''}
       <div class="sub">${
         rate >= 85
           ? '这一档太轻松了，下一组会自动加难。'
@@ -1979,6 +2070,50 @@ export function runCoach(
       });
     };
     step();
+  }
+
+  // ---------------- 每日一题 ----------------
+  /** 每天固定一道（按日期挑，谁打开都是同一道），单日中局组合、双日绝地反杀 */
+  const DAILY_KEY = 'xq-daily';
+  function dailyDone(): boolean {
+    try {
+      return (JSON.parse(localStorage.getItem(DAILY_KEY) ?? '{}') as Record<string, boolean>)[String(todayNum())] === true;
+    } catch {
+      return false;
+    }
+  }
+  function markDaily() {
+    try {
+      const d = JSON.parse(localStorage.getItem(DAILY_KEY) ?? '{}') as Record<string, boolean>;
+      d[String(todayNum())] = true;
+      // 只留最近一个月，存档不会越攒越大
+      for (const k of Object.keys(d)) if (Number(k) < todayNum() - 31) delete d[k];
+      localStorage.setItem(DAILY_KEY, JSON.stringify(d));
+    } catch {
+      /* 存不下就算了 */
+    }
+  }
+  async function startDaily() {
+    const day = todayNum();
+    const back = () => {
+      markDaily();
+      checkIn();
+      showHome();
+    };
+    if (day % 2 === 0) {
+      await loadCounterKill();
+      if (!wrap.isConnected) return;
+      // 前三章里挑：每日一题不该一上来就是七步杀
+      const pool = COUNTERKILL.filter((x) => x.chapter <= 3);
+      const it = pool[(day * 7919) % Math.max(1, pool.length)];
+      if (it) return runCounterKill(it, back);
+    }
+    await loadPuzzles();
+    if (!wrap.isConnected) return;
+    const pool = combos();
+    const p = pool[(day * 7919) % Math.max(1, pool.length)];
+    if (!p) return showHome();
+    runOne(p, 'tactic', `每日一题 · ${(p.themes ?? []).join('、')}`, () => back());
   }
 
   // ---------------- 绝地反杀：黑方下一步就杀你，只有连将反杀 ----------------
