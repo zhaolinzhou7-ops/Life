@@ -79,6 +79,21 @@ describe('布局体系', () => {
   });
 
   it('主线不会一边倒：走完十几个回合，局面分在两个马炮以内（布局谱不是让子棋）', () => {
-    for (const o of OPENINGS) expect(Math.abs(o.moves[o.moves.length - 1].ev), o.name).toBeLessThan(900);
+    // 例外是"怎么破"的课：谱上那一手本身就是错着（引擎认为差 1.5 个兵以上），后面就是在演示怎么惩罚它
+    for (const o of OPENINGS) {
+      if (o.moves.some((m) => m.book && (m.loss ?? 0) >= 150)) continue;
+      expect(Math.abs(o.moves[o.moves.length - 1].ev), o.name).toBeLessThan(900);
+    }
+  });
+
+  it('"破法"课：谱上的错着是被罚的那一方走的，之后局面明显偏向破的一方', () => {
+    for (const o of OPENINGS) {
+      const bad = o.moves.findIndex((m) => m.book && (m.loss ?? 0) >= 150);
+      if (bad < 0) continue;
+      const badBy = bad % 2 === 0 ? 'red' : 'black';
+      expect(badBy, o.name).not.toBe(o.side);
+      const end = o.moves[o.moves.length - 1].ev;
+      expect(o.side === 'red' ? end : -end, o.name).toBeGreaterThan(150);
+    }
   });
 });

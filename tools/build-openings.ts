@@ -201,6 +201,8 @@ for (const spec of OPENING_SPECS as OpeningSpec[]) {
   });
   fs.writeFileSync(OUT, JSON.stringify(result, null, 0));
 }
+// 只核对种子时不写文件——原来这里照写，把生成好的整个布局库覆盖成了空的
+if (CHECK) process.exit(0);
 fs.writeFileSync(OUT, JSON.stringify(result, null, 0));
 console.log(`\n写入 ${OUT}：${result.length} 套`);
 process.exit(0);
