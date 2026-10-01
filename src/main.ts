@@ -47,6 +47,12 @@ async function launchNaming() {
   dispose = bootNaming(app, showHome);
 }
 
+async function launchEnglish() {
+  clear();
+  const { bootEnglish } = await import('./english/index');
+  dispose = bootEnglish(app, showHome);
+}
+
 async function launchDoudizhu() {
   clear();
   const { bootDoudizhu } = await import('./doudizhu/index');
@@ -65,6 +71,70 @@ async function launchMahjong() {
   });
 }
 
+/**
+ * 每个应用都是按需加载的：点卡片 → clear() 清掉首页 → import 那个应用的代码。
+ *
+ * import 失败时首页已经没了，不接住就是一整屏空白，只能手动刷新。会失败的情况有两种：
+ *  · 断网（手机在地铁里、平板只连着家里的 Wi-Fi 被带出门）
+ *  · 刚部署过新版本：旧页面里引用的带 hash 的文件名在服务器上已经不存在了。
+ *    GitHub Pages 每次部署都会这样，开着旧页面的人点任何一个入口都会白屏。
+ */
+function isChunkLoadError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /dynamically imported module|Importing a module script failed|Unable to preload CSS|Failed to fetch/i.test(msg);
+}
+
+function showLoadError(e: unknown, retry: () => void) {
+  clear();
+  const chunk = isChunkLoadError(e);
+  const screen = document.createElement('div');
+  screen.className = 'screen home-screen';
+  const h1 = document.createElement('h1');
+  h1.textContent = '没能打开';
+  const sub = document.createElement('div');
+  sub.className = 'sub';
+  sub.style.maxWidth = '340px';
+  sub.style.lineHeight = '1.7';
+  sub.textContent = !navigator.onLine
+    ? '网络好像断了，这个应用还没下载下来。连上网之后点「重试」。'
+    : chunk
+      ? '页面可能刚更新过，点「重试」会加载最新版本。'
+      : '打开的时候出了点问题，可以再试一次。';
+  const list = document.createElement('div');
+  list.className = 'card-list';
+  const button = (title: string, onClick: () => void) => {
+    const card = document.createElement('div');
+    card.className = 'card home-card';
+    card.innerHTML = `<div class="title" style="text-align:center"></div>`;
+    (card.firstElementChild as HTMLElement).textContent = title;
+    card.addEventListener('click', onClick);
+    return card;
+  };
+  list.appendChild(
+    button('重试', () => {
+      if (!navigator.onLine) {
+        sub.textContent = '还没连上网。连上之后再点一次「重试」。';
+        return;
+      }
+      // 浏览器会把失败的动态 import 缓存到页面关闭为止，原地再 import 一次还是失败，
+      // 只能整页重新加载。不是加载失败（是应用自己出错）的才原地重试。
+      if (chunk) location.reload();
+      else retry();
+    }),
+  );
+  list.appendChild(button('返回首页', showHome));
+  screen.append(h1, sub, list);
+  app.appendChild(screen);
+}
+
+/** 打开一个应用。加载失败时给出能走下去的界面，而不是白屏 */
+function open(go: () => Promise<void>) {
+  go().catch((e: unknown) => {
+    console.error(e);
+    showLoadError(e, () => open(go));
+  });
+}
+
 function showHome() {
   clear();
   const screen = document.createElement('div');
@@ -77,6 +147,12 @@ function showHome() {
   list.className = 'card-list';
 
   const games = [
+    {
+      title: '🦜 AI 儿童英语学习伙伴',
+      desc: '4~12 岁英语启蒙：每天一个 10~15 分钟的小任务，学词、听故事、玩游戏、和 AI 说几句。会记住孩子哪里不会，自动安排复习。带家长端。',
+      go: launchEnglish,
+      tag: 'NEW',
+    },
     {
       title: '✒️ AI 智能取名',
       desc: '给孩子取个名字：说清你想要什么，从音律、寓意、字形、出处到日常好不好用逐项筛过，只给少量真正值得考虑的。',
@@ -127,7 +203,7 @@ function showHome() {
     card.innerHTML = `
       <div class="title">${g.title} ${g.tag ? `<span class="tag">${g.tag}</span>` : ''}</div>
       <div class="desc">${g.desc}</div>`;
-    card.addEventListener('click', g.go);
+    card.addEventListener('click', () => open(g.go));
     list.appendChild(card);
   }
   screen.appendChild(list);
