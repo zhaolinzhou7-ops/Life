@@ -29,6 +29,12 @@ import { recentGameAccuracy } from './save';
 import { planHtml, planOf } from './plan';
 import { classifyEndgame } from './endgame';
 import { trickAt, trickStageAt } from './tricks';
+import { identify } from './explorer';
+import { runPuzzle } from './train';
+import { toFen } from './notation';
+import { initialBoard } from './rules';
+import type { Puzzle } from './puzzles';
+import { inPieces } from './teach';
 
 const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 
@@ -349,6 +355,72 @@ export function runReview(opts: ReviewOpts): () => void {
   }
 
   // ───────── 总评 ─────────
+  /** 你走错、而且有更好着法的那几手（亏一个兵以上的） */
+  function retryItems(): { i: number; m: ReturnType<typeof reviewed>[number] }[] {
+    return reviewed()
+      .map((m, i) => ({ i, m }))
+      .filter(({ m }) => m.color === playerColor && m.bestText && m.bestMove && m.loss >= 100 && ['dubious', 'mistake', 'blunder'].includes(labelOf(m)));
+  }
+
+  /**
+   * 找回好棋：把你走错的那几手当题，一手一手重新想——先自己找，找不到再看答案。
+   * 参考 lichess 的 "Learn from your mistakes"：不直接告诉你该走什么，先给你一次自己想明白的机会。
+   * 和引擎首选差不到 0.8 个兵的走法也算找回来了（做题界面本来就这么判）。
+   */
+  function runRetry() {
+    const items = retryItems();
+    if (!items.length) return;
+    const layer = document.createElement('div');
+    layer.className = 'xq-retry';
+    // 做题界面自带顶栏（"找回好棋 1/3"、← 退出），这里不再叠一层；题目放进和学棋做题一样的舞台里，棋盘才撑得开
+    layer.innerHTML = `<div class="xq-retry-host"></div>`;
+    document.body.appendChild(layer);
+    const hostEl = layer.querySelector('.xq-retry-host') as HTMLElement;
+    let k = 0;
+    let found = 0;
+    let dispose: (() => void) | null = null;
+    const done = () => {
+      dispose?.();
+      layer.remove();
+    };
+    const next = () => {
+      dispose?.();
+      dispose = null;
+      hostEl.innerHTML = '';
+      if (k >= items.length) {
+        hostEl.innerHTML = `<div class="xq-retry-end"><h2>找回了 ${found}/${items.length} 手</h2>
+          <p>${found === items.length ? '都找回来了——下次实战里早一步想到就好。' : '没找回来的那几手，复盘里点开看看它为什么好；错题本里也存着，过几天会回来找你。'}</p>
+          <button class="xq-btn primary" data-retry-back>回到复盘</button></div>`;
+        (hostEl.querySelector('[data-retry-back]') as HTMLButtonElement).onclick = done;
+        return;
+      }
+      const { i, m } = items[k];
+      const p: Puzzle = {
+        id: `retry-${opts.archiveId ?? 'game'}-${i}`,
+        kind: m.dim ?? 'tactic',
+        fen: toFen(boards[i], m.color),
+        answer: m.bestText!,
+        line: m.bestPv?.length ? m.bestPv.slice(0, 1) : [m.bestText!],
+        rating: 1200,
+        prompt: `第 ${roundOf(m.ply)} 回合你走了 ${m.text}（亏了约${inPieces(m.loss)}）。找一手更好的`,
+      };
+      const stage = document.createElement('div');
+      stage.className = 'xq-coach-stage';
+      hostEl.appendChild(stage);
+      dispose = runPuzzle(stage, p, {
+        caption: `找回好棋 ${k + 1}/${items.length}`,
+        playToEnd: false,
+        onExit: done,
+        onDone: (r) => {
+          if (r.correct && !r.usedHint) found++;
+          k++;
+          next();
+        },
+      });
+    };
+    next();
+  }
+
   function renderSummary() {
     const rep = analysis.report;
     if (!rep) {
@@ -384,8 +456,20 @@ export function runReview(opts: ReviewOpts): () => void {
         : `比你最近 ${hist.games} 盘的平均（${hist.avg}）<b class="down">低 ${hist.avg - me.accuracy}</b>`
       : '';
 
+    // 布局：象棋巫师那样叫得出名字，再说前几手在谱上（标准开局起的棋才认）
+    const fromInitial = startColor === 'r' && toFen(opts.startBoard, 'r') === toFen(initialBoard(), 'r');
+    const op = fromInitial ? identify(moves) : null;
+    const opLine = op
+      ? `<div class="xq-rv-opening" data-opening>📖 布局：<b>${op.name}</b>${
+          op.bookPly ? (op.bookPly >= moves.length ? '，整盘都在谱上' : `，前 ${op.bookPly} 手在谱上，第 ${op.bookPly + 1} 手出谱`) : '（谱上没有这一路）'
+        }</div>`
+      : '';
+    // 找回好棋：你走错的那几手，一手一手重新想（lichess "Learn from your mistakes"、chess.com "Retry"）
+    const retry = retryItems();
     elSummary.innerHTML = `
+      ${opLine}
       <div class="xq-rv-chips">${chips}</div>
+      ${retry.length ? `<button class="xq-rv-retry" data-act="retry">🔁 找回好棋：你走错的 ${retry.length} 手，先自己想一遍更好的</button>` : ''}
       <div class="xq-rv-phase">${phases ? `分阶段准确率：${phases}` : ''}${cmp ? `<br>${cmp}` : ''}</div>
       ${
         w && w.loss >= 80
@@ -529,6 +613,10 @@ export function runReview(opts: ReviewOpts): () => void {
     }
     if (act === 'deep-review') {
       deepReview();
+      return;
+    }
+    if (act === 'retry') {
+      runRetry();
       return;
     }
     const replay = target.closest('[data-replay]') as HTMLElement | null;

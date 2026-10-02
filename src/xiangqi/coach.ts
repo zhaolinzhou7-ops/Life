@@ -69,8 +69,10 @@ import { runPlayout } from './playout';
 import { runReplay } from './replay';
 import { runQuiz, tapThreatened, tapLoose, choiceQuestion, judgeQuestion, nameQuestion, type QuizQ } from './quiz';
 import type { Color, Move } from './rules';
-import { OPENINGS, SYSTEM_ORDER, moveNote, type Opening } from './openings';
+import { OPENINGS, SYSTEM_ORDER, loadOpeningExtras, moveNote, type Opening } from './openings';
+import { runExplorer } from './explorerui';
 import { judgeAgainst } from './altjudge';
+import { keyNote } from './movemeaning';
 import { TRICKS, ledger, lineToTrap, pitfalls, refuteLine, sacrificeAt, trapLine, walkMoves, type TrickOpening } from './tricks';
 import { outlookOf } from './plan';
 import { listGames } from './archive';
@@ -250,9 +252,11 @@ export function runCoach(
         ${streak > 0 ? `<span class="xq-chip">🔥 连续 <b>${streak}</b> 天</span>` : ''}
         ${solved > 0 ? `<span class="xq-chip">✅ 做过 <b>${solved}</b> 题</span>` : ''}
         ${srs.due > 0 ? `<span class="xq-chip warn">📌 <b>${srs.due}</b> 道错题待复习</span>` : ''}
+        ${dueOpenings().length ? `<span class="xq-chip warn" data-act="op-due">🔁 <b>${dueOpenings().length}</b> 套布局该复习了</span>` : ''}
         ${cal > 0 ? `<span class="xq-chip">🎚 已按你的成绩校准 <b>${cal}</b> 道题</span>` : ''}
       </div>`;
 
+    (scr.querySelector('[data-act="op-due"]') as HTMLElement | null)?.addEventListener('click', () => runOpeningReview(dueOpenings()));
     if (assessed) scr.appendChild(radarCard(rs));
 
     // 实战表现——做题分有天花板，这个没有。强手要看的是这一块
@@ -369,6 +373,11 @@ export function runCoach(
         t: '📖 布局体系',
         d: '屏风马（对过河车、急进中兵、牛头滚、五七炮、巡河炮）、过宫炮、士角炮、飞相局、仙人指路、顺炮、列炮、单提马、反宫马。每套按谱走 15 回合上下，每一手讲在干什么、对方走偏了怎么破，还能执一方自己走一遍。',
         go: () => showOpenings(),
+      },
+      {
+        t: '📚 开局浏览器',
+        d: '像象棋云库、象棋巫师那样查布局：任何一个局面，谱上的主线、变化、变招、错着、邪门全列出来，每一手讲意义；走出谱以后皮卡鱼列候选着；能导入棋谱和 FEN。',
+        go: () => showExplorer(undefined, () => showHome()),
       },
       {
         t: `📏 让子定级 · ${LADDER[getLadder().rung].name}`,
@@ -697,12 +706,21 @@ export function runCoach(
         list.appendChild(cb);
       }
       if (d === 'opening') {
+        const due = dueOpenings().length;
         const op = document.createElement('div');
-        op.className = 'card home-card';
-        op.innerHTML = `<div class="title">📖 布局体系</div><div class="desc">屏风马、过宫炮、士角炮、飞相局、单提马……每套按谱走 15 回合上下，
-          每一手讲在干什么、对方走偏了怎么破，再执一方自己走一遍。</div>`;
+        op.className = `card home-card${due ? ' hot' : ''}`;
+        op.dataset.act = 'openings';
+        op.innerHTML = `<div class="title">📖 布局体系${due ? `<span class="tag warn">🔁 ${due} 套该复习</span>` : ''}</div><div class="desc">屏风马、过宫炮、士角炮、飞相局、单提马……每套按谱走 15 回合上下，
+          每一手讲在干什么、对方走偏了怎么破，每个分岔点的变招和错着也讲；再执一方自己走一遍。</div>`;
         op.onclick = () => showOpenings();
         list.appendChild(op);
+        const ex = document.createElement('div');
+        ex.className = 'card home-card';
+        ex.dataset.act = 'explorer';
+        ex.innerHTML = `<div class="title">📚 开局浏览器</div><div class="desc">任何一个局面，谱上有哪些走法（主线、变化、变招、错着、邪门）一目了然，
+          每一手讲意义；走出谱以后皮卡鱼列候选着。能导入棋谱和 FEN。</div>`;
+        ex.onclick = () => showExplorer(undefined, () => showPickDim());
+        list.appendChild(ex);
         const tk = document.createElement('div');
         tk.className = 'card home-card';
         tk.innerHTML = `<div class="title">🗡 邪门布局破解</div><div class="desc">弃马十三着、铁滑车、敢死炮、瞎眼狗……
@@ -1845,6 +1863,26 @@ export function runCoach(
       </div>`;
     const list = document.createElement('div');
     list.className = 'card-list';
+    const due = dueOpenings();
+    const srsAll = Object.keys(opSrs()).length;
+    if (srsAll) {
+      const rv = document.createElement('div');
+      rv.className = `card home-card${due.length ? ' hot' : ''}`;
+      rv.dataset.act = 'op-review';
+      rv.innerHTML = `<div class="title">🔁 布局复习${due.length ? `<span class="tag warn">今天 ${due.length} 套</span>` : '<span class="tag">今天没有到期的</span>'}</div>
+        <div class="desc">自己走过的主线会按 1 / 3 / 7 / 21 / 60 天的间隔回来找你：猜中八成以上下次隔得更久，没到八成明天再来。
+        ${due.length ? `今天要复习：${due.map(([o, c]) => `${o.name}（执${c === 'r' ? '红' : '黑'}）`).join('、')}。` : `一共排着 ${srsAll} 套。`}</div>`;
+      if (due.length) rv.onclick = () => runOpeningReview(due);
+      list.appendChild(rv);
+    }
+    const ex = document.createElement('div');
+    ex.className = 'card home-card';
+    ex.dataset.act = 'explorer';
+    ex.innerHTML = `<div class="title">📚 开局浏览器<span class="tag">所有布局 · 所有变招</span></div>
+      <div class="desc">任何一个局面，谱上有哪些走法（主线、变化、变招、错着、邪门）一目了然，每一手讲意义；
+      走出谱以后皮卡鱼接着列候选着。能导入棋谱、FEN，对局里的布局也能拿来查。</div>`;
+    ex.onclick = () => showExplorer();
+    list.appendChild(ex);
     const tk = document.createElement('div');
     tk.className = 'card home-card';
     tk.innerHTML = `<div class="title">🗡 邪门布局破解<span class="tag">${TRICKS.length} 条</span></div>
@@ -1864,9 +1902,11 @@ export function runCoach(
         el.className = 'card home-card';
         el.dataset.opening = o.id;
         const best = openingBest(o.id);
+        const srs = [opSrs()[`${o.id}:r`], opSrs()[`${o.id}:b`]].filter(Boolean);
+        const nextDue = srs.length ? Math.min(...srs.map((x) => x.due)) - todayNum() : null;
         el.innerHTML = `<div class="title">${o.name}<span class="tag">${o.side === 'red' ? '先手' : '后手'}</span>${
           best !== null ? `<span class="tag ${best >= 80 ? 'ok' : 'warn'}">已走 ${best}%</span>` : ''
-        }</div>
+        }${nextDue !== null ? `<span class="tag${nextDue <= 0 ? ' warn' : ''}">${nextDue <= 0 ? '该复习了' : `${nextDue} 天后复习`}</span>` : ''}</div>
           <div class="desc">${o.tag}<br><span class="dim">主线 ${Math.ceil(o.moves.length / 2)} 回合${
             o.variations.length ? ` · ${o.variations.length} 个变化` : ''
           }</span></div>`;
@@ -1885,9 +1925,15 @@ export function runCoach(
 
   function showOpening(o: Opening) {
     clear();
+    // 变招大扩充的数据按需加载：到了以后，还停在这一屏就重画（变招、错着列出来）
+    const before = o.variations.length;
+    void loadOpeningExtras().then(() => {
+      if (o.variations.length !== before && wrap.querySelector(`[data-op-page="${o.id}"]`)) showOpening(o);
+    });
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-report';
     const flagged = o.moves.filter((m) => m.book && m.loss && m.loss >= 60);
+    scr.dataset.opPage = o.id;
     scr.innerHTML = `<h1>${o.name}</h1><div class="sub">${o.tag}</div>
       <div class="xq-advice"><b>核心思路——要记住的是这个</b><p>${o.idea}</p>
         <b>${o.side === 'red' ? '对方怎么破' : '怎么破'}</b><p>${o.breaks}</p>
@@ -1908,21 +1954,30 @@ export function runCoach(
     mk('🎯 你执红走一遍', () => runOpening(o, 'r'), 'op-red');
     mk('🎯 你执黑走一遍', () => runOpening(o, 'b'), 'op-black');
     if (startFrom) mk(`⚔️ 从主线走完的局面实战（你执${o.side === 'red' ? '红' : '黑'}）`, () => playFromOpening(o.moves.map((m) => m.t), o.side === 'red' ? 'r' : 'b'), 'op-play');
-    if (o.variations.length) {
+    const firstAt = o.variations.length ? Math.min(...o.variations.map((v) => v.at)) : 0;
+    mk('📚 在开局浏览器里看：每个分岔点有哪些变招', () => showExplorer(o.moves.slice(0, firstAt).map((m) => m.t), () => showOpening(o)), 'op-explorer');
+    // 变化分两组：原来的变化和变招（和主线差不多一样好）一组，错着（看着自然、其实亏）一组
+    const groups: [string, string, number[]][] = [
+      ['变化和变招', '和主线差不多一样好的另一路走法，每一手讲意义', o.variations.map((v, k) => (v.kind !== 'trap' ? k : -1)).filter((k) => k >= 0)],
+      ['错着', '看着很自然、其实要亏的一手，看对方怎么惩罚', o.variations.map((v, k) => (v.kind === 'trap' ? k : -1)).filter((k) => k >= 0)],
+    ];
+    for (const [title, sub, ks] of groups) {
+      if (!ks.length) continue;
       const h = document.createElement('div');
       h.className = 'xq-sec';
-      h.textContent = '变化';
+      h.innerHTML = `${title}（${ks.length}）<span class="dim">　${sub}</span>`;
       scr.appendChild(h);
-      o.variations.forEach((v, k) => {
+      for (const k of ks.sort((a, b) => o.variations[a].at - o.variations[b].at)) {
+        const v = o.variations[k];
         const row = document.createElement('div');
         row.className = 'card home-card';
         row.dataset.variation = String(k);
-        row.innerHTML = `<div class="title">${v.name}</div><div class="desc">从第 ${Math.floor(v.at / 2) + 1} 回合分出去，再走 ${Math.ceil(
+        row.innerHTML = `<div class="title">${v.name}${v.kind === 'alt' ? '<span class="tag">变招</span>' : v.kind === 'trap' ? '<span class="tag warn">错着</span>' : ''}</div><div class="desc">从第 ${Math.floor(v.at / 2) + 1} 回合分出去，再走 ${Math.ceil(
           v.moves.length / 2,
         )} 回合 · ${v.final}</div>`;
         row.onclick = () => runOpening(o, undefined, k);
         scr.appendChild(row);
-      });
+      }
     }
     const back = document.createElement('button');
     back.className = 'btn ghost';
@@ -1958,7 +2013,7 @@ export function runCoach(
     return v.length ? Math.max(...v) : null;
   };
 
-  function runOpening(o: Opening, guessFor: Color | undefined, variation?: number) {
+  function runOpening(o: Opening, guessFor: Color | undefined, variation?: number, exit?: () => void) {
     clear();
     const host = document.createElement('div');
     host.className = 'xq-coach-stage';
@@ -1968,14 +2023,23 @@ export function runCoach(
     disposeScreen = runReplay(host, {
       title: v ? `${o.name} · ${v.name}` : o.name,
       subtitle: guessFor ? `你执${guessFor === 'r' ? '红' : '黑'}：先自己走，再看原谱（走了别的，皮卡鱼判是不是一样好）` : '讲解：每一手都说明在做什么',
-      intro: v ? `变化：${v.name}。前 ${v.at} 手和主线一样，从这里分出去。` : o.idea,
-      moves: line.map((m) => ({ t: m.t, why: moveNote(m) })),
+      intro: v
+        ? `${v.kind === 'trap' ? '错着' : v.kind === 'alt' ? '变招' : '变化'}：${v.name}。前 ${v.at} 手和主线一样，从这里分出去。${
+            v.kind === 'trap' ? '这一手看着很自然，其实要亏——看对方怎么惩罚。' : v.kind === 'alt' ? '这一手和主线差不多一样好，换一条路走。' : ''
+          }每一手都讲它的意义：防住了什么、威胁什么、引擎怎么看。`
+        : o.idea,
+      moves: line.map((m, i) => ({ t: m.t, why: moveNote(m), known: v ? undefined : knownAt(o, i) })),
       guessFor,
       startAt: v ? v.at : undefined,
       judge: guessFor ? (b, c, mine, exp) => judgeAgainst(b, c, mine, exp) : undefined,
       onFinish: guessFor
         ? (right, tried) => {
-            if (tried) setOpeningScore(`${o.id}:${guessFor}${v ? `:${variation}` : ''}`, Math.round((right / tried) * 100));
+            if (tried) {
+              const pct = Math.round((right / tried) * 100);
+              setOpeningScore(`${o.id}:${guessFor}${v ? `:${variation}` : ''}`, pct);
+              // 主线自己走过一遍，就排进布局复习（间隔重复）
+              if (!v) scheduleOpening(`${o.id}:${guessFor}`, pct);
+            }
             checkIn();
           }
         : undefined,
@@ -1985,7 +2049,90 @@ export function runCoach(
       next: startFrom
         ? { label: '⚔️ 从这里接着下', run: () => playFromOpening(line.map((m) => m.t), guessFor ?? (o.side === 'red' ? 'r' : 'b')) }
         : undefined,
-      onExit: () => showOpening(o),
+      onExit: exit ?? (() => showOpening(o)),
+    });
+  }
+
+  /**
+   * 主线第 i 手那里谱上还收着哪些走法：变招算对，错着说清楚错在哪、对方怎么罚（下一手就是惩罚）。
+   * 执一方自己走主线时用：走到这些不用等皮卡鱼核对。
+   */
+  function knownAt(o: Opening, i: number): { t: string; ok: boolean; note: string }[] | undefined {
+    // 原来的变化里有几条引擎认为差一点（0.6 个兵以上）的，不直接算对，交给皮卡鱼判
+    const fine = (v: Opening['variations'][number]) => v.kind === 'trap' || !((v.moves[0].loss ?? 0) >= 60 || v.moves[0].why.includes('引擎更想走'));
+    const out = o.variations
+      .filter((v) => v.at === i && v.moves[0] && v.moves[0].t !== o.moves[i]?.t && fine(v))
+      .map((v) => {
+        const punish = v.moves[1];
+        return v.kind === 'trap'
+          ? {
+              t: v.moves[0].t,
+              ok: false,
+              note: `这是谱上收着的错着——看着自然，其实要亏${punish ? `：对方走 <b>${punish.t}</b>（${keyNote(punish.why.replace(/<[^>]+>/g, '').split('。')[0])}）` : ''}。布局页"错着"一组里有这一路的全程`,
+            }
+          : { t: v.moves[0].t, ok: true, note: `谱上的${v.kind === 'alt' ? '变招' : '变化'}「${v.name}」，布局页里能看这一路怎么走下去` };
+      });
+    return out.length ? out : undefined;
+  }
+
+  // ---------------- 布局复习（间隔重复） ----------------
+  /**
+   * 参考 Chessable 的 MoveTrainer：学过的谱不复习，过两周就忘。主线自己走过一遍（🎯 执红/执黑走一遍）就排进复习：
+   * 猜中八成以上，下次隔得更久（1 → 3 → 7 → 21 → 60 天）；没到八成，打回明天重来。
+   */
+  const OP_SRS_KEY = 'xq-op-srs';
+  const OP_SRS_DAYS = [1, 3, 7, 21, 60];
+  type OpSrs = Record<string, { box: number; due: number; last: number }>;
+  function opSrs(): OpSrs {
+    try {
+      return JSON.parse(localStorage.getItem(OP_SRS_KEY) ?? '{}') as OpSrs;
+    } catch {
+      return {};
+    }
+  }
+  function scheduleOpening(key: string, pct: number) {
+    const all = opSrs();
+    const cur = all[key];
+    const box = pct >= 80 ? Math.min(OP_SRS_DAYS.length - 1, cur ? cur.box + 1 : 0) : 0;
+    all[key] = { box, due: todayNum() + OP_SRS_DAYS[box], last: pct };
+    try {
+      localStorage.setItem(OP_SRS_KEY, JSON.stringify(all));
+    } catch {
+      /* 存不下就算了 */
+    }
+  }
+  /** 今天到期的布局复习：[布局, 执哪方] */
+  function dueOpenings(): [Opening, Color][] {
+    const all = opSrs();
+    const today = todayNum();
+    return Object.entries(all)
+      .filter(([, x]) => x.due <= today)
+      .sort((a, b) => a[1].due - b[1].due)
+      .map(([k]) => {
+        const [id, side] = k.split(':');
+        const o = OPENINGS.find((x) => x.id === id);
+        return o ? ([o, side as Color] as [Opening, Color]) : null;
+      })
+      .filter((x): x is [Opening, Color] => !!x);
+  }
+  /** 一套一套复习下去，走完一套接下一套 */
+  function runOpeningReview(queue: [Opening, Color][]) {
+    const [head, ...rest] = queue;
+    if (!head) return showOpenings();
+    // 变招数据先到（走到谱上的变招、错着当场认得出、讲解也是新的），加载失败照样开始
+    void loadOpeningExtras().then(() => runOpening(head[0], head[1], undefined, () => (rest.length ? runOpeningReview(rest) : showOpenings())));
+  }
+
+  /** 开局浏览器：谱上所有走法 + 皮卡鱼候选着；startMoves 先走好，back 是返回去哪 */
+  function showExplorer(startMoves?: string[], back?: () => void) {
+    clear();
+    const host = document.createElement('div');
+    host.className = 'xq-coach-stage';
+    wrap.appendChild(host);
+    disposeScreen = runExplorer(host, {
+      startMoves,
+      onExit: back ?? (() => showOpenings()),
+      onPlayFrom: startFrom ? (texts, me) => playFromOpening(texts, me) : undefined,
     });
   }
 

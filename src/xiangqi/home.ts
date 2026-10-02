@@ -16,7 +16,9 @@ import {
   trainingFocus,
   type Profile,
 } from './insight';
-import { listGames, openGame, type ArchivedGame } from './archive';
+import { archiveFromBoard, getGame, listGames, openGame, type ArchivedGame } from './archive';
+import { parseImport, parseMoves } from './explorer';
+import { initialBoard, type Color } from './rules';
 import { ERR_INFO } from './teach';
 import { getLessonLog, themeName } from './tutor';
 import {
@@ -259,10 +261,49 @@ export function renderGameList(
     s.appendChild(list);
   }
 
+  // 导入一盘棋来复盘：天天象棋、东萍、象棋巫师复制出来的中文棋谱都行。导进来的棋照样逐手打分、
+  // 走错的存进错题本，私教也拿它当证据（象棋巫师、东萍"读棋谱"那一块）
+  const imp = document.createElement('button');
+  imp.className = 'btn';
+  imp.dataset.act = 'import-game';
+  imp.textContent = '📥 导入棋谱复盘（天天象棋等复制来的棋谱）';
+  imp.onclick = () => {
+    imp.remove();
+    const form = document.createElement('div');
+    form.className = 'xq-import-form';
+    form.innerHTML = `<b>导入一盘棋</b>
+      <p class="dim">粘贴整盘的中文棋谱，比如"1. 炮二平五 马8进7 2. 马二进三 车9平8 ……"（回合号可有可无）。导进来照样逐手打分、走错的存进错题本，私教也会参考。</p>
+      <textarea rows="6" data-imp-text></textarea>
+      <div class="row">你执：<label><input type="radio" name="imp-side" value="r" checked> 红</label><label><input type="radio" name="imp-side" value="b"> 黑</label></div>
+      <div class="row">结果：<label><input type="radio" name="imp-res" value="win" checked> 赢</label><label><input type="radio" name="imp-res" value="loss"> 输</label><label><input type="radio" name="imp-res" value="draw"> 和</label></div>
+      <div class="err" data-imp-err></div>
+      <button class="btn" data-imp-go>导入并复盘</button>`;
+    s.insertBefore(form, back);
+    (form.querySelector('[data-imp-go]') as HTMLButtonElement).onclick = () => {
+      const text = (form.querySelector('[data-imp-text]') as HTMLTextAreaElement).value;
+      const err = form.querySelector('[data-imp-err]') as HTMLElement;
+      const r = parseImport(text);
+      if (!r.moves || r.moves.length < 4) {
+        err.textContent = r.fen ? '这里要整盘的棋谱（着法），FEN 请到"开局浏览器"里导入。' : r.error ?? '至少要四手棋';
+        return;
+      }
+      const moves = parseMoves(r.moves);
+      if (!moves) {
+        err.textContent = '棋谱走不通';
+        return;
+      }
+      const side = (form.querySelector('input[name="imp-side"]:checked') as HTMLInputElement).value as Color;
+      const result = (form.querySelector('input[name="imp-res"]:checked') as HTMLInputElement).value as ArchivedGame['result'];
+      const id = archiveFromBoard(initialBoard(), 'r', moves, { side, result, level: '导入的棋谱' });
+      const g = getGame(id);
+      if (g) onOpen(g);
+    };
+  };
   const back = document.createElement('button');
   back.className = 'btn ghost';
   back.textContent = '← 返回';
   back.onclick = onBack;
+  s.appendChild(imp);
   s.appendChild(back);
   return () => s.remove();
 }

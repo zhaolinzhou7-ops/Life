@@ -33,6 +33,8 @@ export interface Variation {
   at: number;
   moves: LineMove[];
   final: string;
+  /** 变招（和主线差不多一样好的另一手）还是错着（看着自然、其实亏）；不填是原来的变化 */
+  kind?: 'alt' | 'trap';
 }
 
 export interface Opening {
@@ -64,4 +66,43 @@ export const openingById = (id: string) => OPENINGS.find((o) => o.id === id);
 export function moveNote(m: LineMove): string {
   if (!m.loss || !m.best) return m.why;
   return `${m.why}<br><span class="dim">引擎：这一手比 ${m.best} 差约 ${(m.loss / 100).toFixed(1)} 个兵。</span>`;
+}
+
+/**
+ * 变招大扩充的数据（tools/expand-openings.ts 生成的 openingvars.json）：按需加载——
+ * 二十套布局几百个变招、几千手讲解，不该塞进首屏的包里。
+ *   - 主线、原有变化里引擎延伸的那些手，换成讲意义的说明（防住什么、威胁什么、接下来怎么走、引擎怎么看）；
+ *   - 每个分岔点补上变招（和主线差不多一样好的另一手）、错着（看着自然、其实亏的一手），每条往下走十来手。
+ * 人写的定式说明不动。
+ */
+type Extras = Record<string, { main: (LineMove | null)[]; vars: (LineMove | null)[][]; extra: Variation[] }>;
+let extras: Promise<void> | null = null;
+export function loadOpeningExtras(): Promise<void> {
+  extras ??= import('./openingvars.json')
+    .then((mod) => {
+      const data = (mod as unknown as { default: Extras }).default;
+      for (const o of OPENINGS) {
+        const d = data[o.id];
+        if (!d) continue;
+        // 新讲解自己带着引擎的意见（"引擎更想走 X，这一手差约……"），旧的 loss/best 去掉，免得 moveNote 再挂一遍
+        d.main.forEach((m, i) => {
+          const cur = o.moves[i];
+          if (m && cur && !cur.book && cur.t === m.t) o.moves[i] = { ...cur, why: m.why, loss: undefined, best: undefined };
+        });
+        d.vars.forEach((vs, k) =>
+          vs.forEach((m, i) => {
+            const cur = o.variations[k]?.moves[i];
+            if (m && cur && !cur.book && cur.t === m.t) o.variations[k].moves[i] = { ...cur, why: m.why, loss: undefined, best: undefined };
+          }),
+        );
+        for (const x of d.extra) {
+          if (!o.variations.some((v) => v.at === x.at && v.moves[0]?.t === x.moves[0]?.t)) o.variations.push(x);
+        }
+      }
+    })
+    .catch(() => {
+      // 加载失败（离线、网络断了）：照样用原来的谱，下次再试
+      extras = null;
+    });
+  return extras;
 }

@@ -42,6 +42,7 @@ import {
 import { initCoachProvider } from './llm';
 import { hintOf, showBestHint } from './besthint';
 import { bookMoves, isBookMove } from './book';
+import { identify } from './explorer';
 import { TIER_INFO, gapText } from './tiers';
 import { POWERS, Study, getPower, setPower, type Power } from './study';
 import { classifyEndgame, endgameHeadline, isEndgame } from './endgame';
@@ -1065,7 +1066,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       const s = study && turn === me && !over && study.is(board, me) ? study : null;
       const depth = s ? ` · 已算 ${s.depth} 层${s.done ? '' : '…'}` : '';
       const who = s ? (s.engine === 'pro' ? ' · 专业引擎' : ' · 自带引擎') : '';
-      coachLine.textContent = `🧑‍🏫 教练在看（${HINT_LEVELS[hintLevel].name}）${depth}${who}`;
+      // 布局识别（象棋巫师那样叫得出名字）：开局前二十来个回合显示在这一行里
+      const op = openingTag && moveLog.length <= 40 ? ` · 📖 ${openingTag}` : '';
+      coachLine.textContent = `🧑‍🏫 教练在看（${HINT_LEVELS[hintLevel].name}）${depth}${who}${op}`;
     }
     function setCoachLine(text: string | null, kind: 'warn' | 'good' | 'info' = 'info', ms = 0) {
       clearTimeout(lineTimer);
@@ -1160,8 +1163,27 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       return lb;
     }
 
+    /** 这盘棋是什么布局、还在不在谱上（从标准开局起的才认） */
+    let openingTag = '';
+    const INITIAL_FEN = toFen(initialBoard(), 'r');
+    function refreshOpening() {
+      // 让子局、从残局摆起的练习局不是标准开局，不认布局
+      const fromInitial = startTurn === 'r' && toFen(startSnapshot, 'r') === INITIAL_FEN;
+      if (!fromInitial || !moveLog.length) {
+        openingTag = '';
+        return;
+      }
+      const id = identify(moveLog);
+      if (!id) {
+        openingTag = '';
+        return;
+      }
+      openingTag = id.bookPly >= moveLog.length ? `${id.name} · 谱上` : id.bookPly ? `${id.name} · 第 ${id.bookPly + 1} 手出谱` : id.name;
+    }
+
     /** 棋谱：一行横着滚，永远把最新一手滚到眼前 */
     function refreshLog() {
+      refreshOpening();
       let cur: Board = startSnapshot;
       const parts: string[] = [];
       const offset = startTurn === 'b' ? 1 : 0;

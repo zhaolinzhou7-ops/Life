@@ -18,6 +18,11 @@ export interface ReplayMove {
   why?: string;
   /** 同样正确的其它走法：猜着法时走这些也算对 */
   alts?: string[];
+  /**
+   * 谱上收着的其它走法（布局的变招、错着）：猜着法时走到这些，不用等皮卡鱼，直接说它是什么——
+   * 变招算对；错着算错，并且说清楚错在哪、对方怎么罚。
+   */
+  known?: { t: string; ok: boolean; note: string }[];
 }
 
 export interface ReplayOpts {
@@ -116,8 +121,14 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
     waiting = false;
     sel = null;
     view.setMarks([]);
+    // 谱上收着的变招、错着：直接说它是什么
+    const kn = mine !== real && !alt ? opts.moves[idx].known?.find((k) => k.t === mine) : undefined;
+    if (kn) {
+      alt = kn.ok;
+      judged = kn.note;
+    }
     // 不是原谱、也不在备选里：让皮卡鱼判是不是一样好（谱长了，同样好的着法很多）
-    if (mine !== real && !alt && opts.judge) {
+    if (mine !== real && !alt && !kn && opts.judge) {
       const exp = textToMove(board, turn, real, legalMoves(board, turn));
       if (exp) {
         const at = idx;

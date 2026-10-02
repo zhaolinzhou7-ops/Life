@@ -4566,3 +4566,48 @@ canvas {
 .xq-tutor-habits th, .xq-tutor-habits td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
 .xq-tutor-habits th { color: var(--muted); font-weight: normal; }
 .xq-tutor-lesson { border-color: rgba(64, 196, 255, 0.45); background: rgba(64, 196, 255, 0.07); }
+/* 开局浏览器 */
+.xq-ex .xq-rp-head .s b { color: var(--text); }
+.xq-ex .xq-rp-head .ok { color: var(--ok); }
+.xq-ex .xq-rp-head .warn { color: #e8703d; }
+.xq-ex .xq-rp-trail span[data-jump] { cursor: pointer; }
+.xq-ex-sec { margin: 10px 0 4px; }
+.xq-ex-sec .hd { font-weight: 700; margin: 4px 2px 6px; }
+.xq-ex-sec .dim { color: var(--muted); font-weight: normal; font-size: 12px; }
+.xq-ex-move {
+  display: block; width: 100%; text-align: left; margin: 0 0 6px; padding: 8px 10px;
+  background: var(--panel-solid); color: var(--text); border: 1px solid var(--line); border-radius: 10px; font: inherit; cursor: pointer;
+}
+.xq-ex-move:active { transform: scale(0.99); }
+.xq-ex-move .m { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.xq-ex-move .m b { font-size: 15px; }
+.xq-ex-move .ev { margin-left: auto; font-size: 12px; color: var(--muted); }
+.xq-ex-move .d { font-size: 13px; line-height: 1.6; margin-top: 3px; opacity: 0.9; }
+.xq-ex-move .l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.xq-ex-tag { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); color: var(--muted); }
+.xq-ex-tag.k-main { background: rgba(64, 196, 255, 0.18); color: var(--accent); }
+.xq-ex-tag.k-var, .xq-ex-tag.k-alt { background: rgba(102, 187, 106, 0.18); color: var(--ok); }
+.xq-ex-tag.k-trap, .xq-ex-tag.k-fall { background: rgba(239, 83, 80, 0.18); color: var(--danger); }
+.xq-ex-tag.k-trick { background: rgba(232, 112, 61, 0.2); color: #e8703d; }
+.xq-ex-tag.k-refute { background: rgba(255, 202, 40, 0.18); color: var(--accent2); }
+.xq-ex-import { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+.xq-ex-import .box { background: var(--panel-solid); border: 1px solid var(--line); border-radius: 12px; padding: 14px; width: 100%; max-width: 420px; }
+.xq-ex-import textarea { width: 100%; box-sizing: border-box; margin: 8px 0; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; }
+.xq-ex-import .err { color: var(--danger); font-size: 13px; min-height: 1em; }
+.xq-ex-import .row { display: flex; gap: 8px; margin-top: 6px; }
+.xq-ex-import .row .xq-btn { flex: 1; }
+/* 复盘：布局名、找回好棋 */
+.xq-rv-opening { font-size: 13px; margin: 2px 0 6px; color: var(--muted); }
+.xq-rv-opening b { color: var(--text); }
+.xq-rv-retry {
+  display: block; width: 100%; margin: 6px 0; padding: 8px 10px; border-radius: 10px; font: inherit; font-size: 14px; cursor: pointer;
+  background: rgba(102, 187, 106, 0.14); color: var(--ok); border: 1px solid rgba(102, 187, 106, 0.4); text-align: left;
+}
+.xq-retry { position: fixed; inset: 0; z-index: 70; background: var(--bg); display: flex; flex-direction: column; height: var(--app-h, 100dvh); }
+.xq-retry-host { flex: 1; min-height: 0; position: relative; overflow: auto; }
+.xq-retry-end { text-align: center; padding: 40px 16px; }
+.xq-import-form { background: var(--panel-solid); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 8px 0; text-align: left; }
+.xq-import-form textarea { width: 100%; box-sizing: border-box; margin: 6px 0; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; }
+.xq-import-form .row { display: flex; gap: 12px; align-items: center; margin: 6px 0; font-size: 14px; }
+.xq-import-form .err { color: var(--danger); font-size: 13px; min-height: 1em; }
+.xq-import-form .dim { color: var(--muted); font-size: 13px; }

@@ -50,7 +50,7 @@ export function noteMove(before: Board, m: Move, mover: Color): string {
         break;
       case 'H':
         if (from === 0) parts.push(m.tx === 0 || m.tx === 8 ? '跳边马' : '跳正马出动');
-        else if (m.tx === 4 && to <= 4) parts.push('盘头马，支援中路');
+        else if (m.tx === 4 && to <= 4) parts.push(fwd > 0 ? '盘头马，支援中路' : '马退到中路，加强中防');
         else if (to === 4) parts.push('马跃河口');
         else if (from < 5 && to >= 5) parts.push('马过河，伺机踩卒、卧槽');
         else if (to >= 7) parts.push('马深入对方九宫附近');
@@ -94,11 +94,20 @@ export function noteMove(before: Board, m: Move, mover: Color): string {
   // 捉子：走完之后对方新出现的被捉的子。只说车马炮兵——"捉士""捉相"多半是顺带的，说出来反而让人摸不着头脑
   const before2 = new Set(hangingPieces(before, opp).map((h) => `${h.x},${h.y}`));
   const caught = hangingPieces(after, opp).filter((h) => !before2.has(`${h.x},${h.y}`) && 'RHCP'.includes(after[h.y][h.x]!.t));
-  if (caught.length >= 3) parts.push(`同时捉住${caught.map((h) => nm(after[h.y][h.x]!.t, opp)).join('、')}`);
-  else if (caught.length === 2) parts.push(`一手捉住${caught.map((h) => nm(after[h.y][h.x]!.t, opp)).join('和')}`);
+  if (caught.length >= 3) parts.push(`同时捉住${countNames(caught.map((h) => nm(after[h.y][h.x]!.t, opp)))}`);
+  else if (caught.length === 2) parts.push(`一手捉住${countNames(caught.map((h) => nm(after[h.y][h.x]!.t, opp)))}`);
   else if (caught.length === 1) parts.push(`捉${nm(after[caught[0].y][caught[0].x]!.t, opp)}`);
   if (intents.includes('escape')) parts.push('把被捉的子挪开');
   else if (intents.includes('defend')) parts.push('顺手保护了被捉的子');
   if (isInCheck(before, mover) && !parts.includes('将军')) parts.push('应将');
   return parts.join('，') + '。';
+}
+
+const CN = ['', '一', '两', '三', '四', '五'];
+/** 几个子的名字连起来说："马、卒、卒" → "马和两个卒"，"卒、卒" → "两个卒" */
+export function countNames(names: string[]): string {
+  const seen = new Map<string, number>();
+  for (const n of names) seen.set(n, (seen.get(n) ?? 0) + 1);
+  const items = [...seen].map(([n, k]) => (k === 1 ? n : `${CN[k] ?? k}个${n}`));
+  return items.length === 1 ? items[0] : `${items.slice(0, -1).join('、')}和${items[items.length - 1]}`;
 }
