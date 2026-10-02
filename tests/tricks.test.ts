@@ -4,7 +4,7 @@
  * 这里锁死的是数据本身的一致性。
  */
 import { describe, expect, it } from 'vitest';
-import { TRICKS, lineToTrap, refuteLine, trapLine, trickAt, trickMoveFor, trickStageAt, walkMoves } from '../src/xiangqi/tricks';
+import { TRICKS, ledger, lineToTrap, pitfalls, refuteLine, sacrificeAt, trapLine, trickAt, trickMoveFor, trickStageAt, walkMoves } from '../src/xiangqi/tricks';
 import { bookMoves, isBookMove } from '../src/xiangqi/book';
 import { initialBoard, legalMoves, statusAfter } from '../src/xiangqi/rules';
 import { moveToText, textToMove } from '../src/xiangqi/notation';
@@ -28,7 +28,7 @@ describe('邪门布局数据', () => {
 
   it('江湖上最常碰到的几种都收了', () => {
     const names = TRICKS.map((t) => t.name).join(' ');
-    for (const n of ['敢死炮', '铁滑车', '双铁滑车', '叠炮', '瞎眼狗']) expect(names, n).toContain(n);
+    for (const n of ['弃马十三着', '敢死炮', '铁滑车', '双铁滑车', '急进中兵', '叠炮', '瞎眼狗', '龟背炮']) expect(names, n).toContain(n);
     // 敢死炮红黑两边都有
     expect(TRICKS.filter((t) => t.name.includes('敢死炮')).map((t) => t.by).sort()).toEqual(['b', 'r']);
   });
@@ -88,12 +88,14 @@ describe('陪练走邪门布局', () => {
     expect(r!.move).toEqual(w.moves[0]);
   });
 
-  it('挑定了一条就一直走它', () => {
-    const t = TRICKS.find((x) => x.id === 'shunpao-zhongzu-check')!;
+  it('挑定了一条就一直走它：弃马十三着十步铺垫一手不差', () => {
+    const t = TRICKS.find((x) => x.id === 'qima-shisan')!;
     const w = walkMoves(['炮二平五', '炮8平5'])!;
     const r = trickMoveFor(w.moves, 'r', t.id);
     expect(r?.trick.id).toBe(t.id);
-    expect(moveToText(w.board, r!.move)).toBe('炮五进四');
+    expect(moveToText(w.board, r!.move)).toBe('马二进三');
+    const w2 = walkMoves(t.pre)!;
+    expect(moveToText(w2.board, trickMoveFor(w2.moves, 'r', t.id)!.move)).toBe('车九进一');
   });
 
   it('你一架中炮，黑方的几条套路都能接上', () => {
@@ -107,10 +109,10 @@ describe('陪练走邪门布局', () => {
   });
 
   it('敢死炮：你吃了炮，它还会按套路跳马出车来捉，把你带到第二关', () => {
-    const w = walkMoves(['炮八进二', '马2进3', '炮八平二', '炮8进5'])!;
+    const w = walkMoves(['炮二进二', '炮8平5', '炮二平八', '炮2进5'])!;
     const r = trickMoveFor(w.moves, 'r', 'gansipao-red');
     expect(r?.trick.id).toBe('gansipao-red');
-    expect(moveToText(w.board, r!.move)).toBe('马二进三');
+    expect(moveToText(w.board, r!.move)).toBe('马八进七');
   });
 
   it('铁滑车：开局车一进一，单、双铁滑车都能接上', () => {
@@ -146,10 +148,10 @@ describe('破解算定式', () => {
   });
 
   it('备选破法在求助里配的是它自己的理由，不套用正解的', () => {
-    const w = walkMoves(['炮二平五', '炮2进7'])!;
-    const alt = bookMoves(w.board, w.color).find((b) => b.text === '车九平八')!;
-    expect(alt.why).toContain('吃回');
-    expect(alt.why).not.toContain('不急着');
+    const w = walkMoves(['炮二平五', '车1进1'])!;
+    const alt = bookMoves(w.board, w.color).find((b) => b.text === '炮五进四')!;
+    expect(alt.why).toContain('中卒');
+    expect(alt.why).not.toContain('马是白送的');
   });
 
   it('第二关的破解也算定式：求助里以它领衔，教练不拦', () => {
@@ -215,5 +217,62 @@ describe('套路讲透', () => {
 
   it('"破了之后"从破解的关键一手讲起', () => {
     for (const t of TRICKS) expect(t.anatomy.after, t.id).toContain(t.refute[t.trapAfter ?? 0].t);
+  });
+});
+
+describe('宁失一子，不失一先：账本和坑', () => {
+  // 用户原话："讲究的是'宁失一子，不失一先'……要以象棋棋王的水平去破解，把这几个布局的精髓给讲透。"
+  it('每一条都写了精髓', () => {
+    for (const t of TRICKS) expect(t.essence.length, t.id).toBeGreaterThan(80);
+  });
+
+  it('账本：上当、破解两条线每一手都有子力差和局面分', () => {
+    for (const t of TRICKS) {
+      for (const w of ['trap', 'refute'] as const) {
+        const L = ledger(t, w);
+        expect(L.score.length, `${t.id} ${w}`).toBeGreaterThan(t.pre.length + 2);
+        expect(L.material.length, `${t.id} ${w}`).toBe(L.score.length);
+      }
+    }
+  });
+
+  it('真弃了子的套路：吃到手那一刻他的子力少了，局面分却没少那么多——差出来的就是先手', () => {
+    const sac = ['tiehuache', 'shuang-tiehuache', 'gansipao-red', 'diepao', 'qima-shisan', 'tiehuache-black', 'gansipao-black', 'xiayangou'];
+    for (const id of sac) {
+      const t = TRICKS.find((x) => x.id === id)!;
+      const s = sacrificeAt(t);
+      expect(s, id).not.toBeNull();
+      expect(s!.material, id).toBeLessThan(-90);
+    }
+    // 红方这几套的先手是实打实的（黑方的几套，引擎看送的子换不回多少先手，界面上照实说）
+    for (const id of ['tiehuache', 'shuang-tiehuache', 'gansipao-red', 'diepao', 'qima-shisan']) {
+      const s = sacrificeAt(TRICKS.find((x) => x.id === id)!)!;
+      expect(s.score, `${id} 局面分比子力差高`).toBeGreaterThan(s.material);
+    }
+    // 弃马十三着：少一个马，引擎却判他领先
+    const q = sacrificeAt(TRICKS.find((x) => x.id === 'qima-shisan')!)!;
+    expect(q.material).toBeLessThanOrEqual(-400);
+    expect(q.score).toBeGreaterThan(0);
+  });
+
+  it('坑：深算标出来的错着里有上当那一手；弃马十三着两个坑（吃马、退马）', () => {
+    for (const t of TRICKS) {
+      const ps = pitfalls(t);
+      const fork = lineToTrap(t).length;
+      expect(ps.some((p) => p.ply === fork && p.played === t.trap[0].t), t.id).toBe(true);
+    }
+    const q = pitfalls(TRICKS.find((x) => x.id === 'qima-shisan')!).map((p) => p.played);
+    expect(q).toEqual(['炮2进7', '马7退8']);
+  });
+
+  it('其它常见错着写在破解方该走的位置上', () => {
+    for (const t of TRICKS) {
+      for (const w of t.wrong ?? []) {
+        expect(w.at % 2, `${t.id} ${w.t}`).toBe(0);
+        const p = walkMoves([...t.pre, t.trick.t, ...t.refute.slice(0, w.at).map((s) => s.t)])!;
+        expect(textToMove(p.board, p.color, w.t, legalMoves(p.board, p.color)), `${t.id} ${w.t}`).not.toBeNull();
+        expect(w.loss, `${t.id} ${w.t}`).toBeGreaterThanOrEqual(120);
+      }
+    }
   });
 });

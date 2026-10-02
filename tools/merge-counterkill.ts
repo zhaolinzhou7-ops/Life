@@ -14,11 +14,14 @@ import fs from 'fs';
 import { fromFen, textToMove } from '../src/xiangqi/notation';
 import { applyMove, isInCheck, legalMoves, type Board, type Color } from '../src/xiangqi/rules';
 import { PIECE_VALUE } from '../src/xiangqi/teach';
+import { startPikafish } from './pikafish-node';
+import { parseInfo, type PvLine } from '../src/xiangqi/pikafish';
 
 const CACHE = 'node_modules/.cache';
 const OUT = 'src/xiangqi/counterkill.json';
 
 type Rec = {
+  seeDepth?: number;
   id: string;
   fen: string;
   mateIn: number;
@@ -38,9 +41,27 @@ function material(b: Board, c: Color): number {
   return s;
 }
 
-/** 第几章：按步数 */
+/**
+ * 第几章：按步数。两步杀不收了——用户原话："你现在做的残局有点太简单了（包括闯关模式），深度还需要再深入一些。"
+ * 3 步 / 4 步 / 5 步 / 6–7 步 / 8–9 步 / 10 步以上
+ */
 export function chapterOf(n: number): number {
-  return n <= 2 ? 1 : n === 3 ? 2 : n === 4 ? 3 : n === 5 ? 4 : 5;
+  return n <= 3 ? 1 : n === 4 ? 2 : n === 5 ? 3 : n <= 7 ? 4 : n <= 9 ? 5 : 6;
+}
+const MIN_STEPS = 3;
+
+const e = await startPikafish(64);
+/** 浅算几层才看得出这是红方的杀（老数据没有这一项，合并时补算） */
+function seeDepthOf(fen: string): number {
+  e.send('ucinewgame');
+  e.send('setoption name MultiPV value 1');
+  e.send(`position fen ${fen} - - 0 1`);
+  for (let d = 3; d <= 40; d++) {
+    const ls = e.send(`go depth ${d}`).map(parseInfo).filter((x): x is PvLine => !!x && !x.bound);
+    const top = ls[ls.length - 1];
+    if (top && top.mateIn !== undefined && top.mateIn > 0) return d;
+  }
+  return 40;
 }
 
 const recs: Rec[] = [];
@@ -51,8 +72,13 @@ for (const f of fs.readdirSync(CACHE).filter((n) => /^counterkill-\d+\.jsonl$/.t
 const why: Record<string, number> = {};
 const drop = (k: string) => (why[k] = (why[k] ?? 0) + 1);
 const seen = new Set<string>();
+const seenSig = new Set<string>();
 const out: (Rec & { chapter: number; rating: number })[] = [];
 for (const r of recs) {
+  if (r.mateIn < MIN_STEPS) {
+    drop('太短');
+    continue;
+  }
   if (seen.has(r.fen)) {
     drop('局面重复');
     continue;
@@ -97,14 +123,22 @@ for (const r of recs) {
     drop('解法走不到将死');
     continue;
   }
-  if (quiet > 2 || quiet !== r.quiet) {
+  if (quiet > 3 || quiet !== r.quiet) {
     drop('闲着太多');
     continue;
   }
+  // 同一路杀法（红方着法一样）只换了个无关的子：只留一关
+  const sig = r.line.filter((_, i) => i % 2 === 0).join(' ');
+  if (seenSig.has(sig)) {
+    drop('同一路杀法');
+    continue;
+  }
+  seenSig.add(sig);
   seen.add(r.fen);
-  // 难度：步数为主，中间有不将军的"闲着"更难看到，再加一点
-  const rating = Math.min(2200, 760 + (r.mateIn - 1) * 180 + quiet * 120);
-  out.push({ ...r, chapter: chapterOf(r.mateIn), rating });
+  // 难度：步数为主；中间有不将军的"闲着"更难看到；引擎浅算要很多层才看得见的，再加
+  const seeDepth = r.seeDepth ?? seeDepthOf(r.fen);
+  const rating = Math.min(2600, 760 + (r.mateIn - 1) * 150 + quiet * 110 + Math.max(0, seeDepth - r.mateIn * 2 + 1) * 25);
+  out.push({ ...r, seeDepth, chapter: chapterOf(r.mateIn), rating });
 }
 
 // 章内由易到难：步数、闲着、子力多的（更难看清）排后面；最难的那一道放最后当关底
@@ -113,3 +147,4 @@ fs.writeFileSync(OUT, JSON.stringify(out));
 const by: Record<number, number> = {};
 for (const r of out) by[r.chapter] = (by[r.chapter] ?? 0) + 1;
 console.log(`绝地反杀：${out.length} 道（丢掉：${JSON.stringify(why)}）`, by);
+process.exit(0);

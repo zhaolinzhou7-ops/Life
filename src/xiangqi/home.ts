@@ -18,6 +18,7 @@ import {
 } from './insight';
 import { listGames, openGame, type ArchivedGame } from './archive';
 import { ERR_INFO } from './teach';
+import { getLessonLog, themeName } from './tutor';
 import {
   DIM_INFO,
   DIMS,
@@ -43,6 +44,8 @@ export interface HomeActions {
   /** 打开某一盘的复盘；没传 id 就打开最近一盘 */
   onReview: (id?: string) => void;
   onLevel: () => void;
+  /** 私教：一节课只讲一件事 */
+  onTutor?: () => void;
   onExit: () => void;
   /**
    * 有一盘没下完的棋（被系统杀掉的后台页面、刷新、手滑关掉）。
@@ -182,6 +185,22 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
       act.onLevel,
     ),
   );
+
+  // ⑥ 私教
+  if (act.onTutor) {
+    const lessons = getLessonLog();
+    const cur = lessons[lessons.length - 1];
+    list.appendChild(
+      card(
+        '🧑‍🏫 私教',
+        cur
+          ? `上一课「${themeName(cur.theme)}」${cur.done.length < cur.steps ? `还差 ${cur.steps - cur.done.length} 步没上完` : '上完了，下节课先检查作业'}。先看你的实战再开口，一节课只讲一件事。`
+          : '先看你的实战再开口：你在哪类错误上丢分最多，就从哪一课讲起——三条要点、用你自己走错的局面练、带练一盘，下节课先检查作业。',
+        cur && cur.done.length < cur.steps ? '上课中' : '',
+        act.onTutor,
+      ),
+    );
+  }
 
   s.appendChild(list);
 

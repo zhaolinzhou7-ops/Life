@@ -28,29 +28,37 @@ await page.getByText('🗡 邪门布局破解').first().click(); await page.wait
 const cards = await page.locator('[data-trick]').count();
 console.log(`   套路：${cards} 条`);
 ok('专项练习里找得到邪门布局破解，列出了套路', cards >= 8);
-await page.locator('[data-trick="hei-pao-zhongbing-check"]').click(); await page.waitForTimeout(300);
+await page.locator('[data-trick="jijin-zhongbing"]').click(); await page.waitForTimeout(300);
 const detail = (await page.locator('.xq-coach-report').innerText()).replace(/\s+/g, ' ');
 console.log('   详情：' + detail.slice(0, 200));
-ok('详情讲了套路、破解、道理和引擎复核', detail.includes('它在赌什么') && detail.includes('马三进五') && detail.includes('引擎复核'));
+ok('详情讲了套路、破解、道理和引擎复核', detail.includes('它在赌什么') && detail.includes('炮2平5') && detail.includes('引擎复核'));
+const led = (await page.locator('[data-ledger]').innerText()).replace(/\s+/g, ' ');
+console.log('   账本：' + led.slice(0, 160));
+ok('有"宁失一子，不失一先"的账本：精髓 + 子力/局面分曲线', led.includes('宁失一子') && led.includes('空头炮') && (await page.locator('[data-ledger] svg path.ev').count()) === 1);
 await page.screenshot({ path: OUT + '/tricks-detail.png' });
 
 // 看上当会怎样
 await page.locator('[data-act="trick-trap"]').click(); await page.waitForTimeout(300);
-for (let i = 0; i < 8; i++) { const b = page.locator('#rp-next'); if (!(await b.count())) break; await b.click(); await page.waitForTimeout(120); }
+let warned = false;
+for (let i = 0; i < 12; i++) {
+  const b = page.locator('#rp-next'); if (!(await b.count())) break; await b.click(); await page.waitForTimeout(120);
+  if ((await page.evaluate(() => window.__xqReplay.say())).includes('坑')) warned = true;
+}
 const trapSay = await page.locator('.xq-rp-trail').innerText();
-ok('上当那一段走得通（走到了垫仕）', trapSay.includes('仕四进五'));
+ok('上当那一段走得通（顶卒 → 空头炮 → 双炮叠中）', trapSay.includes('卒5进1') && trapSay.includes('炮五进三') && trapSay.includes('炮八平五'));
+ok('上当那一步当场点出来："坑：这里该走……"', warned);
 await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
 
 // 你来破解
 await page.locator('[data-act="trick-guess"]').click(); await page.waitForTimeout(300);
 const trail0 = await page.locator('.xq-rp-trail').innerText();
-ok('套路那几手已经摆好（不用你猜）', trail0.includes('炮5进4'));
+ok('套路那几手已经摆好（不用你猜）', trail0.includes('兵五进一'));
 await page.locator('#rp-next').click(); await page.waitForTimeout(200);
 ok('轮到你破解', await page.evaluate(() => window.__xqReplay.waiting()));
-await page.evaluate(() => window.__xqReplay.guess('马三进五'));
+await page.evaluate(() => window.__xqReplay.guess('炮2平5'));
 await page.waitForTimeout(200);
 const say1 = await page.evaluate(() => window.__xqReplay.say());
-console.log('   你走 马三进五：' + say1.slice(0, 60));
+console.log('   你走 炮2平5：' + say1.slice(0, 60));
 ok('走对了', say1.includes('猜对了'));
 // 破解谱现在走十几个回合（人写的几手 + 皮卡鱼延伸）：后面照谱一手一手走完
 for (let i = 0; i < 60; i++) {
@@ -63,36 +71,41 @@ for (let i = 0; i < 60; i++) {
   }
   await page.waitForTimeout(150);
 }
-ok('全对之后记为"已破"', await until(page, () => (localStorage.getItem('xq-tricks-done') ?? '').includes('hei-pao-zhongbing-check'), null, 3000));
+ok('全对之后记为"已破"', await until(page, () => (localStorage.getItem('xq-tricks-done') ?? '').includes('jijin-zhongbing'), null, 3000));
 await page.screenshot({ path: OUT + '/tricks-guess.png' });
 
-// ───────── 1b. 敢死炮：送的炮该吃，坑在第二关 ─────────
+// ───────── 1b. 铁滑车：送的马该吃，坑在第二关 ─────────
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
 await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(700);
 if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(600); }
 await page.getByText('🗡 邪门布局破解').first().click(); await page.waitForTimeout(500);
 const listText = await page.locator('.xq-coach-report').innerText();
-ok('列表里有敢死炮、铁滑车、叠炮、瞎眼狗', ['敢死炮', '铁滑车', '双铁滑车', '叠炮', '瞎眼狗'].every((n) => listText.includes(n)));
-ok('敢死炮标着"两关"', (await page.locator('[data-trick="gansipao-red"]').innerText()).includes('两关'));
-await page.locator('[data-trick="gansipao-red"]').click(); await page.waitForTimeout(300);
+ok('列表里有弃马十三着、敢死炮、铁滑车、急进中兵、叠炮、瞎眼狗、龟背炮', ['弃马十三着', '敢死炮', '铁滑车', '双铁滑车', '急进中兵', '叠炮', '瞎眼狗', '龟背炮'].every((n) => listText.includes(n)));
+ok('原来那些"炮打中卒"不再算邪门布局', !listText.includes('开局炮打中卒') && !listText.includes('炮打底马') && !listText.includes('炮打中兵将军'));
+ok('铁滑车标着"两关"', (await page.locator('[data-trick="tiehuache"]').innerText()).includes('两关'));
+await page.locator('[data-trick="tiehuache"]').click(); await page.waitForTimeout(300);
 const gs = (await page.locator('.xq-coach-report').innerText()).replace(/\s+/g, ' ');
-console.log('   敢死炮：' + gs.slice(0, 260));
-ok('敢死炮详情：第一步吃（炮8进5），第二关回窝心马（马3退5）', gs.includes('炮8进5') && gs.includes('第二关') && gs.includes('马3退5'));
-ok('每一手的意思讲出来了：巡河炮是敢死炮的第一步', gs.includes('每一手的意思') && gs.includes('敢死炮的第一步'));
+console.log('   铁滑车：' + gs.slice(0, 260));
+ok('铁滑车详情：第一步吃（炮8进7），第二关先躲（炮8平9）', gs.includes('炮8进7') && gs.includes('第二关') && gs.includes('炮8平9'));
+ok('每一手的意思讲出来了：车一进一是故意送马', gs.includes('每一手的意思') && gs.includes('故意送的'));
+const led2 = (await page.locator('[data-ledger]').innerText()).replace(/\s+/g, ' ');
+console.log('   账本：' + led2.slice(0, 220));
+ok('账本算出了先手的价钱：子力少了多少、局面分落后多少、差多少', /少了 \d+\.\d 个兵/.test(led2) && led2.includes('先手'));
 const ana = (await page.locator('[data-anatomy]').innerText()).replace(/\s+/g, ' ');
 console.log('   陷阱拆解：' + ana.slice(0, 160));
-ok('陷阱拆解：表面上、陷阱在哪、上当之后、怎么认出来都在', ['表面上', '陷阱在哪', '上当之后', '怎么认出来'].every((k) => ana.includes(k)) && ana.includes('炮8退1'));
+ok('陷阱拆解：表面上、陷阱在哪、上当之后、怎么认出来都在', ['表面上', '陷阱在哪', '上当之后', '怎么认出来'].every((k) => ana.includes(k)) && ana.includes('车二退一'));
+ok('坑在哪几步（深算标出来的）和其它常见错着（贪吃仕）都列了', (await page.locator('[data-pitfalls] li').count()) >= 1 && ana.includes('炮8平6'));
 ok('讲了破了之后他会怎么走', gs.includes('破了之后他会怎么走'));
-await page.screenshot({ path: OUT + '/tricks-gansipao.png' });
+await page.screenshot({ path: OUT + '/tricks-tiehuache.png', fullPage: true });
 await page.locator('[data-act="trick-trap"]').click(); await page.waitForTimeout(300);
 ok('上当演示先说明"前面是对的，坑在后面"', (await page.locator('.xq-coach-stage').innerText()).includes('坑在后面'));
 for (let i = 0; i < 12; i++) { const b = page.locator('#rp-next'); if (!(await b.count())) break; await b.click(); await page.waitForTimeout(120); }
 const gsTrap = await page.locator('.xq-rp-trail').innerText();
-ok('上当那一段：吃了炮、舍不得往回退、被车吃回', gsTrap.includes('炮8进5') && gsTrap.includes('炮8退1') && gsTrap.includes('车二进三'));
+ok('上当那一段：吃了马、只顾出子、被车吃回', gsTrap.includes('炮8进7') && gsTrap.includes('卒3进1') && gsTrap.includes('车二退一'));
 await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
 await page.locator('[data-act="trick-guess"]').click(); await page.waitForTimeout(300);
-const answers = ['炮8进5', '马3退5', '炮2平8'];
+const answers = ['炮8进7', '马8进7', '炮8平9'];
 let got = 0;
 let mine = 0;
 for (let i = 0; i < 60; i++) {
@@ -112,8 +125,8 @@ for (let i = 0; i < 60; i++) {
     await page.waitForTimeout(150);
   }
 }
-console.log(`   敢死炮破解一共走了 ${mine} 手`);
-ok('两关都自己走对（炮8进5 → 马3退5 → 炮2平8），破解谱走到底（十手以上），记为"已破"', got === 3 && mine >= 10 && (await until(page, () => (localStorage.getItem('xq-tricks-done') ?? '').includes('gansipao-red'), null, 3000)));
+console.log(`   铁滑车破解一共走了 ${mine} 手`);
+ok('两关都自己走对（炮8进7 → 马8进7 → 炮8平9），破解谱走到底（十手以上），记为"已破"', got === 3 && mine >= 10 && (await until(page, () => (localStorage.getItem('xq-tricks-done') ?? '').includes('tiehuache'), null, 3000)));
 
 // ───────── 2. 对局：对手走邪门布局，教练点破，破解那一手不拦 ─────────
 await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -124,9 +137,9 @@ await page.locator('[data-tricky="1"]').click();
 await page.getByText('执红先行').first().click();
 await page.getByText('开始对弈').first().click(); await page.waitForTimeout(800);
 ok('设置记住了"邪门布局"', (await page.evaluate(() => localStorage.getItem('xq-tricky'))) === '1');
-// 你走 炮二平五、马二进三、车一平二：黑方的四条套路都从这三步里长出来
+// 你走 炮二平五、马二进三、车一平二、车二进六：黑方的三条套路（铁滑车、敢死炮、龟背炮）都从这几步里长出来
 let hit = '';
-for (const t of ['炮二平五', '马二进三', '车一平二']) {
+for (const t of ['炮二平五', '马二进三', '车一平二', '车二进六']) {
   await until(page, () => window.__xq.turn() === 'r' && !window.__xq.state().busy, null, 20000);
   const line = await page.evaluate(() => window.__xq.coachLine());
   if (line.includes('邪门布局')) { hit = line; break; }
@@ -156,9 +169,10 @@ await page.locator('.xq-besthint [data-act="close"]').click();
 
 // 走破解那一手：教练不拦
 const name = hit.match(/「(.+?)」/)?.[1];
-const refute = await page.evaluate(async (n) => {
+const [refute, trickMove] = await page.evaluate(async (n) => {
   const T = await import('/Life/src/xiangqi/tricks.ts');
-  return T.TRICKS.find((t) => t.name === n)?.refute[0].t ?? null;
+  const t = T.TRICKS.find((x) => x.name === n);
+  return [t?.refute[0].t ?? null, t?.trick.t ?? null];
 }, name);
 const before = await page.evaluate(() => window.__xq.moves().length);
 const mv = await page.evaluate((tx) => window.__xq.legal().find((m) => window.__xq.textOf(m) === tx) ?? null, refute);
@@ -179,9 +193,10 @@ await page.waitForTimeout(300);
 const rv = (await page.locator('.xq-rv-detail').innerText()).replace(/\s+/g, ' ');
 console.log('   复盘：' + rv.slice(0, 120));
 ok('复盘里你那一手标着"破解成功"', rv.includes('破解成功'));
-await page.locator('.xq-rv-item').nth(before - 1).click();
+// 复盘列表点一手之后会围着这一手重排，不能再按序号点：按对方那一手邪门着的记谱找
+await page.locator('.xq-rv-item', { hasText: trickMove }).first().click();
 await page.waitForTimeout(300);
-ok('复盘里对方那一手标着邪门布局', (await page.locator('.xq-rv-detail').innerText()).includes('邪门布局'));
+ok(`复盘里对方那一手（${trickMove}）标着邪门布局`, (await page.locator('.xq-rv-detail').innerText()).includes('邪门布局'));
 await page.screenshot({ path: OUT + '/tricks-review.png' });
 
 await browser.close();

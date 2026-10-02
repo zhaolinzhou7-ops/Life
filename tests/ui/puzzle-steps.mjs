@@ -111,7 +111,7 @@ await page.waitForTimeout(600);
 ok('下完回到学棋首页', (await page.locator('.xq-po').count()) === 0);
 
 // ───────── 5. 邪门布局：破解到底 ─────────
-await page.evaluate(() => window.__xqCoach.trickFull('tiehuache-zhongpao'));
+await page.evaluate(() => window.__xqCoach.trickFull('tiehuache'));
 await page.waitForTimeout(800);
 ok('破解到底：摆好破解之后的局面，对手是皮卡鱼', (await page.locator('.xq-po').count()) === 1 && (await page.locator('.xq-po-opp').innerText()).includes('皮卡鱼'));
 ok('目标：将死或者胜势已定', (await page.locator('.xq-po-goal').innerText()).includes('胜势已定'));

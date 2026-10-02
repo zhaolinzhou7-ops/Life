@@ -4472,6 +4472,25 @@ canvas {
 .xq-trick-steps li { margin: 3px 0; }
 .xq-trick-anatomy { border-color: rgba(232, 112, 61, 0.45); background: rgba(232, 112, 61, 0.07); }
 .xq-trick-anatomy p { margin: 6px 0 0; }
+.xq-ledger-box { border-color: rgba(255, 202, 40, 0.4); background: rgba(255, 202, 40, 0.06); }
+.xq-ledger { display: block; width: 100%; max-width: 420px; height: auto; margin: 8px auto 2px; }
+.xq-ledger line.g { stroke: var(--line); stroke-width: 1; }
+.xq-ledger line.z { stroke: var(--muted); stroke-width: 1; opacity: 0.6; }
+.xq-ledger line.fork { stroke: var(--accent2); stroke-width: 1; stroke-dasharray: 3 3; }
+.xq-ledger text { fill: var(--muted); font-size: 9px; }
+.xq-ledger text.lbl { fill: var(--muted); }
+.xq-ledger path { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.xq-ledger path.ev { stroke: var(--danger); }
+.xq-ledger path.mat { stroke: var(--text); stroke-dasharray: 4 3; stroke-width: 1.5; opacity: 0.75; }
+.xq-ledger path.rf { stroke: var(--ok); stroke-width: 1.5; opacity: 0.85; }
+.xq-ledger .ev-dot { fill: var(--danger); }
+.xq-ledger .mat-dot { fill: var(--text); }
+.xq-ledger .rf-dot { fill: var(--ok); }
+.xq-ledger-legend { font-size: 12px; color: var(--muted); }
+.xq-ledger-legend span { margin-right: 10px; white-space: nowrap; }
+.xq-ledger-legend .ev { color: var(--danger); }
+.xq-ledger-legend .mat { color: var(--text); }
+.xq-ledger-legend .rf { color: var(--ok); }
 
 /* 绝地反杀：对方已经有杀棋的警示条 */
 .xq-tr-threat {
@@ -4543,3 +4562,7 @@ canvas {
   margin: 6px 0 4px;
   color: #ffd76e;
 }
+.xq-tutor-habits { width: 100%; border-collapse: collapse; font-size: 13px; margin: 6px 0 2px; }
+.xq-tutor-habits th, .xq-tutor-habits td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.xq-tutor-habits th { color: var(--muted); font-weight: normal; }
+.xq-tutor-lesson { border-color: rgba(64, 196, 255, 0.45); background: rgba(64, 196, 255, 0.07); }

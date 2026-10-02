@@ -58,6 +58,7 @@ import {
   calibratePuzzle,
   calibratedCount,
   effectiveRating,
+  getOwnPuzzles,
   type Dim,
 } from './save';
 import { Assessment, diagnose, type AssessResult } from './assess';
@@ -70,8 +71,11 @@ import { runQuiz, tapThreatened, tapLoose, choiceQuestion, judgeQuestion, nameQu
 import type { Color, Move } from './rules';
 import { OPENINGS, SYSTEM_ORDER, moveNote, type Opening } from './openings';
 import { judgeAgainst } from './altjudge';
-import { TRICKS, refuteLine, trapLine, walkMoves, type TrickOpening } from './tricks';
+import { TRICKS, ledger, lineToTrap, pitfalls, refuteLine, sacrificeAt, trapLine, walkMoves, type TrickOpening } from './tricks';
 import { outlookOf } from './plan';
+import { listGames } from './archive';
+import { setHintLevel, getHintLevel } from './livecoach';
+import { CHECK_GAMES, checkLesson, closeIntro, getLessonLog, habitCounts, markStep, planLesson, ratePerGame, startLesson, themeName, type Lesson, type Step } from './tutor';
 import { roleOf } from './endgame';
 import { inPieces } from './teach';
 import { Board2D } from './board2d';
@@ -87,8 +91,10 @@ interface CounterKill {
   line: string[];
   /** 红方每一步都将军 */
   allChecks: boolean;
-  /** 中间不将军的步数（0～2） */
+  /** 中间不将军的步数（0～3） */
   quiet: number;
+  /** 引擎浅算几层才看得出这是杀棋——越深越难 */
+  seeDepth?: number;
   /** 轮到黑走的话，他一步就杀红的着法 */
   threat: string[];
   red: string;
@@ -125,7 +131,7 @@ const DIM_KIND: Record<Dim, PuzzleKind> = {
  * 首页的「今日训练」和「战术训练」是两个不同的入口，点进来却看到同一个
  * 菜单的话，用户会以为自己点错了。所以由调用方指定落点。
  */
-export type CoachEntry = 'home' | 'today' | 'puzzles';
+export type CoachEntry = 'home' | 'today' | 'puzzles' | 'tutor';
 
 export function runCoach(
   root: HTMLElement,
@@ -277,7 +283,13 @@ export function runCoach(
 
     const stage = stageFor(rs, gameEvidence());
     const daily = dailyDone();
+    const lessonNow = planLesson(tutorInput());
     const cards: { t: string; d: string; go: () => void; hide?: boolean }[] = [
+      {
+        t: `🧑‍🏫 私教 · ${lessonNow.theme === 'intro' ? '见面课' : `这一课：${themeName(lessonNow.theme)}`}`,
+        d: '先看你的实战再开口：一节课只讲一件事——三条要点 → 用你自己走错的局面练 → 带练一盘 → 下节课先检查作业，毛病少了才换下一课。',
+        go: () => showTutor(),
+      },
       {
         t: `📅 每日一题${daily ? '（今天做过了 ✓）' : ''}`,
         d: todayNum() % 2 === 0
@@ -323,12 +335,12 @@ export function runCoach(
       },
       {
         t: `🔥 绝地反杀${Object.keys(ckStars()).length ? `（已过 ${Object.keys(ckStars()).length} 关）` : ''}`,
-        d: '黑方下一步就能杀你——只有连续将军，抢在他前面把他杀死。五章闯关，从两步杀到六七步的连杀，每一关都是皮卡鱼核对过"只有这一路能活"。',
+        d: '黑方下一步就能杀你——只有连续将军，抢在他前面把他杀死。六章闯关，从三步杀一直到十步以上的长杀，每一关都是皮卡鱼核对过"只有这一路能活"。',
         go: () => void showCounterKill(),
       },
       {
         t: `🗡 邪门布局破解${tricksDone().size ? `（已练 ${tricksDone().size}/${TRICKS.length}）` : ''}`,
-        d: '炮打中卒、炮打底马、急冲中兵、炮过河骚扰……江湖套路本身都是亏的，专门赌你应错。每一条都讲清它赌什么、怎么破，引擎逐条验证过。',
+        d: '弃马十三着、铁滑车、敢死炮、急进中兵、瞎眼狗、龟背炮……江湖套路讲究"宁失一子，不失一先"：送你一点东西换先手。每一条都算了账（他少了多少子、换来多少先手），坑在哪一步、怎么破，皮卡鱼深算复核。',
         go: () => showTricks(),
       },
       {
@@ -693,8 +705,8 @@ export function runCoach(
         list.appendChild(op);
         const tk = document.createElement('div');
         tk.className = 'card home-card';
-        tk.innerHTML = `<div class="title">🗡 邪门布局破解</div><div class="desc">炮打中卒、炮打底马、急冲中兵……
-          江湖套路专门赌你应错。看它赌什么、上当会怎样、怎么破，再自己走一遍。</div>`;
+        tk.innerHTML = `<div class="title">🗡 邪门布局破解</div><div class="desc">弃马十三着、铁滑车、敢死炮、瞎眼狗……
+          宁失一子，不失一先：看它送什么、换什么，坑在哪一步、怎么破，再自己走一遍。</div>`;
         tk.onclick = () => showTricks();
         list.appendChild(tk);
       }
@@ -2126,12 +2138,14 @@ export function runCoach(
    */
   const CK_KEY = 'xq-counterkill';
   const CK_CHAPTERS = [
-    { n: 1, name: '背水一战', desc: '两步杀：将一军、再将死。先练出一个反应——看到他要杀我，第一眼先找将军。' },
-    { n: 2, name: '绝处逢生', desc: '三步杀：每一步都要将军，让他只能应将，一步也腾不出手来杀你。' },
-    { n: 3, name: '反戈一击', desc: '四步杀：车马炮轮着上，一个子将完下一个子接着将，将的节奏不能断。' },
-    { n: 4, name: '力挽狂澜', desc: '五步杀：常常要先弃一个子——送掉一个车马，把他的士象引开，后面的将军才连得起来。' },
-    { n: 5, name: '起死回生', desc: '六步以上：中间可能有一步不将军的"闲着"，但那一步之后就是杀，他来不及杀你。' },
+    { n: 1, name: '背水一战', desc: '三步杀：每一步都要将军，让他只能应将，一步也腾不出手来杀你。' },
+    { n: 2, name: '绝处逢生', desc: '四步杀：车马炮轮着上，一个子将完下一个子接着将，将的节奏不能断。' },
+    { n: 3, name: '反戈一击', desc: '五步杀：常常要先弃一个子——送掉一个车马，把他的士象引开，后面的将军才连得起来。' },
+    { n: 4, name: '力挽狂澜', desc: '六、七步杀：要算到底。中间可能有一步不将军——那一步必须同时挡住他的杀，又让他下一步只能应你。' },
+    { n: 5, name: '起死回生', desc: '八、九步杀：引擎都要算十几层才看得见。先想清楚最后用什么杀法收尾，再倒着找怎么把他的将赶过去。' },
+    { n: 6, name: '逆转乾坤', desc: '十步以上的长杀：几乎每一步都只有唯一解，走偏一步，他就杀你。' },
   ];
+  const CN = '一二三四五六七八九';
   function ckStars(): Record<string, number> {
     try {
       return JSON.parse(localStorage.getItem(CK_KEY) ?? '{}') as Record<string, number>;
@@ -2185,7 +2199,7 @@ export function runCoach(
       const el = document.createElement('div');
       el.className = `card home-card${open ? '' : ' locked'}`;
       el.dataset.ckChapter = String(c.n);
-      el.innerHTML = `<div class="title">第${'一二三四五'[c.n - 1]}章 · ${c.name}<span class="tag">${items.length} 关</span>${
+      el.innerHTML = `<div class="title">第${CN[c.n - 1]}章 · ${c.name}<span class="tag">${items.length} 关</span>${
         open ? (done ? `<span class="tag warn">已过 ${done} · ${stars}★</span>` : '') : '<span class="tag">🔒 上一章过一半解锁</span>'
       }</div><div class="desc">${c.desc}</div>`;
       if (open) el.onclick = () => showCkChapter(c.n);
@@ -2208,7 +2222,7 @@ export function runCoach(
     const c = CK_CHAPTERS.find((x) => x.n === n)!;
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-home';
-    scr.innerHTML = `<h1>第${'一二三四五'[n - 1]}章 · ${c.name}</h1><div class="sub">${c.desc}</div>`;
+    scr.innerHTML = `<h1>第${CN[n - 1]}章 · ${c.name}</h1><div class="sub">${c.desc}</div>`;
     const grid = document.createElement('div');
     grid.className = 'xq-ck-grid';
     items.forEach((it, k) => {
@@ -2264,7 +2278,7 @@ export function runCoach(
     };
     const back = exit ?? (() => showCkChapter(it.chapter));
     disposeScreen = runPuzzle(host, puzzle, {
-      caption: `第${'一二三四五'[it.chapter - 1]}章 ${ckName(it.chapter)} · ${boss ? '关底' : `第 ${k + 1} 关`}`,
+      caption: `第${CN[it.chapter - 1]}章 ${ckName(it.chapter)} · ${boss ? '关底' : `第 ${k + 1} 关`}`,
       onExit: back,
       onDone: (r) => {
         const first = firstAttempt(it.id);
@@ -2361,14 +2375,16 @@ export function runCoach(
     scr.innerHTML = `
       <h1>🗡 邪门布局破解</h1>
       <div class="sub">江湖套路本身都是亏的，专门赌你应错</div>
-      <div class="xq-advice"><b>破邪门，记住三句话</b>
-        <p>① <b>先看能不能吃</b>：送到嘴边的子先数保护，被将军先看能不能吃掉将军的子。<br>
-        ② <b>不跟着乱打</b>：他不出子光骚扰，你就正常出子；跟着他换子、打底马，等于帮他出子。<br>
-        ③ <b>用出子去捉</b>：单个子冲过来，出一个子捉它，他退一步，你白赚两步。<br>
-        ④ <b>吃了子，舍得还</b>：敢死炮、铁滑车送的子该吃；他出车来捉时，别恋子——弃还一子、棋形工整，比被捉死强。</p>
-        <p class="dim">江湖上有名号的（敢死炮、铁滑车、叠炮、瞎眼狗）名号写在名字里；同一个名号各地走法不一，
-        这里收的是引擎复核过的那一种。每一条的结论都是皮卡鱼逐条复核过的：这一手本身亏多少、破解是不是最好、上当亏多少。
-        有的套路坑在第二步（吃完之后），会单独标出"第二关"。</p>
+      <div class="xq-advice"><b>江湖套路的精髓：宁失一子，不失一先</b>
+        <p>弃马十三着、铁滑车、敢死炮、瞎眼狗……这些套路都是先送你一点东西（一匹马、一门炮、一个卒，或者一条中路），
+        换几步先手。所以破解它们要算两本账：<b>子力</b>谁多谁少，<b>先手</b>值多少。每一条都画了账本——
+        你吃到子那一刻他少了多少子力、引擎却判他落后多少（甚至领先），中间差的就是先手的价钱。</p>
+        <p>① <b>先问他要换什么</b>：弃马十三着换的是"中炮打中卒将军"，先补士把这一手废掉，马不吃也赢了先手。<br>
+        ② <b>送的子多半该吃，坑在吃完以后</b>：铁滑车、敢死炮吃了以后他追着捉——别不管它，也别恋子，该还就还。<br>
+        ③ <b>一条线看到底</b>：叠炮、龟背炮、瞎眼狗的坑都在一条直线上——谁是炮架、谁在后面，看清了再动。<br>
+        ④ <b>门板别乱开</b>：中路只剩一个中卒挡着的时候，急进中兵就在等你顶卒。</p>
+        <p class="dim">每一条都由皮卡鱼深算复核（每个局面 10 秒、约 18 层）：邪门着本身亏多少、破解是不是最好、上当亏多少、
+        还有哪些常见错着；坑是用"浅算看着好、深算亏一个半兵以上"找出来的。同一个名号各地走法不一，这里收的是有出处、引擎复核过的那一种。</p>
         <p><b>破解几手不算完</b>：每一条都可以 🏁 破解到底——破解摆好之后和皮卡鱼接着下，
         下到将死、或者引擎确认胜势已定，才算"完全破解"。</p>
       </div>`;
@@ -2399,21 +2415,116 @@ export function runCoach(
     wrap.appendChild(scr);
   }
 
+  /** 几个兵（一位小数），给账本用 */
+  const bing = (v: number) => `${(Math.abs(v) / 100).toFixed(1)} 个兵`;
+  /** 第几手（从 0 起）→ 第几回合 */
+  const roundOf = (ply: number) => Math.floor(ply / 2) + 1;
+
+  /**
+   * 账本："宁失一子，不失一先"画出来。
+   * 上当那条线上，设套方的子力差（虚线）和引擎局面分（红线），再加破解那条线的局面分（绿线）——
+   * 子力掉下去、红线没跟着掉，中间那一截就是他用子换来的先手。
+   */
+  function ledgerHtml(t: TrickOpening): string {
+    const tr = ledger(t, 'trap');
+    const rf = ledger(t, 'refute');
+    if (!tr.score.length) return '';
+    const n = Math.max(tr.score.length, rf.score.length, 2);
+    const W = 340;
+    const H = 168;
+    const L = 30;
+    const R = 8;
+    const T = 10;
+    const B = 20;
+    const CAP = 1200;
+    const x = (i: number) => L + (i / (n - 1)) * (W - L - R);
+    const y = (v: number) => T + ((CAP - Math.max(-CAP, Math.min(CAP, v))) / (2 * CAP)) * (H - T - B);
+    const path = (a: number[]) => a.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
+    const grid = [1000, 500, 0, -500, -1000]
+      .map(
+        (v) =>
+          `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="${v ? 'g' : 'z'}"/><text x="${L - 4}" y="${y(v) + 3}" text-anchor="end">${v > 0 ? '+' : ''}${v / 100}</text>`,
+      )
+      .join('');
+    const fork = lineToTrap(t).length;
+    const sac = sacrificeAt(t);
+    // 子力差画在"吃到他送的子"的那条线上：多数是上当那条线；敢死炮这种"不吃就被他先吃"的，是破解那条线
+    const onRefute = sac?.line === 'refute';
+    const mat = (onRefute ? rf : tr).material;
+    const svg = `<svg class="xq-ledger" viewBox="0 0 ${W} ${H}" role="img" aria-label="账本：子力和局面分">
+      ${grid}
+      <line x1="${x(fork)}" x2="${x(fork)}" y1="${T}" y2="${H - B}" class="fork"/>
+      <text x="${x(fork) + 3}" y="${T + 9}" class="lbl">分岔</text>
+      <path d="${path(rf.score)}" class="rf"/>
+      <path d="${path(mat)}" class="mat"/>
+      <path d="${path(tr.score)}" class="ev"/>
+      ${sac ? `<circle cx="${x(sac.ply)}" cy="${y(sac.material)}" r="3.5" class="mat-dot"/><circle cx="${x(sac.ply)}" cy="${y(sac.score)}" r="3.5" class="${onRefute ? 'rf-dot' : 'ev-dot'}"/>` : ''}
+      <text x="${L}" y="${H - 5}" class="lbl">开局</text><text x="${W - R}" y="${H - 5}" text-anchor="end" class="lbl">第 ${n} 手</text>
+    </svg>`;
+    const who = (v: number) =>
+      v >= 20000 ? '他把你将死' : v <= -20000 ? '你把他将死' : Math.abs(v) < 60 ? '两边差不多' : v > 0 ? `他领先 ${bing(v)}` : `他落后 ${bing(v)}`;
+    const lastTr = tr.score[tr.score.length - 1];
+    const lastRf = rf.score[rf.score.length - 1];
+    const gain = sac ? sac.score - sac.material : 0;
+    const sacText = !sac
+      ? `这一套他一个子都没少：他送的是一条线、一个兵，换的是你的阵形。`
+      : sac.line === 'trap' && sac.score >= 300
+        ? `走到第 ${roundOf(sac.ply)} 回合，你吃下他送的东西：他的子力<b>少了 ${bing(sac.material)}</b>，引擎却判${who(sac.score)}——
+           送的子是饵，你吃下去就站进了他的圈套。`
+        : gain >= 50
+        ? `走到第 ${roundOf(sac.ply)} 回合，你把他送的子吃到手：他的子力<b>少了 ${bing(sac.material)}</b>，引擎却判${who(sac.score)}——
+           子力和局面分之间差的这 <b>${bing(gain)}</b>，就是他用子换来的先手。`
+        : `走到第 ${roundOf(sac.ply)} 回合，你把他送的子吃到手：他的子力<b>少了 ${bing(sac.material)}</b>，引擎判${who(sac.score)}——
+           送出去的子<b>没换来先手</b>，这一套本身不成立，全靠你后面应错。`;
+    return `<div class="xq-advice xq-ledger-box" data-ledger>
+        <b>📒 这套棋的账：宁失一子，不失一先</b>
+        <p>${t.essence}</p>
+        ${svg}
+        <p class="xq-ledger-legend"><span class="ev">━ 上当这条线：他的局面分</span><span class="rf">━ 按破解走：他的局面分</span><span class="mat">┅ ${onRefute ? '按破解走' : '上当这条线'}：他的子力差</span>（单位：兵，都换成设套一方的视角）</p>
+        <p>${sacText}上当这条线走到最后，${who(lastTr)}；按破解走，${who(lastRf)}。</p>
+      </div>`;
+  }
+
+  /** 坑在哪几步：上当那条线上深算标出来的错着 + 其它常见错着 */
+  function pitfallHtml(t: TrickOpening): string {
+    const me: Color = t.by === 'r' ? 'b' : 'r';
+    const ps = pitfalls(t);
+    const items = ps.map(
+      (p) =>
+        `<li>第 ${roundOf(p.ply)} 回合${sideWord(me)}走 <b>${p.played}</b>：该走 <b>${p.best}</b>，这一手差约${inPieces(p.loss)}${p.loss >= 2500 ? '（直接输棋）' : ''}</li>`,
+    );
+    const wr = (t.wrong ?? []).map(
+      (w) =>
+        `<li>${w.at ? `${t.refute.slice(0, w.at).map((s) => s.t).join(' ')} 之后` : `他刚走完 ${t.trick.t}`}，走 <b>${w.t}</b>：${w.why}<span class="dim">（比 ${t.refute[w.at].t} 差约${inPieces(w.loss)}）</span></li>`,
+    );
+    if (!items.length && !wr.length) return '';
+    return `${items.length ? `<p><b>⚠️ 坑在哪几步</b>（皮卡鱼深算，被骗一方的错着）：</p><ol class="xq-trick-steps" data-pitfalls>${items.join('')}</ol>` : ''}${
+      wr.length ? `<p><b>其它常见的错着</b>：</p><ul class="xq-trick-steps" data-wrong>${wr.join('')}</ul>` : ''
+    }`;
+  }
+
   function showTrick(t: TrickOpening) {
     clear();
     const me: Color = t.by === 'r' ? 'b' : 'r';
     const v = t.verified;
     const k = t.trapAfter ?? 0;
     const line = [...t.pre, t.trick.t].join(' ');
+    const preMiss = new Map(pitfalls(t).filter((p) => p.ply < t.pre.length).map((p) => [p.ply, p]));
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-report';
     scr.innerHTML = `<h1>${t.name}</h1>
-      <div class="sub">对方执${sideWord(t.by)} · 你执${sideWord(me)}破解 · ${t.level}</div>
+      <div class="sub">${t.alias ? `又叫${t.alias} · ` : ''}对方执${sideWord(t.by)} · 你执${sideWord(me)}破解 · ${t.level}</div>
       <div class="xq-advice">
         <b>套路：它在赌什么</b><p>${t.lure}</p>
+      </div>
+      ${ledgerHtml(t)}
+      <div class="xq-advice">
         <b>这套是怎么走出来的（每一手的意思）</b>
         <ol class="xq-trick-steps">${[...t.pre.map((m, i) => ({ t: m, why: t.preWhy[i] })), { t: t.trick.t, why: `<b>邪门着。</b>${t.trick.why}` }]
-          .map((m, i) => `<li><b>${i % 2 === 0 ? '红' : '黑'} ${m.t}</b>　${m.why}</li>`)
+          .map((m, i) => {
+            const pm = preMiss.get(i);
+            return `<li><b>${i % 2 === 0 ? '红' : '黑'} ${m.t}</b>　${m.why}${pm ? `<span class="dim">（引擎：该走 ${pm.best}，这一手差约${inPieces(pm.loss)}）</span>` : ''}</li>`;
+          })
           .join('')}</ol>
         <p class="dim">着法：${line}</p>
       </div>
@@ -2423,6 +2534,7 @@ export function runCoach(
         <p><b>陷阱在哪：</b>${t.anatomy.bait}</p>
         <p><b>上当之后：</b>${t.anatomy.punish}<span class="dim">（引擎算：比破解差约${inPieces(v.trapLoss)}）</span></p>
         <p><b>怎么认出来：</b>${t.anatomy.spot}</p>
+        ${pitfallHtml(t)}
       </div>
       <div class="xq-advice">
         <b>怎么破</b><p><b>${t.refute[0].t}</b>——${t.refute[0].why}</p>
@@ -2433,7 +2545,7 @@ export function runCoach(
         }
         <b>破了之后他会怎么走</b><p>${t.anatomy.after}</p>
         <b>要记住的道理</b><p>${t.principle}</p>
-        <p class="dim">引擎复核：这一步邪门棋本身就亏约${inPieces(v.trickLoss)}；按破解走，局面是「${outlookOf(v.refuteScore)}」；
+        <p class="dim">引擎复核（深算，每个局面约 18 层）：这一步邪门棋本身就亏约${inPieces(v.trickLoss)}；按破解走，局面是「${outlookOf(v.refuteScore)}」；
         ${k ? `第二关要是走 ${t.trap[0].t}（${t.trap[0].why.replace(/。$/, '')}）` : `上当的话（${t.trap[0].t}）`}，比破解差约${inPieces(v.trapLoss)}。</p>
       </div>`;
     const mk = (label: string, fn: () => void) => {
@@ -2462,7 +2574,7 @@ export function runCoach(
     wrap.appendChild(scr);
   }
 
-  function runTrick(t: TrickOpening, mode: 'refute' | 'trap' | 'guess') {
+  function runTrick(t: TrickOpening, mode: 'refute' | 'trap' | 'guess', exit?: () => void) {
     clear();
     const host = document.createElement('div');
     host.className = 'xq-coach-stage';
@@ -2472,7 +2584,12 @@ export function runCoach(
     const trick = { t: t.trick.t, why: `<b>邪门着。</b>${t.trick.why}` };
     // 陷阱在第二关的：先按破解走到分岔处，再接上当的那几手
     const tail = mode === 'trap' ? [...t.refute.slice(0, t.trapAfter ?? 0), ...trapLine(t)] : refuteLine(t);
-    const moves = [...pre, trick, ...tail];
+    // 上当那条线上，深算标出来的错着当场点出来：坑在哪一步、该走什么
+    const miss = new Map(mode === 'trap' ? pitfalls(t).map((p) => [p.ply, p]) : []);
+    const moves = [...pre, trick, ...tail].map((m, i) => {
+      const p = miss.get(i);
+      return p ? { ...m, why: `⚠️ <b>坑：</b>这里该走 <b>${p.best}</b>（这一手差约${inPieces(p.loss)}）。${m.why}` } : m;
+    });
     disposeScreen = runReplay(host, {
       title: t.name,
       subtitle:
@@ -2494,9 +2611,185 @@ export function runCoach(
         if (mode === 'guess' && tried && right === tried) markTrickDone(t.id);
       },
       // 破解那几手走完不算完：接着和皮卡鱼下到胜势
-      next: mode === 'trap' ? undefined : { label: '🏁 接着破解到底', run: () => runTrickFull(t) },
-      onExit: () => showTrick(t),
+      next: mode === 'trap' || exit ? undefined : { label: '🏁 接着破解到底', run: () => runTrickFull(t) },
+      onExit: exit ?? (() => showTrick(t)),
     });
+  }
+
+  // ---------------- 私教 ----------------
+  /** 私教排课要的数据：实战存档、测评、上过的课、错题本里实战来的题 */
+  function tutorInput() {
+    const ownByDim: Partial<Record<Dim, number>> = {};
+    for (const p of getOwnPuzzles()) {
+      const d = p.kind as Dim;
+      ownByDim[d] = (ownByDim[d] ?? 0) + 1;
+    }
+    return { games: listGames(), assessed: isAssessed(), ratings: getRatings(), log: getLessonLog(), ownByDim };
+  }
+
+  /**
+   * 私教：一节课只讲一件事。
+   * 开口之前先摆证据（最近实战里哪种毛病多少次），上一节课先检查作业，
+   * 然后三条要点 → 你自己走错的局面 → 同类题 → 带练一盘。课怎么排在 tutor.ts。
+   */
+  function showTutor() {
+    clear();
+    const inp = tutorInput();
+    const lesson = planLesson(inp);
+    const log = inp.log;
+    const cur = log[log.length - 1];
+    const inProgress = !!cur && cur.done.length < cur.steps && cur.theme === lesson.theme;
+    const done = new Set(inProgress ? cur.done : []);
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-report xq-tutor';
+    // 上一节课的作业检查
+    const prev = [...log].reverse().find((r) => r.done.length >= r.steps && r.theme !== 'intro');
+    let prevHtml = '';
+    if (prev) {
+      const c = checkLesson(prev, inp.games);
+      const name = themeName(prev.theme);
+      prevHtml =
+        prev.theme === 'endgame' || prev.theme === 'opening'
+          ? `<p>上节课（${prev.d}）补的是「${name}」。</p>`
+          : c
+            ? `<p>上节课（${prev.d}）练「${name}」：上课前每盘 <b>${prev.before ?? 0}</b> 次，之后 ${c.n} 盘每盘 <b>${c.after}</b> 次——${
+                c.passed ? '<b>少了，过关</b> ✓' : '没怎么少，今天换个角度再练'
+              }。</p>`
+            : `<p>上节课（${prev.d}）练「${name}」：作业是下 ${CHECK_GAMES} 盘实战、下完看复盘，现在还不够，下次再检查。</p>`;
+    }
+    const habits = habitCounts(inp.games).slice(0, 5);
+    const reviewed = inp.games.filter((g) => g.review).slice(0, 8);
+    const evidence = habits.length
+      ? `<table class="xq-tutor-habits"><tr><th>毛病</th><th>次数</th><th>每盘</th></tr>${habits
+          .map((h) => `<tr><td>${themeName(h.tag)}</td><td>${h.count}</td><td>${ratePerGame(reviewed, h.tag) ?? '—'}</td></tr>`)
+          .join('')}</table><p class="dim">最近 ${reviewed.length} 盘复盘过的实战。只数复盘过的棋——没复盘的棋私教看不到你哪里走坏了。</p>`
+      : `<p class="dim">${inp.games.length ? '最近的实战还没有复盘过，或者复盘里没有明显的毛病。' : '还没有实战记录。'}下完棋看一下复盘，私教就有教案了。</p>`;
+    scr.innerHTML = `<h1>🧑‍🏫 私教</h1>
+      <div class="sub">一节课只讲一件事：先看证据，再讲三条，当堂练，下节课检查</div>
+      ${prevHtml ? `<div class="xq-advice" data-tutor-check><b>📋 先检查作业</b>${prevHtml}</div>` : ''}
+      <div class="xq-advice xq-tutor-lesson" data-tutor-lesson="${lesson.theme}">
+        <b>今天这一课：${lesson.title}</b>
+        <p>${lesson.why}</p>
+        <ol class="xq-trick-steps">${lesson.points.map((x) => `<li>${x}</li>`).join('')}</ol>
+      </div>`;
+    const steps = document.createElement('div');
+    steps.className = 'card-list';
+    lesson.steps.forEach((st, i) => {
+      const el = document.createElement('div');
+      el.className = 'card home-card';
+      el.dataset.tutorStep = String(i);
+      const ok = done.has(i) || (st.kind === 'assess' && isAssessed());
+      el.innerHTML = `<div class="title">${ok ? '✅' : `${i + 1}.`} ${st.label}</div><div class="desc">${stepDesc(st)}</div>`;
+      el.onclick = () => runTutorStep(lesson, i);
+      steps.appendChild(el);
+    });
+    scr.appendChild(steps);
+    const tail = document.createElement('div');
+    tail.innerHTML = `<div class="xq-advice"><b>📝 作业和下节课</b><p>${lesson.check}</p></div>
+      <div class="xq-advice" data-tutor-evidence><b>📊 私教看到的你</b>${evidence}</div>
+      ${
+        log.length
+          ? `<div class="xq-advice"><b>🗂 上过的课</b><ul class="xq-trick-steps">${[...log]
+              .reverse()
+              .slice(0, 8)
+              .map(
+                (r) =>
+                  `<li>${r.d} · ${themeName(r.theme)}${r.round > 1 ? `（第 ${r.round} 次）` : ''} · ${
+                    r.done.length < r.steps ? `上了 ${r.done.length}/${r.steps}` : r.passed === true ? '过关' : r.passed === false ? '没过，又练了一遍' : '上完了'
+                  }</li>`,
+              )
+              .join('')}</ul></div>`
+          : ''
+      }`;
+    scr.appendChild(tail);
+    const back = document.createElement('button');
+    back.className = 'btn ghost';
+    back.textContent = '← 返回';
+    back.onclick = showHome;
+    scr.appendChild(back);
+    wrap.appendChild(scr);
+  }
+
+  function stepDesc(st: Step): string {
+    switch (st.kind) {
+      case 'own':
+        return `从错题本里挑你实战中走错的局面（${st.n} 道）：同样的毛病，用你自己的棋来改最记得住。`;
+      case 'drill':
+        return `${DIM_INFO[st.dim].name}题 ${st.n} 道，难度按你现在的水平挑。`;
+      case 'trick': {
+        const t = TRICKS.find((x) => x.id === st.id);
+        return t ? `${t.name}：你来破解，走错了当场讲。` : '邪门布局破解。';
+      }
+      case 'counterkill':
+        return `绝地反杀 ${st.n} 关：对方下一步就杀你，只有连将能活。`;
+      case 'game':
+        return '教练开「教学提示」陪你下一盘（会读出对方每一步的意图；这个设置会留着，想关在对局里点"教"切换）。下完一定看复盘——复盘结论就是下节课的教案。';
+      case 'assess':
+        return '35 道题、约 20 分钟，题目难度跟着你的表现走，测完给一张五维诊断。';
+    }
+  }
+
+  /** 上课：第 i 步。做完回到私教这一屏，打上勾 */
+  function runTutorStep(lesson: Lesson, i: number) {
+    startLesson(lesson, listGames());
+    const st = lesson.steps[i];
+    const back = () => {
+      markStep(i);
+      closeIntro();
+      showTutor();
+    };
+    switch (st.kind) {
+      case 'own': {
+        const own = getOwnPuzzles()
+          .filter((p) => st.dims.includes(p.kind as Dim))
+          .slice(-st.n)
+          .reverse();
+        let k = 0;
+        const next = () => {
+          if (k >= own.length) return back();
+          const p = own[k++];
+          runOne(p, null, `你的实战错题 ${k}/${own.length}`, () => next());
+        };
+        if (own.length) next();
+        else back();
+        return;
+      }
+      case 'drill':
+        void startPractice(st.dim, st.n, back);
+        return;
+      case 'trick': {
+        const t = TRICKS.find((x) => x.id === st.id);
+        if (t) runTrick(t, 'guess', back);
+        else back();
+        return;
+      }
+      case 'counterkill': {
+        let left = st.n;
+        const next = async () => {
+          await loadCounterKill();
+          const it = left-- > 0 ? nextCounterKill() : null;
+          if (!it) return back();
+          runCounterKill(it, () => void next());
+        };
+        void next();
+        return;
+      }
+      case 'game': {
+        markStep(i);
+        closeIntro();
+        // 带练：教练开"教学提示"——会读出对方每一步的意图，还能追问为什么
+        if (getHintLevel() < 3) setHintLevel(3);
+        const play = getPlay();
+        const lv = play && play.n >= 3 ? suggestLevel(play.r) : undefined;
+        if (startFrom) startFrom([], 'r', lv);
+        else onExit();
+        return;
+      }
+      case 'assess':
+        markStep(i);
+        void startAssessment();
+        return;
+    }
   }
 
   // ---------------- 让子定级 ----------------
@@ -2839,6 +3132,7 @@ export function runCoach(
   const land = () => {
     if (entry === 'today') showToday();
     else if (entry === 'puzzles') showPickDim();
+    else if (entry === 'tutor') showTutor();
     else showHome();
   };
   if (getDeclared()) land();

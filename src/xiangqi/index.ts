@@ -210,6 +210,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       onPuzzles: () => openCoach('puzzles'),
       onReview: (id) => showGameList(id),
       onLevel: () => showLevel(),
+      onTutor: () => openCoach('tutor'),
       onExit: () => onExit(false),
       resume: (() => {
         const o = readOngoing();
@@ -468,7 +469,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       (
         [
           [false, '正常布局', '对手按自己的水平正常下'],
-          [true, '邪门布局', '对手专走炮打中卒、炮打底马这类江湖套路，练破解'],
+          [true, '邪门布局', '对手专走铁滑车、敢死炮、弃马十三着、瞎眼狗这类江湖套路，练破解'],
         ] as const
       ).forEach(([v, name, desc]) => {
         const c = document.createElement('div');
@@ -793,7 +794,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         const k = tr.trapAfter ?? 0;
         setCoachLine(
           hintLevel === 1
-            ? `「${tr.name}」第二关：他在捉你多吃的子，别恋子（🔍 里有破解）。`
+            ? `「${tr.name}」第二关：他在捉你吃过去的子——先看清他在捉谁、后面还有什么（🔍 里有破解）。`
             : `「${tr.name}」第二关：${tr.refute[k - 1].why}这时走 ${tr.refute[k].t}——${tr.refute[k].why}`,
           'warn',
         );

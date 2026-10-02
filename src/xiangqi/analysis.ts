@@ -288,23 +288,27 @@ function balance(b: Board, me: Color): number {
  * 说成「对方吃掉你的车」纯属吓人。所以先看整条主变走完**净亏**了多少，
  * 确实亏了子才去点名那一手。
  */
-function firstLoss(b: Board, pv: Move[], me: Color): { text: string; piece: string } | null {
+function firstLoss(b: Board, pv: Move[], me: Color): { text: string; piece: string; line?: string } | null {
   if (pv.length < 2) return null;
   let cur = cloneBoard(b);
-  let hit: { text: string; piece: string } | null = null;
+  let hit: { text: string; piece: string; line?: string } | null = null;
   let hitVal = 0;
   let startBal = 0;
+  const texts: string[] = [];
   for (let i = 0; i < pv.length; i++) {
     const m = pv[i];
     if (i === 1) startBal = balance(cur, me); // 我走完之后的子力对比
     const victim = cur[m.ty][m.tx];
+    const t = moveToText(cur, m);
     // pv[0] 是我走的，之后奇数下标是对方。
     // 取「丢得最大的那个子」而不是第一个——被吃一个仕和被吃一个车，
     // 该说的显然是车。
     if (i % 2 === 1 && victim && victim.c === me && victim.t !== 'K' && PIECE_VALUE[victim.t] > hitVal) {
       hitVal = PIECE_VALUE[victim.t];
-      hit = { text: moveToText(cur, m), piece: pieceName(victim.t, me) };
+      // 不是对方马上就吃（中间还有你自己的着法）：把这一路写出来，不能说成"走完这步对方就吃"
+      hit = { text: t, piece: pieceName(victim.t, me), line: i > 1 ? [...texts.slice(1), t].join(' ') : undefined };
     }
+    texts.push(t);
     cur = applyMove(cur, m);
   }
   // 主变走到底仍然净亏一个兵以上，才认定这是真丢子而不是兑子
@@ -367,7 +371,9 @@ function commentOf(b: Board, j: Judged, me: Color, grade: Grade, flip: Flip | un
   // 被将死比丢子严重，优先说
   if (j.played.mateIn !== undefined && j.played.mateIn < 0) {
     parts.push(`走完这步，对方 ${-j.played.mateIn} 回合内就能把你将死`);
-  } else if (lost) parts.push(`走完这步，对方 ${lost.text} 就吃掉你的${lost.piece}`);
+  } else if (lost) {
+    parts.push(lost.line ? `走完这步，按引擎算的走下去（${lost.line}），你的${lost.piece}要丢` : `走完这步，对方 ${lost.text} 就吃掉你的${lost.piece}`);
+  }
   else if (flip) parts.push(FLIP_LABEL[flip]);
   else parts.push(`这步之后局面明显变差（亏 ${loss} 分，约${lossInPieces(loss)}）`);
 

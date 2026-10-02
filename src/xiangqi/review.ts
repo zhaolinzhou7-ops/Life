@@ -296,7 +296,7 @@ export function runReview(opts: ReviewOpts): () => void {
       if (m.text === stage.trap[0].t) {
         return `<div class="xq-rv-trick bad">⚠️ 吃了子却在第二关上当：「${stage.name}」。${stage.principle}这一步该走 <b>${stage.refute[k].t}</b>。</div>`;
       }
-      return `<div class="xq-rv-trick">🗡「${stage.name}」第二关：他在捉你多吃的子，这一步的破解是 <b>${stage.refute[k].t}</b>——${stage.refute[k].why}</div>`;
+      return `<div class="xq-rv-trick">🗡「${stage.name}」第二关：他在捉你吃过去的子，这一步的破解是 <b>${stage.refute[k].t}</b>——${stage.refute[k].why}</div>`;
     }
     const faced = trickAt(boards[i], m.color);
     if (!faced) return '';
