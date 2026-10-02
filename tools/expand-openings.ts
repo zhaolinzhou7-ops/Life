@@ -20,7 +20,7 @@ import { startPikafish } from './pikafish-node';
 import { applyMove, initialBoard, isInCheck, legalMoves, statusAfter, type Board, type Color, type Move } from '../src/xiangqi/rules';
 import { moveToText, textToMove, toFen } from '../src/xiangqi/notation';
 import { moveToUci, parseInfo, uciToMove, type PvLine } from '../src/xiangqi/pikafish';
-import { briefOf, concrete, keyNote, meaningOf, type MeaningCtx } from '../src/xiangqi/movemeaning';
+import { briefOf, concrete, keyNote, meaningOf, shapesOf, type MeaningCtx } from '../src/xiangqi/movemeaning';
 import { countNames } from '../src/xiangqi/movenote';
 import { outlookOf } from '../src/xiangqi/plan';
 import lib from '../src/xiangqi/openinglib.json';
@@ -55,7 +55,30 @@ if (process.argv[2] === 'merge') {
     if (m.t.includes('退')) m.why = m.why.replace(/^盘头马，支援中路/, '马退到中路，加强中防');
     return m;
   };
-  type Ex = { main: (LineMove | null)[]; vars: (LineMove | null)[][]; extra: { kind: string; moves: LineMove[] }[] };
+  type Ex = { main: (LineMove | null)[]; vars: (LineMove | null)[][]; extra: { kind: string; at: number; moves: LineMove[] }[] };
+  // 形状（给车让路、亮车、封车……）是规则算的：说明模块加了新形状，合并时沿着谱重算一遍补进第一句，不用重跑引擎
+  let reshaped = 0;
+  const reshape = (texts: string[], notes: (LineMove | null)[], from: number) => {
+    let b = initialBoard();
+    let c: Color = 'r';
+    texts.forEach((t, i) => {
+      const m = textToMove(b, c, t, legalMoves(b, c));
+      if (!m) throw new Error(`走不通：${texts.slice(0, i + 1).join(' ')}`);
+      const note = i >= from ? notes[i - from] : null;
+      if (note) {
+        const add = shapesOf(b, m, c).filter((x) => !note.why.includes(x.split('：')[0]));
+        if (add.length) {
+          const first = note.why.indexOf('。');
+          let head = note.why.slice(0, first);
+          if (add.some((x) => x.startsWith('亮车'))) head = head.replace('，给车让出了路', '');
+          note.why = `${head}，${add.join('，')}${note.why.slice(first)}`;
+          reshaped++;
+        }
+      }
+      b = applyMove(b, m);
+      c = c === 'r' ? 'b' : 'r'; // 合并在模块顶上就跑了，下面的 other() 还没定义
+    });
+  };
   let dropped = 0;
   const ordered: Record<string, Ex> = {};
   for (const o of OPENINGS) {
@@ -65,13 +88,17 @@ if (process.argv[2] === 'merge') {
     keep.forEach((x) => x.moves.forEach(tidy));
     e.main.forEach(tidy);
     e.vars.forEach((v) => v.forEach(tidy));
+    const main = o.moves.map((m) => m.t);
+    reshape(main, e.main, 0);
+    o.variations.forEach((v, k) => reshape([...main.slice(0, v.at), ...v.moves.map((m) => m.t)], e.vars[k], v.at));
+    for (const x of keep) reshape([...main.slice(0, x.at), ...x.moves.map((m) => m.t)], x.moves, x.at);
     ordered[o.id] = { ...e, extra: keep };
   }
   fs.writeFileSync(OUT, JSON.stringify(ordered));
   const ex = Object.values(ordered).flatMap((e) => e.extra);
   const plies = Object.values(ordered).reduce((s, e) => s + e.main.filter(Boolean).length + e.vars.flat().filter(Boolean).length, 0) + ex.reduce((s, x) => s + x.moves.length, 0);
   console.log(
-    `写入 ${OUT}：${OPENINGS.length} 套，变招 ${ex.filter((x) => x.kind === 'alt').length}、错着 ${ex.filter((x) => x.kind === 'trap').length}（去掉 ${dropped} 条站不住的），讲解 ${plies} 手`,
+    `写入 ${OUT}：${OPENINGS.length} 套，变招 ${ex.filter((x) => x.kind === 'alt').length}、错着 ${ex.filter((x) => x.kind === 'trap').length}（去掉 ${dropped} 条站不住的），讲解 ${plies} 手，补形状 ${reshaped} 手`,
   );
   process.exit(0);
 }

@@ -110,9 +110,17 @@ describe('棋谱导入', () => {
 });
 
 describe('一手棋的意义', () => {
-  it('布局里常见的形状认得出：给车让路、炮封车、占肋道', () => {
+  it('布局里常见的形状认得出：给车让路、亮车、炮封车、占肋道', () => {
+    // 炮二已经平走了，马二一跳，二路整条通了：车一平二就能出——这是亮车，比"让路"具体
     let w = at('炮二平五 马8进7');
-    expect(shapesOf(w.board, moveIn(w.board, w.color, '马二进三'), w.color)).toContain('给车让出了路');
+    const s1 = shapesOf(w.board, moveIn(w.board, w.color, '马二进三'), w.color);
+    expect(s1.join()).toContain('亮车');
+    expect(s1).not.toContain('给车让出了路');
+    // 炮八还挡在八路上：马八跳开，车九只是能横着动了，还出不去
+    expect(shapesOf(initialBoard(), moveIn(initialBoard(), 'r', '马八进七'), 'r')).toEqual(['给车让出了路']);
+    // 平边炮亮车：车九平八就能从八路出动
+    w = at('炮二平五 马8进7 马八进七 车9平8');
+    expect(shapesOf(w.board, moveIn(w.board, w.color, '炮八平九'), w.color).join()).toContain('亮车');
     w = at('炮二平五 马8进7 马二进三 车9平8 车一平二');
     expect(shapesOf(w.board, moveIn(w.board, w.color, '炮8进4'), w.color).join()).toContain('封住对方的车');
   });

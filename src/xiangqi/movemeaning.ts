@@ -121,6 +121,22 @@ export function shapesOf(before: Board, m: Move, mover: Color): string[] {
     }
   }
 
+  // 亮车：走开以后这一路通了，底线上旁边的车平过来就能顺着这一路往前出（原来这一路被它挡着，比如平边炮亮车）
+  if (p.t !== 'R' && m.fx !== m.tx && !after[back][m.fx]) {
+    for (const dx of [-1, 1]) {
+      const rx = m.fx + dx;
+      if (rx < 0 || rx > 8 || !isRook(after, rx, back, mover)) continue;
+      const was = before[back][m.fx] ? 0 : rookReachForward(before, m.fx, back, mover);
+      const now = rookReachForward(after, m.fx, back, mover);
+      // 车自己那一路本来就通的（往前能走三步以上），用不着亮
+      const own = rookReachForward(after, rx, back, mover);
+      if (was <= 1 && now >= 3 && own <= 2 && now >= own + 2) {
+        out.push(`亮车：${pieceName('R', mover)}平过来就能从这一路出动`);
+        break;
+      }
+    }
+  }
+
   // 炮封车：炮落在对方车的那条直线上、挡在车前面，车往前最多走两步
   if (p.t === 'C') {
     for (let y = 0; y < 10; y++) {
@@ -159,7 +175,9 @@ export function shapesOf(before: Board, m: Move, mover: Color): string[] {
   // 占肋道：车停在四路、六路（对方九宫的两条边线）
   if (p.t === 'R' && (m.tx === 3 || m.tx === 5) && m.fx !== m.tx) out.push('占住肋道');
 
-  return [...new Set(out)];
+  // 亮车比"给车让出了路"说得具体，两个都成立只说亮车
+  const res = out.some((x) => x.startsWith('亮车')) ? out.filter((x) => x !== '给车让出了路') : out;
+  return [...new Set(res)];
 }
 
 /**

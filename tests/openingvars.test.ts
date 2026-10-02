@@ -57,7 +57,7 @@ describe('布局变招大扩充', () => {
     let all = 0;
     for (const o of OPENINGS) {
       for (const m of [...X[o.id].extra.flatMap((v) => v.moves), ...X[o.id].main.filter(Boolean)] as LineMove[]) {
-        expect(m.why.length, `${o.name} ${m.t}`).toBeGreaterThan(4);
+        expect(m.why.length, `${o.name} ${m.t}`).toBeGreaterThanOrEqual(3); // 最短的是"兑马。""吃掉车。"这种，吃子兑子本身就是意义
         expect(m.why, `${o.name} ${m.t}`).toMatch(/。$/);
         expect(Number.isFinite(m.ev), `${o.name} ${m.t}`).toBe(true);
         all++;
