@@ -142,7 +142,8 @@ let hit = '';
 for (const t of ['炮二平五', '马二进三', '车一平二', '车二进六']) {
   await until(page, () => window.__xq.turn() === 'r' && !window.__xq.state().busy, null, 20000);
   const line = await page.evaluate(() => window.__xq.coachLine());
-  if (line.includes('邪门布局')) { hit = line; break; }
+  // 认的是教练点破的那句话（"对方走的是邪门布局「…」"）；教练行平时也会挂"📖 邪门布局「…」"布局名，那不算
+  if (line.includes('对方走的是邪门布局')) { hit = line; break; }
   const legal = await page.evaluate(() => window.__xq.legal());
   const mv = await page.evaluate(([ms, tx]) => ms.find((m) => window.__xq.textOf(m) === tx) ?? null, [legal, t]);
   if (!mv) { console.log('   走不了 ' + t + '（对手走出了别的）'); break; }
@@ -196,7 +197,9 @@ ok('复盘里你那一手标着"破解成功"', rv.includes('破解成功'));
 // 复盘列表点一手之后会围着这一手重排，不能再按序号点：按对方那一手邪门着的记谱找
 await page.locator('.xq-rv-item', { hasText: trickMove }).first().click();
 await page.waitForTimeout(300);
-ok(`复盘里对方那一手（${trickMove}）标着邪门布局`, (await page.locator('.xq-rv-detail').innerText()).includes('邪门布局'));
+const rvTrick = (await page.locator('.xq-rv-detail').innerText()).replace(/\s+/g, ' ');
+console.log(`   复盘·对方那一手：${rvTrick.slice(0, 140)}`);
+ok(`复盘里对方那一手（${trickMove}）标着邪门布局`, rvTrick.includes('邪门布局'));
 await page.screenshot({ path: OUT + '/tricks-review.png' });
 
 await browser.close();

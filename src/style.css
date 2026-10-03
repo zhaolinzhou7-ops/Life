@@ -2605,14 +2605,16 @@ canvas {
 }
 .xq-rp-fit .xq-rp-board {
   flex: 1 1 auto;
-  min-height: 150px;
+  min-height: 120px;
   aspect-ratio: auto;
   max-width: 560px;
   margin: 2px auto;
 }
 .xq-rp-fit .xq-rp-say {
+  /* 能缩：矮屏上讲解长了先缩讲解框（框里自己滚），按钮和棋谱条永远在屏幕里 */
+  flex: 0 1 auto;
   margin: 6px 2px;
-  min-height: 4.6em;
+  min-height: 3.4em;
   max-height: calc(var(--app-h, 100vh) * 0.3);
   overflow-y: auto;
   overscroll-behavior: contain;
