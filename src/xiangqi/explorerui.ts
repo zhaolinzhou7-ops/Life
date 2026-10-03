@@ -14,9 +14,12 @@ import { Board2D, type Mark } from './board2d';
 import { KIND_INFO, childrenAt, identify, linesAt, parseImport, type ExChild } from './explorer';
 export { parseImport };
 import { loadOpeningExtras } from './openings';
+import { loadTrickExtras } from './tricks';
 import { briefOf } from './movemeaning';
 import { engineAnalyse, engineCapable, loadEngine } from './pikafish';
 import type { MoveScore } from './ai';
+import { evWords } from './coachnote';
+export { evWords };
 
 export interface ExplorerOpts {
   /** 从开局起先走这几手（中文记谱） */
@@ -30,18 +33,6 @@ export interface ExplorerOpts {
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 const same = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
-
-/** 红方视角的分 → 一句局面判断 */
-export function evWords(ev: number): string {
-  if (Math.abs(ev) >= 20000) return ev > 0 ? '红方有杀' : '黑方有杀';
-  const a = Math.abs(ev);
-  if (a < 60) return '均势';
-  const who = ev > 0 ? '红方' : '黑方';
-  if (a >= 900) return `${who}大优`;
-  if (a >= 420) return `${who}占优（约多一个马炮）`;
-  if (a >= 150) return `${who}稍优（约多${Math.round(a / 100)}个兵）`;
-  return `${who}略好`;
-}
 
 export function runExplorer(host: HTMLElement, opts: ExplorerOpts): () => void {
   const wrap = document.createElement('div');
@@ -375,8 +366,8 @@ export function runExplorer(host: HTMLElement, opts: ExplorerOpts): () => void {
     }
   }
   render();
-  // 变招大扩充的数据按需加载，到了就重画一遍（谱上的走法会多出来）
-  void loadOpeningExtras().then(() => render());
+  // 布局变招、江湖布局变化的数据按需加载，到了就重画一遍（谱上的走法会多出来）
+  void Promise.all([loadOpeningExtras(), loadTrickExtras()]).then(() => render());
 
   if (import.meta.env.DEV) {
     (window as unknown as Record<string, unknown>).__xqExplorer = {

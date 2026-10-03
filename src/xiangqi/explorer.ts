@@ -11,7 +11,7 @@
 import { applyMove, initialBoard, legalMoves, type Board, type Color, type Move } from './rules';
 import { fromFen, moveToText, textToMove, toFen } from './notation';
 import { OPENINGS, type LineMove } from './openings';
-import { TRICKS, lineToTrap, refuteLine, trapLine } from './tricks';
+import { TRICKS, lineToTrap, refuteLine, trapLine, trickVars } from './tricks';
 
 /** 这一手在谱上是什么身份 */
 export type BranchKind = 'main' | 'var' | 'alt' | 'trap' | 'trick' | 'refute' | 'fall';
@@ -97,7 +97,8 @@ function addLine(
 }
 
 /** 变化数（布局补充数据加载以后会变多）——变了就重建 */
-const version = () => OPENINGS.reduce((s, o) => s + o.variations.length, 0);
+// 布局的变化、江湖布局的变化（两份按需加载的数据）到了，树就要重建
+const version = () => OPENINGS.reduce((s, o) => s + o.variations.length, 0) + TRICKS.reduce((s, t) => s + trickVars(t.id).length, 0) * 1000;
 
 function build(): Map<string, ExNode> {
   const map = new Map<string, ExNode>();
@@ -119,6 +120,16 @@ function build(): Map<string, ExNode> {
       ...t.refute.slice(0, k).map((s) => ({ t: s.t, why: s.why, book: true, kind: 'refute' as BranchKind })),
       ...trapLine(t).map((s, i) => ({ t: s.t, why: s.why, book: i < t.trap.length, kind: 'fall' as BranchKind })),
     ]);
+    // 江湖布局的变化：他改走（还是邪门那一方的路数）、另一种破法、你走错了（上当）
+    const R = refuteLine(t);
+    for (const v of trickVars(t.id)) {
+      const kind: BranchKind = v.kind === 'dev' ? 'trick' : v.kind === 'alt' ? 'refute' : 'fall';
+      addLine(map, `${name} · ${v.name}`, `trick:${t.id}`, [
+        ...head,
+        ...R.slice(0, v.at).map((s, i) => ({ t: s.t, why: s.why, book: i < t.refute.length, kind: 'refute' as BranchKind })),
+        ...v.moves.map((m) => ({ t: m.t, why: m.why, ev: m.ev, kind })),
+      ]);
+    }
     void lineToTrap;
   }
   return map;

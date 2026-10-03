@@ -175,6 +175,7 @@ for (const [w, h] of SIZES) {
     await page.locator('[data-variation]', { has: page.locator('.tag', { hasText: '错着' }) }).first().click(); await page.waitForTimeout(300);
     await nextToEnd();
   });
+  await step('布局·抽查', async () => { await page.locator('#rp-out').first().click(); await page.waitForTimeout(300); await page.locator('[data-act="op-drill"]').click(); await page.waitForTimeout(300); });
 
   // ── 开局浏览器 ──
   await step('开局浏览器·开局', async () => { await coach(); await card('开局浏览器'); });
@@ -195,6 +196,14 @@ for (const [w, h] of SIZES) {
     const b = page.locator('button', { hasText: '看套路' }).first();
     if (await b.count()) { await b.click(); await page.waitForTimeout(300); await nextToEnd(); } else throw new Error('没有"看套路"按钮');
   });
+  await step('邪门布局·变化列表', async () => {
+    await page.locator('#rp-out').first().click();
+    const t0 = Date.now();
+    while (Date.now() - t0 < 10000 && !(await page.locator('[data-trick-var]').count())) await page.waitForTimeout(200);
+    await page.locator('[data-trick-var]').last().scrollIntoViewIfNeeded();
+  });
+  await step('邪门布局·一条变化走完了', async () => { await page.locator('[data-trick-var]').first().click(); await page.waitForTimeout(300); await nextToEnd(); });
+  await step('邪门布局·抽查', async () => { await page.locator('#rp-out').first().click(); await page.waitForTimeout(300); await page.locator('[data-act="trick-drill"]').click(); await page.waitForTimeout(300); });
 
   // ── 组合、残局、绝地反杀 ──
   await step('中局组合列表', async () => { await coach(); await card('中局组合'); });

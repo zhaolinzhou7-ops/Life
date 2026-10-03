@@ -75,6 +75,7 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
     <div class="xq-rp-head">
       <div class="t">${opts.title}</div>
       <div class="s">${opts.subtitle}</div>
+      <button class="xq-rp-flip" title="翻转棋盘" aria-label="翻转棋盘">⇅</button>
     </div>
     <div class="xq-rp-board"></div>
     <div class="xq-rp-say"></div>
@@ -90,8 +91,14 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
   const sayObs = new MutationObserver(() => (elSay.scrollTop = 0));
   sayObs.observe(elSay, { childList: true });
 
-  const view = new Board2D(elBoard, { flip: opts.flip ?? opts.guessFor === 'b', onTap: (x, y) => onTap(x, y) });
+  let flipped = opts.flip ?? opts.guessFor === 'b';
+  const view = new Board2D(elBoard, { flip: flipped, onTap: (x, y) => onTap(x, y) });
   view.setBoard(board);
+  // 学后手的布局（屏风马、单提马……）想站在黑方这边看：翻一下
+  (wrap.querySelector('.xq-rp-flip') as HTMLButtonElement).onclick = () => {
+    flipped = !flipped;
+    view.setFlip(flipped);
+  };
 
   const legal = () => legalMoves(board, turn).filter((m) => !isInCheck(applyMove(board, m), turn));
 
@@ -158,11 +165,8 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
           ? `<div class="h">✅ 也对 · 你走的 ${mine} 和 <b>${real}</b> 一样好${judged ? `（${judged}）` : ''}</div>${why}`
           : `<div class="h">❌ 你走的是 ${mine}，原谱走的是 <b>${real}</b>${judged ? `（${judged}）` : ''}</div>${why}`;
     play(); // 不管猜没猜中，都按原谱往下走
+    // 走完最后一手不马上收尾：先让你看清这一手猜得对不对、为什么，按钮变成"看总结 →"
     renderBar();
-    // ⚠️ 猜中最后一手之后要收尾。少了这一句，renderBar() 因为已经走完而
-    // 直接返回，按钮停在上一状态，界面就卡住了——只有"想不出直接看"那条
-    // 分支写了 finish()，猜着法这条漏了。
-    if (idx >= opts.moves.length) finish();
   }
 
   /** 按原谱走下一手 */
@@ -187,8 +191,10 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
   function renderTrail() {
     elTrail.innerHTML = opts.moves
       .slice(0, idx)
-      .map((m, i) => `<span class="${i === idx - 1 ? 'on' : ''}">${i % 2 === 0 ? `${i / 2 + 1}.` : ''}${m.t}</span>`)
+      .map((m, i) => `<span data-n="${i + 1}" class="${i === idx - 1 ? 'on' : ''}">${i % 2 === 0 ? `${i / 2 + 1}.` : ''}${m.t}</span>`)
       .join(' ');
+    // 讲解模式下点棋谱条上的哪一手就跳回哪一手
+    if (!opts.guessFor) elTrail.querySelectorAll<HTMLElement>('[data-n]').forEach((el) => (el.onclick = () => goTo(Number(el.dataset.n))));
     // 棋谱条限高可滚：最新一手永远露在眼前
     elTrail.scrollTop = elTrail.scrollHeight;
   }
@@ -207,10 +213,39 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
     }
     const step = opts.moves[idx];
     play();
-    elSay.className = 'xq-rp-say';
-    elSay.innerHTML = `<div class="h">${step.t}</div>${step.why ? `<div class="w">${step.why}</div>` : ''}`;
+    showStep(step);
     renderBar();
-    if (idx >= opts.moves.length) finish();
+  }
+
+  /** 讲解框里放一手的说明 */
+  function showStep(step: ReplayMove, head = step.t) {
+    elSay.className = 'xq-rp-say';
+    elSay.innerHTML = `<div class="h">${head}</div>${step.why ? `<div class="w">${step.why}</div>` : ''}`;
+  }
+
+  /** 前面这几手直接摆好（startAt），讲解只能退到这里 */
+  const lo = () => Math.min(opts.startAt ?? 0, opts.moves.length);
+
+  /**
+   * 跳到第 n 手走完的局面（讲解模式才能退：猜着法退回去再猜就不算数了）。
+   * 用户原话里没说，但看讲解时想回头再看一眼上一手是最常见的事——原来只能"再看一遍"从头来。
+   */
+  function goTo(n: number) {
+    if (opts.guessFor) return;
+    n = Math.max(lo(), Math.min(opts.moves.length, n));
+    board = startBoard();
+    turn = startTurn;
+    idx = 0;
+    waiting = false;
+    sel = null;
+    view.setBoard(board);
+    view.clearMarks();
+    view.setArrows([]);
+    while (idx < n) play();
+    renderTrail();
+    if (n === lo()) return showIntro();
+    showStep(opts.moves[n - 1]);
+    renderBar();
   }
 
   function finish() {
@@ -229,8 +264,12 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
             .join('')}</ul></div>`
         : '');
     elBar.innerHTML =
+      backBtn() +
       (opts.next ? `<button class="xq-btn primary" id="rp-next-step">${opts.next.label}</button>` : '') +
       `<button class="xq-btn${opts.next ? '' : ' primary'}" id="rp-again">再看一遍</button><button class="xq-btn ghost" id="rp-out">← 返回</button>`;
+    // 总结页的"上一手"回到最后一手的讲解
+    const bk = elBar.querySelector('#rp-back') as HTMLButtonElement | null;
+    if (bk) bk.onclick = () => goTo(opts.moves.length);
     (elBar.querySelector('#rp-again') as HTMLButtonElement).onclick = () => reset();
     (elBar.querySelector('#rp-out') as HTMLButtonElement).onclick = opts.onExit;
     const nx = elBar.querySelector('#rp-next-step') as HTMLButtonElement | null;
@@ -246,6 +285,7 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
     waiting = false;
     view.setBoard(board);
     view.clearMarks();
+    view.setArrows([]);
     skipTo();
     renderTrail();
     showIntro();
@@ -256,26 +296,32 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
     while (idx < Math.min(opts.startAt ?? 0, opts.moves.length)) play();
   }
 
+  /** 讲解模式下"上一手"的小按钮（猜着法不给退） */
+  const backBtn = () => (!opts.guessFor && idx > lo() ? '<button class="xq-btn xq-rp-back" id="rp-back" title="上一手" aria-label="上一手">◀</button>' : '');
+  function wireBack() {
+    const bk = elBar.querySelector('#rp-back') as HTMLButtonElement | null;
+    if (bk) bk.onclick = () => goTo(idx - 1);
+  }
+
   function renderBar() {
-    if (idx >= opts.moves.length) return;
+    const atEnd = idx >= opts.moves.length;
     elBar.innerHTML = waiting
       ? '<span class="xq-tr-note">在棋盘上走一手</span><button class="xq-btn ghost" id="rp-skip">想不出，直接看</button>'
-      : '<button class="xq-btn primary" id="rp-next">下一手 →</button><button class="xq-btn ghost" id="rp-out">← 返回</button>';
+      : `${backBtn()}<button class="xq-btn primary" id="rp-next">${atEnd ? '看总结 →' : '下一手 →'}</button><button class="xq-btn ghost" id="rp-out">← 返回</button>`;
     const sk = elBar.querySelector('#rp-skip') as HTMLButtonElement | null;
     if (sk)
       sk.onclick = () => {
         waiting = false;
         const step = opts.moves[idx];
         play();
-        elSay.className = 'xq-rp-say';
-        elSay.innerHTML = `<div class="h">原谱：${step.t}</div>${step.why ? `<div class="w">${step.why}</div>` : ''}`;
+        showStep(step, `原谱：${step.t}`);
         renderBar();
-        if (idx >= opts.moves.length) finish();
       };
     const nx = elBar.querySelector('#rp-next') as HTMLButtonElement | null;
     if (nx) nx.onclick = next;
     const out = elBar.querySelector('#rp-out') as HTMLButtonElement | null;
     if (out) out.onclick = opts.onExit;
+    wireBack();
   }
 
   function showIntro() {
@@ -298,6 +344,9 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
         return !!mv;
       },
       waiting: () => waiting,
+      /** 讲解模式：跳到第 n 手走完 */
+      goTo: (n: number) => goTo(n),
+      flipped: () => flipped,
       idx: () => idx,
       /** 原谱下一手（UI 测试照谱走） */
       expected: () => opts.moves[idx]?.t ?? null,

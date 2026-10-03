@@ -579,6 +579,61 @@ export interface TrickDeep {
 }
 const DEEP = deep as Record<string, TrickDeep | undefined>;
 
+/**
+ * 江湖布局的变化（tools/expand-tricks.ts 生成的 trickvars.json，按需加载，不进首屏）：
+ *   - dev：他不按套路走——轮到设套一方，和他最好的一手差不多的其它走法，你怎么接；
+ *   - alt：另一种破法——和正解差不多一样好的其它应法；
+ *   - wrong：你走错了——看着自然、其实亏的应法，看他怎么罚（原来 wrong 里只有文字的常见错着也补成了谱）。
+ * 顺带把破解谱、上当谱里引擎延伸的那几手换成讲意义的说明（防住什么、威胁什么、引擎怎么看）。
+ */
+export interface TrickVar {
+  name: string;
+  kind: 'dev' | 'alt' | 'wrong';
+  /** 在破解谱（refuteLine）的第几手分出去（0 = 邪门着之后的第一手） */
+  at: number;
+  moves: { t: string; why: string; ev: number }[];
+  final: string;
+  /** 人写的常见错着那句说明 */
+  note?: string;
+}
+type TrickExtras = Record<string, { refuteWhy: (string | null)[]; trapWhy: (string | null)[]; refuteEv?: number[]; trapEv?: number[]; vars: TrickVar[] }>;
+const VARS = new Map<string, TrickVar[]>();
+let extras: Promise<void> | null = null;
+/** 每条套路的变化（没加载完是空的） */
+export const trickVars = (id: string): TrickVar[] => VARS.get(id) ?? [];
+export function loadTrickExtras(): Promise<void> {
+  extras ??= import('./trickvars.json')
+    .then((mod) => {
+      const data = (mod as unknown as { default: TrickExtras }).default;
+      for (const t of TRICKS) {
+        const x = data[t.id];
+        const d = DEEP[t.id];
+        if (!x || !d) continue;
+        // 引擎延伸的那几手（人写的在前面，下标要减掉人写的手数）换成新讲解
+        x.refuteWhy.forEach((w, i) => {
+          const k = i - t.refute.length;
+          if (w && k >= 0 && d.refute[k]) d.refute[k] = { ...d.refute[k], why: w };
+        });
+        x.trapWhy.forEach((w, i) => {
+          const k = i - t.trap.length;
+          if (w && k >= 0 && d.trap[k]) d.trap[k] = { ...d.trap[k], why: w };
+        });
+        VARS.set(t.id, x.vars);
+      }
+    })
+    .catch(() => {
+      // 离线、网络断了：照样用原来的谱，下次再试
+      extras = null;
+    });
+  return extras;
+}
+
+/** 破解谱 / 上当谱从开局起每一手之后的局面分（红方视角），讲解里找"关键一手"用 */
+export function lineEvs(t: TrickOpening, which: 'refute' | 'trap'): number[] {
+  const d = DEEP[t.id];
+  return (which === 'trap' ? d?.evTrap : d?.evRefute) ?? [];
+}
+
 /** 完整的破解谱：人写的几手 + 引擎延伸的 */
 export function refuteLine(t: TrickOpening): TrickStep[] {
   return [...t.refute, ...(DEEP[t.id]?.refute ?? [])];

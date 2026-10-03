@@ -73,7 +73,8 @@ import { OPENINGS, SYSTEM_ORDER, loadOpeningExtras, moveNote, type Opening } fro
 import { runExplorer } from './explorerui';
 import { judgeAgainst } from './altjudge';
 import { keyNote } from './movemeaning';
-import { TRICKS, ledger, lineToTrap, pitfalls, refuteLine, sacrificeAt, trapLine, walkMoves, type TrickOpening } from './tricks';
+import { keyMove, keyTag, lineSummary, withKey } from './coachnote';
+import { TRICKS, ledger, lineEvs, lineToTrap, loadTrickExtras, pitfalls, refuteLine, sacrificeAt, trapLine, trickVars, walkMoves, type TrickOpening, type TrickVar } from './tricks';
 import { outlookOf } from './plan';
 import { listGames } from './archive';
 import { setHintLevel, getHintLevel } from './livecoach';
@@ -83,6 +84,8 @@ import { inPieces } from './teach';
 import { Board2D } from './board2d';
 import { fromFen, toFen } from './notation';
 import { STAGES, stageFor, gameGate, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block } from './curriculum';
+
+type TrickVarKind = TrickVar['kind'];
 
 /** 绝地反杀的一关（tools/gen-counterkill.ts 生成，merge-counterkill 并成 counterkill.json） */
 interface CounterKill {
@@ -1956,6 +1959,17 @@ export function runCoach(
     if (startFrom) mk(`⚔️ 从主线走完的局面实战（你执${o.side === 'red' ? '红' : '黑'}）`, () => playFromOpening(o.moves.map((m) => m.t), o.side === 'red' ? 'r' : 'b'), 'op-play');
     const firstAt = o.variations.length ? Math.min(...o.variations.map((v) => v.at)) : 0;
     mk('📚 在开局浏览器里看：每个分岔点有哪些变招', () => showExplorer(o.moves.slice(0, firstAt).map((m) => m.t), () => showOpening(o)), 'op-explorer');
+    const seen = seenLines();
+    const seenOf = (k: number) => seen.has(`op:${o.id}:${o.variations[k].name}`);
+    // 抽查：随机挑一条（没看过的优先），对方改走的那一手摆出来，你执另一方接着走
+    const drillable = o.variations.map((v, k) => (v.moves.length >= 4 ? k : -1)).filter((k) => k >= 0);
+    if (drillable.length) {
+      mk('🎲 抽一条变化自己走：对方改走了，你怎么应', () => {
+        const k = pickOne(drillable, seenOf)!;
+        const v = o.variations[k];
+        runOpening(o, (v.at + 1) % 2 === 0 ? 'r' : 'b', k, undefined, true);
+      }, 'op-drill');
+    }
     // 变化分两组：原来的变化和变招（和主线差不多一样好）一组，错着（看着自然、其实亏）一组
     const groups: [string, string, number[]][] = [
       ['变化和变招', '和主线差不多一样好的另一路走法，每一手讲意义', o.variations.map((v, k) => (v.kind !== 'trap' ? k : -1)).filter((k) => k >= 0)],
@@ -1965,14 +1979,17 @@ export function runCoach(
       if (!ks.length) continue;
       const h = document.createElement('div');
       h.className = 'xq-sec';
-      h.innerHTML = `${title}（${ks.length}）<span class="dim">　${sub}</span>`;
+      const nSeen = ks.filter(seenOf).length;
+      h.innerHTML = `${title}（${ks.length}${nSeen ? `，看过 ${nSeen}` : ''}）<span class="dim">　${sub}</span>`;
       scr.appendChild(h);
       for (const k of ks.sort((a, b) => o.variations[a].at - o.variations[b].at)) {
         const v = o.variations[k];
         const row = document.createElement('div');
         row.className = 'card home-card';
         row.dataset.variation = String(k);
-        row.innerHTML = `<div class="title">${v.name}${v.kind === 'alt' ? '<span class="tag">变招</span>' : v.kind === 'trap' ? '<span class="tag warn">错着</span>' : ''}</div><div class="desc">从第 ${Math.floor(v.at / 2) + 1} 回合分出去，再走 ${Math.ceil(
+        row.innerHTML = `<div class="title">${v.name}${v.kind === 'alt' ? '<span class="tag">变招</span>' : v.kind === 'trap' ? '<span class="tag warn">错着</span>' : ''}${
+          seenOf(k) ? '<span class="tag ok">✓ 看过</span>' : ''
+        }</div><div class="desc">从第 ${Math.floor(v.at / 2) + 1} 回合分出去，再走 ${Math.ceil(
           v.moves.length / 2,
         )} 回合 · ${v.final}</div>`;
         row.onclick = () => runOpening(o, undefined, k);
@@ -2013,37 +2030,57 @@ export function runCoach(
     return v.length ? Math.max(...v) : null;
   };
 
-  function runOpening(o: Opening, guessFor: Color | undefined, variation?: number, exit?: () => void) {
+  function runOpening(o: Opening, guessFor: Color | undefined, variation?: number, exit?: () => void, drill = false) {
     clear();
     const host = document.createElement('div');
     host.className = 'xq-coach-stage';
     wrap.appendChild(host);
     const v = variation === undefined ? null : o.variations[variation];
     const line = v ? [...o.moves.slice(0, v.at), ...v.moves] : o.moves;
+    // 教练讲解：这一段（主线从头，变化从分岔处）里局面变化最大的一手标成"关键一手"，收尾加一段教练小结
+    const segStart = v ? v.at : 0;
+    const evBefore = segStart > 0 ? o.moves[segStart - 1].ev : 0;
+    const firstMover: Color = segStart % 2 === 0 ? 'r' : 'b';
+    const seg = line.slice(segStart).map((m) => ({ t: m.t, why: moveNote(m), ev: m.ev }));
+    const keyed = withKey(seg, evBefore, firstMover);
+    const summary = lineSummary({ kind: v ? (v.kind ?? 'var') : 'main', moves: seg, evBefore, firstMover, ply0: segStart, mainMove: v ? o.moves[v.at]?.t : undefined });
+    const moves = [...line.slice(0, segStart).map((m) => ({ t: m.t, why: moveNote(m) })), ...keyed].map((m, i) => ({
+      t: m.t,
+      why: m.why,
+      known: v ? undefined : knownAt(o, i),
+    }));
+    const sideOf = (ply: number) => (ply % 2 === 0 ? '红' : '黑');
+    // 抽查：对方那一手（分岔的那一手）摆出来，你执另一方接着走
+    const drillIntro =
+      drill && v
+        ? `抽查：前面照主线摆好，第 ${Math.floor(v.at / 2) + 1} 回合${sideOf(v.at)}方走了 <b>${v.moves[0].t}</b>（${v.moves[0].why.replace(/<[^>]+>/g, '').split('。')[0]}）。
+           你执${sideOf(v.at + 1)}，接下来怎么走？走了谱外的着法，皮卡鱼判是不是一样好。`
+        : '';
     disposeScreen = runReplay(host, {
       title: v ? `${o.name} · ${v.name}` : o.name,
       subtitle: guessFor ? `你执${guessFor === 'r' ? '红' : '黑'}：先自己走，再看原谱（走了别的，皮卡鱼判是不是一样好）` : '讲解：每一手都说明在做什么',
-      intro: v
-        ? `${v.kind === 'trap' ? '错着' : v.kind === 'alt' ? '变招' : '变化'}：${v.name}。前 ${v.at} 手和主线一样，从这里分出去。${
-            v.kind === 'trap' ? '这一手看着很自然，其实要亏——看对方怎么惩罚。' : v.kind === 'alt' ? '这一手和主线差不多一样好，换一条路走。' : ''
-          }每一手都讲它的意义：防住了什么、威胁什么、引擎怎么看。`
-        : o.idea,
-      moves: line.map((m, i) => ({ t: m.t, why: moveNote(m), known: v ? undefined : knownAt(o, i) })),
+      intro: drillIntro
+        ? drillIntro
+        : v
+          ? `${v.kind === 'trap' ? '错着' : v.kind === 'alt' ? '变招' : '变化'}：${v.name}。前 ${v.at} 手和主线一样，从这里分出去。${
+              v.kind === 'trap' ? '这一手看着很自然，其实要亏——看对方怎么惩罚。' : v.kind === 'alt' ? '这一手和主线差不多一样好，换一条路走。' : ''
+            }每一手都讲它的意义：防住了什么、威胁什么、引擎怎么看；局面变化最大的那一手标着 ⭐。`
+          : o.idea,
+      moves,
       guessFor,
-      startAt: v ? v.at : undefined,
+      startAt: v ? (drill ? v.at + 1 : v.at) : undefined,
       judge: guessFor ? (b, c, mine, exp) => judgeAgainst(b, c, mine, exp) : undefined,
-      onFinish: guessFor
-        ? (right, tried) => {
-            if (tried) {
-              const pct = Math.round((right / tried) * 100);
-              setOpeningScore(`${o.id}:${guessFor}${v ? `:${variation}` : ''}`, pct);
-              // 主线自己走过一遍，就排进布局复习（间隔重复）
-              if (!v) scheduleOpening(`${o.id}:${guessFor}`, pct);
-            }
-            checkIn();
-          }
-        : undefined,
-      outro: `<b>${v ? v.final : o.final}</b>（皮卡鱼评估）。${o.breaks}`,
+      onFinish: (right, tried) => {
+        if (v) markSeen(`op:${o.id}:${v.name}`);
+        if (guessFor && tried) {
+          const pct = Math.round((right / tried) * 100);
+          setOpeningScore(`${o.id}:${guessFor}${v ? `:${variation}` : ''}`, pct);
+          // 主线自己走过一遍，就排进布局复习（间隔重复）
+          if (!v) scheduleOpening(`${o.id}:${guessFor}`, pct);
+        }
+        if (guessFor) checkIn();
+      },
+      outro: `<b>${v ? v.final : o.final}</b>（皮卡鱼评估）。${summary}${v ? '' : `<br>${o.breaks}`}`,
       notes: o.traps,
       // 谱走完了，中局才开始：从这个局面和对手接着下，把布局的思路用到实战里
       next: startFrom
@@ -2051,6 +2088,32 @@ export function runCoach(
         : undefined,
       onExit: exit ?? (() => showOpening(o)),
     });
+  }
+
+  // ---------------- 看过的变化（打勾） ----------------
+  const SEEN_KEY = 'xq-seen-lines';
+  function seenLines(): Set<string> {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]') as string[]);
+    } catch {
+      return new Set();
+    }
+  }
+  function markSeen(key: string) {
+    const s = seenLines();
+    if (s.has(key)) return;
+    s.add(key);
+    try {
+      localStorage.setItem(SEEN_KEY, JSON.stringify([...s]));
+    } catch {
+      /* 存不下就算了 */
+    }
+  }
+  /** 抽一条：没看过的优先 */
+  function pickOne<T>(items: T[], seen: (x: T) => boolean): T | undefined {
+    const fresh = items.filter((x) => !seen(x));
+    const pool = fresh.length ? fresh : items;
+    return pool[Math.floor(Math.random() * pool.length)];
   }
 
   /**
@@ -2652,6 +2715,11 @@ export function runCoach(
 
   function showTrick(t: TrickOpening) {
     clear();
+    // 变化和新讲解按需加载：到了以后，还停在这一屏就重画（变化列出来）
+    const nVars = trickVars(t.id).length;
+    void loadTrickExtras().then(() => {
+      if (trickVars(t.id).length !== nVars && wrap.querySelector(`[data-trick-page="${t.id}"]`)) showTrick(t);
+    });
     const me: Color = t.by === 'r' ? 'b' : 'r';
     const v = t.verified;
     const k = t.trapAfter ?? 0;
@@ -2659,6 +2727,7 @@ export function runCoach(
     const preMiss = new Map(pitfalls(t).filter((p) => p.ply < t.pre.length).map((p) => [p.ply, p]));
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-report';
+    scr.dataset.trickPage = t.id;
     scr.innerHTML = `<h1>${t.name}</h1>
       <div class="sub">${t.alias ? `又叫${t.alias} · ` : ''}对方执${sideWord(t.by)} · 你执${sideWord(me)}破解 · ${t.level}</div>
       <div class="xq-advice">
@@ -2713,6 +2782,40 @@ export function runCoach(
         if (w) startFrom(w.moves, me);
       }).dataset.act = 'trick-play';
     }
+    mk('📚 在开局浏览器里看这一套的所有分支', () => showExplorer([...t.pre, t.trick.t], () => showTrick(t))).dataset.act = 'trick-explorer';
+    // 江湖布局的变化：他不按套路走、另一种破法、你走错了
+    const vars = trickVars(t.id);
+    const seen = seenLines();
+    const seenOf = (k: number) => seen.has(`trick:${t.id}:${vars[k].name}`);
+    const devs = vars.map((v, k) => (v.kind === 'dev' && v.moves.length >= 3 ? k : -1)).filter((k) => k >= 0);
+    if (devs.length) {
+      mk('🎲 抽一条：他不按套路走，你怎么接', () => runTrickVar(t, pickOne(devs, seenOf)!, true)).dataset.act = 'trick-drill';
+    }
+    const groups: [TrickVarKind, string, string][] = [
+      ['dev', '他不按套路走', '江湖套路走法多变：他换一手，你认不认得、怎么接'],
+      ['alt', '另一种破法', '和正解差不多一样好的应法，练习时走这些也算对'],
+      ['wrong', '你走错了', '看着自然、其实亏的应法，看他怎么罚'],
+    ];
+    for (const [kind, title, sub] of groups) {
+      const ks = vars.map((v, k) => (v.kind === kind ? k : -1)).filter((k) => k >= 0);
+      if (!ks.length) continue;
+      const nSeen = ks.filter(seenOf).length;
+      const h = document.createElement('div');
+      h.className = 'xq-sec';
+      h.innerHTML = `${title}（${ks.length}${nSeen ? `，看过 ${nSeen}` : ''}）<span class="dim">　${sub}</span>`;
+      scr.appendChild(h);
+      for (const k of ks) {
+        const v = vars[k];
+        const row = document.createElement('div');
+        row.className = 'card home-card';
+        row.dataset.trickVar = String(k);
+        row.innerHTML = `<div class="title">${v.name}${kind === 'wrong' ? '<span class="tag warn">错着</span>' : kind === 'alt' ? '<span class="tag ok">也能破</span>' : '<span class="tag">他改走</span>'}${
+          seenOf(k) ? '<span class="tag ok">✓ 看过</span>' : ''
+        }</div><div class="desc">${v.note ? `${v.note}<br>` : ''}再走 ${Math.ceil(v.moves.length / 2)} 回合 · ${v.final}</div>`;
+        row.onclick = () => runTrickVar(t, k);
+        scr.appendChild(row);
+      }
+    }
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
@@ -2733,9 +2836,44 @@ export function runCoach(
     const tail = mode === 'trap' ? [...t.refute.slice(0, t.trapAfter ?? 0), ...trapLine(t)] : refuteLine(t);
     // 上当那条线上，深算标出来的错着当场点出来：坑在哪一步、该走什么
     const miss = new Map(mode === 'trap' ? pitfalls(t).map((p) => [p.ply, p]) : []);
-    const moves = [...pre, trick, ...tail].map((m, i) => {
+    // 教练讲解：邪门着之后，局面变化最大的那一手标"关键一手"（已经标了"坑"的不重复标），收尾一段教练小结。
+    // 邪门着本身亏多少课里已经讲了，从它后面一手算起
+    const base = [...pre, trick, ...tail];
+    const evs = lineEvs(t, mode === 'trap' ? 'trap' : 'refute');
+    const from = pre.length + 1;
+    const nEv = Math.max(0, Math.min(base.length, evs.length) - from);
+    const evBefore = from > 0 ? (evs[from - 1] ?? 0) : 0;
+    const seg = base.slice(from, from + nEv).map((m, j) => ({ t: m.t, why: m.why, ev: evs[from + j] }));
+    const victim: Color = t.by === 'r' ? 'b' : 'r';
+    const km = nEv ? keyMove(seg, evBefore, victim) : null;
+    const keyPly = km && !miss.has(from + km.i) ? from + km.i : -1;
+    const summary = nEv ? lineSummary({ kind: mode === 'trap' ? 'fall' : 'refute', moves: seg, evBefore, firstMover: victim, ply0: from }) : '';
+    // 你来破解：走到谱上收着的另一种破法直接算对，走到"你走错了"那几手当场点名、说出他怎么罚
+    const knownBy = new Map<number, { t: string; ok: boolean; note: string }[]>();
+    if (mode === 'guess') {
+      for (const v of trickVars(t.id)) {
+        if (v.kind === 'dev') continue;
+        const at = pre.length + 1 + v.at;
+        const punish = v.moves[1];
+        const item =
+          v.kind === 'alt'
+            ? { t: v.moves[0].t, ok: true, note: `另一种破法，课里"变化"一组有这一路` }
+            : {
+                t: v.moves[0].t,
+                ok: false,
+                note: `这是常见的错着——${v.note ? v.note.replace(/。$/, '') : '看着自然，其实亏'}${punish ? `：他接着走 <b>${punish.t}</b>（${keyNote(punish.why.replace(/<[^>]+>/g, '').split('。')[0])}）` : ''}`,
+              };
+        knownBy.set(at, [...(knownBy.get(at) ?? []), item]);
+      }
+    }
+    const moves = base.map((m, i) => {
       const p = miss.get(i);
-      return p ? { ...m, why: `⚠️ <b>坑：</b>这里该走 <b>${p.best}</b>（这一手差约${inPieces(p.loss)}）。${m.why}` } : m;
+      const why = p
+        ? `⚠️ <b>坑：</b>这里该走 <b>${p.best}</b>（这一手差约${inPieces(p.loss)}）。${m.why}`
+        : i === keyPly && km
+          ? `${keyTag(km, i % 2 === 0 ? 'r' : 'b')}${m.why}`
+          : m.why;
+      return { ...m, why, known: knownBy.get(i) };
     });
     disposeScreen = runReplay(host, {
       title: t.name,
@@ -2754,11 +2892,60 @@ export function runCoach(
       startAt: mode === 'guess' ? pre.length + 1 : undefined,
       judge: mode === 'guess' ? (b, c, mine, exp) => judgeAgainst(b, c, mine, exp) : undefined,
       notes: [t.principle],
+      outro: summary,
       onFinish: (right, tried) => {
         if (mode === 'guess' && tried && right === tried) markTrickDone(t.id);
       },
       // 破解那几手走完不算完：接着和皮卡鱼下到胜势
       next: mode === 'trap' || exit ? undefined : { label: '🏁 接着破解到底', run: () => runTrickFull(t) },
+      onExit: exit ?? (() => showTrick(t)),
+    });
+  }
+
+  /**
+   * 江湖布局的一条变化：前面照破解谱摆好，从分岔那一手起每一手讲意义，收尾一段教练小结。
+   * drill：抽查——他改走的那一手摆出来，你执破解方接着走。
+   */
+  function runTrickVar(t: TrickOpening, k: number, drill = false, exit?: () => void) {
+    const v = trickVars(t.id)[k];
+    if (!v) return showTrick(t);
+    clear();
+    const host = document.createElement('div');
+    host.className = 'xq-coach-stage';
+    wrap.appendChild(host);
+    const me: Color = t.by === 'r' ? 'b' : 'r';
+    const R = refuteLine(t);
+    const prefix = [
+      ...t.pre.map((x, i) => ({ t: x, why: t.preWhy[i] ?? '' })),
+      { t: t.trick.t, why: `<b>邪门着。</b>${t.trick.why}` },
+      ...R.slice(0, v.at).map((x) => ({ t: x.t, why: x.why })),
+    ];
+    const ply0 = prefix.length;
+    const evs = lineEvs(t, 'refute');
+    const evBefore = evs[ply0 - 1] ?? 0;
+    const firstMover: Color = ply0 % 2 === 0 ? 'r' : 'b';
+    const summary = lineSummary({ kind: v.kind, moves: v.moves, evBefore, firstMover, ply0, mainMove: R[v.at]?.t });
+    const round = Math.floor(ply0 / 2) + 1;
+    const first = v.moves[0];
+    const what = first.why.replace(/<[^>]+>/g, '').split('。')[0];
+    const intro = drill
+      ? `抽查：前面照破解谱摆好，第 ${round} 回合他没按套路走，改走了 <b>${first.t}</b>（${what}）。你执${sideWord(me)}，怎么接？走了谱外的着法，皮卡鱼判是不是一样好。`
+      : v.kind === 'dev'
+        ? `他不按套路走：前面照破解谱摆好，第 ${round} 回合他改走 <b>${first.t}</b>（${what}），原来谱上是 ${R[v.at]?.t ?? ''}。认不认得出、怎么接——每一手都讲它的意义，局面变化最大的那一手标着 ⭐。`
+        : v.kind === 'alt'
+          ? `另一种破法：第 ${round} 回合走 <b>${first.t}</b>（${what}），谱上是 ${R[v.at]?.t ?? ''}，引擎认为差不多一样好。看这一路怎么走下去。`
+          : `你走错了：第 ${round} 回合走 <b>${first.t}</b>——看着自然，其实亏。${v.note ?? ''}看他怎么罚，正解是 ${R[v.at]?.t ?? ''}。`;
+    disposeScreen = runReplay(host, {
+      title: `${t.name} · ${v.name}`,
+      subtitle: drill ? `抽查：你执${sideWord(me)}，先走再对答案` : '江湖布局的变化，每一手都讲在干什么',
+      intro,
+      moves: [...prefix, ...withKey(v.moves, evBefore, firstMover)],
+      guessFor: drill ? me : undefined,
+      startAt: drill ? ply0 + 1 : ply0,
+      judge: drill ? (b, c, mine, exp) => judgeAgainst(b, c, mine, exp) : undefined,
+      outro: `<b>${v.final}</b>（皮卡鱼评估）。${summary}`,
+      notes: [t.principle],
+      onFinish: () => markSeen(`trick:${t.id}:${v.name}`),
       onExit: exit ?? (() => showTrick(t)),
     });
   }

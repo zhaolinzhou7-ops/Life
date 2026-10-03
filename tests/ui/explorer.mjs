@@ -6,6 +6,8 @@
  *   布局复习：排了复习、到期了，教练首页有提示，布局体系里有复习卡。
  *   复盘：导入一盘棋 → 复盘里叫得出布局名字 → 找回好棋。
  *   对局：教练那一行显示布局名字。
+ *   讲解：◀ 上一手、点棋谱条跳回、⇅ 翻转；最后一手的讲解先看得到再"看总结"；教练小结、关键一手；看过的打勾；🎲 抽查。
+ *   江湖布局：他不按套路走 / 另一种破法 / 你走错了三组变化，点进去讲到底；抽一条他改走的来接。
  * 用法：npm run dev，然后 node tests/ui/explorer.mjs
  */
 import fs from 'fs';
@@ -165,6 +167,77 @@ if (trapOp) {
   await page.screenshot({ path: OUT + '/ex-guess-trap.png' });
   await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
 }
+
+// ───────── 2b. 讲解能后退、跳回、翻转；最后一手的讲解看得到；教练小结；看过的打勾；抽查 ─────────
+await page.locator('.btn.ghost', { hasText: '返回' }).last().click(); await page.waitForTimeout(300);
+await page.locator('[data-opening="pfm-guohe"]').click(); await page.waitForTimeout(800);
+await page.locator('[data-act="op-watch"]').click(); await page.waitForTimeout(300);
+for (let i = 0; i < 5; i++) await page.locator('#rp-next').click();
+ok('讲解第 5 手', (await page.evaluate(() => window.__xqReplay.idx())) === 5);
+await page.locator('#rp-back').click(); await page.waitForTimeout(100);
+ok('◀ 上一手：退回第 4 手，讲解换成第 4 手的', (await page.evaluate(() => window.__xqReplay.idx())) === 4 && (await page.locator('.xq-rp-say .h').innerText()).trim() === guohe.moves[3].t);
+await page.locator('.xq-rp-trail [data-n="2"]').click(); await page.waitForTimeout(100);
+ok('点棋谱条跳回第 2 手', (await page.evaluate(() => window.__xqReplay.idx())) === 2);
+const f0 = await page.evaluate(() => window.__xqReplay.flipped());
+await page.locator('.xq-rp-flip').click();
+ok('⇅ 翻转棋盘', (await page.evaluate(() => window.__xqReplay.flipped())) === !f0);
+await page.locator('.xq-rp-flip').click();
+await page.evaluate((n) => window.__xqReplay.goTo(n), guohe.moves.length);
+await page.waitForTimeout(100);
+const lastSay = (await page.locator('.xq-rp-say').innerText()).trim();
+ok('走到最后一手：先看这一手自己的讲解（原来直接被"走完了"盖掉）', lastSay.startsWith(guohe.moves[guohe.moves.length - 1].t) && (await page.locator('#rp-next').innerText()).includes('看总结'));
+await page.locator('#rp-next').click(); await page.waitForTimeout(150);
+const endSay = await page.locator('.xq-rp-say').innerText();
+ok('看总结：走完了 + 教练小结', endSay.includes('走完了') && endSay.includes('教练小结'));
+await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
+// 看一条变招到底 → 打勾
+const vRow = page.locator('[data-variation]', { has: page.locator('.tag', { hasText: '变招' }) }).first();
+const vk = await vRow.getAttribute('data-variation');
+await vRow.click(); await page.waitForTimeout(300);
+for (let i = 0; i < 40 && (await page.locator('#rp-next').count()); i++) await page.locator('#rp-next').click();
+const vEnd = await page.locator('.xq-rp-say').innerText();
+console.log('   变招收尾：' + vEnd.replace(/\s+/g, ' ').slice(0, 200));
+ok('变招收尾有教练小结', vEnd.includes('教练小结') && vEnd.includes('走到最后'));
+await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
+ok('看完的变招打上"✓ 看过"', (await page.locator(`[data-variation="${vk}"] .tag`, { hasText: '看过' }).count()) === 1);
+await page.locator('[data-act="op-drill"]').click(); await page.waitForTimeout(300);
+const drillSay = await page.locator('.xq-rp-say').innerText();
+ok('🎲 抽一条变化：对方那一手摆好，轮到你走', drillSay.includes('抽查') && (await until(page, () => window.__xqReplay.waiting() || !!document.querySelector('#rp-next'), null, 3000)));
+await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
+
+// ───────── 2c. 江湖布局的变化 ─────────
+await page.locator('.btn.ghost', { hasText: '返回' }).last().click(); await page.waitForTimeout(300);
+await page.locator('.card', { hasText: '邪门布局破解' }).first().click(); await page.waitForTimeout(400);
+await page.locator('.card', { hasText: '铁滑车（开局车一进一弃马）' }).first().click(); await page.waitForTimeout(600);
+ok('江湖布局的变化加载以后列出来：他不按套路走 / 另一种破法 / 你走错了', await until(page, () => document.querySelectorAll('[data-trick-var]').length >= 5, null, 10000));
+const tsecs = await page.locator('.xq-sec').allInnerTexts();
+console.log('   江湖布局变化：' + tsecs.join(' / '));
+ok('三组都有', ['他不按套路走', '另一种破法', '你走错了'].filter((x) => tsecs.some((s) => s.includes(x))).length >= 2);
+await page.locator('[data-trick-var]').first().click(); await page.waitForTimeout(300);
+const tvIntro = await page.locator('.xq-rp-say').innerText();
+ok('点进一条变化：开场说清楚是哪一种', /他不按套路走|另一种破法|你走错了/.test(tvIntro));
+let tvSteps = 0;
+let tvRich = 0;
+for (let i = 0; i < 40 && (await page.locator('#rp-next').count()); i++) {
+  await page.locator('#rp-next').click(); tvSteps++;
+  if (/目的：|接下来|引擎|⭐/.test(await page.locator('.xq-rp-say').innerText())) tvRich++;
+}
+console.log(`   江湖布局变化讲了 ${tvSteps} 手，讲了目的/引擎意见/关键一手的 ${tvRich} 手`);
+ok('江湖布局的变化一手一手讲到底，带教练小结', tvSteps >= 6 && tvRich >= 2 && (await page.locator('.xq-rp-say').innerText()).includes('教练小结'));
+await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
+if (await page.locator('[data-act="trick-drill"]').count()) {
+  await page.locator('[data-act="trick-drill"]').click(); await page.waitForTimeout(300);
+  ok('🎲 抽一条：他不按套路走，轮到你接', (await page.locator('.xq-rp-say').innerText()).includes('抽查') && (await page.evaluate(() => window.__xqReplay.waiting() || !!document.querySelector('#rp-next'))));
+  await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
+}
+await page.locator('[data-act="trick-trap"]').click(); await page.waitForTimeout(300);
+let star = false;
+for (let i = 0; i < 40 && (await page.locator('#rp-next').count()); i++) {
+  await page.locator('#rp-next').click();
+  if (/关键一手|坑：/.test(await page.locator('.xq-rp-say').innerText())) star = true;
+}
+ok('上当谱里标出了上当的那一手（⭐ 关键一手 / ⚠️ 坑），收尾有教练小结', star && (await page.locator('.xq-rp-say').innerText()).includes('教练小结'));
+await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
 
 // ───────── 3. 布局复习（间隔重复） ─────────
 await coachHome({ 'xq-op-srs': JSON.stringify({ 'pfm-guohe:r': { box: 0, due: 0, last: 50 } }) });

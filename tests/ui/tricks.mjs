@@ -111,7 +111,7 @@ let mine = 0;
 for (let i = 0; i < 60; i++) {
   if (await page.evaluate(() => window.__xqReplay.waiting())) {
     // 前三手是两关的要点，自己写死；后面是皮卡鱼延伸的十来手，照谱走完。
-    // 最后一手猜完直接进"走完了"的收尾——对不对看最后有没有记为"已破"（要每手都对）
+    // 最后一手猜完先看这一手的讲解，再点"看总结 →"收尾——对不对看最后有没有记为"已破"（要每手都对）
     const m = got < answers.length ? answers[got] : await page.evaluate(() => window.__xqReplay.expected());
     if (got < answers.length && (await page.evaluate(() => window.__xqReplay.expected())) !== m) break;
     if (!(await page.evaluate((x) => window.__xqReplay.guess(x), m))) break;

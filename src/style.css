@@ -2576,6 +2576,33 @@ canvas {
 }
 .xq-rp-fit > * { flex: 0 0 auto; }
 .xq-rp-fit .xq-rp-head { margin-bottom: 2px; }
+.xq-rp-head { position: relative; padding: 0 34px; }
+.xq-rp-flip {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.xq-rp-bar .xq-btn.xq-rp-back { flex: 0 0 44px; padding-left: 0; padding-right: 0; }
+.xq-rp-trail [data-n] { cursor: pointer; }
+/* 教练讲解：关键一手、教练小结 */
+.xq-key { display: block; color: #ffd76e; margin-bottom: 2px; }
+.xq-coach-sum {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 215, 110, 0.08);
+  border: 1px solid rgba(255, 215, 110, 0.25);
+  line-height: 1.7;
+}
 .xq-rp-fit .xq-rp-board {
   flex: 1 1 auto;
   min-height: 150px;
