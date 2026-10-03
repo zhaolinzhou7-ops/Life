@@ -38,6 +38,8 @@ export interface PuzzleResult {
 export interface PuzzleOpts {
   /** 顶部说明，比如「测评 3/35」 */
   caption?: string;
+  /** 开场的一段话，放在棋盘下面的提示框里（顶上那一行放不下长话，比如"找回好棋"要说清楚原来走的哪一手、亏了多少） */
+  lead?: string;
   /** 是否允许提示。测评时要关掉，不然测不准 */
   allowHint?: boolean;
   /**
@@ -573,6 +575,10 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
 
   renderSteps();
   renderBar();
+  if (opts.lead) {
+    elFb.className = 'xq-tr-fb tip';
+    elFb.innerHTML = `<div class="l">${opts.lead}</div>`;
+  }
 
   // 开发期测试钩子：做题界面靠点棋盘操作，自动化测试算不出格子的屏幕坐标，
   // 这里把内部动作直接暴露出来。生产构建里整块会被摇掉（同 index.ts 的 __xq）。

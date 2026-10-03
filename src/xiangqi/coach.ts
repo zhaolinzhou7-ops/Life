@@ -3288,6 +3288,8 @@ export function runCoach(
   // 开发期测试钩子：直接打开某一道题 / 某一条套路的"破解到底"（生产构建会被摇掉）
   if (import.meta.env.DEV) {
     (window as unknown as Record<string, unknown>).__xqCoach = {
+      /** 回到学棋首页（逐屏体检用） */
+      home: () => showHome(),
       puzzle: async (id: string) => {
         await loadPuzzles();
         const p = byId(id);

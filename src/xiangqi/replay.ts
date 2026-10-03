@@ -56,7 +56,8 @@ const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 
 export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
   const wrap = document.createElement('div');
-  wrap.className = 'xq-rp';
+  // xq-rp-fit：占满一屏，棋盘吃剩下的高度、讲解框限高可滚——讲解再长，按钮也不会被挤出屏幕
+  wrap.className = 'xq-rp xq-rp-fit';
   host.appendChild(wrap);
 
   const start = opts.fen ? fromFen(opts.fen) : null;
@@ -84,6 +85,10 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
   const elSay = wrap.querySelector('.xq-rp-say') as HTMLElement;
   const elBar = wrap.querySelector('.xq-rp-bar') as HTMLElement;
   const elTrail = wrap.querySelector('.xq-rp-trail') as HTMLElement;
+
+  // 讲解框限高可滚：换一段讲解就回到开头，别停在上一段滚到的位置
+  const sayObs = new MutationObserver(() => (elSay.scrollTop = 0));
+  sayObs.observe(elSay, { childList: true });
 
   const view = new Board2D(elBoard, { flip: opts.flip ?? opts.guessFor === 'b', onTap: (x, y) => onTap(x, y) });
   view.setBoard(board);
@@ -184,6 +189,8 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
       .slice(0, idx)
       .map((m, i) => `<span class="${i === idx - 1 ? 'on' : ''}">${i % 2 === 0 ? `${i / 2 + 1}.` : ''}${m.t}</span>`)
       .join(' ');
+    // 棋谱条限高可滚：最新一手永远露在眼前
+    elTrail.scrollTop = elTrail.scrollHeight;
   }
 
   function next() {
@@ -300,6 +307,7 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
   }
 
   return () => {
+    sayObs.disconnect();
     view.dispose();
     wrap.remove();
   };

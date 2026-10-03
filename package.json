@@ -30,6 +30,7 @@
     "test:ui:resume": "node tests/ui/resume.mjs",
     "test:ui:tricks": "node tests/ui/tricks.mjs",
     "test:ui:explorer": "node tests/ui/explorer.mjs",
+    "test:ui:sweep": "node tests/ui/sweep.mjs",
     "test:ui:tutor": "node tests/ui/tutor.mjs",
     "test:ui:grow": "LANG=C.UTF-8 node tests/ui/grow.mjs",
     "check:tricks": "node tools/run.mjs check-tricks"

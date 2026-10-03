@@ -122,6 +122,15 @@ for (const [w, h] of SIZES) {
   r = await visible(page, '.xq-rp-bar .xq-btn');
   ok(`${tag} 打谱：下一手/返回看得到 ${r.bad.join('；')}`, r.n >= 1 && !r.bad.length);
   await page.screenshot({ path: `${OUT}/bars-rp-${w}x${h}.png` });
+  // 讲到底：走完了那段总结（局面判断 + 几个容易踩的坑）很长，按钮原来被挤出屏幕（用户截图）
+  for (let i = 0; i < 80 && (await page.locator('#rp-next').count()); i++) { await page.locator('#rp-next').click(); await page.waitForTimeout(20); }
+  r = await visible(page, '.xq-rp-bar .xq-btn');
+  ok(`${tag} 打谱走完了：再看一遍/返回看得到 ${r.bad.join('；')}`, r.n >= 2 && !r.bad.length);
+  r = await toolbar(page, '.xq-rp-bar .xq-btn');
+  ok(`${tag} 打谱走完了：浏览器底栏盖住 90 像素时也看得到 ${r.bad.join('；')}`, r.n >= 2 && !r.bad.length);
+  const sayScroll = await page.evaluate(() => { const e = document.querySelector('.xq-rp-say'); return e.scrollHeight <= e.clientHeight + 2 || getComputedStyle(e).overflowY === 'auto'; });
+  ok(`${tag} 打谱走完了：总结长了就在框里滚，不会被裁掉`, sayScroll);
+  await page.screenshot({ path: `${OUT}/bars-rp-end-${w}x${h}.png` });
   await ctx.close();
 }
 

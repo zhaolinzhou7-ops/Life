@@ -198,7 +198,7 @@ await page.screenshot({ path: OUT + '/ex-review.png' });
 await page.locator('[data-act="retry"]').click(); await page.waitForTimeout(600);
 const rtop = (await page.locator('.xq-retry .xq-tr').innerText()).replace(/\s+/g, ' ');
 console.log('   ' + rtop.slice(0, 80));
-ok('找回好棋：自己先想一遍', (await page.locator('.xq-retry').count()) === 1 && rtop.includes('找回好棋 1/') && rtop.includes('找一手更好的'));
+ok('找回好棋：自己先想一遍', (await page.locator('.xq-retry').count()) === 1 && rtop.includes('找回好棋 1/') && rtop.includes('更好的') && rtop.includes('亏了约'));
 const bw = await page.locator('.xq-retry canvas, .xq-retry .xq-b2d, .xq-retry svg').first().evaluate((e) => e.getBoundingClientRect().width).catch(() => 0);
 ok(`找回好棋的棋盘撑得开（${Math.round(bw)} 像素宽）`, bw >= 300);
 await page.screenshot({ path: OUT + '/ex-retry.png' });

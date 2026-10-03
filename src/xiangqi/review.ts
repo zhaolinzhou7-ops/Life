@@ -402,13 +402,14 @@ export function runReview(opts: ReviewOpts): () => void {
         answer: m.bestText!,
         line: m.bestPv?.length ? m.bestPv.slice(0, 1) : [m.bestText!],
         rating: 1200,
-        prompt: `第 ${roundOf(m.ply)} 回合你走了 ${m.text}（亏了约${inPieces(m.loss)}）。找一手更好的`,
+        prompt: `找一手比 ${m.text} 更好的`,
       };
       const stage = document.createElement('div');
       stage.className = 'xq-coach-stage';
       hostEl.appendChild(stage);
       dispose = runPuzzle(stage, p, {
         caption: `找回好棋 ${k + 1}/${items.length}`,
+        lead: `第 ${roundOf(m.ply)} 回合你走了 <b>${m.text}</b>，亏了约${inPieces(m.loss)}。先自己想一手更好的，想不出来再点提示。`,
         playToEnd: false,
         onExit: done,
         onDone: (r) => {

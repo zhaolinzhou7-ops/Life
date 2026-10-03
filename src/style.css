@@ -2562,6 +2562,38 @@ canvas {
   padding: 0 2px;
 }
 .xq-rp-trail .on { color: #ffd76e; font-weight: 700; opacity: 1; }
+/*
+ * 打谱/讲解（布局、邪门布局、打谱、残局示范）：和做题一样占满一屏。
+ * 原来是从上往下排、外面又不能滚：走完了那段总结（局面判断 + 几个容易踩的坑）一长，
+ * 按钮就被挤到屏幕外面，连"返回"都点不到。现在棋盘吃剩下的高度，讲解框限高、自己滚，按钮永远在屏幕里。
+ */
+.xq-rp-fit {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(env(safe-area-inset-top) + 6px) 10px calc(env(safe-area-inset-bottom) + 8px);
+}
+.xq-rp-fit > * { flex: 0 0 auto; }
+.xq-rp-fit .xq-rp-head { margin-bottom: 2px; }
+.xq-rp-fit .xq-rp-board {
+  flex: 1 1 auto;
+  min-height: 150px;
+  aspect-ratio: auto;
+  max-width: 560px;
+  margin: 2px auto;
+}
+.xq-rp-fit .xq-rp-say {
+  margin: 6px 2px;
+  min-height: 4.6em;
+  max-height: calc(var(--app-h, 100vh) * 0.3);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* 走完了：总结长，讲解框给大一点，棋盘让一让 */
+.xq-rp-fit .xq-rp-say.done { max-height: calc(var(--app-h, 100vh) * 0.42); }
+.xq-rp-fit .xq-rp-bar { margin: 2px 0 4px; }
+.xq-rp-fit .xq-rp-trail { max-height: 3.9em; overflow-y: auto; }
 
 /* 训练方案里的月度目标 */
 .xq-goal {
@@ -4567,6 +4599,15 @@ canvas {
 .xq-tutor-habits th { color: var(--muted); font-weight: normal; }
 .xq-tutor-lesson { border-color: rgba(64, 196, 255, 0.45); background: rgba(64, 196, 255, 0.07); }
 /* 开局浏览器 */
+/* 开局浏览器是一张长页（谱上的走法、候选着一列下去）：自己滚；棋盘按屏高收一收，下面的走法露得出来 */
+.xq-ex {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: calc(env(safe-area-inset-top) + 6px) 10px calc(env(safe-area-inset-bottom) + 16px);
+}
+.xq-ex .xq-rp-board { max-width: min(420px, calc(var(--app-h, 100vh) * 0.5)); }
 .xq-ex .xq-rp-head .s b { color: var(--text); }
 .xq-ex .xq-rp-head .ok { color: var(--ok); }
 .xq-ex .xq-rp-head .warn { color: #e8703d; }
