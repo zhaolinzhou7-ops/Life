@@ -101,7 +101,9 @@ export function lineSummary(opts: {
     parts.push(`关键在第 ${round(k.i)} 回合${side(moverOf(k.i))}方的 <b>${m.t}</b>（${firstClause(m.why)}）：局面从「${evWords(k.before)}」变成「${evWords(k.after)}」。`);
   } else if (moves.length >= 4) {
     // 没有哪一手让局面大起大落：也是一句实话——这一路靠的是每一手都不松
-    parts.push(`这一路没有一步定输赢的地方，局面从「${evWords(evBefore)}」一路走到「${evWords(moves[moves.length - 1].ev)}」，靠的是每一手都不松。`);
+    const a = evWords(evBefore);
+    const z = evWords(moves[moves.length - 1].ev);
+    parts.push(`这一路没有一步定输赢的地方，${a === z ? `局面一直是「${a}」` : `局面从「${a}」一路走到「${z}」`}，靠的是每一手都不松。`);
   }
   const end = moves[moves.length - 1].ev;
   parts.push(`走到最后：${evWords(end)}。`);
