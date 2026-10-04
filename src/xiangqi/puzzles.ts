@@ -13,6 +13,7 @@
  */
 import type { Dim } from './save';
 import { getOwnPuzzles, effectiveRating, attemptedMap } from './save';
+import type { ErrTag } from './teach';
 
 export type PuzzleKind = 'mate' | 'tactic' | 'safety' | 'endgame' | 'opening';
 
@@ -39,6 +40,10 @@ export interface Puzzle {
    * 说明它看起来足够像好棋——那才是做题时真正的障碍。
    */
   blunder?: string;
+  /** 你自己棋局里来的题（own-）：这一手是哪种毛病（送子、漏看威胁……） */
+  tag?: ErrTag;
+  /** 你自己棋局里来的题：哪天那盘、第几回合、那一手亏了多少分 */
+  from?: { d: string; round: number; loss: number };
   /**
    * 题目要求——皮卡鱼看过正解之后定的（tools/classify-puzzles.ts）。
    *

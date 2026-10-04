@@ -4830,3 +4830,7 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
   cursor: pointer;
 }
 .xq-rv-move:has(.xq-rv-pun) .xq-rv-acc { margin-left: 6px; }
+.xq-rv-harvest .xq-rv-deep { display: block; width: 100%; margin-top: 6px; }
+/* 我的专属课 */
+.xq-own-row .desc.dim { font-size: 11.5px; opacity: 0.6; margin-top: 2px; }
+.xq-own > .btn[data-act="own-due"] { margin: 4px 0 10px; }

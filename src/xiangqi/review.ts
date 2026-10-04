@@ -61,6 +61,8 @@ export interface ReviewOpts {
   record?: boolean;
   /** 从某一手之前的局面接着下（试试正确的走法）。不给就不显示这个按钮 */
   onReplayFrom?: (board: Board, toMove: Color) => void;
+  /** 去"我的专属课"练这盘存下来的错着。不给就不显示按钮 */
+  onTrainOwn?: () => void;
   /** 棋谱文字的抬头，如"2026-09-25 · 你执红 · 负 · 中级" */
   title?: string;
   onClose: () => void;
@@ -527,7 +529,13 @@ export function runReview(opts: ReviewOpts): () => void {
              </button>`
           : ''
       }
-      ${analysis.savedPuzzles > 0 ? `<div class="xq-rv-harvest">📌 已把你这局走错的 <b>${analysis.savedPuzzles}</b> 手存进错题本，过几天会回来找你。</div>` : ''}
+      ${
+        analysis.savedPuzzles > 0
+          ? `<div class="xq-rv-harvest">🎯 已把你这局走错的 <b>${analysis.savedPuzzles}</b> 手存进「我的专属课」：按毛病归类，明天起按间隔回来找你，连对五次才算过关。${
+              opts.onTrainOwn ? '<button class="xq-rv-deep" data-act="train-own">▶ 去专属课看看</button>' : ''
+            }</div>`
+          : ''
+      }
       ${
         analysis.engine === 'pro' && !analysis.opts.deep
           ? '<button class="xq-rv-deeprv" data-act="deep-review">🔬 深度复盘（每手多算几倍时间，更准）</button>'
@@ -665,6 +673,11 @@ export function runReview(opts: ReviewOpts): () => void {
       return;
     }
     if (act === 'punish-demo') return startDemo();
+    if (act === 'train-own' && opts.onTrainOwn) {
+      close();
+      opts.onTrainOwn();
+      return;
+    }
     if (act === 'demo-end') return endDemo();
     if (demo && (act === 'demo-prev' || act === 'demo-next')) {
       demoAuto(false);

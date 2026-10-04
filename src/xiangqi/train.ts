@@ -348,7 +348,13 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     elFb.className = 'xq-tr-fb ok';
     elFb.innerHTML = `<div class="h">${head}</div>${
       puzzle.line.length > 1 ? `<div class="l">原谱：${puzzle.line.join(' ')}</div>` : ''
-    }${puzzle.blunder ? `<div class="r">这个局面是从真实对局里抓的——当时那盘棋走的是 <b>${puzzle.blunder}</b>，亏了子。</div>` : ''}`;
+    }${
+      puzzle.blunder
+        ? puzzle.id.startsWith('own-')
+          ? `<div class="r">这是你自己那盘棋里的局面——当时你走的是 <b>${puzzle.blunder}</b>，这次走对了。</div>`
+          : `<div class="r">这个局面是从真实对局里抓的——当时那盘棋走的是 <b>${puzzle.blunder}</b>，亏了子。</div>`
+        : ''
+    }`;
     settle(true);
   }
 
@@ -438,7 +444,13 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
           ? '<div class="r dim">这是从你自己的对局里抓的题，皮卡鱼没加载起来时只对着引擎首选判分——走出另一手一样好的也会算错。</div>'
           : ''
       }
-      ${puzzle.blunder && !myStep ? `<div class="r">别灰心——这个局面是从真实对局里抓的，当时那盘棋也走错了（走的是 ${puzzle.blunder}）。</div>` : ''}
+      ${
+        puzzle.blunder && !myStep
+          ? puzzle.id.startsWith('own-')
+            ? `<div class="r">实战里你在这里走的是 ${puzzle.blunder}——${puzzle.blunder === text ? '又是同一手，这个坑明天还会回来找你' : '这次换了一手，还是没走到点子上'}。</div>`
+            : `<div class="r">别灰心——这个局面是从真实对局里抓的，当时那盘棋也走错了（走的是 ${puzzle.blunder}）。</div>`
+          : ''
+      }
       <div class="r pun">正在算对方怎么惩罚这一手…</div>`;
     settle(false);
     if (!right) {

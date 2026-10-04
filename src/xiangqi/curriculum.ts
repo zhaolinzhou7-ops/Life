@@ -160,7 +160,7 @@ export function graduateStatus(stage: Stage, ratings: Record<Dim, { r: number }>
 
 // ---------------- 每日训练 ----------------
 
-export type BlockKind = 'assess' | 'srs' | 'lesson' | 'focus' | 'endgame' | 'game' | 'quiz' | 'timed' | 'opening' | 'combo' | 'ladder';
+export type BlockKind = 'assess' | 'own' | 'srs' | 'lesson' | 'focus' | 'endgame' | 'game' | 'quiz' | 'timed' | 'opening' | 'combo' | 'ladder';
 
 export interface Block {
   /** 一天里这一项的编号（assess / srs / lesson / focus / extra / game），打勾用 */
@@ -209,6 +209,10 @@ export interface TrainInput {
   lesson?: { title: string; step: number; label: string; kind: string; dim?: Dim } | null;
   /** 布局复习今天到期几套 */
   openingDue?: number;
+  /** 你自己棋局里走错、复盘存下来的局面：今天该重走的有几手（到期的 + 还没练过的） */
+  ownDue?: number;
+  /** 这些错着里最常见的毛病（"漏看威胁"），任务说明里点出来 */
+  ownTop?: string;
   /** 最近几天的专项各练的哪一维（新的在后）：同一维连练三天、正确率也上去了，就换一维 */
   recentFocus?: Dim[];
 }
@@ -294,6 +298,22 @@ export function dailyPlan(inp: TrainInput): Block[] {
     ];
   }
   const blocks: Block[] = [];
+
+  // ⓪ 复盘错着重练：你自己棋局里走错的局面，复盘存下来，第二天开始按间隔回来找你。
+  // 用户原话："私教要将复盘数据带入到日常训练中。针对我复盘表现不好、暴露出的弱项，自动生成到专属课程里让我反复训练。"
+  const own = inp.ownDue ?? 0;
+  if (own > 0) {
+    const n = Math.min(6, own);
+    blocks.push({
+      id: 'own',
+      kind: 'own',
+      title: `复盘错着重练 ${n} 手`,
+      desc: `你自己棋局里走错的局面，再走一遍正确的${inp.ownTop ? `（最多的是「${inp.ownTop}」）` : ''}。做对隔几天再来，做错明天再来。`,
+      minutes: Math.max(3, n),
+      count: n,
+      why: '这几手是你在实战里真的走错过的——比题库里的题更值得练。',
+    });
+  }
 
   if (dueCount > 0) {
     const n = Math.min(10, dueCount);

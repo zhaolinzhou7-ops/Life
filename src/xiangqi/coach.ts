@@ -55,6 +55,7 @@ import {
   calibratePuzzle,
   effectiveRating,
   getOwnPuzzles,
+  ownStatus,
   type Dim,
 } from './save';
 import { Assessment, diagnose, type AssessResult } from './assess';
@@ -76,7 +77,7 @@ import { listGames } from './archive';
 import { setHintLevel, getHintLevel } from './livecoach';
 import { CHECK_GAMES, checkLesson, closeIntro, getLessonLog, habitCounts, markStep, planLesson, ratePerGame, startLesson, themeName, type Lesson, type Step } from './tutor';
 import { roleOf } from './endgame';
-import { inPieces } from './teach';
+import { ERR_INFO, inPieces, type ErrTag } from './teach';
 import { Board2D } from './board2d';
 import { fromFen, toFen } from './notation';
 import { STAGES, stageFor, gameGate, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block, type TrainInput } from './curriculum';
@@ -134,7 +135,7 @@ const DIM_KIND: Record<Dim, PuzzleKind> = {
  * 首页的「今日训练」和「战术训练」是两个不同的入口，点进来却看到同一个
  * 菜单的话，用户会以为自己点错了。所以由调用方指定落点。
  */
-export type CoachEntry = 'home' | 'today' | 'puzzles' | 'tutor' | 'progress';
+export type CoachEntry = 'home' | 'today' | 'puzzles' | 'tutor' | 'progress' | 'own';
 
 export function runCoach(
   root: HTMLElement,
@@ -305,7 +306,21 @@ export function runCoach(
     scr.appendChild(list);
     const ops = dueOpenings().length;
     const lessonNow = planLesson(tutorInput());
+    const own = ownStatus();
+    const ownDueN = own.filter((x) => x.due).length;
     for (const it of [
+      ...(own.length
+        ? [
+            {
+              icon: '🎯',
+              t: '我的专属课',
+              d: '从你自己棋局的复盘里来：按毛病归成几门课，走错的局面反复练到会',
+              badge: ownDueN ? `${ownDueN} 手该练` : `${own.filter((x) => x.mastered).length}/${own.length} 过关`,
+              go: () => showOwnCourse(),
+              act: 'm-own',
+            },
+          ]
+        : []),
       {
         icon: '🧑‍🏫',
         t: `私教课 · ${lessonNow.theme === 'intro' ? '见面课' : themeName(lessonNow.theme)}`,
@@ -481,7 +496,10 @@ export function runCoach(
       ratings: rs,
       loss: lossProfile(10),
       accuracy: (d) => recentAccuracy(d),
-      dueCount: srsCount().due,
+      // 错题复习只数题库里的；自己棋局来的那些单独一项（复盘错着重练）
+      dueCount: dueCards(999).filter((c) => !c.id.startsWith('own-')).length,
+      ownDue: ownDueList().length,
+      ownTop: topTagName(ownDueList()),
       daysSinceQuiz: daysSinceQuiz(),
       play: getPlay(),
       fresh: (d) => freshCount(DIM_KIND[d]).fresh,
@@ -521,11 +539,156 @@ export function runCoach(
     for (const b of day.blocks) {
       if (b.kind === 'game' && listGames().some((g) => g.ts >= day.at)) s.add(b.id);
       if (b.kind === 'assess' && isAssessed()) s.add(b.id);
-      if (b.kind === 'srs' && srsCount().due === 0) s.add(b.id);
+      if (b.kind === 'srs' && !dueCards(999).some((c) => !c.id.startsWith('own-'))) s.add(b.id);
+      if (b.kind === 'own' && !ownDueList().length) s.add(b.id);
       if (b.kind === 'lesson' && b.step !== undefined && cur && cur.ts <= Date.now() && cur.done.includes(b.step)) s.add(b.id);
     }
     return s;
   }
+  // ---------------- 我的专属课：复盘出来的错着 ----------------
+  /** 今天该重走的：到期的，或者存进来还没练过的；错得多的、亏得多的排前面 */
+  function ownDueList(): Puzzle[] {
+    return ownStatus()
+      .filter((x) => x.due)
+      .sort((a, b) => b.wrong - a.wrong || (b.p.from?.loss ?? 0) - (a.p.from?.loss ?? 0))
+      .map((x) => x.p);
+  }
+  function topTagName(list: Puzzle[]): string | undefined {
+    const n = new Map<ErrTag, number>();
+    for (const p of list) if (p.tag) n.set(p.tag, (n.get(p.tag) ?? 0) + 1);
+    const top = [...n.entries()].sort((a, b) => b[1] - a[1])[0];
+    return top ? ERR_INFO[top[0]].name : undefined;
+  }
+  /** 毛病对应练哪一维的同类题（走软的按那一手所在的阶段，见题目自己的 kind） */
+  const TAG_DIM: Record<ErrTag, Dim | null> = {
+    hang: 'safety',
+    'missed-threat': 'safety',
+    'walk-into-mate': 'safety',
+    greedy: 'tactic',
+    'missed-mate': 'mate',
+    slow: null,
+  };
+
+  /**
+   * 我的专属课。用户原话："私教要将复盘数据带入到日常训练中。针对我复盘表现不好、暴露出的弱项，
+   * 自动生成到专属课程里让我反复训练，这样才有针对性。"
+   *
+   * 每盘棋复盘完，你走错的那几手（失误、漏着、亏一个半兵以上的不佳）自动存进来，记着是哪种毛病、哪天那盘第几回合、
+   * 你当时走的是哪一手。这里按毛病归成几门课：先重走你自己走错的局面，再做同类题；
+   * 每一手按 1/3/7/21/60 天的间隔回来，连对五次才算过关。每天任务清单里的"复盘错着重练"就是从这里出的。
+   */
+  function showOwnCourse() {
+    clear();
+    menuBack = () => showOwnCourse();
+    crumbs = ['私教', '我的专属课'];
+    const os = ownStatus();
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-home xq-own';
+    scr.dataset.own = '';
+    if (!os.length) {
+      scr.innerHTML = `<h1>🎯 我的专属课</h1>
+        <div class="sub">还没有内容：下完一盘、复盘之后，你走错的局面会自动存进这里，按毛病归类，隔几天回来找你。</div>`;
+      if (startFrom) {
+        const go = document.createElement('button');
+        go.className = 'btn';
+        go.textContent = '⚔️ 先下一盘';
+        const play = getPlay();
+        go.onclick = () => startFrom([], 'r', play && play.n >= 3 ? suggestLevel(play.r) : undefined);
+        scr.appendChild(go);
+      }
+      mount(scr, () => showHome());
+      return;
+    }
+    const groups = new Map<ErrTag, typeof os>();
+    for (const x of os) {
+      const t = x.p.tag ?? 'slow';
+      groups.set(t, [...(groups.get(t) ?? []), x]);
+    }
+    // 按"还没过关的那几手一共亏了多少分"排：送掉一个炮比两手走软贵得多
+    const cost = (xs: typeof os) => xs.filter((x) => !x.mastered).reduce((a, x) => a + (x.p.from?.loss ?? 100), 0);
+    const order = [...groups.entries()].sort((a, b) => cost(b[1]) - cost(a[1]) || b[1].length - a[1].length);
+    const [topTag, topList] = order[0];
+    const dueAll = os.filter((x) => x.due).length;
+    const days = new Set(os.map((x) => x.p.from?.d ?? '')).size;
+    scr.innerHTML = `<h1>🎯 我的专属课</h1>
+      <div class="sub">从你 ${days} 天的对局复盘里来：一共 ${os.length} 手，已过关 ${os.filter((x) => x.mastered).length} 手。每一手隔 1/3/7/21/60 天回来一次，连对五次算过关。</div>
+      <div class="xq-advice" data-keep><b>你现在最贵的毛病：${ERR_INFO[topTag].name}（${topList.length} 手，一共亏了约${inPieces(cost(topList))}）</b>
+        <p>${ERR_INFO[topTag].desc}。</p><p>👉 ${ERR_INFO[topTag].advice}</p></div>`;
+    if (dueAll) {
+      const go = document.createElement('button');
+      go.className = 'btn';
+      go.dataset.act = 'own-due';
+      go.textContent = `▶ 今天该练的 ${Math.min(8, dueAll)} 手`;
+      go.onclick = () => void loadPuzzles().then(() => runOwnSession(ownDueList().slice(0, 8), '复盘错着重练'));
+      scr.appendChild(go);
+    }
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    for (const [tag, items] of order) {
+      const left = items.filter((x) => !x.mastered);
+      const due = items.filter((x) => x.due).length;
+      const el = document.createElement('div');
+      el.className = 'card home-card xq-own-row';
+      el.dataset.ownTag = tag;
+      const recent = items
+        .slice(-3)
+        .reverse()
+        .map((x) => `${x.p.from ? `${x.p.from.d.slice(5)} 第${x.p.from.round}回合` : '实战'}走了 ${x.p.blunder ?? '?'}`)
+        .join('；');
+      el.innerHTML = `<div class="title">${ERR_INFO[tag].name} · ${items.length} 手<span class="tag ${due ? 'warn' : ''}">${
+        due ? `${due} 手该练` : `${items.length - left.length}/${items.length} 过关`
+      }</span></div>
+        <div class="desc">${ERR_INFO[tag].desc}</div>
+        <div class="desc dim">最近：${recent}</div>`;
+      el.onclick = () => {
+        // 没过关的先来（该练的排最前）；都过关了就整门再过一遍
+        const pick = (left.length ? left : items)
+          .slice()
+          .sort((a, b) => Number(b.due) - Number(a.due) || b.wrong - a.wrong)
+          .map((x) => x.p)
+          .slice(0, 8);
+        const dim = TAG_DIM[tag] ?? (pick[0]?.kind as Dim);
+        void loadPuzzles().then(() => runOwnSession(pick, `专属课 · ${ERR_INFO[tag].name}`, undefined, () => void startPractice(dim, 6)));
+      };
+      list.appendChild(el);
+    }
+    scr.appendChild(list);
+    mount(scr, () => showHome());
+  }
+
+  /**
+   * 重走一组你自己走错的局面。题目上写着是哪天那盘第几回合、什么毛病；做错了明天再来，做对了隔得更久。
+   * then：从"今天的任务"进来的，做完打勾回清单。more：做完自己的局面，接着做同类题（"练这一门"用）。
+   */
+  function runOwnSession(list: Puzzle[], title: string, then?: () => void, more?: () => void) {
+    let k = 0;
+    let right = 0;
+    const next = () => {
+      if (k >= list.length) {
+        finishSession(title, right, list.length, () => runOwnSession(list, title, then, more), '', then);
+        const rep = wrap.querySelector('.xq-coach-report');
+        if (more && !then && rep) {
+          const b = document.createElement('button');
+          b.className = 'btn';
+          b.dataset.act = 'own-more';
+          b.textContent = '▶ 接着做 6 道同类题';
+          b.onclick = more;
+          rep.insertBefore(b, rep.querySelector(':scope > .btn'));
+        }
+        return;
+      }
+      const p = list[k++];
+      const f = p.from;
+      const tagName = p.tag ? ERR_INFO[p.tag].name : '';
+      const cap = `${title} ${k}/${list.length}${f ? ` · ${f.d.slice(5)} 那盘第 ${f.round} 回合` : ''}${tagName && !title.includes(tagName) ? ` · ${tagName}` : ''}`;
+      runOne(p, null, cap, (ok) => {
+        if (ok) right++;
+        next();
+      });
+    };
+    next();
+  }
+
   /** 做一项任务：做完打勾、回私教首页 */
   function runTask(b: Block) {
     menuBack = () => showHome();
@@ -545,6 +708,12 @@ export function runCoach(
       case 'assess':
         void startAssessment();
         return;
+      case 'own': {
+        const list = ownDueList().slice(0, b.count ?? 6);
+        if (!list.length) return done();
+        void loadPuzzles().then(() => runOwnSession(list, '复盘错着重练', done));
+        return;
+      }
       case 'srs':
         void startReview(done);
         return;
@@ -3324,6 +3493,7 @@ export function runCoach(
     if (entry === 'puzzles') showMenu('tactics');
     else if (entry === 'tutor') showTutor();
     else if (entry === 'progress') showMenu('progress');
+    else if (entry === 'own') showOwnCourse();
     else showHome();
   };
   if (getDeclared()) land();
@@ -3336,6 +3506,8 @@ export function runCoach(
       home: () => showHome(),
       /** 直接打开某个二级菜单（tactics / endgame / opening / play / progress） */
       menu: (id: MenuId) => showMenu(id),
+      /** 我的专属课 */
+      own: () => showOwnCourse(),
       puzzle: async (id: string) => {
         await loadPuzzles();
         const p = byId(id);

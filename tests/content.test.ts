@@ -37,22 +37,26 @@ describe('一眼必胜的题不出', () => {
   });
 });
 
-describe('一眼必胜的残局不出', () => {
+describe('对方没有进攻子的残局不出', () => {
   const pos = (fen: string, target = 'win') => ({ fen, you: 'r' as const, target });
-  it('对方没子、你有车或者两个以上进攻子、或者对方是光将：不出', () => {
+  it('对方只剩将、士、象：不管要赢还是要和，都不出', () => {
     expect(obviousWin(pos('3k5/4a4/5a3/9/9/9/9/9/9/3RK4 w'))).toBe(true); // 单车对双士
     expect(obviousWin(pos('3k5/9/9/9/9/9/4P4/9/9/4K4 w'))).toBe(true); // 单兵对光将
     expect(obviousWin(pos('3akab2/9/9/9/9/9/9/9/2H1P4/4K4 w'))).toBe(true); // 马兵对士象
-    expect(obviousWin(pos('3k5/4a4/9/9/9/9/9/9/2H6/4K4 w'))).toBe(false); // 单马对单士：技术残局，留着
-    expect(obviousWin(pos('3k5/4a4/9/9/9/9/9/9/2H6/4K4 w', 'draw'))).toBe(false); // 守和的不管
-    expect(obviousWin(pos('3k5/4a4/2r6/9/9/9/9/9/3R5/4K4 w'))).toBe(false); // 对方还有车
+    expect(obviousWin(pos('3k5/4a4/9/9/9/9/9/9/2H6/4K4 w'))).toBe(true); // 单马对单士（用户点名的"单士"）
+    expect(obviousWin(pos('3k5/4a4/9/9/9/9/9/9/2H6/4K4 w', 'draw'))).toBe(true); // 你有马、他啥也没有，"守和"等于白送
   });
 
-  it('残局库加载以后：要赢的局面里一个都没有；守和的都留着', async () => {
+  it('对方还有车马炮兵：留着（要赢得防着他反击，要和得真守住）', () => {
+    expect(obviousWin(pos('3k5/4a4/2r6/9/9/9/9/9/3R5/4K4 w'))).toBe(false); // 对方还有车
+    expect(obviousWin(pos('3k5/9/9/9/9/9/9/2p6/9/3AK4 w', 'draw'))).toBe(false); // 你守，对方有卒
+  });
+
+  it('残局库加载以后：一个都没有；要赢的、守和的都还够练', async () => {
     await loadLibrary();
     const eg = allEndgames();
     expect(eg.filter((e) => obviousWin(e))).toEqual([]);
-    expect(eg.filter((e) => e.target === 'win').length).toBeGreaterThanOrEqual(40);
-    expect(eg.filter((e) => e.target === 'draw').length).toBeGreaterThanOrEqual(150);
+    expect(eg.filter((e) => e.target === 'win').length).toBeGreaterThanOrEqual(36);
+    expect(eg.filter((e) => e.target === 'draw').length).toBeGreaterThanOrEqual(100);
   });
 });

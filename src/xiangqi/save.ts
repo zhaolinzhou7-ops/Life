@@ -955,6 +955,21 @@ export function getOwnPuzzles(): Puzzle[] {
   return load().own;
 }
 
+/**
+ * 你自己棋局里来的题，各自练到哪了：
+ *   due      今天该练（到期了，或者存进来以后还没练过）
+ *   mastered 已经过关（隔着间隔连对到毕业，错题本里没有它了）
+ */
+export function ownStatus(): { p: Puzzle; due: boolean; mastered: boolean; box: number; wrong: number }[] {
+  const d = load();
+  const t = todayNum();
+  return d.own.map((p) => {
+    const c = d.srs.find((x) => x.id === p.id);
+    const tried = !!d.attempted?.[p.id];
+    return { p, due: !!c && (c.due <= t || !tried), mastered: !c, box: c?.box ?? SRS_INTERVALS.length, wrong: c?.wrong ?? 0 };
+  });
+}
+
 // ---------------- 导出 / 导入 ----------------
 // localStorage 说清就清，几个月的进度不能说没就没。
 

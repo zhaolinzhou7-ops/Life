@@ -18,6 +18,7 @@ import { headlineOf, reviewMove, summarize, tagCounts, type GameReview, type Jud
 import { setGameReview } from './archive';
 import { toFen } from './notation';
 import { addOwnPuzzle, recordGame } from './save';
+import { localDay } from './daytasks';
 
 /** 自家引擎复盘的深度（专业引擎起不来时用） */
 const LOCAL_REVIEW = { maxDepth: 6, timeMs: 1500, jitter: 0 };
@@ -154,9 +155,12 @@ export class GameAnalysis {
       plies: rep.moves.filter((m) => m.color === playerColor).length,
       accuracy: me.accuracy,
     });
+    // 复盘出来的错着存成"专属课程"的题：失误、漏着，再加上亏了一个半兵以上的"不佳"——
+    // 记下是哪种毛病、哪天那盘第几回合、你当时走的是哪一手，私教按毛病归类、按间隔回来找你
+    const startColor = this.opts.startColor;
     rep.moves.forEach((m, i) => {
       if (m.color !== playerColor) return;
-      if (m.grade !== 'blunder' && m.grade !== 'mistake') return;
+      if (m.grade !== 'blunder' && m.grade !== 'mistake' && !(m.grade === 'dubious' && m.loss >= 150)) return;
       if (!m.bestMove || !m.bestText) return;
       const ok = addOwnPuzzle({
         // 用复盘归因出来的维度：开局吃亏和残局走软是两回事
@@ -166,6 +170,9 @@ export class GameAnalysis {
         line: m.bestPv ?? [m.bestText],
         // 难度按亏损给：丢得越多说明越该一眼看出来，题反而越"简单"
         rating: Math.round(Math.max(700, 1500 - m.loss / 3)),
+        blunder: m.text,
+        tag: m.tag ?? 'slow',
+        from: { d: localDay(), round: Math.floor((m.ply + (startColor === 'b' ? 1 : 0)) / 2) + 1, loss: m.loss },
       });
       if (ok) this.savedPuzzles++;
     });

@@ -332,6 +332,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         const rv = Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length;
         startGame(lv, CHARACTERS[rv], Number(localStorage.getItem('xq-tempo') ?? 1), undefined, g.side, { board: b, turn: t });
       },
+      onTrainOwn: () => {
+        cleanupGame?.();
+        openCoach('own');
+      },
       onClose: () => {
         cleanupGame?.();
         showGameList();
@@ -2045,6 +2049,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           closeReview = null;
           clearAll();
           startGame(level, rival, tempoIdx, undefined, me, { board: b, turn: t });
+        },
+        onTrainOwn: () => {
+          closeReview = null;
+          clearAll();
+          openCoach('own');
         },
         onClose: () => {
           closeReview = null;

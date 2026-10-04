@@ -51,6 +51,15 @@ describe('每日任务怎么排', () => {
     }
   });
 
+  it('复盘存下来的自己的错着：排在最前面，说出最多的毛病，最多 6 手', () => {
+    const p = dailyPlan(input({ ownDue: 9, ownTop: '漏看威胁', dueCount: 3 }));
+    expect(p[0]).toMatchObject({ id: 'own', kind: 'own', count: 6 });
+    expect(p[0].title).toContain('复盘错着重练 6 手');
+    expect(p[0].desc).toContain('漏看威胁');
+    expect(p[1].id).toBe('srs');
+    expect(dailyPlan(input({ ownDue: 0 })).some((b) => b.kind === 'own')).toBe(false);
+  });
+
   it('没有到期的错题就不出错题这一项', () => {
     expect(dailyPlan(input()).map((b) => b.id)).not.toContain('srs');
   });

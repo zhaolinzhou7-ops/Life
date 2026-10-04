@@ -84,31 +84,20 @@ let egCache: EndgamePos[] | null = null;
 let loading: Promise<void> | null = null;
 
 /**
- * 一眼必胜的残局不出。用户原话："题库里还是有太多一眼就能看出来的必胜残局（比如对方只剩老将，或者只剩士和老将）"。
- * 要你赢的局面里，对方一个能动手的子都没有（只剩将、士、象），而且：你手里有车、或者有两个以上能进攻的子、
- * 或者对方是光将——单车对双士、车炮对士象全、单兵对光将这种，怎么走都赢，练不到东西。
- * 留下的：守和的局面（少子守住是真本事），和你只有一个马/兵、对方还有一两个士象的技术残局
- * （单马对单士、单兵对单士……走错一步就成和棋）。
+ * 对方手里一个能动手的子都没有（只剩将、士、象）的残局不出。
+ *
+ * 用户原话（两次）："题库里还是有太多一眼就能看出来的必胜残局（比如对方只剩老将，或者只剩士和老将），这种题就别再出了。"
+ * "现在还是有很多已经是绝对必胜的棋局（比如对方只剩一个老将或单士），还一直让我去按最优步数去赢，这种训练意义不大。"
+ * 上一轮只拿掉了"车对士象""两个子对士象"这种，单马擒单士、单兵对单士、炮对双士这类留着当技术残局——用户不认这个账，全拿掉。
+ * 同理，对方没有进攻子、你只要不输就行的"和棋局面"（马对双象守和之类）也练不到东西，一起拿掉。
+ * 留下的：对方还有车马炮兵的——你要赢就得防着他反击，你要守和就得真的守住。
  */
 export function obviousWin(e: { fen: string; you: Color; target: string }): boolean {
-  if (e.target !== 'win') return false;
   const board = e.fen.split(' ')[0];
   const isRed = (ch: string) => ch === ch.toUpperCase();
   const mine = (ch: string) => (e.you === 'r') === isRed(ch);
-  let oppAttackers = 0;
-  let oppGuards = 0;
-  let myAttackers = 0;
-  let myRook = false;
-  for (const ch of board) {
-    if (/[AEB]/i.test(ch) && !mine(ch)) oppGuards++;
-    if (!/[RNHCP]/i.test(ch)) continue;
-    if (mine(ch)) {
-      myAttackers++;
-      if (/r/i.test(ch)) myRook = true;
-    } else oppAttackers++;
-  }
-  // 光将（对方士象都没了）也算：单兵、单马对光将，怎么走都赢
-  return oppAttackers === 0 && (myRook || myAttackers >= 2 || oppGuards === 0);
+  for (const ch of board) if (/[RNHCP]/i.test(ch) && !mine(ch)) return false;
+  return true;
 }
 
 /** 两个库一起按需加载，不进首屏 */
