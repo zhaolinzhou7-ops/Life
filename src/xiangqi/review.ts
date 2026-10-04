@@ -501,13 +501,16 @@ export function runReview(opts: ReviewOpts): () => void {
     if (analysis.done) {
       elProgress.textContent = `共 ${moves.length} 手 · ${analysis.engine === 'pro' ? '专业引擎' : '自带引擎'}${analysis.opts.deep ? ' · 深度' : ''}`;
       renderSummary();
-      // 分析完直接跳到「你最该改的一手」——学棋要看的是自己的错
+      // 分析完直接跳到「你最该改的一手」——学棋要看的是自己的错。
+      // 已经点开某一手在看了就别把人拽走（深度复盘算完换成新结果，原地刷新这一手）
       if (!jumped) {
         jumped = true;
         const rep = analysis.report!;
         const jump = rep.worst[playerColor] >= 0 ? rep.worst[playerColor] : rep.turning;
-        goto(jump >= 0 ? jump : reviewed().length - 1);
-        return;
+        if (cursor < 0 || analysis.opts.deep) {
+          goto(cursor < 0 ? (jump >= 0 ? jump : reviewed().length - 1) : cursor);
+          return;
+        }
       }
     } else {
       elProgress.textContent = `${analysis.opts.deep ? '深度' : ''}分析中 ${n}/${moves.length}`;

@@ -28,7 +28,7 @@ await page.evaluate((m) => window.__xqCoach.menu(m), 'opening'); await page.wait
 await page.getByText('🗡 江湖布局破解').first().click(); await page.waitForTimeout(500);
 const cards = await page.locator('[data-trick]').count();
 console.log(`   套路：${cards} 条`);
-ok('专项练习里找得到邪门布局破解，列出了套路', cards >= 8);
+ok('私教 › 布局 里找得到江湖布局破解，列出了套路', cards >= 8);
 await page.locator('[data-trick="jijin-zhongbing"]').click(); await page.waitForTimeout(300);
 const detail = (await page.locator('.xq-coach-report').innerText()).replace(/\s+/g, ' ');
 console.log('   详情：' + detail.slice(0, 200));
@@ -197,10 +197,12 @@ const rv = (await page.locator('.xq-rv-detail').innerText()).replace(/\s+/g, ' '
 console.log('   复盘：' + rv.slice(0, 120));
 ok('复盘里你那一手标着"破解成功"', rv.includes('破解成功'));
 // 复盘列表点一手之后会围着这一手重排，不能再按序号点：按对方那一手邪门着的记谱找
-await page.locator('.xq-rv-item', { hasText: trickMove }).first().click();
+// 分析还在跑的时候列表会重画，按位置点会点到别的一手：在页面里按记谱找到那一手直接点
+await page.evaluate((t) => [...document.querySelectorAll('.xq-rv-item')].find((b) => b.querySelector('.t')?.textContent === t)?.click(), trickMove);
 await page.waitForTimeout(300);
 const rvTrick = (await page.locator('.xq-rv-detail').innerText()).replace(/\s+/g, ' ');
 console.log(`   复盘·对方那一手：${rvTrick.slice(0, 140)}`);
+if (!rvTrick.includes('邪门布局')) console.log('   复盘列表：' + (await page.$$eval('.xq-rv-item', (els) => els.map((e) => `${e.dataset.i}:${e.querySelector('.t')?.textContent}`).join(' '))));
 ok(`复盘里对方那一手（${trickMove}）标着邪门布局`, rvTrick.includes('邪门布局'));
 await page.screenshot({ path: OUT + '/tricks-review.png' });
 

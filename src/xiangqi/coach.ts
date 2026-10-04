@@ -2543,7 +2543,7 @@ export function runCoach(
            子力和局面分之间差的这 <b>${bing(gain)}</b>，就是他用子换来的先手。`
         : `走到第 ${roundOf(sac.ply)} 回合，你把他送的子吃到手：他的子力<b>少了 ${bing(sac.material)}</b>，引擎判${who(sac.score)}——
            送出去的子<b>没换来先手</b>，这一套本身不成立，全靠你后面应错。`;
-    return `<div class="xq-advice xq-ledger-box" data-ledger>
+    return `<div class="xq-advice xq-ledger-box" data-ledger data-keep>
         <b>📒 这套棋的账：宁失一子，不失一先</b>
         <p>${t.essence}</p>
         ${svg}
