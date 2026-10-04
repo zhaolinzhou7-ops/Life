@@ -63,7 +63,7 @@ for (const [w, h] of SIZES) {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.evaluate(() => localStorage.setItem('xq-power', 'save'));
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
-  await page.locator('.xq-home-card').nth(0).click(); await page.waitForTimeout(300);
+  await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
   await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
   await page.getByText('执红先行').first().click();
   await page.getByText('开始对弈').first().click(); await page.waitForTimeout(1200);
@@ -76,8 +76,9 @@ for (const [w, h] of SIZES) {
   // 2. 残局下到底（实用残局第一组第一个局面）
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
-  await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(600);
+  await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(600);
   if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(500); }
+  await page.evaluate((m) => window.__xqCoach.menu(m), 'endgame'); await page.waitForTimeout(300);
   await page.locator('.xq-coach .card', { hasText: '实用残局' }).first().click(); await page.waitForTimeout(900);
   await page.evaluate(() => window.__xqCoach?.endgame?.());
   await page.waitForTimeout(900);
@@ -101,8 +102,9 @@ for (const [w, h] of SIZES) {
   // 3. 做题（专项练习·杀法）
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
-  await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(600);
+  await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(600);
   if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(500); }
+  await page.evaluate((m) => window.__xqCoach.menu(m), 'tactics'); await page.waitForTimeout(300);
   await page.locator('.xq-coach .card', { hasText: '杀法' }).first().click(); await page.waitForTimeout(1500);
   r = await visible(page, '.xq-tr-bar .xq-btn');
   ok(`${tag} 做题：底下的按钮看得到 ${r.bad.join('；')}`, r.n >= 1 && !r.bad.length);
@@ -113,8 +115,9 @@ for (const [w, h] of SIZES) {
   // 4. 打谱（布局讲解）
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
-  await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(600);
+  await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(600);
   if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(500); }
+  await page.evaluate((m) => window.__xqCoach.menu(m), 'opening'); await page.waitForTimeout(300);
   await page.getByText('📖 布局体系').first().click(); await page.waitForTimeout(400);
   await page.locator('[data-opening="pfm-niutougun"]').click(); await page.waitForTimeout(300);
   await page.locator('[data-act="op-watch"]').click(); await page.waitForTimeout(400);

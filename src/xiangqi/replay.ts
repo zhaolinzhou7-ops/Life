@@ -306,7 +306,7 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
   function renderBar() {
     const atEnd = idx >= opts.moves.length;
     elBar.innerHTML = waiting
-      ? '<span class="xq-tr-note">在棋盘上走一手</span><button class="xq-btn ghost" id="rp-skip">想不出，直接看</button>'
+      ? '<span class="xq-tr-note">在棋盘上走一手</span><button class="xq-btn ghost" id="rp-skip">想不出，直接看</button><button class="xq-btn ghost" id="rp-out">← 返回</button>'
       : `${backBtn()}<button class="xq-btn primary" id="rp-next">${atEnd ? '看总结 →' : '下一手 →'}</button><button class="xq-btn ghost" id="rp-out">← 返回</button>`;
     const sk = elBar.querySelector('#rp-skip') as HTMLButtonElement | null;
     if (sk)

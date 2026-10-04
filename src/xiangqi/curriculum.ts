@@ -46,7 +46,7 @@ export const STAGES: Stage[] = [
     topics: [
       '中文记谱法（第一课就学，不然棋书棋谱全读不了）',
       '子力价值与兑子原则：车 1000 / 炮 500 / 马 450 / 士象 220 / 兵 100',
-      '一步杀 200 题——重点是<b>认图形</b>，不是硬算',
+      '一步杀、两步杀：对方子力齐全的实战局面里找杀，不做光将摆的必胜题',
       '走之前扫一遍：对方的车、炮、马分别能打到哪',
     ],
     why: '你现在输棋，绝大多数不是因为算得浅，是因为根本没看见对方那一手。先把眼睛练出来，比学什么都值。',
@@ -63,11 +63,11 @@ export const STAGES: Stage[] = [
       { dim: 'tactic', rating: 1300 },
     ],
     topics: [
-      '经典杀法图形：马后炮、铁门栓、双车错、天地炮、大刀剜心、闷宫、重炮、白脸将',
+      '连走几步的杀棋和组合：每一步都逼着对方走，算到将死或者子吃到手为止',
       '战术主题：捉双、牵制、引离、闪击、腾挪、封锁',
       '限时计算——把「算不出来」和「懒得算」分开，这是两个完全不同的病',
     ],
-    why: '杀法图形是有限的，认熟了就是条件反射。真人高手不是每步现算，是一眼认出来。',
+    why: '实战里错过的大便宜，多半是第一步看见了、第三步没算到。要练的是在真实局面里算到底，不是记杀法的名字。',
   },
   {
     id: 3,
@@ -78,7 +78,7 @@ export const STAGES: Stage[] = [
     focus: ['endgame'],
     graduate: [{ dim: 'endgame', rating: 1450 }],
     topics: [
-      '实用残局按经典顺序：单车对士象全 → 单马对单士 → 单炮士象全 → 车兵对车士象全 → 马炮兵 → 高低兵',
+      '实用残局：单马对单士、车兵对车士、车马对单车……对方还有子、走错一步就和的那种；少子的一方练守和',
       '什么时候该兑子进残局——这才是残局知识真正变现的地方',
       '每个残局都要跟引擎<b>下到底</b>，不到赢/和不算过',
     ],
@@ -160,9 +160,13 @@ export function graduateStatus(stage: Stage, ratings: Record<Dim, { r: number }>
 
 // ---------------- 每日训练 ----------------
 
-export type BlockKind = 'warmup' | 'srs' | 'focus' | 'mate-shape' | 'endgame' | 'game' | 'quiz' | 'timed' | 'opening' | 'replay' | 'combo' | 'ladder';
+export type BlockKind = 'assess' | 'srs' | 'lesson' | 'focus' | 'endgame' | 'game' | 'quiz' | 'timed' | 'opening' | 'combo' | 'ladder';
 
 export interface Block {
+  /** 一天里这一项的编号（assess / srs / lesson / focus / extra / game），打勾用 */
+  id: string;
+  /** 私教课：这一项是课的第几步（打勾看课的记录） */
+  step?: number;
   kind: BlockKind;
   title: string;
   desc: string;
@@ -199,6 +203,14 @@ export interface TrainInput {
   fresh?: (d: Dim) => number;
   /** 星期几（0 = 周日）。不给就取今天；测试里固定下来 */
   day?: number;
+  /** 测评过没有 */
+  assessed?: boolean;
+  /** 私教课：这节课下一步要做的（没在上课就是 null） */
+  lesson?: { title: string; step: number; label: string; kind: string; dim?: Dim } | null;
+  /** 布局复习今天到期几套 */
+  openingDue?: number;
+  /** 最近几天的专项各练的哪一维（新的在后）：同一维连练三天、正确率也上去了，就换一维 */
+  recentFocus?: Dim[];
 }
 
 /**
@@ -249,154 +261,163 @@ export function prescribeFocus(inp: TrainInput): { dim: Dim; why: string } {
 }
 
 /**
- * 每天 25 分钟的结构。
+ * 私教的每日任务：每天四五项、二十五到三十五分钟，做完一项打一个勾。
  *
- * 25 分钟是刻意选的：在注意力窗口之内，而且每天都能坚持——
- * 一次练两小时、然后三周不碰，效果远不如每天 25 分钟。
- *
- * 五块的顺序也是有讲究的，对应一节正经课的结构：
- *   热身（唤醒）→ 错题（补漏）→ 专项（在能力边缘练）→ 阶段内容（新东西）
- *   → 实战 + 复盘（把练的东西用出来，再从实战里发现下一个漏洞）
- * 最后一步是闭环：复盘会把你这盘走错的手做成题，明天进错题本。
+ * 用户原话："我希望达到的效果是：每天把私教任务做完，棋艺就能稳步提升；而不是像现在这样总做些重复无效的内容。"
+ * 原来的每日训练有三样是白花时间的：
+ *   - 热身五道"比你水平简单"的杀法题——会的题再做一遍不涨棋；
+ *   - "认一个新杀法图形"——用户原话"没必要细究到底叫闷宫还是马后炮"；
+ *   - 布局、打谱、残局那几块点进去就回不来，做没做完也记不下来。
+ * 现在的结构按研究和教练的经验排（详见 README）：
+ *   ① 错题复习：只在有到期的错题时出现——重复要有目的，重复的是你错过的，不是你会的；
+ *   ② 私教课的下一步：课题是从你的实战里挑出来的毛病，一步一步上，下节课先查作业；
+ *   ③ 专项八题：练最弱的一维，难度跟着最近的正确率走（太顺加难、太难降难）；
+ *      同一维连练三天、正确率也到七成了，换下一维——不在一处原地打转；
+ *   ④ 一项轮换：每周小测 / 布局复习 / 中局组合 / 残局 / 绝地反杀 / 限时计算，按阶段和星期轮；
+ *   ⑤ 实战一盘、下完看复盘：实战里的错着会自动进错题本，第二天回来找你——这是闭环。
+ * 第一次来、还没测过也没下过：只有两项——测评、下一盘。
  */
 export function dailyPlan(inp: TrainInput): Block[] {
-  const { stage, dueCount, accuracy } = inp;
-  const focus = prescribeFocus(inp);
-  const blocks: Block[] = [
-    {
-      kind: 'warmup',
-      title: '热身：5 道杀法题',
-      desc: '比你当前水平略简单，快速找手感。重点是一眼认出图形，别硬算。',
-      minutes: 3,
-      dim: 'mate',
-      count: 5,
-      ratingBias: -150,
-      why: '开局先做几道有把握的，是为了把"看图形"的状态唤醒，不是为了练难题。',
-    },
-  ];
+  const { dueCount, accuracy, ratings } = inp;
+  const play = inp.play;
+  if (inp.assessed === false && (!play || play.n === 0)) {
+    return [
+      {
+        id: 'assess',
+        kind: 'assess',
+        title: '水平测评',
+        desc: '35 道题，题目跟着你的表现变难变易。测完才知道该从哪儿练起。',
+        minutes: 20,
+        why: '第一次来：先知道你在哪，后面每天的任务都按这个排。',
+      },
+      gameBlock(play),
+    ];
+  }
+  const blocks: Block[] = [];
 
   if (dueCount > 0) {
+    const n = Math.min(10, dueCount);
     blocks.push({
+      id: 'srs',
       kind: 'srs',
-      title: `错题重练（${dueCount} 道）`,
-      desc: '按 1/3/7/21/60 天的间隔回来找你。同一个坑不该掉第二次。',
-      minutes: Math.min(8, 2 + Math.ceil(dueCount * 0.5)),
-      count: dueCount,
-      why: '这些题一半是你自己实战里走错的局面。重做比做新题划算得多——你已经证明过这里会错。',
+      title: `错题复习 ${n} 道`,
+      desc: '按 1/3/7/21/60 天的间隔回来找你：做对了隔得更久，做错了明天再来。',
+      minutes: Math.max(3, Math.ceil(n * 0.7)),
+      count: n,
+      why: '你已经证明过在这里会错——同一个坑不该掉第二次。',
     });
   }
 
-  // 每周一场小测：不测就不知道练的东西有没有落到实处
-  if (inp.daysSinceQuiz >= 7) {
+  const lesson = inp.lesson;
+  if (lesson) {
     blocks.push({
-      kind: 'quiz',
-      title: '每周小测（10 题）',
-      desc: '五维各抽两题，不给提示。测出来的分直接更新你的五维雷达。',
-      minutes: 6,
-      count: 10,
-      why:
-        inp.daysSinceQuiz >= 900
-          ? '你还没做过小测。练而不测，涨没涨全靠感觉——每周一次，10 题，够看出趋势。'
-          : `距离上次小测 ${inp.daysSinceQuiz} 天了。练而不测，涨没涨全靠感觉——每周一次，10 题，够看出趋势。`,
+      id: 'lesson',
+      kind: 'lesson',
+      step: lesson.step,
+      title: `私教课「${lesson.title}」第 ${lesson.step + 1} 步`,
+      desc: lesson.label,
+      minutes: lesson.kind === 'game' ? 15 : 8,
+      why: '这一课的题目是从你自己的实战里挑出来的毛病。',
     });
   }
 
-  // 还没有实战水平：先下几盘。不知道你实战什么样，后面排的全是按做题猜的
-  const play = inp.play;
-  if (!play || play.n < 3) {
-    blocks.push(gameBlock(play));
+  // 专项：最弱的一维；私教课这一步已经在练它，或者已经连练三天而且正确率上来了，就换一维
+  const focus = prescribeFocus(inp);
+  let dim = focus.dim;
+  let why = focus.why.replace(/<[^>]+>/g, '');
+  const recent = inp.recentFocus ?? [];
+  const stale = recent.length >= 3 && recent.slice(-3).every((d) => d === dim) && (accuracy(dim)?.acc ?? 0) >= 0.7;
+  if ((lesson?.kind === 'drill' && lesson.dim === dim) || stale) {
+    const second = [...DIMS].filter((d) => d !== dim).sort((a, b) => ratings[a].r - ratings[b].r)[0];
+    why = stale
+      ? `「${DIM_INFO[dim].name}」已经连练三天、正确率也上去了，今天换练第二弱的「${DIM_INFO[second].name}」。`
+      : `「${DIM_INFO[dim].name}」私教课里正在练，专项换成第二弱的「${DIM_INFO[second].name}」。`;
+    dim = second;
   }
-
-  const b = biasFor(accuracy(focus.dim));
-  const fresh = inp.fresh?.(focus.dim);
+  const b = biasFor(accuracy(dim));
+  const fresh = inp.fresh?.(dim);
   blocks.push({
+    id: 'focus',
     kind: 'focus',
-    title: `今日专项：${DIM_INFO[focus.dim].name}`,
-    desc: `${DIM_INFO[focus.dim].desc}${fresh !== undefined ? `（这一类还有 ${fresh} 道没做过，先出新题）` : ''}`,
+    title: `专项：${DIM_INFO[dim].name} 8 题`,
+    desc: `${DIM_INFO[dim].desc}${fresh !== undefined && fresh > 0 ? `（还有 ${fresh} 道没做过，先出新题）` : ''}`,
     minutes: 8,
-    dim: focus.dim,
+    dim,
     count: 8,
     ratingBias: b.bias,
-    why: b.note ? `${focus.why}<br>${b.note}。` : focus.why,
+    why: b.note ? `${why}${b.note}。` : why,
   });
 
-  /**
-   * 每周轮换一项"专业训练里最容易被业余跳过"的内容。
-   *
-   * 这三样都不是天天做的东西，但一样都不能没有：
-   *   限时计算 —— 把"算不出来"和"懒得算"分开，这两个病练法相反
-   *   布局定式 —— 到 1500 以上布局才成为真瓶颈，但那时候临时补来不及
-   *   打谱     —— 最老的一项训练，练的是"先自己想一手"的习惯
-   * 按星期几轮，保证一周里每样都轮得到，又不会天天占时间。
-   *
-   * 一三五轮的是中局组合：要连走好几步、每一步都逼着对方走的得子和杀棋。
-   * 一两步的战术题练的是"看见"，组合练的是"算到底"——到了阶段2，单步题已经不是瓶颈。
-   */
-  const rotate = inp.day ?? new Date().getDay();
-  if (rotate === 2 && stage.id >= 2) {
-    blocks.push({
-      kind: 'timed',
-      title: '限时计算（6 题）',
+  blocks.push(extraBlock(inp));
+
+  if (lesson?.kind !== 'game') blocks.push(gameBlock(play));
+  return blocks;
+}
+
+/** 每天一项轮换：每周小测优先，其次到期的布局复习，再按阶段和星期轮 */
+function extraBlock(inp: TrainInput): Block {
+  if (inp.daysSinceQuiz >= 7) {
+    return {
+      id: 'extra',
+      kind: 'quiz',
+      title: '每周小测 10 题',
+      desc: '五维各抽两题，不给提示。测出来的分直接更新五维雷达。',
+      minutes: 6,
+      count: 10,
+      why: inp.daysSinceQuiz >= 900 ? '练而不测，涨没涨全靠感觉——每周一次，看趋势。' : `距离上次小测 ${inp.daysSinceQuiz} 天了。每周测一次，看练的东西有没有落到实处。`,
+    };
+  }
+  if ((inp.openingDue ?? 0) > 0 && inp.stage.id >= 3) {
+    return {
+      id: 'extra',
+      kind: 'opening',
+      title: `布局复习 ${inp.openingDue} 套`,
+      desc: '自己执一方把走过的主线再走一遍，按间隔重复回来。',
+      minutes: 6,
+      why: '学过的谱不复习，过两周就忘。',
+    };
+  }
+  const BY_STAGE: Record<number, BlockKind[]> = {
+    1: ['ladder', 'endgame', 'ladder', 'endgame'],
+    2: ['combo', 'ladder', 'endgame', 'timed'],
+    3: ['endgame', 'combo', 'ladder', 'timed'],
+    4: ['opening', 'combo', 'endgame', 'ladder', 'timed'],
+  };
+  const list = BY_STAGE[Math.min(4, Math.max(1, inp.stage.id))];
+  const kind = list[(inp.day ?? new Date().getDay()) % list.length];
+  const EXTRA: Record<string, Omit<Block, 'id' | 'kind'>> = {
+    ladder: {
+      title: '绝地反杀 闯一关',
+      desc: '对方下一步就能杀你，只有连续将军抢在他前面杀死他。',
+      minutes: 6,
+      why: '实战里最要命的时刻是"对方马上要杀我了"——先看自己有没有连将，常常是唯一的活路。',
+    },
+    endgame: {
+      title: '实用残局 下到底',
+      desc: '跟引擎下完：要赢的必须赢下来，要守的必须守和。',
+      minutes: 8,
+      why: '中局挣来的优势最后都要在残局兑现。',
+    },
+    combo: {
+      title: '中局组合 5 题',
+      desc: '连走几步才拿到便宜：走到子吃到手或者将死才算对。',
+      minutes: 7,
+      why: '一两步的战术练"看见"，组合练"算到底"。',
+    },
+    timed: {
+      title: '限时计算 6 题',
       desc: '每题 45 秒，做错的再不限时重做一遍。',
       minutes: 8,
-      why: '「算不出来」和「懒得算」在不限时的时候长得一模一样，但练法完全相反：一个练习惯，一个练能力。分不清就会用错药。',
-    });
-  } else if (rotate === 4 && stage.id >= 3) {
-    blocks.push({
-      kind: 'opening',
-      title: '布局体系：按谱过一套',
-      desc: '屏风马、过宫炮、士角炮、飞相局、单提马……每套 15 回合上下，前面是定式、后面皮卡鱼延伸。先看讲解，再执一方猜着法。',
+      why: '把"算不出来"和"懒得算"分开——两个病练法相反。',
+    },
+    opening: {
+      title: '布局体系 过一套',
+      desc: '先看讲解，再执一方自己走一遍。',
       minutes: 8,
-      why: '布局排在后面不是因为不重要，是因为前面没练好时布局那点便宜守不住。你现在到阶段3了，可以开始补——要学的不是招法表，是每一手在干什么、对方走偏了怎么破。',
-    });
-  } else if ((rotate === 1 || rotate === 3 || rotate === 5) && stage.id >= 2) {
-    blocks.push({
-      kind: 'combo',
-      title: '中局组合（5 题）',
-      desc: '每题要连走几步才拿到便宜：连将杀、弃子、抽将、捉双……走到子吃到手或者将死才算对。',
-      minutes: 7,
-      why: '一两步的战术题练的是"看见"，组合练的是"算到底"。实战里错过的大便宜，多半是第一步看见了、第三步没算到。',
-    });
-  } else if (rotate === 6) {
-    blocks.push({
-      kind: 'replay',
-      title: '打谱：猜着法',
-      desc: '一手一手过棋谱，轮到你先自己想一手再看原谱。',
-      minutes: 10,
-      why: '看谱的时候人人都觉得"这手我也想得到"，先走一遍才知道想不想得到。周末时间宽裕，适合做这个。',
-    });
-  }
-
-  // 阶段一二练图形识别，阶段三之后重心转到残局——这就是专业课的顺序
-  if (stage.id <= 2) {
-    blocks.push({
-      kind: 'mate-shape',
-      title: '杀法图形：认一个新图形',
-      desc: '马后炮、闷宫、双车错…… 有名字的杀棋一共就那么多。认熟了是条件反射，这比多算两层管用。',
-      minutes: 5,
-      why: '这个阶段最划算的投入是"认图形"。图形有名字才记得住，记住了下次一眼就认出来。',
-    });
-  } else if (rotate % 2 === 0) {
-    blocks.push({
-      kind: 'ladder',
-      title: '绝地反杀：闯一关',
-      desc: '黑方下一步就能杀你，只有连续将军抢在他前面杀死他。闯关顺序往下走，第一次不看提示做对拿三星。',
-      minutes: 7,
-      why: '实战里最要命的时刻是"对方马上要杀我了"——这时候慌着去防，往往防不住；先看自己有没有连将，常常是唯一的活路。这个反应要专门练。',
-    });
-  } else {
-    blocks.push({
-      kind: 'endgame',
-      title: '残局实战：下到底',
-      desc: '摆好局面跟引擎下完——多子必须赢下来，少子必须守和。',
-      minutes: 7,
-      why: '中局挣来的优势最后都要在残局兑现。多一个马走成和棋，比中局失误还可惜。',
-    });
-  }
-
-  if (play && play.n >= 3) blocks.push(gameBlock(play));
-
-  return blocks;
+      why: '要学的不是招法表，是每一手在干什么、对方走偏了怎么破。',
+    },
+  };
+  return { id: 'extra', kind, ...EXTRA[kind] };
 }
 
 /** 实战一局：按实战分推荐对手 */
@@ -404,22 +425,22 @@ function gameBlock(play: { r: number; n: number } | null | undefined): Block {
   if (!play || play.n < 3) {
     const n = play?.n ?? 0;
     return {
+      id: 'game',
       kind: 'game',
-      title: `先下 ${3 - n} 盘实战（关掉教练更准）`,
+      title: '实战一盘，下完看复盘',
       desc: '和 AI 正常下完一盘，下完点复盘。',
-      minutes: 10,
-      why: `你的水平最终看下不下得赢，不看做题——题是静止的、你知道这里有棋，实战里没人提醒你。
-        实战才下了 ${n} 盘，教练还不知道你实战什么样，训练阶段、该主攻哪一维都只能按做题猜。下够 3 盘，水平和训练都按实战定。`,
+      minutes: 15,
+      why: `实战才下了 ${n} 盘——下够 3 盘，水平和每天的任务都改按实战定。`,
     };
   }
   const lv = suggestLevel(play.r);
   return {
+    id: 'game',
     kind: 'game',
-    title: `实战一局：对手选「${AI_LEVEL_NAMES[lv]}」 + 复盘`,
-    desc: '做题练的是识别，实战练的是运用，两样都得有。',
-    minutes: 10,
-    why: `你的实战分 ${play.r}，「${AI_LEVEL_NAMES[lv]}」约 ${AI_LEVEL_RATING[lv]}——赢一半输一半的对手最涨棋，连赢几盘就换高一档。
-      复盘会把你这盘走错的手做成题存进错题本，明天回来找你。这一步不做，整个循环就断了。`,
+    title: '实战一盘，下完看复盘',
+    desc: `对手「${AI_LEVEL_NAMES[lv]}」（约 ${AI_LEVEL_RATING[lv]}，和你的实战分 ${play.r} 相当）。`,
+    minutes: 15,
+    why: '复盘会把你这盘走错的手存进错题本，明天回来找你——这一步不做，整个循环就断了。',
   };
 }
 

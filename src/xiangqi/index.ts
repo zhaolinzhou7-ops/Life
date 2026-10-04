@@ -21,6 +21,7 @@ import { GameAnalysis } from './gamescore';
 import { AI_LEVEL_RATING, LADDER, getPlay, recentGameAccuracy, recordPlay, suggestLevel } from './save';
 import { runReview } from './review';
 import { runCoach, type CoachEntry } from './coach';
+import { liftBack } from './navbar';
 import { renderGameList, renderHome, renderLevel } from './home';
 import { fromFen } from './notation';
 import { archiveFromBoard, decodeMoves, encodeMoves, listGames as listArchived, openGame, type ArchivedGame } from './archive';
@@ -207,11 +208,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     clearAll();
     const dispose = renderHome(wrap, {
       onPlay: () => showSetup(),
-      onTrainToday: () => openCoach('today'),
+      onTrainToday: () => openCoach('home'),
       onPuzzles: () => openCoach('puzzles'),
       onReview: (id) => showGameList(id),
       onLevel: () => showLevel(),
-      onTutor: () => openCoach('tutor'),
+      onTutor: () => openCoach('home'),
       onExit: () => onExit(false),
       resume: (() => {
         const o = readOngoing();
@@ -261,7 +262,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         meColor,
         { board: initialBoard(), turn: 'r', moves, practice: true },
       );
-    });
+    }, () => showLevel());
   }
 
   // ============ 最近棋局 ============
@@ -279,7 +280,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   // ============ 我的水平 ============
   function showLevel() {
     clearAll();
-    const dispose = renderLevel(wrap, showHome, () => openCoach('home'));
+    // 棋风画像从私教的"水平和进步"点进来，返回也回那里
+    const dispose = renderLevel(wrap, () => openCoach('progress'), () => openCoach('home'));
     setupEl = { remove: dispose } as unknown as HTMLElement;
   }
 
@@ -549,6 +551,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       back.textContent = '← 返回首页';
       back.onclick = () => showHome();
       s.appendChild(back);
+      liftBack(s, '下一盘');
     };
     render();
     wrap.appendChild(s);

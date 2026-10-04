@@ -4,7 +4,10 @@
  * 邪门布局"破解到底"和皮卡鱼下到胜势。
  * 用法：npm run dev，然后 node tests/ui/puzzle-steps.mjs
  */
+import fs from 'fs';
 import { chromium } from 'playwright';
+/** mate2-ql 第二步的正解（题库里读，不写死） */
+const QL_STEP2 = JSON.parse(fs.readFileSync('src/xiangqi/puzzles.json', 'utf8')).find((p) => p.id === 'mate2-ql').line[2];
 
 const BASE = process.env.BASE || 'http://localhost:5175/Life/';
 const OUT = process.env.OUT || '/tmp';
@@ -35,11 +38,12 @@ const stepRight = async () => {
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => { localStorage.setItem('xq-power', 'save'); });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
-await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(700);
+await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(700);
 if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(600); }
 
 // ───────── 1. 杀法题：两步杀，要一直走到将死 ─────────
-await page.evaluate(() => window.__xqCoach.puzzle('mate2-pc'));
+// （原来的 mate2-pc / pd 是对方只剩士的必胜题，题库里已经不出了；换成对方子力还在的两步杀）
+await page.evaluate(() => window.__xqCoach.puzzle('mate2-qi'));
 await page.waitForTimeout(500);
 ok('打开了杀法题，标着"第 1 / 2 步 · 走到将死"', (await page.locator('.xq-tr-steps').innerText()).includes('1 / 2'));
 await stepRight();
@@ -53,14 +57,14 @@ ok('反馈说将死', (await page.locator('.xq-tr-fb').innerText()).includes('�
 await page.screenshot({ path: OUT + '/puzzle-mate.png' });
 
 // ───────── 2. 第二步走错：判错、说出该走什么、演出惩罚；从头再走不计分 ─────────
-await page.evaluate(() => window.__xqCoach.puzzle('mate2-pd'));
+await page.evaluate(() => window.__xqCoach.puzzle('mate2-ql'));
 await page.waitForTimeout(500);
 await stepRight();
 await page.evaluate(() => window.__xqTrain.playWrong());
 ok('第二步走错：这题算错', await until(() => window.__xqTrain.state().answered, null, 30000) && (await st()).verdict?.correct === false);
 const fb2 = await page.locator('.xq-tr-fb').innerText();
 console.log('   ' + fb2.replace(/\s+/g, ' ').slice(0, 160));
-ok('说清楚是第 2 步错了、该走哪一手', fb2.includes('第 2 步') && fb2.includes('马八进七'));
+ok('说清楚是第 2 步错了、该走哪一手', fb2.includes('第 2 步') && fb2.includes(QL_STEP2));
 ok('演出对方怎么惩罚', await until(() => (document.querySelector('.xq-tr-fb')?.textContent ?? '').includes('对方接下来会走'), null, 20000));
 await page.locator('#xq-tr-again').click();
 s = await st();

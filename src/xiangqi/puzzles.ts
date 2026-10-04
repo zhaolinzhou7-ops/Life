@@ -130,13 +130,34 @@ export function promptOf(p: Puzzle): string {
 let cache: Puzzle[] | null = null;
 let loading: Promise<Puzzle[]> | null = null;
 
-/** 加载题库（只下载一次） */
+/**
+ * 一眼必胜的题不出。用户原话："题库里还是有太多一眼就能看出来的必胜残局（比如对方只剩老将，
+ * 或者只剩士和老将），这种题就别再出了。"
+ * 判据：解题这一方的对手一个能动手的子都没有（只剩将、士、象）——这种局面赢是肯定的，
+ * 题目只剩"算最快几步"，练不到实战里要的东西。原来题库里有四百来道，杀法题几乎全是这种。
+ */
+export function defenseless(fen: string): boolean {
+  const [b, t] = fen.split(' ');
+  const solver = t === 'b' ? 'b' : 'r';
+  for (const ch of b) {
+    if (!/[RNHCPrnhcp]/.test(ch)) continue;
+    if ((ch === ch.toUpperCase() ? 'r' : 'b') !== solver) return false;
+  }
+  return true;
+}
+
+/** 中局组合里主题是"杀""连将杀"的，算杀法题——实战局面里的杀棋，对方子力齐全、自己也在进攻，比摆出来的光将杀有用 */
+const MATE_THEMES = new Set(['杀', '连将杀']);
+
+/** 加载题库（只下载一次）：一眼必胜的去掉，组合里的杀棋归到杀法 */
 export function loadPuzzles(): Promise<Puzzle[]> {
   if (cache) return Promise.resolve(cache);
   if (loading) return loading;
   loading = import('./puzzles.json')
     .then((m) => {
-      cache = ((m.default ?? m) as Puzzle[]).slice();
+      cache = ((m.default ?? m) as Puzzle[])
+        .filter((p) => !defenseless(p.fen))
+        .map((p) => (p.kind !== 'mate' && p.goal === 'mate' && p.themes?.some((t) => MATE_THEMES.has(t)) ? { ...p, kind: 'mate' as PuzzleKind } : p));
       return cache;
     })
     .catch(() => {

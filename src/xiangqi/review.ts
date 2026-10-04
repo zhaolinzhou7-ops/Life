@@ -92,14 +92,14 @@ export function runReview(opts: ReviewOpts): () => void {
   panel.className = 'xq-rv';
   panel.innerHTML = `
     <div class="xq-rv-head">
+      <button class="xq-rv-close" data-nav-back title="回到上一屏">← 返回</button>
       <b>复盘</b>
       <span class="xq-rv-pos">开局</span>
       <button class="xq-rv-hbtn xq-rv-ov" data-act="overview" title="回到整盘总结">📊 总览</button>
       <span class="xq-rv-progress">分析中 0/${moves.length}</span>
       <button class="xq-rv-hbtn" data-act="copy" title="复制棋谱">📋</button>
-      <button class="xq-rv-ask" title="问教练">🧑‍🏫 问教练</button>
+      <button class="xq-rv-ask" title="问教练">🧑‍🏫 问</button>
       <button class="xq-rv-fold" title="收起/展开">▾</button>
-      <button class="xq-rv-close">✕</button>
     </div>
     <div class="xq-rv-body">
       <div class="xq-rv-score">

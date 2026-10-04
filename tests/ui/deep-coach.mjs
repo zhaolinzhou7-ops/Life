@@ -16,7 +16,7 @@ page.on('console', m => { if (m.type()==='error') errs.push('console: ' + m.text
 
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(800);
-await page.locator('.xq-home-card').nth(0).click(); await page.waitForTimeout(500);
+await page.locator('[data-home="play"]').click(); await page.waitForTimeout(500);
 await page.getByText('教学提示').first().click(); await page.waitForTimeout(200);
 await page.getByText('开始对弈').first().click(); await page.waitForTimeout(2500);
 

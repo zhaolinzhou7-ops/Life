@@ -1,26 +1,23 @@
 /**
- * 首页、最近棋局、我的水平。
+ * 首页、最近棋局、我的水平（棋风画像）。
  *
- * 规格第三条写得很明白：**首页不要堆功能**。所以这里只有五个入口，
- * 而且每个入口下面挂一句"现在的状态"——不是功能说明，是当前数据：
- *   今日训练 → 今天还有几道错题要复习
- *   棋局复盘 → 上一盘输了还是赢了、最该改哪一手
- *   我的水平 → 现在几段、最近在犯什么毛病
+ * 规格第三条写得很明白：**首页不要堆功能**。用户也说"界面上的信息太多、太繁杂了"——
+ * 所以首页只有三个入口，每个入口下面挂一句"现在的状态"：
+ *   私教     → 今天的任务做了几项（练棋的一切都在私教里，一级一级往下选）
+ *   下一盘   → 和 AI 下一盘
+ *   我的棋局 → 上一盘输了还是赢了、最该改哪一手
  *
  * 这样做的理由：学习类产品的首页不该是功能菜单，该是**进度面板**。
  * 用户打开 App 的第一秒就该知道"今天该干什么"，而不是自己挑功能。
  */
 import { Board2D } from './board2d';
-import {
-  buildProfile,
-  trainingFocus,
-  type Profile,
-} from './insight';
+import { buildProfile, type Profile } from './insight';
 import { archiveFromBoard, getGame, listGames, openGame, type ArchivedGame } from './archive';
 import { parseImport, parseMoves } from './explorer';
 import { initialBoard, type Color } from './rules';
 import { ERR_INFO } from './teach';
-import { getLessonLog, themeName } from './tutor';
+import { todayProgress } from './daytasks';
+import { liftBack } from './navbar';
 import {
   DIM_INFO,
   DIMS,
@@ -81,7 +78,6 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
 
   const games = listGames();
   backfillPlay(games);
-  const profile = buildProfile(games);
   const srs = srsCount();
   const streak = getStreak();
   const lv = honestLevel();
@@ -120,90 +116,39 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
     s.appendChild(box);
   }
 
+  // 首页只留三件事（用户原话："界面上的信息太多、太繁杂了……布局、战术、杀法、残局这些内容到处都是，非常混乱。
+  // 我希望有一个统一的私教入口"）：练棋全在私教里，一级一级往下选；下棋；看自己的棋。
   const list = document.createElement('div');
   list.className = 'card-list';
-
-  // ① 开始对弈
-  list.appendChild(
-    card(
-      '⚔️ 开始对弈',
-      '和 AI 下一盘完整的棋。教练会在旁边看着，走出明显有问题的一手会提醒你。',
-      '',
-      act.onPlay,
-    ),
+  const prog = todayProgress();
+  const coach = card(
+    '🧑‍🏫 私教',
+    !isAssessed() && !games.length
+      ? '第一次来：先做个水平测评，之后每天给你排好任务。'
+      : prog
+        ? prog.done >= prog.total
+          ? '今天的任务都做完了 ✓ 想多练可以自己选。'
+          : `今天的任务做了 ${prog.done}/${prog.total}，接着做。`
+        : '今天的任务排好了：错题、私教课、专项、实战，二三十分钟。',
+    srs.due > 0 ? `${srs.due}` : '',
+    act.onTutor ?? act.onTrainToday,
   );
-
-  // ② 今日训练
-  const focus = trainingFocus(profile);
-  list.appendChild(
-    card(
-      '🎯 今日训练',
-      srs.due > 0
-        ? `今天有 ${srs.due} 道错题要复习，另外按你最近的问题安排了${DIM_INFO[focus.kind].name}练习。`
-        : profile.enough
-          ? focus.why
-          : '按你的水平安排今天练什么。还没测过水平的话，会先花几分钟测一下。',
-      srs.due > 0 ? `${srs.due}` : '',
-      act.onTrainToday,
-    ),
+  coach.classList.add('primary');
+  coach.dataset.home = 'coach';
+  list.appendChild(coach);
+  const playCard = card('⚔️ 下一盘', '和 AI 下一盘完整的棋，教练在旁边看着。', '', act.onPlay);
+  playCard.dataset.home = 'play';
+  list.appendChild(playCard);
+  const gamesCard = card(
+    '📖 我的棋局',
+    last
+      ? `上一盘：${last.d} · ${esc(last.level)} · ${resultText(last)}${last.review?.headline ? ` —— ${esc(last.review.headline)}` : ''}`
+      : '下完的棋都存在这里：逐手复盘、找回好棋，也能导入别处的棋谱。',
+    last && !last.review ? '未分析' : '',
+    () => act.onReview(),
   );
-
-  // ③ 棋局复盘
-  list.appendChild(
-    card(
-      '📖 棋局复盘',
-      last
-        ? `上一盘：${last.d} · ${esc(last.level)} · ${resultText(last)}${
-            last.review?.headline ? ` —— ${esc(last.review.headline)}` : ''
-          }`
-        : '还没有棋局记录。下完一盘之后，这里可以逐手看你走得怎么样。',
-      last && !last.review ? '未分析' : '',
-      () => act.onReview(),
-    ),
-  );
-
-  // ④ 战术训练
-  list.appendChild(
-    card(
-      '🧩 战术训练',
-      `杀法、捉双、牵制、残局——分类专项练。已经做对 ${totalSolved()} 道。`,
-      '',
-      act.onPuzzles,
-    ),
-  );
-
-  // ⑤ 我的水平
-  list.appendChild(
-    card(
-      '📊 我的水平',
-      profile.enough && profile.habits.length
-        ? `你最常犯的是「${profile.habits[0].name}」。点进来看完整的棋风画像。`
-        : lv.source === 'play'
-          ? `实战 ${rankOf(lv.r).name} · ${lv.r} 分（按 ${lv.games} 盘对弈的输赢）。五维能力、对局统计都在这里。`
-          : isAssessed()
-            ? `做题估的是 ${rankOf(lv.r).name}，还要下几盘实战确认。五维能力、对局统计都在这里。`
-            : '还没测过水平。测一次大约 20 分钟，之后练什么都按你的短板安排。',
-      '',
-      act.onLevel,
-    ),
-  );
-
-  // ⑥ 私教
-  if (act.onTutor) {
-    const lessons = getLessonLog();
-    const cur = lessons[lessons.length - 1];
-    list.appendChild(
-      card(
-        '🧑‍🏫 私教',
-        cur
-          ? `上一课「${themeName(cur.theme)}」${cur.done.length < cur.steps ? `还差 ${cur.steps - cur.done.length} 步没上完` : '上完了，下节课先检查作业'}。先看你的实战再开口，一节课只讲一件事。`
-          : '先看你的实战再开口：你在哪类错误上丢分最多，就从哪一课讲起——三条要点、用你自己走错的局面练、带练一盘，下节课先检查作业。',
-        cur && cur.done.length < cur.steps ? '上课中' : '',
-        act.onTutor,
-      ),
-    );
-  }
-
+  gamesCard.dataset.home = 'games';
+  list.appendChild(gamesCard);
   s.appendChild(list);
 
   const back = document.createElement('button');
@@ -268,7 +213,6 @@ export function renderGameList(
   imp.dataset.act = 'import-game';
   imp.textContent = '📥 导入棋谱复盘（天天象棋等复制来的棋谱）';
   imp.onclick = () => {
-    imp.remove();
     const form = document.createElement('div');
     form.className = 'xq-import-form';
     form.innerHTML = `<b>导入一盘棋</b>
@@ -278,7 +222,7 @@ export function renderGameList(
       <div class="row">结果：<label><input type="radio" name="imp-res" value="win" checked> 赢</label><label><input type="radio" name="imp-res" value="loss"> 输</label><label><input type="radio" name="imp-res" value="draw"> 和</label></div>
       <div class="err" data-imp-err></div>
       <button class="btn" data-imp-go>导入并复盘</button>`;
-    s.insertBefore(form, back);
+    imp.replaceWith(form);
     (form.querySelector('[data-imp-go]') as HTMLButtonElement).onclick = () => {
       const text = (form.querySelector('[data-imp-text]') as HTMLTextAreaElement).value;
       const err = form.querySelector('[data-imp-err]') as HTMLElement;
@@ -305,6 +249,7 @@ export function renderGameList(
   back.onclick = onBack;
   s.appendChild(imp);
   s.appendChild(back);
+  liftBack(s, '我的棋局');
   return () => s.remove();
 }
 
@@ -442,6 +387,7 @@ export function renderLevel(host: HTMLElement, onBack: () => void, onAssess: () 
   back.textContent = '← 返回';
   back.onclick = onBack;
   s.appendChild(back);
+  liftBack(s, '私教 › 水平和进步 › 棋风画像');
 
   return () => {
     for (const t of thumbs) t.dispose();

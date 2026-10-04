@@ -72,6 +72,8 @@ const AUDIT = () => {
       const hit = document.elementFromPoint(cx, cy);
       if (hit && hit !== el && !el.contains(hit) && !hit.contains(el)) {
         // 半透明遮罩层（弹窗背景）盖住下面的按钮是正常的；只报被不相干的东西盖住
+        // 贴顶的"← 返回"顶栏盖住刚滚上去的那一截也正常：往回滚一点就露出来
+        if (hit.closest('.xq-nav') && canUp(sc)) continue;
         const layer = hit.closest('.xq-ex-import, .xq-confirm, .xq-retry, .xq-modal, .xq-sheet, .modal, [role="dialog"]');
         if (!layer || !layer.contains(el)) if (!layer) out.push(`按钮「${label(el)}」被「${label(hit)}」盖住`);
       }
@@ -94,9 +96,15 @@ const AUDIT = () => {
     if (clipped <= 3) out.push(`文字「${label(el)}」在屏幕底边以下（${Math.round(r.top)}–${Math.round(r.bottom)}，屏高 ${vh}），滚不下去`);
   }
   if (clipped > 3) out.push(`……还有 ${clipped - 3} 处文字被裁`);
-  return { out, h: document.documentElement.scrollWidth - document.documentElement.clientWidth, n: clickable.length };
+  // 3. 有没有回去的路：顶栏"← 返回"、讲解的"退出"、或者写着返回/退出/结束/关闭的按钮（用户原话："有些界面甚至没有返回键"）
+  const exits = [...root.querySelectorAll('[data-nav-back], #rp-out, .xq-rv-close, button, [data-act]')].filter(
+    (el) => shown(el) && (el.matches('[data-nav-back], #rp-out, .xq-rv-close') || /返回|退出|结束|关闭|取消|离开|✕|×/.test(el.textContent || '')),
+  );
+  return { out, back: exits.length > 0, h: document.documentElement.scrollWidth - document.documentElement.clientWidth, n: clickable.length };
 };
 
+/** 本来就不需要返回键的屏：象棋首页（应用自己的导航在上面） */
+const NO_BACK = new Set(['象棋首页']);
 const SIZES = (process.env.SIZES || '375x548,390x664,430x740').split(',').map((s) => s.split('x').map(Number));
 const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined });
 
@@ -111,6 +119,7 @@ for (const [w, h] of SIZES) {
     await page.waitForTimeout(500);
     const r = await page.evaluate(AUDIT);
     if (r.h > 2) problems.push(`[${dev}] ${name}：横向溢出 ${r.h}px`);
+    if (!r.back && !NO_BACK.has(name)) r.out.push('这一屏没有返回 / 退出键');
     for (const p of r.out) problems.push(`[${dev}] ${name}：${p}`);
     visited.push(name);
     console.log(`${r.out.length || r.h > 2 ? '✗' : '✓'} [${dev}] ${name}（可点 ${r.n}${r.out.length ? `，问题 ${r.out.length}` : ''}）`);
@@ -126,17 +135,21 @@ for (const [w, h] of SIZES) {
   };
   const coach = async () => {
     await fresh();
-    await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(500);
+    await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(500);
     if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(400); }
     await page.evaluate(() => window.__xqCoach.home()); await page.waitForTimeout(400);
   };
-  // 按卡片标题点（描述里提到别的卡片名字的不算）
-  const card = async (text) => { await page.locator('.card .title', { hasText: text }).first().click(); await page.waitForTimeout(600); };
+  /** 私教 › 某个菜单（› 菜单里的某一项） */
+  const menu = async (id, act) => {
+    await coach();
+    await page.evaluate((m) => window.__xqCoach.menu(m), id); await page.waitForTimeout(300);
+    if (act) { await page.locator(`[data-act="${act}"]`).click(); await page.waitForTimeout(600); }
+  };
   const nextToEnd = async () => { for (let i = 0; i < 80 && (await page.locator('#rp-next').count()); i++) { await page.locator('#rp-next').click(); await page.waitForTimeout(25); } };
 
   // ── 首页、对弈 ──
   await step('象棋首页', fresh);
-  await step('对弈设置', async () => { await page.locator('.xq-home-card').nth(0).click(); });
+  await step('对弈设置', async () => { await page.locator('[data-home="play"]').click(); });
   await step('对局中', async () => { await page.getByText('开始对弈').first().click(); await page.waitForTimeout(2500); });
   // 走两手：教练那一行多了布局名字（📖 …），行变长了按钮也得在
   await step('对局中·布局名', async () => {
@@ -145,22 +158,26 @@ for (const [w, h] of SIZES) {
     while (Date.now() - t0 < 30000 && !(await page.evaluate(() => (window.__xq.coachLine() ?? '').includes('📖')))) await page.waitForTimeout(300);
   });
 
-  // ── 学棋 ──
-  await step('学棋首页', coach);
-  await step('专项练习', async () => { await card('专项练习'); });
-  await step('做题·杀法', async () => { await card('杀法'); await page.waitForTimeout(800); });
-  await step('今日训练', async () => { await fresh(); await page.locator('.xq-home-card', { hasText: '今日训练' }).click(); await page.waitForTimeout(600); if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(400); } });
-  await step('私教', async () => { await coach(); await card('私教'); });
-  await step('每日一题', async () => { await coach(); await card('每日一题'); await page.waitForTimeout(800); });
-  await step('打谱列表', async () => { await coach(); await card('打谱'); });
+  // ── 私教：首页的任务清单、五个菜单 ──
+  await step('私教首页', coach);
+  await step('私教·今天第一项', async () => { await page.locator('[data-act="today-go"]').click(); await page.waitForTimeout(1200); });
+  await step('私教课', async () => { await coach(); await page.locator('[data-act="m-tutor"]').click(); await page.waitForTimeout(600); });
+  for (const [id, name] of [['tactics', '杀法与战术'], ['endgame', '残局'], ['opening', '布局'], ['play', '实战与打谱'], ['progress', '水平和进步']]) {
+    await step(`菜单·${name}`, async () => { await menu(id); });
+  }
+  await step('做题·杀法', async () => { await menu('tactics', 'p-mate'); await page.waitForTimeout(800); });
+  await step('做题·残局', async () => { await menu('endgame', 'p-endgame'); await page.waitForTimeout(800); });
+  await step('每日一题', async () => { await menu('tactics', 'daily'); await page.waitForTimeout(800); });
+  await step('打谱列表', async () => { await menu('play', 'games'); });
   await step('打谱·一局', async () => { await page.locator('.card').first().click(); await page.waitForTimeout(500); for (let i = 0; i < 10 && (await page.locator('#rp-next').count()); i++) await page.locator('#rp-next').click(); });
-  await step('限时计算', async () => { await coach(); await card('限时计算'); await page.waitForTimeout(800); });
-  await step('让子定级', async () => { await coach(); await card('让子定级'); });
-  await step('学习路线', async () => { await coach(); await card('学习路线'); });
-  await step('训练方案', async () => { await coach(); await card('训练方案'); });
+  await step('限时计算', async () => { await menu('tactics', 'timed'); await page.waitForTimeout(800); });
+  await step('让子定级', async () => { await menu('play', 'ladder'); });
+  await step('学习路线', async () => { await menu('progress', 'roadmap'); });
+  await step('训练方案', async () => { await menu('progress', 'program'); });
+  await step('棋风画像', async () => { await menu('progress', 'level'); });
 
   // ── 布局 ──
-  await step('布局体系', async () => { await coach(); await card('布局体系'); });
+  await step('布局体系', async () => { await menu('opening', 'openings'); });
   await step('布局详情（变招加载后）', async () => { await page.locator('[data-opening="pfm-guohe"]').click(); await page.waitForTimeout(1200); });
   await step('布局讲解·中途', async () => { await page.locator('[data-act="op-watch"]').click(); for (let i = 0; i < 12; i++) await page.locator('#rp-next').click(); });
   await step('布局讲解·走完了', nextToEnd);
@@ -178,7 +195,7 @@ for (const [w, h] of SIZES) {
   await step('布局·抽查', async () => { await page.locator('#rp-out').first().click(); await page.waitForTimeout(300); await page.locator('[data-act="op-drill"]').click(); await page.waitForTimeout(300); });
 
   // ── 开局浏览器 ──
-  await step('开局浏览器·开局', async () => { await coach(); await card('开局浏览器'); });
+  await step('开局浏览器·开局', async () => { await menu('opening', 'explorer'); });
   await step('开局浏览器·分岔点', async () => {
     for (const t of ['炮二平五', '马8进7', '马二进三', '车9平8', '车一平二', '马2进3']) await page.evaluate((x) => window.__xqExplorer.go(x), t);
   });
@@ -189,34 +206,34 @@ for (const [w, h] of SIZES) {
   });
   await step('开局浏览器·导入框', async () => { await page.locator('[data-ex-act="import"]').click(); });
 
-  // ── 邪门布局 ──
-  await step('邪门布局列表', async () => { await coach(); await card('邪门布局破解'); });
-  await step('邪门布局·一课', async () => { await page.locator('.card').nth(1).click(); await page.waitForTimeout(500); });
-  await step('邪门布局·看套路走完了', async () => {
+  // ── 江湖布局 ──
+  await step('江湖布局列表', async () => { await menu('opening', 'tricks'); });
+  await step('江湖布局·一课', async () => { await page.locator('.card').nth(1).click(); await page.waitForTimeout(500); });
+  await step('江湖布局·看套路走完了', async () => {
     const b = page.locator('button', { hasText: '看套路' }).first();
     if (await b.count()) { await b.click(); await page.waitForTimeout(300); await nextToEnd(); } else throw new Error('没有"看套路"按钮');
   });
-  await step('邪门布局·变化列表', async () => {
+  await step('江湖布局·变化列表', async () => {
     await page.locator('#rp-out').first().click();
     const t0 = Date.now();
     while (Date.now() - t0 < 10000 && !(await page.locator('[data-trick-var]').count())) await page.waitForTimeout(200);
     await page.locator('[data-trick-var]').last().scrollIntoViewIfNeeded();
   });
-  await step('邪门布局·一条变化走完了', async () => { await page.locator('[data-trick-var]').first().click(); await page.waitForTimeout(300); await nextToEnd(); });
-  await step('邪门布局·抽查', async () => { await page.locator('#rp-out').first().click(); await page.waitForTimeout(300); await page.locator('[data-act="trick-drill"]').click(); await page.waitForTimeout(300); });
+  await step('江湖布局·一条变化走完了', async () => { await page.locator('[data-trick-var]').first().click(); await page.waitForTimeout(300); await nextToEnd(); });
+  await step('江湖布局·抽查', async () => { await page.locator('#rp-out').first().click(); await page.waitForTimeout(300); await page.locator('[data-act="trick-drill"]').click(); await page.waitForTimeout(300); });
 
   // ── 组合、残局、绝地反杀 ──
-  await step('中局组合列表', async () => { await coach(); await card('中局组合'); });
+  await step('中局组合列表', async () => { await menu('tactics', 'combos'); });
   await step('中局组合·一题', async () => { await page.locator('.card').nth(1).click(); await page.waitForTimeout(1000); });
-  await step('实用残局列表', async () => { await coach(); await card('实用残局'); });
+  await step('实用残局列表', async () => { await menu('endgame', 'endgames'); });
   await step('实用残局·下到底', async () => { await page.evaluate(() => window.__xqCoach.endgame()); await page.waitForTimeout(1500); });
-  await step('绝地反杀列表', async () => { await coach(); await card('绝地反杀'); });
+  await step('绝地反杀列表', async () => { await menu('tactics', 'counterkill'); });
   await step('绝地反杀·一关', async () => { await page.locator('.card').nth(1).click(); await page.waitForTimeout(1000); });
 
   // ── 复盘：导入一盘、总览、找回好棋 ──
   await step('最近棋局·导入框', async () => {
     await fresh();
-    await page.locator('.xq-home-card', { hasText: '棋局复盘' }).click(); await page.waitForTimeout(400);
+    await page.locator('[data-home="games"]').click(); await page.waitForTimeout(400);
     await page.locator('[data-act="import-game"]').click();
   });
   await step('复盘·总览', async () => {
@@ -227,7 +244,6 @@ for (const [w, h] of SIZES) {
     await page.locator('[data-act="overview"]').click();
   });
   await step('复盘·找回好棋', async () => { await page.locator('[data-act="retry"]').click(); await page.waitForTimeout(800); });
-  await step('我的水平', async () => { await fresh(); await page.locator('.xq-home-card', { hasText: '我的水平' }).click(); });
 
   await ctx.close();
 }

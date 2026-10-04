@@ -22,8 +22,9 @@ async function coachPick() {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.evaluate(() => localStorage.setItem('xq-power', 'save'));
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
-  await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(600);
+  await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(600);
   if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(500); }
+  await page.evaluate((m) => window.__xqCoach.menu(m), 'tactics'); await page.waitForTimeout(300);
 }
 
 /** 做完一组 10 道：花样题直接答对，走子题照正解走；记下每一道的题型 */
@@ -120,13 +121,10 @@ ok('一组眼力题里遇到了点子题', gotTap);
 // ───────── 3. 每日一题 ─────────
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
-await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(600);
-// 学棋首页（不同入口落到专项练习页或者首页，找"每日一题"那张卡）
-if (!(await page.getByText('📅 每日一题').count())) {
-  const back = page.locator('.btn.ghost', { hasText: '返回' });
-  if (await back.count()) { await back.first().click(); await page.waitForTimeout(400); }
-}
-ok('学棋首页有每日一题', (await page.getByText('📅 每日一题').count()) > 0);
+await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(600);
+// 每日一题在 私教 › 杀法与战术 里
+await page.locator('[data-act="m-tactics"]').click(); await page.waitForTimeout(400);
+ok('私教 › 杀法与战术 里有每日一题', (await page.getByText('📅 每日一题').count()) > 0);
 await page.getByText('📅 每日一题').first().click(); await page.waitForTimeout(1200);
 ok('每日一题打得开', (await page.locator('.xq-tr').count()) > 0);
 await page.screenshot({ path: `${OUT}/quiz-daily.png` });

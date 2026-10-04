@@ -171,14 +171,19 @@ describe('每日训练轮换：布局体系、中局组合、绝地反杀都排�
     }).map((b) => b.kind);
   };
 
-  it('一周里三样都轮得到', async () => {
+  it('一周里几样都轮得到', async () => {
     const week = new Set<string>();
-    for (let d = 0; d < 7; d++) for (const k of await plan(3, d)) week.add(k);
-    for (const k of ['opening', 'combo', 'ladder', 'endgame']) expect([...week], k).toContain(k);
+    for (let d = 0; d < 7; d++) for (const k of await plan(4, d)) week.add(k);
+    for (const k of ['opening', 'combo', 'ladder', 'endgame', 'timed']) expect([...week], k).toContain(k);
   });
 
   it('中局组合从阶段2开始，阶段1还在练不漏着', async () => {
-    expect(await plan(1, 1)).not.toContain('combo');
-    expect(await plan(2, 1)).toContain('combo');
+    const week = async (st: number) => {
+      const all = new Set<string>();
+      for (let d = 0; d < 7; d++) for (const k of await plan(st, d)) all.add(k);
+      return [...all];
+    };
+    expect(await week(1)).not.toContain('combo');
+    expect(await week(2)).toContain('combo');
   });
 });

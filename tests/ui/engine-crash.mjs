@@ -31,7 +31,7 @@ page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => { localStorage.setItem('xq-hint-level', '2'); localStorage.setItem('xq-power', 'standard'); });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
-await page.locator('.xq-home-card').nth(0).click(); await page.waitForTimeout(300);
+await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
 await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
 await page.getByText('执红先行').first().click();
 await page.getByText('开始对弈').first().click();

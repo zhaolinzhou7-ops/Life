@@ -22,7 +22,7 @@ async function openGame(page, levelName) {
   // 省电档（每步 5 秒）：测试要等"算完"，全力档要算好几分钟
   await page.evaluate(() => { localStorage.setItem('xq-hint-level', '2'); localStorage.setItem('xq-power', 'save'); });
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
-  await page.locator('.xq-home-card').nth(0).click(); await page.waitForTimeout(300);
+  await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
   if (levelName) await page.locator('.diff-row .card', { hasText: levelName }).first().click();
   await page.getByText('执红先行').first().click();
   await page.getByText('开始对弈').first().click(); await page.waitForTimeout(800);

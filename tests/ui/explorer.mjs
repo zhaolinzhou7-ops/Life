@@ -32,13 +32,14 @@ async function coachHome(setup) {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.evaluate((s) => { localStorage.setItem('xq-power', 'save'); if (s) for (const [k, v] of Object.entries(s)) localStorage.setItem(k, v); }, setup);
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
-  await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(700);
+  await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(700);
   if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(600); }
+  await page.evaluate((m) => window.__xqCoach.menu(m), 'opening'); await page.waitForTimeout(300);
 }
 
 // ───────── 1. 开局浏览器 ─────────
 await coachHome();
-ok('专项练习的布局一栏有开局浏览器', (await page.locator('[data-act="explorer"]').count()) === 1);
+ok('私教 › 布局 里有开局浏览器', (await page.locator('[data-act="explorer"]').count()) === 1);
 await page.getByText('📖 布局体系').first().click(); await page.waitForTimeout(400);
 ok('布局体系里有开局浏览器', (await page.locator('[data-act="explorer"]').count()) === 1);
 await page.locator('[data-act="explorer"]').click(); await page.waitForTimeout(500);
@@ -149,7 +150,7 @@ ok('浏览器返回布局页', (await page.locator('[data-act="op-explorer"]').c
 const trapOp = LIB.find((o) => (VARS[o.id]?.extra ?? []).some((x) => x.kind === 'trap' && x.at % 2 === 0));
 if (trapOp) {
   const trap = VARS[trapOp.id].extra.find((x) => x.kind === 'trap' && x.at % 2 === 0);
-  await page.locator('.btn.ghost', { hasText: '返回' }).last().click(); await page.waitForTimeout(300);
+  await page.locator('[data-nav-back]').last().click(); await page.waitForTimeout(300);
   await page.locator(`[data-opening="${trapOp.id}"]`).click(); await page.waitForTimeout(500);
   await page.locator('[data-act="op-red"]').click(); await page.waitForTimeout(300);
   for (let i = 0; i < 120; i++) {
@@ -169,7 +170,7 @@ if (trapOp) {
 }
 
 // ───────── 2b. 讲解能后退、跳回、翻转；最后一手的讲解看得到；教练小结；看过的打勾；抽查 ─────────
-await page.locator('.btn.ghost', { hasText: '返回' }).last().click(); await page.waitForTimeout(300);
+await page.locator('[data-nav-back]').last().click(); await page.waitForTimeout(300);
 await page.locator('[data-opening="pfm-guohe"]').click(); await page.waitForTimeout(800);
 await page.locator('[data-act="op-watch"]').click(); await page.waitForTimeout(300);
 for (let i = 0; i < 5; i++) await page.locator('#rp-next').click();
@@ -206,8 +207,8 @@ ok('🎲 抽一条变化：对方那一手摆好，轮到你走', drillSay.inclu
 await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
 
 // ───────── 2c. 江湖布局的变化 ─────────
-await page.locator('.btn.ghost', { hasText: '返回' }).last().click(); await page.waitForTimeout(300);
-await page.locator('.card', { hasText: '邪门布局破解' }).first().click(); await page.waitForTimeout(400);
+await page.locator('[data-nav-back]').last().click(); await page.waitForTimeout(300);
+await page.locator('.card', { hasText: '江湖布局破解' }).first().click(); await page.waitForTimeout(400);
 await page.locator('.card', { hasText: '铁滑车（开局车一进一弃马）' }).first().click(); await page.waitForTimeout(600);
 ok('江湖布局的变化加载以后列出来：他不按套路走 / 另一种破法 / 你走错了', await until(page, () => document.querySelectorAll('[data-trick-var]').length >= 5, null, 10000));
 const tsecs = await page.locator('.xq-sec').allInnerTexts();
@@ -241,7 +242,7 @@ await page.locator('#rp-out').first().click(); await page.waitForTimeout(300);
 
 // ───────── 3. 布局复习（间隔重复） ─────────
 await coachHome({ 'xq-op-srs': JSON.stringify({ 'pfm-guohe:r': { box: 0, due: 0, last: 50 } }) });
-ok('专项练习的布局体系卡片上提示该复习了', (await page.locator('[data-act="openings"] .tag').innerText()).includes('1 套该复习'));
+ok('私教 › 布局 的布局体系一行提示该复习了', (await page.locator('[data-act="openings"] .tag').innerText()).includes('1 套该复习'));
 await page.getByText('📖 布局体系').first().click(); await page.waitForTimeout(400);
 const rv = await page.locator('[data-act="op-review"]').innerText();
 console.log('   复习卡：' + rv.replace(/\s+/g, ' ').slice(0, 100));
@@ -254,7 +255,7 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => { localStorage.clear(); localStorage.setItem('xq-power', 'save'); });
 await page.reload({ waitUntil: 'networkidle' });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
-await page.locator('.xq-home-card', { hasText: '棋局复盘' }).click(); await page.waitForTimeout(400);
+await page.locator('[data-home="games"]').click(); await page.waitForTimeout(400);
 await page.locator('[data-act="import-game"]').click(); await page.waitForTimeout(150);
 await page.locator('[data-imp-text]').fill('1. 炮二平五 马8进7');
 await page.locator('[data-imp-go]').click(); await page.waitForTimeout(200);
@@ -282,7 +283,7 @@ ok('关掉回到复盘', (await page.locator('.xq-retry').count()) === 0 && (awa
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => { localStorage.setItem('xq-hint-level', '2'); localStorage.setItem('xq-power', 'save'); });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
-await page.locator('.xq-home-card').nth(0).click(); await page.waitForTimeout(300);
+await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
 await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
 await page.getByText('执红先行').first().click();
 await page.getByText('开始对弈').first().click();

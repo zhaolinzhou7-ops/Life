@@ -17,7 +17,7 @@ async function openGame(page, side = '执红先行') {
   // 省电档（每步 5 秒）：测试要等"算完"，全力档要算好几分钟
   await page.evaluate(() => { localStorage.setItem('xq-hint-level', '2'); localStorage.setItem('xq-power', 'save'); });
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
-  await page.locator('.xq-home-card').nth(0).click(); await page.waitForTimeout(400);
+  await page.locator('[data-home="play"]').click(); await page.waitForTimeout(400);
   await page.getByText(side).first().click(); await page.waitForTimeout(150);
   await page.getByText('开始对弈').first().click(); await page.waitForTimeout(1200);
 }

@@ -26,7 +26,7 @@ page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByText('中国象棋', { exact: false }).first().click();
 await page.waitForTimeout(700);
-await page.locator('.xq-home-card').nth(0).click();
+await page.locator('[data-home="play"]').click();
 await page.waitForTimeout(500);
 await page.getByText('标准提示').first().click();
 await page.waitForTimeout(150);

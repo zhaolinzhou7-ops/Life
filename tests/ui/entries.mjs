@@ -1,8 +1,8 @@
 /**
- * 首页五个入口的落点走查。
+ * 入口走查：首页三个入口、私教里一级级往下的菜单，每一屏左上角都能返回。
  *
- * 点「今日训练」和「战术训练」如果落在同一个菜单上，用户会以为自己点错了。
- * 这条只有真的点进去才验得出来，所以单独走一遍。
+ * 用户原话："像布局、战术、杀法、残局这些内容到处都是，非常混乱。我希望有一个统一的私教入口，
+ * 点进去之后能通过层级菜单一级一级往下选。""有些界面甚至没有返回键。"
  * 用法：npm run dev，然后 node tests/ui/entries.mjs
  */
 import { chromium } from 'playwright';
@@ -20,31 +20,65 @@ const gotoHome = async () => {
   await page.getByText('中国象棋', { exact: false }).first().click();
   await page.waitForTimeout(800);
 };
+const h1 = async () => ((await page.locator('h1').first().textContent()) ?? '').trim();
+const path = async () => ((await page.locator('.xq-nav-path').first().textContent()) ?? '').trim();
 
-// 先把"自报水平"那一步过掉，否则每个入口都会先被它拦住
+// 先把"自报水平"那一步过掉
 await gotoHome();
-await page.locator('.xq-home-card').nth(1).click();
+await page.locator('[data-home="coach"]').click();
 await page.waitForTimeout(900);
 if (await page.getByText('业 4-5').count()) {
   await page.getByText('业 4-5').first().click();
   await page.waitForTimeout(600);
-  const go = page.getByText('开始', { exact: false }).first();
-  if (await go.count()) { await go.click(); await page.waitForTimeout(800); }
 }
 
-const titleAfter = async (i) => {
-  await gotoHome();
-  await page.locator('.xq-home-card').nth(i).click();
-  await page.waitForTimeout(1200);
-  return (await page.locator('h1').first().textContent()) ?? '';
-};
+// ── 首页：只有三个入口 ──
+await gotoHome();
+const cards = await page.locator('.xq-home-card').allInnerTexts();
+console.log('   首页：' + cards.map((c) => c.split('\n')[0]).join(' / '));
+ok('首页只有三个入口：私教、下一盘、我的棋局', cards.length === 3 && /私教/.test(cards[0]) && /下一盘/.test(cards[1]) && /我的棋局/.test(cards[2]));
 
-const t0 = await titleAfter(0); ok(`开始对弈 → 「${t0}」`, t0.includes('楚河') || t0.includes('对弈'));
-const t1 = await titleAfter(1); ok(`今日训练 → 「${t1}」`, t1.includes('今日训练'));
-const t3 = await titleAfter(3); ok(`战术训练 → 「${t3}」`, t3.includes('专项练习'));
-const t4 = await titleAfter(4); ok(`我的水平 → 「${t4}」`, t4.includes('我的水平'));
-const t2 = await titleAfter(2); ok(`棋局复盘 → 「${t2}」`, t2.includes('最近棋局'));
-ok('今日训练和战术训练不是同一屏', t1 !== t3);
+await page.locator('[data-home="play"]').click(); await page.waitForTimeout(600);
+ok('下一盘 → 对弈设置，左上角能返回', (await page.locator('[data-nav-back]').count()) === 1);
+await page.locator('[data-nav-back]').click(); await page.waitForTimeout(500);
+ok('返回回到首页', (await page.locator('[data-home="coach"]').count()) === 1);
+
+await page.locator('[data-home="games"]').click(); await page.waitForTimeout(600);
+ok(`我的棋局 → 「${await h1()}」，左上角能返回`, (await h1()).includes('最近棋局') && (await page.locator('[data-nav-back]').count()) === 1);
+
+// ── 私教首页：今天的任务 + 自己选着练 + 我的进度 ──
+await gotoHome();
+await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(800);
+ok(`私教 → 「${await h1()}」`, (await h1()).includes('私教'));
+ok('私教首页有今天的任务清单', (await page.locator('[data-today] .xq-task').count()) >= 2);
+ok('左上角能返回象棋首页', (await page.locator('[data-nav-back]').count()) === 1);
+
+const MENUS = [
+  ['m-tactics', '杀法与战术', ['战术题', '杀法题', '中局组合', '绝地反杀']],
+  ['m-endgame', '残局', ['残局题', '实用残局']],
+  ['m-opening', '布局', ['布局体系', '江湖布局破解', '开局浏览器']],
+  ['m-play', '实战与打谱', ['让子定级', '打谱']],
+  ['m-progress', '水平和进步', ['学习路线', '训练方案']],
+];
+for (const [act, title, items] of MENUS) {
+  await page.locator(`[data-act="${act}"]`).click(); await page.waitForTimeout(400);
+  const text = await page.locator('.xq-coach-home').innerText();
+  ok(`${title}：标题对、顶栏写着"私教 › ${title}"、${items.join('、')} 都在`, (await h1()).includes(title) && (await path()) === `私教 › ${title}` && items.every((x) => text.includes(x)));
+  await page.locator('[data-nav-back]').click(); await page.waitForTimeout(400);
+  ok(`${title} ← 返回回到私教首页`, (await page.locator('[data-today]').count()) === 1);
+}
+
+// ── 往下一层：布局 › 布局体系 › 一套布局，一层层返回 ──
+await page.locator('[data-act="m-opening"]').click(); await page.waitForTimeout(300);
+await page.locator('[data-act="openings"]').click(); await page.waitForTimeout(400);
+await page.locator('[data-opening]').first().click(); await page.waitForTimeout(400);
+ok('布局详情：顶栏还写着"私教 › 布局"', (await path()) === '私教 › 布局');
+await page.locator('[data-nav-back]').click(); await page.waitForTimeout(300);
+ok('← 返回到布局体系列表', (await page.locator('[data-opening]').count()) > 5);
+await page.locator('[data-nav-back]').click(); await page.waitForTimeout(300);
+ok('← 返回到布局菜单', (await page.locator('[data-menu="opening"]').count()) === 1);
+await page.locator('[data-nav-back]').click(); await page.waitForTimeout(300);
+ok('← 返回到私教首页', (await page.locator('[data-today]').count()) === 1);
 
 await browser.close();
 console.log('\n===== 失败项 / 报错 =====');

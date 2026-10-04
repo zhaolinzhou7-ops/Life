@@ -2201,14 +2201,16 @@ canvas {
   font-size: 12px;
   opacity: 0.65;
 }
+/* 复盘左上角的"← 返回"：和别的屏一样的位置、一样的字（原来是右上角一个小小的 ✕，用户说"复盘界面没有返回键"） */
 .xq-rv-close {
-  background: none;
-  border: 0;
+  flex: none;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 8px;
   color: var(--text);
-  font-size: 17px;
-  opacity: 0.7;
+  font-size: 13px;
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 4px 9px;
 }
 
 /* 概览：漏着/失误统计 + 决定胜负的一手 */
@@ -4681,3 +4683,100 @@ canvas {
 .xq-import-form .row { display: flex; gap: 12px; align-items: center; margin: 6px 0; font-size: 14px; }
 .xq-import-form .err { color: var(--danger); font-size: 13px; min-height: 1em; }
 .xq-import-form .dim { color: var(--muted); font-size: 13px; }
+
+/* ===================== 顶栏：← 返回 + 现在在哪 ===================== */
+.xq-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  align-self: stretch;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -4px -4px 8px;
+  padding: calc(env(safe-area-inset-top) + 6px) 4px 6px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.xq-nav-back {
+  flex: none;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 14px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.xq-nav-path { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 顶栏是贴顶的：跳到某一项（scrollIntoView）时别让它钻到顶栏底下 */
+.screen:has(> .xq-nav) * { scroll-margin-top: 56px; }
+
+/* ===================== 私教首页 ===================== */
+.xq-hub h1 { margin-bottom: 4px; }
+.xq-hub-me { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.xq-hub-me b { color: var(--text); font-size: 15px; }
+.xq-today {
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.xq-today .hd { display: flex; justify-content: space-between; align-items: baseline; }
+.xq-today .hd b { font-size: 16px; }
+.xq-today .hd .n { font-size: 14px; color: #ffd76e; font-weight: 700; }
+.xq-week { display: flex; align-items: center; gap: 5px; margin: 6px 0 8px; font-size: 11px; color: var(--muted); }
+.xq-week i { width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, 0.1); }
+.xq-week i.any { background: rgba(255, 215, 110, 0.45); }
+.xq-week i.full { background: #3ec46d; }
+.xq-week span { margin-left: 6px; }
+.xq-tasks { display: flex; flex-direction: column; gap: 6px; }
+.xq-task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 9px 10px;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.xq-task .ck {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+.xq-task .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.xq-task .tx b { font-size: 14px; }
+.xq-task .tx em { font-style: normal; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xq-task .mi { flex: none; font-size: 11px; color: var(--muted); }
+.xq-task.next { border-color: rgba(255, 215, 110, 0.6); background: rgba(255, 215, 110, 0.08); }
+.xq-task.done { opacity: 0.55; }
+.xq-task.done .ck { border-color: #3ec46d; background: #3ec46d; color: #10161d; }
+.xq-task.done .tx b { text-decoration: line-through; }
+.xq-today-go { width: 100%; margin-top: 10px; }
+.xq-today-go:disabled { opacity: 0.6; }
+.xq-today-why { margin-top: 6px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.xq-menu-row .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 象棋首页：私教是主入口 */
+.xq-home-card.primary { border-color: rgba(255, 215, 110, 0.55); background: linear-gradient(135deg, rgba(255, 215, 110, 0.14), rgba(255, 255, 255, 0.03)); }
+
+/* 折起来的长说明：标题一行，点开看正文 */
+details.xq-fold > summary { cursor: pointer; font-weight: 700; list-style: none; }
+details.xq-fold > summary::-webkit-details-marker { display: none; }
+details.xq-fold > summary::before { content: '▸ '; color: var(--muted); }
+details.xq-fold[open] > summary::before { content: '▾ '; }
+details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-weight: 400; font-size: 12px; color: var(--muted); }
+.xq-hub .xq-sec, .xq-coach-home > .xq-sec { align-self: stretch; text-align: left; }

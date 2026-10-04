@@ -22,9 +22,10 @@ page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => { localStorage.setItem('xq-power', 'save'); localStorage.setItem('xq-hint-level', '2'); localStorage.removeItem('xq-tricks-done'); });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
-await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(700);
+await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(700);
 if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(600); }
-await page.getByText('🗡 邪门布局破解').first().click(); await page.waitForTimeout(500);
+await page.evaluate((m) => window.__xqCoach.menu(m), 'opening'); await page.waitForTimeout(300);
+await page.getByText('🗡 江湖布局破解').first().click(); await page.waitForTimeout(500);
 const cards = await page.locator('[data-trick]').count();
 console.log(`   套路：${cards} 条`);
 ok('专项练习里找得到邪门布局破解，列出了套路', cards >= 8);
@@ -77,9 +78,10 @@ await page.screenshot({ path: OUT + '/tricks-guess.png' });
 // ───────── 1b. 铁滑车：送的马该吃，坑在第二关 ─────────
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
-await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(700);
+await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(700);
 if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(600); }
-await page.getByText('🗡 邪门布局破解').first().click(); await page.waitForTimeout(500);
+await page.evaluate((m) => window.__xqCoach.menu(m), 'opening'); await page.waitForTimeout(300);
+await page.getByText('🗡 江湖布局破解').first().click(); await page.waitForTimeout(500);
 const listText = await page.locator('.xq-coach-report').innerText();
 ok('列表里有弃马十三着、敢死炮、铁滑车、急进中兵、叠炮、瞎眼狗、龟背炮', ['弃马十三着', '敢死炮', '铁滑车', '双铁滑车', '急进中兵', '叠炮', '瞎眼狗', '龟背炮'].every((n) => listText.includes(n)));
 ok('原来那些"炮打中卒"不再算邪门布局', !listText.includes('开局炮打中卒') && !listText.includes('炮打底马') && !listText.includes('炮打中兵将军'));
@@ -131,7 +133,7 @@ ok('两关都自己走对（炮8进7 → 马8进7 → 炮8平9），破解谱走
 // ───────── 2. 对局：对手走邪门布局，教练点破，破解那一手不拦 ─────────
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
-await page.locator('.xq-home-card').nth(0).click(); await page.waitForTimeout(300);
+await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
 await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
 await page.locator('[data-tricky="1"]').click();
 await page.getByText('执红先行').first().click();

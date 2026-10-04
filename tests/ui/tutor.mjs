@@ -13,16 +13,16 @@ const page = await (await browser.newContext({ viewport: { width: 390, height: 8
 page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
 
-/** 象棋首页的"私教"卡片进私教；再点"返回"到学棋首页 */
-const openTutor = async () => {
+/** 象棋首页的"私教"卡片进私教首页；首页里"私教课"那一行进课 */
+const openCoach = async () => {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
   await page.locator('.xq-home-card', { hasText: '私教' }).first().click(); await page.waitForTimeout(700);
   if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(600); }
 };
-const openCoach = async () => {
-  await openTutor();
-  await page.locator('.xq-tutor button.ghost', { hasText: '返回' }).first().click(); await page.waitForTimeout(500);
+const openTutor = async () => {
+  await openCoach();
+  await page.locator('[data-act="m-tutor"]').click(); await page.waitForTimeout(500);
 };
 
 // ───────── 1. 第一次见面：见面课 ─────────
@@ -33,7 +33,7 @@ await page.getByText('中国象棋', { exact: false }).first().click(); await pa
 ok('象棋首页有私教入口', (await page.locator('.xq-home-card', { hasText: '私教' }).count()) === 1);
 await openCoach();
 const card = page.locator('.home-card', { hasText: '私教' }).first();
-ok('学棋首页第一张就是私教', (await page.locator('.home-card').first().innerText()).includes('私教'));
+ok('私教首页"自己选着练"第一行就是私教课', (await page.locator('.home-card').first().innerText()).includes('私教课'));
 ok('没有任何数据：首页写着"见面课"', (await card.innerText()).includes('见面课'));
 await card.click(); await page.waitForTimeout(400);
 const intro = (await page.locator('.xq-tutor').innerText()).replace(/\s+/g, ' ');

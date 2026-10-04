@@ -21,12 +21,13 @@ const page = await (await browser.newContext({ viewport: { width: 390, height: 8
 page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
 
-async function coachHome() {
+async function coachHome(menu = 'opening') {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.evaluate(() => { localStorage.setItem('xq-power', 'save'); });
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
-  await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(700);
+  await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(700);
   if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(600); }
+  await page.evaluate((m) => window.__xqCoach.menu(m), menu); await page.waitForTimeout(300);
 }
 
 // ───────── 1. 布局体系 ─────────
@@ -121,7 +122,7 @@ if (await page.locator('[data-act="op-play"]').count()) {
 
 // 点名的另外几套也点得开
 for (const id of ['guogong', 'shijiao', 'feixiang', 'dantima', 'pfm-jijin', 'pfm-xunhe']) {
-  await page.locator('.btn.ghost', { hasText: '返回' }).first().click(); await page.waitForTimeout(250);
+  await page.locator('[data-nav-back]').first().click(); await page.waitForTimeout(250);
   const c = page.locator(`[data-opening="${id}"]`);
   if (!(await c.count())) { ok(`${id} 在列表里`, false); continue; }
   await c.click(); await page.waitForTimeout(250);
@@ -131,7 +132,7 @@ for (const id of ['guogong', 'shijiao', 'feixiang', 'dantima', 'pfm-jijin', 'pfm
 }
 
 // ───────── 2. 中局组合 ─────────
-await coachHome();
+await coachHome('tactics');
 await page.getByText('🧠 中局组合').first().click();
 await until(page, () => document.querySelectorAll('[data-combo]').length > 0, null, 10000);
 const cKeys = await page.locator('[data-combo]').evaluateAll((els) => els.map((e) => e.dataset.combo));
@@ -148,7 +149,7 @@ if (await page.locator('[data-combo="steps-4"]').count()) {
 
 // ───────── 3. 绝地反杀 ─────────
 // 用户原话："我是红棋，对方是黑棋且下一步就能绝杀我，而我必须通过连续将军或者连环杀法，最后绝地反杀。"
-await coachHome();
+await coachHome('tactics');
 await page.evaluate(() => localStorage.removeItem('xq-counterkill'));
 await page.getByText('🔥 绝地反杀').first().click(); await page.waitForTimeout(500);
 const chs = await page.locator('[data-ck-chapter]').evaluateAll((els) => els.map((e) => [e.dataset.ckChapter, e.className.includes('locked')]));
@@ -195,7 +196,7 @@ console.log('   走错：' + wrong.slice(0, 80));
 ok('走错判错', wrong.includes('❌') || wrong.includes('不对'));
 
 // 解锁只认真题号：乱写的星不算
-await coachHome();
+await coachHome('tactics');
 await page.evaluate(() => {
   const s = {};
   for (let i = 0; i < 40; i++) s['ck-x' + i] = 3;

@@ -56,19 +56,22 @@ for (const s of SIZES) {
   await page.getByText('← 返回').first().click();
   await page.waitForTimeout(400);
 
-  // 我的水平（空状态）
-  await page.locator('.xq-home-card').nth(4).click();
+  // 我的水平（空状态）——现在在 私教 › 水平和进步 › 棋风画像
+  await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(600);
+  if (await page.getByText('业 4-5').count()) { await page.getByText('业 4-5').first().click(); await page.waitForTimeout(500); }
+  await page.locator('[data-act="m-progress"]').click(); await page.waitForTimeout(400);
+  await page.locator('[data-act="level"]').click();
   await page.waitForTimeout(600);
   await page.screenshot({ path: `${OUT}/${s.name}-3-level.png`, fullPage: true });
   const prof = await page.locator('.xq-profile-sum').first().textContent().catch(() => null);
   report.push(`[${s.name}] 画像空状态 = ${prof ? prof.trim().slice(0, 30) : '（无）'}`);
   const ov3 = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (ov3 > 2) errors.push(`[${s.name}] 我的水平横向溢出 ${ov3}px`);
-  await page.getByText('← 返回').first().click();
-  await page.waitForTimeout(400);
+  // 返回一层层回去：棋风画像 → 水平和进步 → 私教 → 首页
+  for (let i = 0; i < 3; i++) { await page.locator('[data-nav-back]').first().click(); await page.waitForTimeout(400); }
 
   // 对弈设置 → 开局
-  await page.locator('.xq-home-card').nth(0).click();
+  await page.locator('[data-home="play"]').click();
   await page.waitForTimeout(600);
   await page.screenshot({ path: `${OUT}/${s.name}-4-setup.png`, fullPage: true });
   const hintCards = await page.getByText('教练模式').count();

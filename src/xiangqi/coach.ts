@@ -43,20 +43,16 @@ import {
   recordLadder,
   guessEndgame,
   getEgGuesses,
-  totalSolved,
   getHistory,
   getDeclared,
   setDeclared,
   TT_LEVELS,
-  ttLevelById,
   markEndgameCleared,
   markBeatDraw,
   getBeatDraw,
-  markMateCleared,
   getCleared,
   playStats,
   calibratePuzzle,
-  calibratedCount,
   effectiveRating,
   getOwnPuzzles,
   type Dim,
@@ -67,7 +63,7 @@ import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
 import { runReplay } from './replay';
-import { runQuiz, tapThreatened, tapLoose, choiceQuestion, judgeQuestion, nameQuestion, type QuizQ } from './quiz';
+import { runQuiz, tapThreatened, tapLoose, choiceQuestion, judgeQuestion, type QuizQ } from './quiz';
 import type { Color, Move } from './rules';
 import { OPENINGS, SYSTEM_ORDER, loadOpeningExtras, moveNote, type Opening } from './openings';
 import { runExplorer } from './explorerui';
@@ -83,7 +79,9 @@ import { roleOf } from './endgame';
 import { inPieces } from './teach';
 import { Board2D } from './board2d';
 import { fromFen, toFen } from './notation';
-import { STAGES, stageFor, gameGate, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block } from './curriculum';
+import { STAGES, stageFor, gameGate, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block, type TrainInput } from './curriculum';
+import { lastWeek, markTask, recentFocus, todayPlan, type DayStore } from './daytasks';
+import { foldLong, liftBack } from './navbar';
 
 type TrickVarKind = TrickVar['kind'];
 
@@ -136,7 +134,7 @@ const DIM_KIND: Record<Dim, PuzzleKind> = {
  * 首页的「今日训练」和「战术训练」是两个不同的入口，点进来却看到同一个
  * 菜单的话，用户会以为自己点错了。所以由调用方指定落点。
  */
-export type CoachEntry = 'home' | 'today' | 'puzzles' | 'tutor';
+export type CoachEntry = 'home' | 'today' | 'puzzles' | 'tutor' | 'progress';
 
 export function runCoach(
   root: HTMLElement,
@@ -149,6 +147,8 @@ export function runCoach(
    * moves 为空：正常开一盘（按 level 选对手，计入实战分）
    */
   startFrom?: (moves: Move[], me: Color, level?: number) => void,
+  /** 打开"棋风画像"（象棋模块的我的水平页，不在学棋里） */
+  openLevel?: () => void,
 ): () => void {
   const wrap = document.createElement('div');
   wrap.className = 'xq-coach';
@@ -206,7 +206,7 @@ export function runCoach(
     back.textContent = '← 先不测，返回';
     back.onclick = onExit;
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   /**
@@ -221,201 +221,391 @@ export function runCoach(
     pruned = true;
     void loadPuzzles().then(() => {
       // 真的清掉了才重画首页——没清掉就重画会白闪一下
-      if (pruneSrs((id) => !!byId(id)) > 0 && wrap.querySelector('.xq-coach-home')) showHome();
+      if (pruneSrs((id) => !!byId(id)) > 0 && wrap.querySelector('.xq-hub')) showHome();
     });
   }
 
-  // ---------------- 首页 ----------------
+  // ---------------- 私教首页（唯一的训练入口） ----------------
+  /**
+   * 私教首页。用户原话："希望有一个统一的私教入口，点进去之后能通过层级菜单一级一级往下选，
+   * 清晰地告诉我应该怎么做、怎么训练。""现在界面上的信息太多、太繁杂了，看起来很费劲。"
+   * 原来学棋首页十八张卡片、外加雷达图和实战统计，首页上还有今日训练、战术训练、私教三个重叠的入口。现在一屏三块：
+   *   📅 今天的任务——做完就涨棋的那张清单（curriculum.dailyPlan 排、daytasks 存），做完一项打一个勾；
+   *   自己选着练——四个大类，点进去再选；
+   *   我的进度——水平、五维、实战表现、成长曲线、学习路线。
+   * 每一行只有一句话，道理放到点进去以后。
+   */
   function showHome() {
     clear();
     pruneOnce();
-    const rs = getRatings();
+    pendingTick = null;
+    menuBack = () => showHome();
+    crumbs = ['私教'];
     const lv = honestLevel();
     const rank = rankOf(lv.r);
     const assessed = isAssessed();
     const { streak } = getStreak();
     const srs = srsCount();
-    const solved = totalSolved();
-    const decl = ttLevelById(getDeclared() ?? '');
-    const cal = calibratedCount();
-    const cleared = getCleared();
-
+    const day = planToday();
+    const doneIds = taskDoneSet(day);
+    const left = day.blocks.filter((b) => !doneIds.has(b.id));
+    const week = lastWeek();
     const scr = document.createElement('div');
-    scr.className = 'screen xq-coach-home';
+    scr.className = 'screen xq-coach-home xq-hub';
     scr.innerHTML = `
-      <h1>♟️ 学棋</h1>
-      <div class="sub">${
-        lv.source === 'play'
-          ? `实战水平 <b>${rank.name}</b> · ${lv.r} 分 <span class="ci">（按 ${lv.games} 盘对弈的输赢）</span>`
-          : assessed
-            ? `做题估计 <b>${rank.name}？</b> <span class="ci">还要下几盘实战确认——水平以实战为准</span>`
-            : '先花 20 分钟测一下，才知道该从哪儿练起'
-      }${decl ? `<br><span class="ci">你自报：天天象棋 ${decl.name}</span>` : ''}</div>
-      <div class="xq-chips">
-        ${streak > 0 ? `<span class="xq-chip">🔥 连续 <b>${streak}</b> 天</span>` : ''}
-        ${solved > 0 ? `<span class="xq-chip">✅ 做过 <b>${solved}</b> 题</span>` : ''}
-        ${srs.due > 0 ? `<span class="xq-chip warn">📌 <b>${srs.due}</b> 道错题待复习</span>` : ''}
-        ${dueOpenings().length ? `<span class="xq-chip warn" data-act="op-due">🔁 <b>${dueOpenings().length}</b> 套布局该复习了</span>` : ''}
-        ${cal > 0 ? `<span class="xq-chip">🎚 已按你的成绩校准 <b>${cal}</b> 道题</span>` : ''}
+      <h1>🧑‍🏫 私教</h1>
+      <div class="xq-hub-me">
+        <b>${lv.source === 'play' || assessed ? rank.name : '还没定级'}</b>
+        <span>${lv.source === 'play' ? `实战 ${lv.r} 分` : assessed ? `做题估计 ${lv.r} 分，待实战确认` : '先做一次测评'}</span>
+        ${streak ? `<span>🔥 连续 ${streak} 天</span>` : ''}
+      </div>
+      <div class="xq-today" data-today>
+        <div class="hd"><b>📅 今天的任务</b><span class="n">${day.blocks.length - left.length}/${day.blocks.length}</span></div>
+        <div class="xq-week" title="最近七天">${week.map((w) => `<i class="${w.full ? 'full' : w.any ? 'any' : ''}"></i>`).join('')}<span>这周做完 ${week.filter((w) => w.full).length} 天</span></div>
+        <div class="xq-tasks"></div>
       </div>`;
-
-    (scr.querySelector('[data-act="op-due"]') as HTMLElement | null)?.addEventListener('click', () => runOpeningReview(dueOpenings()));
-    if (assessed) scr.appendChild(radarCard(rs));
-
-    // 实战表现——做题分有天花板，这个没有。强手要看的是这一块
-    const ps = playStats();
-    if (ps) {
-      const card = document.createElement('div');
-      card.className = 'xq-play-card';
-      card.innerHTML = `
-        <div class="hd">📊 实战表现 <span>最近 ${ps.games} 盘</span></div>
-        <div class="row">
-          <div><b>${ps.blundersPerGame}</b><span>漏着/盘</span></div>
-          <div><b>${ps.mistakesPerGame}</b><span>失误/盘</span></div>
-          <div><b>${ps.avgLoss}</b><span>平均亏损</span></div>
-          <div><b>${ps.winRate}%</b><span>胜率</span></div>
-        </div>
-        <div class="ft">${
-          ps.trend === null
-            ? '再下几盘就能看出趋势。这几个数没有天花板，比做题分更适合衡量真实水平。'
-            : ps.trend > 0
-              ? `比之前 ${ps.games} 盘平均亏损<b>降了 ${ps.trend} 分</b>——在涨棋。`
-              : `比之前 ${ps.games} 盘平均亏损高了 ${-ps.trend} 分，最近可能下得急了。`
-        }</div>`;
-      scr.appendChild(card);
+    const tasks = scr.querySelector('.xq-tasks') as HTMLElement;
+    for (const b of day.blocks) {
+      const done = doneIds.has(b.id);
+      const row = document.createElement('button');
+      row.className = `xq-task${done ? ' done' : ''}${!done && b === left[0] ? ' next' : ''}`;
+      row.dataset.task = b.id;
+      row.innerHTML = `<span class="ck">${done ? '✓' : ''}</span><span class="tx"><b>${b.title}</b><em>${b.desc}</em></span><span class="mi">${b.minutes} 分钟</span>`;
+      row.onclick = () => runTask(b);
+      tasks.appendChild(row);
+    }
+    const go = document.createElement('button');
+    go.className = 'btn xq-today-go';
+    go.dataset.act = 'today-go';
+    if (left.length) {
+      go.textContent = doneIds.size ? `继续：${left[0].title} →` : `开始今天的任务（约 ${left.reduce((a, b) => a + b.minutes, 0)} 分钟）→`;
+      go.onclick = () => runTask(left[0]);
+    } else {
+      go.textContent = '✓ 今天的任务都做完了，明天见';
+      go.disabled = true;
+    }
+    (scr.querySelector('[data-today]') as HTMLElement).appendChild(go);
+    // 这一项为什么要做：只给下一项说一句，说多了没人看
+    if (left[0]?.why) {
+      const why = document.createElement('div');
+      why.className = 'xq-today-why';
+      why.textContent = left[0].why;
+      (scr.querySelector('[data-today]') as HTMLElement).appendChild(why);
     }
 
+    const sec = (t: string) => {
+      const h = document.createElement('div');
+      h.className = 'xq-sec';
+      h.textContent = t;
+      scr.appendChild(h);
+    };
+    sec('自己选着练');
     const list = document.createElement('div');
     list.className = 'card-list';
-
-    const stage = stageFor(rs, gameEvidence());
-    const daily = dailyDone();
-    const lessonNow = planLesson(tutorInput());
-    const cards: { t: string; d: string; go: () => void; hide?: boolean }[] = [
-      {
-        t: `🧑‍🏫 私教 · ${lessonNow.theme === 'intro' ? '见面课' : `这一课：${themeName(lessonNow.theme)}`}`,
-        d: '先看你的实战再开口：一节课只讲一件事——三条要点 → 用你自己走错的局面练 → 带练一盘 → 下节课先检查作业，毛病少了才换下一课。',
-        go: () => showTutor(),
-      },
-      {
-        t: `📅 每日一题${daily ? '（今天做过了 ✓）' : ''}`,
-        d: todayNum() % 2 === 0
-          ? '今天是一道绝地反杀：对方下一步就杀你，你只有连将反杀。每天一道，单双日轮着出绝地反杀和中局组合。'
-          : '今天是一道中局组合：要连走几步才拿到便宜。每天一道，单双日轮着出绝地反杀和中局组合。',
-        go: () => void startDaily(),
-      },
-      {
-        t: `📅 今日训练 · ${stage.emoji} 阶段${stage.id} ${stage.name}`,
-        d: `${stage.goal}。一共 25 分钟：热身杀法 → 错题重练 → 专项 → 实战复盘。`,
-        go: () => showToday(),
-        hide: !assessed,
-      },
-      {
-        t: assessed ? '🔁 重新测评' : '🎯 水平测评（先做这个）',
-        d: assessed
-          ? '练一段时间再测一次，看看五维各涨了多少。'
-          : '35 道题、约 20 分钟。题目难度跟着你的表现走——答对就加难，答错就降。测完给一张五维诊断。',
-        go: () => startAssessment(),
-      },
-      {
-        t: `📌 错题重练${srs.due ? `（今天 ${srs.due} 道）` : ''}`,
-        d: srs.total
-          ? '做错的题会按 1/3/7/21/60 天的间隔回来找你，直到真的记住为止。'
-          : '还没有错题。做错的题会自动进这里，按遗忘曲线安排重练。',
-        go: () => startReview(),
-        hide: srs.total === 0,
-      },
-      {
-        t: `⚔️ 杀法图形${cleared.mates.length ? `（已掌握 ${cleared.mates.length}）` : ''}`,
-        d: '马后炮、闷宫、双车错、铁门栓、大刀剜心…… 有名字的杀棋一共就那么多，认熟了就是条件反射。这是涨棋最快的一块。',
-        go: () => showMateList(),
-      },
-      {
-        t: `🏁 实用残局${cleared.endgames.length ? `（已过 ${cleared.endgames.length}）` : ''}`,
-        d: '摆好局面跟引擎下到底——多子必须赢下来，少子必须守和。不到分出结果不算过。',
-        go: () => showEndgameList(),
-      },
-      {
-        t: '🧠 中局组合',
-        d: '要连走好几步才拿到便宜的得子和杀棋，按步数（2–3 / 4–5 / 6–7 步）和主题（连将杀、弃子、抽将、捉双……）分开练。每一步都判，走到便宜拿到手才算对。',
-        go: () => void showCombos(),
-      },
-      {
-        t: `🔥 绝地反杀${Object.keys(ckStars()).length ? `（已过 ${Object.keys(ckStars()).length} 关）` : ''}`,
-        d: '黑方下一步就能杀你——只有连续将军，抢在他前面把他杀死。六章闯关，从三步杀一直到十步以上的长杀，每一关都是皮卡鱼核对过"只有这一路能活"。',
-        go: () => void showCounterKill(),
-      },
-      {
-        t: `🗡 邪门布局破解${tricksDone().size ? `（已练 ${tricksDone().size}/${TRICKS.length}）` : ''}`,
-        d: '弃马十三着、铁滑车、敢死炮、急进中兵、瞎眼狗、龟背炮……江湖套路讲究"宁失一子，不失一先"：送你一点东西换先手。每一条都算了账（他少了多少子、换来多少先手），坑在哪一步、怎么破，皮卡鱼深算复核。',
-        go: () => showTricks(),
-      },
-      {
-        t: '🧩 专项练习',
-        d: assessed
-          ? `按你的水平出题。现在在${stage.emoji} 阶段${stage.id}，建议先练「${DIM_INFO[focusDim(stage, rs)].name}」。`
-          : '五个方向随便挑一个练。测评之后这里会按你的水平自动调难度。',
-        go: () => showPickDim(),
-      },
-      {
-        t: `📋 我的训练方案${daysSinceAssess() >= 28 ? '（该月测了）' : ''}`,
-        d: '你现在什么水平、为什么输棋、这个月的目标、每周怎么排、怎么判断有没有进步——一页说完。',
-        go: () => showProgram(),
-      },
-      {
-        t: '📜 打谱',
-        d: '一手一手过棋谱，轮到你的时候先自己想一手再看原谱。看的时候都觉得"我也想得到"，先走一遍才知道。',
-        go: () => void showGames(),
-      },
-      {
-        t: '⏱ 限时计算',
-        d: '限时做一遍，错的再不限时做一遍——把"算不出来"和"懒得算"分开。这是两个完全不同的病，练法相反。',
-        go: () => void startTimed(),
-      },
-      {
-        t: '📖 布局体系',
-        d: '屏风马（对过河车、急进中兵、牛头滚、五七炮、巡河炮）、过宫炮、士角炮、飞相局、仙人指路、顺炮、列炮、单提马、反宫马。每套按谱走 15 回合上下，每一手讲在干什么、对方走偏了怎么破，还能执一方自己走一遍。',
-        go: () => showOpenings(),
-      },
-      {
-        t: '📚 开局浏览器',
-        d: '像象棋云库、象棋巫师那样查布局：任何一个局面，谱上的主线、变化、变招、错着、邪门全列出来，每一手讲意义；走出谱以后皮卡鱼列候选着；能导入棋谱和 FEN。',
-        go: () => showExplorer(undefined, () => showHome()),
-      },
-      {
-        t: `📏 让子定级 · ${LADDER[getLadder().rung].name}`,
-        d: '做题分有天花板，让子没有。跟引擎下让子棋，量的是你的实战棋力——这是教练给学生定级最老实的办法。',
-        go: () => showLadder(),
-      },
-      {
-        t: '🗺️ 学习路线',
-        d: '四个阶段、每阶段练什么、出师标准是什么、大概要多久。',
-        go: () => showRoadmap(),
-      },
-      {
-        t: '📈 成长曲线',
-        d: '每次测评的五维变化。涨棋是阶梯式的，会有平台期，看曲线比看感觉准。',
-        go: () => showGrowth(),
-        hide: getHistory().length === 0,
-      },
-    ];
-
-    for (const c of cards) {
-      if (c.hide) continue;
-      const el = document.createElement('div');
-      el.className = 'card home-card';
-      el.innerHTML = `<div class="title">${c.t}</div><div class="desc">${c.d}</div>`;
-      el.onclick = c.go;
-      list.appendChild(el);
-    }
     scr.appendChild(list);
+    const ops = dueOpenings().length;
+    const lessonNow = planLesson(tutorInput());
+    for (const it of [
+      {
+        icon: '🧑‍🏫',
+        t: `私教课 · ${lessonNow.theme === 'intro' ? '见面课' : themeName(lessonNow.theme)}`,
+        d: '一节课只讲一件事：先看你的实战，再练、带练一盘，下节课先查作业',
+        go: () => showTutor(),
+        act: 'm-tutor',
+      },
+      { icon: '⚔️', t: '杀法与战术', d: '战术题、杀法题、眼力、中局组合、绝地反杀、限时计算', go: () => showMenu('tactics'), act: 'm-tactics' },
+      { icon: '🏁', t: '残局', d: '残局题、实用残局下到底', go: () => showMenu('endgame'), act: 'm-endgame' },
+      { icon: '📖', t: '布局', d: '布局体系、江湖布局破解、开局浏览器', go: () => showMenu('opening'), act: 'm-opening', badge: ops ? `🔁 ${ops} 套该复习` : '' },
+      { icon: '♟', t: '实战与打谱', d: '下一盘、让子定级、打谱', go: () => showMenu('play'), act: 'm-play' },
+      ...(srs.total ? [{ icon: '📌', t: '错题本', d: srs.due ? `今天 ${srs.due} 道到期` : `一共 ${srs.total} 道，今天没有到期的`, go: () => void startReview(), act: 'm-srs' }] : []),
+    ])
+      list.appendChild(menuRow(it));
+    sec('我的进度');
+    const list2 = document.createElement('div');
+    list2.className = 'card-list';
+    scr.appendChild(list2);
+    list2.appendChild(menuRow({ icon: '📊', t: '水平和进步', d: '五维能力、实战表现、成长曲线、学习路线', go: () => showMenu('progress'), act: 'm-progress' }));
+    mount(scr, onExit);
+  }
 
-    const back = document.createElement('button');
-    back.className = 'btn ghost';
-    back.textContent = '← 返回';
-    back.onclick = onExit;
-    scr.appendChild(back);
+  /** 菜单里的一行：图标 + 标题 + 一句话 + 角标 */
+  function menuRow(it: { icon: string; t: string; d: string; go: () => void; act?: string; badge?: string }): HTMLElement {
+    const el = document.createElement('div');
+    el.className = 'card home-card xq-menu-row';
+    if (it.act) el.dataset.act = it.act;
+    el.innerHTML = `<div class="title">${it.icon} ${it.t}${it.badge ? `<span class="tag warn">${it.badge}</span>` : ''}</div><div class="desc">${it.d}</div>`;
+    el.onclick = it.go;
+    return el;
+  }
+
+  type MenuId = 'tactics' | 'endgame' | 'opening' | 'play' | 'progress';
+  /**
+   * 二级菜单：一个大类一页。从这里点进去的每一屏，左上角"← 返回"都回到这一页。
+   */
+  function showMenu(id: MenuId) {
+    clear();
+    menuBack = () => showMenu(id);
+    const rs = getRatings();
+    const r = (d: Dim) => `${rs[d].r}`;
+    const play = getPlay();
+    const lvl = play && play.n >= 3 ? suggestLevel(play.r) : undefined;
+    type Item = { icon: string; t: string; d: string; go: () => void; act?: string; badge?: string };
+    const M: Record<MenuId, { title: string; sub: string; items: Item[] }> = {
+      tactics: {
+        title: '杀法与战术',
+        sub: '题目难度跟着你的分数走，先出没做过的。',
+        items: [
+          { icon: '🎯', t: '战术题', d: '捉双、牵制、闪击这些赢子手段', badge: r('tactic'), go: () => void startPractice('tactic'), act: 'p-tactic' },
+          { icon: '⚔️', t: '杀法题', d: '实战局面里找杀：对方子力还在，算到将死为止', badge: r('mate'), go: () => void startPractice('mate'), act: 'p-mate' },
+          { icon: '👁', t: '眼力：不漏子', d: '看不看得见对方的威胁，会不会白送子', badge: r('safety'), go: () => void startPractice('safety'), act: 'p-safety' },
+          { icon: '🧠', t: '中局组合', d: '连走几步才拿到便宜，按步数分档', go: () => void showCombos(), act: 'combos' },
+          { icon: '🔥', t: '绝地反杀', d: '对方下一步就杀你，只有连将反杀——闯关', go: () => void showCounterKill(), act: 'counterkill' },
+          { icon: '⏱', t: '限时计算', d: '每题 45 秒，错的再不限时做一遍', go: () => void startTimed(), act: 'timed' },
+          { icon: '📅', t: `每日一题${dailyDone() ? '（今天做过了 ✓）' : ''}`, d: '单双日轮着出绝地反杀和中局组合', go: () => void startDaily(), act: 'daily' },
+        ],
+      },
+      endgame: {
+        title: '残局',
+        sub: '只出要真本事的：对方还有子的残局、走错一步就和的技术残局、少子守和。',
+        items: [
+          { icon: '🧩', t: '残局题', d: '这一手该怎么走', badge: r('endgame'), go: () => void startPractice('endgame'), act: 'p-endgame' },
+          { icon: '🏁', t: '实用残局：下到底', d: '跟引擎下完：要赢的赢下来，要守的守和', go: () => void showEndgameList(), act: 'endgames' },
+        ],
+      },
+      opening: {
+        title: '布局',
+        sub: '先看讲解，再执一方自己走一遍。',
+        items: [
+          { icon: '📖', t: '布局体系', d: '屏风马、过宫炮、士角炮、飞相局……主线、变招、错着', badge: dueOpenings().length ? `🔁 ${dueOpenings().length} 套该复习` : '', go: () => showOpenings(), act: 'openings' },
+          { icon: '🗡', t: '江湖布局破解', d: '弃马十三着、铁滑车、敢死炮……坑在哪、怎么破', go: () => showTricks(), act: 'tricks' },
+          { icon: '📚', t: '开局浏览器', d: '任何一个局面谱上有哪些走法，出谱后皮卡鱼接着算', go: () => showExplorer(undefined, () => showMenu('opening')), act: 'explorer' },
+          { icon: '🎯', t: '布局题', d: '开局这一手该怎么走', badge: r('opening'), go: () => void startPractice('opening'), act: 'p-opening' },
+        ],
+      },
+      play: {
+        title: '实战与打谱',
+        sub: '做题练的是识别，实战练的是运用，两样都得有。',
+        items: [
+          ...(startFrom ? [{ icon: '⚔️', t: '下一盘', d: lvl !== undefined ? `对手「${AI_LEVEL_NAMES[lvl]}」，和你的实战分相当` : '和 AI 下一盘完整的棋', go: () => startFrom([], 'r', lvl), act: 'play-game' }] : []),
+          { icon: '📏', t: `让子定级 · ${LADDER[getLadder().rung].name}`, d: '让子棋量的是实战棋力，没有天花板', go: () => showLadder(), act: 'ladder' },
+          { icon: '📜', t: '打谱', d: '一手一手过棋谱，先自己想一手再看原谱', go: () => void showGames(), act: 'games' },
+        ],
+      },
+      progress: {
+        title: '水平和进步',
+        sub: '',
+        items: [
+          ...(getHistory().length ? [{ icon: '📈', t: '成长曲线', d: '五维分数这几周怎么变的', go: () => showGrowth(), act: 'growth' }] : []),
+          { icon: '🗺️', t: '学习路线', d: '四个阶段，每个阶段练什么、出师标准', go: () => showRoadmap(), act: 'roadmap' },
+          { icon: '📋', t: '训练方案', d: '这个月的目标和每周安排', go: () => showProgram(), act: 'program' },
+          ...(openLevel ? [{ icon: '🔍', t: '棋风画像', d: '你最常犯的毛病、对局统计', go: () => openLevel(), act: 'level' }] : []),
+          { icon: '🔁', t: isAssessed() ? '重新测评' : '水平测评', d: '35 道题，约 20 分钟', go: () => void startAssessment(), act: 'assess' },
+        ],
+      },
+    };
+    const m = M[id];
+    crumbs = ['私教', m.title];
+    const scr = document.createElement('div');
+    scr.className = 'screen xq-coach-home';
+    scr.dataset.menu = id;
+    scr.innerHTML = `<h1>${m.title}</h1>${m.sub ? `<div class="sub">${m.sub}</div>` : ''}`;
+    if (id === 'progress') {
+      if (isAssessed()) scr.appendChild(radarCard(rs));
+      const pc = playCard();
+      if (pc) scr.appendChild(pc);
+      const loss = lossProfile(10);
+      scr.insertAdjacentHTML('beforeend', lossCard(loss));
+    }
+    const list = document.createElement('div');
+    list.className = 'card-list';
+    for (const it of m.items) list.appendChild(menuRow(it));
+    scr.appendChild(list);
+    mount(scr, () => showHome());
+  }
+
+  /** 实战表现：做题分有天花板，这个没有 */
+  function playCard(): HTMLElement | null {
+    const ps = playStats();
+    if (!ps) return null;
+    const card = document.createElement('div');
+    card.className = 'xq-play-card';
+    card.innerHTML = `
+      <div class="hd">📊 实战表现 <span>最近 ${ps.games} 盘</span></div>
+      <div class="row">
+        <div><b>${ps.blundersPerGame}</b><span>漏着/盘</span></div>
+        <div><b>${ps.mistakesPerGame}</b><span>失误/盘</span></div>
+        <div><b>${ps.avgLoss}</b><span>平均亏损</span></div>
+        <div><b>${ps.winRate}%</b><span>胜率</span></div>
+      </div>
+      <div class="ft">${
+        ps.trend === null
+          ? '再下几盘就能看出趋势。'
+          : ps.trend > 0
+            ? `比之前 ${ps.games} 盘平均亏损<b>降了 ${ps.trend} 分</b>——在涨棋。`
+            : `比之前 ${ps.games} 盘平均亏损高了 ${-ps.trend} 分，最近可能下得急了。`
+      }</div>`;
+    return card;
+  }
+
+  // ---------------- 顶栏：每一屏左上角都有返回 ----------------
+  /** 从菜单点进去的那一屏，返回回到哪：私教首页或者那个菜单 */
+  let menuBack: () => void = () => showHome();
+  /** 现在在哪（顶栏上显示"私教 › 布局"） */
+  let crumbs: string[] = ['私教'];
+  /**
+   * 从"今天的任务"进去的残局、布局、闯关：真下完了才打勾（中途退出不算）。
+   * 下完的那一刻调 finishTask()；回到私教首页就清掉。
+   */
+  let pendingTick: (() => void) | null = null;
+  function finishTask() {
+    pendingTick?.();
+    pendingTick = null;
+  }
+  /**
+   * 挂上一屏：顶上加一条"← 返回 + 现在在哪"，屏幕底下原来那个"← 返回"按钮挪上来（不重复放）。
+   * 用户原话："有些界面甚至没有返回键"——返回统一放左上角、固定不动，滚到哪都点得到。
+   * back 不给：用这一屏自己底下那个返回按钮的去处；那个也没有，就回到点进来的菜单。
+   */
+  function mount(scr: HTMLElement, back?: () => void) {
+    liftBack(scr, crumbs.join(' › '), back, () => menuBack());
+    foldLong(scr);
     wrap.appendChild(scr);
+  }
+
+  // ---------------- 今天的任务 ----------------
+  /** 排今天的任务要的全部输入 */
+  function planInput(): TrainInput {
+    const rs = getRatings();
+    return {
+      stage: stageFor(rs, gameEvidence()),
+      ratings: rs,
+      loss: lossProfile(10),
+      accuracy: (d) => recentAccuracy(d),
+      dueCount: srsCount().due,
+      daysSinceQuiz: daysSinceQuiz(),
+      play: getPlay(),
+      fresh: (d) => freshCount(DIM_KIND[d]).fresh,
+      assessed: isAssessed(),
+      lesson: lessonNext(),
+      openingDue: dueOpenings().length,
+      recentFocus: recentFocus(),
+    };
+  }
+  /** 今天的清单：一天之内不变 */
+  function planToday(): DayStore {
+    return todayPlan(() => dailyPlan(planInput()));
+  }
+  /** 私教课下一步要做的（没测过、或者课上完了等检查，返回 null） */
+  function lessonNext(): TrainInput['lesson'] {
+    if (!isAssessed() && !listGames().length) return null;
+    const inp = tutorInput();
+    const lesson = planLesson(inp);
+    const cur = inp.log[inp.log.length - 1];
+    const inProgress = !!cur && cur.theme === lesson.theme && cur.done.length < cur.steps;
+    const done = new Set(inProgress ? cur.done : []);
+    const i = lesson.steps.findIndex((_, k) => !done.has(k));
+    if (i < 0) return null;
+    const st = lesson.steps[i];
+    if (st.kind === 'assess') return null;
+    return { title: lesson.title, step: i, label: st.label, kind: st.kind, dim: st.kind === 'drill' ? st.dim : undefined };
+  }
+  /**
+   * 哪几项做完了：打过勾的，再加上看得出来做过的——
+   * 今天定清单之后下过一盘棋、测评过了、到期的错题清空了、私教课那一步记上了。
+   * （从别的入口做的也算：在"错题本"里把错题做完了，清单上那一项照样打勾。）
+   */
+  function taskDoneSet(day: DayStore): Set<string> {
+    const s = new Set(day.done);
+    const log = getLessonLog();
+    const cur = log[log.length - 1];
+    for (const b of day.blocks) {
+      if (b.kind === 'game' && listGames().some((g) => g.ts >= day.at)) s.add(b.id);
+      if (b.kind === 'assess' && isAssessed()) s.add(b.id);
+      if (b.kind === 'srs' && srsCount().due === 0) s.add(b.id);
+      if (b.kind === 'lesson' && b.step !== undefined && cur && cur.ts <= Date.now() && cur.done.includes(b.step)) s.add(b.id);
+    }
+    return s;
+  }
+  /** 做一项任务：做完打勾、回私教首页 */
+  function runTask(b: Block) {
+    menuBack = () => showHome();
+    crumbs = ['私教'];
+    const done = () => {
+      markTask(b.id);
+      checkIn();
+      showHome();
+    };
+    // 下到底的那几种：退出时不打勾，真下完了（finishTask）才打
+    const back = () => {
+      checkIn();
+      showHome();
+    };
+    const tickOnFinish = () => (pendingTick = () => markTask(b.id));
+    switch (b.kind) {
+      case 'assess':
+        void startAssessment();
+        return;
+      case 'srs':
+        void startReview(done);
+        return;
+      case 'lesson':
+        showTutor();
+        return;
+      case 'focus':
+        void startPractice(b.dim ?? weakestDim(getRatings()), b.count ?? 8, done, b.ratingBias ?? 0);
+        return;
+      case 'quiz':
+        void startQuiz(done);
+        return;
+      case 'timed':
+        void startTimed(done);
+        return;
+      case 'combo':
+        void loadPuzzles().then(() => {
+          if (!wrap.isConnected) return;
+          const all = combos();
+          if (!all.length) return done();
+          runComboSession(all, '今日组合', 5, undefined, done);
+        });
+        return;
+      case 'ladder':
+        void loadCounterKill().then(() => {
+          if (!wrap.isConnected) return;
+          const it = nextCounterKill();
+          if (!it) return done();
+          tickOnFinish();
+          runCounterKill(it, back);
+        });
+        return;
+      case 'endgame':
+        void loadLibrary().then(() => {
+          if (!wrap.isConnected) return;
+          const cleared = new Set(getCleared().endgames);
+          const g = pickByLevel(endgamesByName(), cleared, getRatings().endgame.r);
+          if (!g) return done();
+          const i = Math.max(0, g.items.findIndex((x) => !cleared.has(x.id)));
+          tickOnFinish();
+          runEndgame(g, i, back);
+        });
+        return;
+      case 'opening': {
+        const due = dueOpenings();
+        tickOnFinish();
+        if (due.length) return runOpeningReview(due, back);
+        // 还没走过的那一套（先手后手按这套是谁的布局）
+        const o = OPENINGS.find((x) => openingBest(x.id) === null) ?? OPENINGS[0];
+        runOpening(o, o.side === 'red' ? 'r' : 'b', undefined, back);
+        return;
+      }
+      case 'game': {
+        // 带着"下完看复盘"直接开一盘：对手按实战分挑，下完的棋会自动算进今天的任务
+        const play = getPlay();
+        const lv = play && play.n >= 3 ? suggestLevel(play.r) : undefined;
+        if (startFrom) startFrom([], 'r', lv);
+        else onExit();
+        return;
+      }
+    }
   }
 
   /** 五维雷达图 */
@@ -528,7 +718,7 @@ export function runCoach(
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-load';
     scr.innerHTML = '<div class="xq-loading">正在准备题目…</div>';
-    wrap.appendChild(scr);
+    mount(scr);
 
     const a = new Assessment();
     await a.init();
@@ -538,7 +728,7 @@ export function runCoach(
       const b = document.createElement('button');
       b.className = 'btn ghost';
       b.textContent = '← 返回';
-      b.onclick = showHome;
+      b.onclick = () => menuBack();
       scr.appendChild(b);
       return;
     }
@@ -568,6 +758,8 @@ export function runCoach(
       allowHint: false,
       // 测评要控制时长：主变照样一步步走完，残局不再接着下到底
       playToEnd: false,
+      // 中途退出：这一轮作废，下次重新测（只测一半的分数不准，不如不记）
+      onExit: () => menuBack(),
       onDone: (r) => {
         a.answer(r.correct);
         calibratePuzzle(q.puzzle.id, q.puzzle.rating, getRatings()[q.dim].r, r.correct);
@@ -674,86 +866,9 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '返回学棋首页';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
-    wrap.appendChild(scr);
-  }
-
-  // ---------------- 专项练习 ----------------
-  function showPickDim() {
-    clear();
-    const rs = getRatings();
-    const stage = stageFor(rs, gameEvidence());
-    const rec = focusDim(stage, rs);
-    const scr = document.createElement('div');
-    scr.className = 'screen xq-coach-home';
-    scr.innerHTML = `<h1>专项练习</h1><div class="sub">题目难度按你这一维的当前水平自动挑。
-      现在在${stage.emoji} 阶段${stage.id}「${stage.name}」，带推荐标的是这一阶段该练的。</div>`;
-    const list = document.createElement('div');
-    list.className = 'card-list';
-    for (const d of DIMS) {
-      const el = document.createElement('div');
-      el.className = 'card home-card';
-      el.innerHTML = `<div class="title">${DIM_INFO[d].emoji} ${DIM_INFO[d].name} <span class="tag">${rs[d].r}</span>${
-        d === rec ? '<span class="tag warn">本阶段推荐</span>' : ''
-      }</div><div class="desc">${DIM_INFO[d].desc}</div>`;
-      el.onclick = () => startPractice(d);
-      list.appendChild(el);
-      // 组合放在战术题旁边：单步战术练"看见"，组合练"算到底"
-      if (d === 'tactic') {
-        const cb = document.createElement('div');
-        cb.className = 'card home-card';
-        cb.innerHTML = `<div class="title">🧠 中局组合 · 连走几步</div><div class="desc">连将杀、弃子、抽将、捉双……要连走好几步才拿到便宜，
-          每一步都判，走到子吃到手或者将死才算对。按步数、按主题分开练。</div>`;
-        cb.onclick = () => void showCombos();
-        list.appendChild(cb);
-      }
-      if (d === 'opening') {
-        const due = dueOpenings().length;
-        const op = document.createElement('div');
-        op.className = `card home-card${due ? ' hot' : ''}`;
-        op.dataset.act = 'openings';
-        op.innerHTML = `<div class="title">📖 布局体系${due ? `<span class="tag warn">🔁 ${due} 套该复习</span>` : ''}</div><div class="desc">屏风马、过宫炮、士角炮、飞相局、单提马……每套按谱走 15 回合上下，
-          每一手讲在干什么、对方走偏了怎么破，每个分岔点的变招和错着也讲；再执一方自己走一遍。</div>`;
-        op.onclick = () => showOpenings();
-        list.appendChild(op);
-        const ex = document.createElement('div');
-        ex.className = 'card home-card';
-        ex.dataset.act = 'explorer';
-        ex.innerHTML = `<div class="title">📚 开局浏览器</div><div class="desc">任何一个局面，谱上有哪些走法（主线、变化、变招、错着、邪门）一目了然，
-          每一手讲意义；走出谱以后皮卡鱼列候选着。能导入棋谱和 FEN。</div>`;
-        ex.onclick = () => showExplorer(undefined, () => showPickDim());
-        list.appendChild(ex);
-        const tk = document.createElement('div');
-        tk.className = 'card home-card';
-        tk.innerHTML = `<div class="title">🗡 邪门布局破解</div><div class="desc">弃马十三着、铁滑车、敢死炮、瞎眼狗……
-          宁失一子，不失一先：看它送什么、换什么，坑在哪一步、怎么破，再自己走一遍。</div>`;
-        tk.onclick = () => showTricks();
-        list.appendChild(tk);
-      }
-      // 残局题只练"一步正着"；残局真正的功夫是下到底——入口就放在残局题旁边，不用再去找
-      if (d === 'endgame') {
-        const eg = document.createElement('div');
-        eg.className = 'card home-card';
-        eg.innerHTML = `<div class="title">🏁 实用残局 · 下到底</div><div class="desc">摆好残局跟引擎下到底：多子必须赢下来，少子必须守和。
-          教练一直陪着算，每一手告诉你还赢不赢、还守不守得住，卡住了给你计划。</div>`;
-        eg.onclick = () => void showEndgameList();
-        list.appendChild(eg);
-        const ck = document.createElement('div');
-        ck.className = 'card home-card';
-        ck.innerHTML = `<div class="title">🔥 绝地反杀 · 连将反杀</div><div class="desc">黑方下一步就能杀你，你子力还不如他：
-          只有连续将军（或者一气呵成的连杀）抢在他前面杀死他。走一步闲着，他马上杀你。</div>`;
-        ck.onclick = () => void showCounterKill();
-        list.appendChild(ck);
-      }
-    }
-    scr.appendChild(list);
-    const back = document.createElement('button');
-    back.className = 'btn ghost';
-    back.textContent = '← 返回';
-    back.onclick = showHome;
-    scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   /** 一组 10 题的专项练习 */
@@ -771,8 +886,7 @@ export function runCoach(
 
     const step = () => {
       if (i >= TOTAL) {
-        if (then) then();
-        else finishSession(`${DIM_INFO[dim].emoji} ${DIM_INFO[dim].name}练习`, right, TOTAL, () => startPractice(dim), scoreLine(dim, startR));
+        finishSession(`${DIM_INFO[dim].emoji} ${DIM_INFO[dim].name}练习`, right, TOTAL, () => startPractice(dim), scoreLine(dim, startR), then);
         return;
       }
       const r = getRatings()[dim].r;
@@ -780,8 +894,8 @@ export function runCoach(
       // 热身块传负的 bias，用略简单的题找手感。
       const p = pickNear(DIM_KIND[dim], r + bias, used);
       if (!p) {
-        if (then) then();
-        else finishSession(`${DIM_INFO[dim].name}练习`, right, i, () => showHome(), scoreLine(dim, startR));
+        if (then && !i) then();
+        else finishSession(`${DIM_INFO[dim].name}练习`, right, i, () => menuBack(), scoreLine(dim, startR), then);
         return;
       }
       used.add(p.id);
@@ -812,7 +926,7 @@ export function runCoach(
   /**
    * 换着花样出题。
    * 用户原话："目前像眼力、战术之类的测验题目都千篇一律。这些东西都需要去向《天天象棋》看齐。"
-   * 一组里大约一半还是"走一步"的老问法（那是根本），另一半换成点子题、选择题、判断题、认杀法。
+   * 一组里大约一半还是"走一步"的老问法（那是根本），另一半换成点子题、选择题、判断题。
    */
   function variedQuestion(p: Puzzle, dim: Dim): QuizQ | null {
     const r = Math.random();
@@ -827,15 +941,10 @@ export function runCoach(
       if (r < 0.5) return judgeQuestion(p, dim);
       return null;
     }
+    // 杀法不再出"认杀法"（看杀局选名字）：用户原话"题目分类没必要细究到底叫闷宫还是马后炮"——
+    // 实战里要的是找得到杀，不是叫得出名字
     if (dim === 'mate') {
-      if (r < 0.22) {
-        const groups = matesByName();
-        const names = groups.map((g) => g.name);
-        const g = groups[Math.floor(Math.random() * groups.length)];
-        const m = g?.items[Math.floor(Math.random() * g.items.length)];
-        if (m && names.length >= 4) return nameQuestion(m, names);
-      }
-      if (r < 0.42) return choiceQuestion(p, dim);
+      if (r < 0.3) return choiceQuestion(p, dim);
       return null;
     }
     return null;
@@ -851,7 +960,7 @@ export function runCoach(
     disposeScreen = runQuiz(host, q, {
       caption,
       line,
-      onExit: () => showHome(),
+      onExit: () => menuBack(),
       onAnswer: (ok) => {
         if (!scored) return '';
         // 只有第一次做计分：做过的题再做对，多半是记住了答案
@@ -942,10 +1051,10 @@ export function runCoach(
         全都不动，说明难度没跟上——题太简单了做对也不涨分。</p></div>`;
     const go = document.createElement('button');
     go.className = 'btn';
-    go.textContent = then ? '继续今天的训练 →' : '返回';
-    go.onclick = () => (then ? then() : showHome());
+    go.textContent = then ? '完成，回到今天的任务 →' : '← 返回';
+    go.onclick = () => (then ? then() : menuBack());
     scr.appendChild(go);
-    wrap.appendChild(scr);
+    mount(scr, then);
   }
 
   // ---------------- 错题重练 ----------------
@@ -969,8 +1078,7 @@ export function runCoach(
     let right = 0;
     const step = () => {
       if (i >= list.length) {
-        if (then) then();
-        else finishSession('错题重练', right, list.length, () => showHome());
+        finishSession('错题重练', right, list.length, () => void startReview(), '', then);
         return;
       }
       const p = list[i];
@@ -1004,10 +1112,10 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn';
     back.textContent = '← 返回';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
     scr.appendChild(early);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   /** 不管到没到期，抽错题本里错得最多的几道来练 */
@@ -1019,7 +1127,7 @@ export function runCoach(
       .map((c) => byId(c.id))
       .filter((p): p is Puzzle => !!p);
     if (!list.length) {
-      showHome();
+      menuBack();
       return;
     }
     let i = 0;
@@ -1056,7 +1164,7 @@ export function runCoach(
       caption,
       allowHint,
       // 练习中途随时能走。答不完不让退是最容易把人逼走的设计
-      onExit: () => showHome(),
+      onExit: () => menuBack(),
       onDone: (r) => {
         // 用了提示不算做对：算对了会把评分虚抬，下次出的题就偏难
         const ok = r.correct && !r.usedHint;
@@ -1079,7 +1187,11 @@ export function runCoach(
     });
   }
 
-  function finishSession(title: string, right: number, total: number, again: () => void, score = '') {
+  /**
+   * 一组做完的小结。leave 给了（从"今天的任务"进来的）：不给"再来一组"，
+   * 只有"回到今天的任务"——不管点哪个返回，这一项都打上勾。
+   */
+  function finishSession(title: string, right: number, total: number, again: () => void, score = '', leave?: () => void) {
     clear();
     checkIn();
     const { streak } = getStreak();
@@ -1100,111 +1212,15 @@ export function runCoach(
       ${streak > 0 ? `<div class="xq-chips"><span class="xq-chip">🔥 连续 <b>${streak}</b> 天</span></div>` : ''}`;
     const a = document.createElement('button');
     a.className = 'btn';
-    a.textContent = '再来一组';
-    a.onclick = again;
+    a.textContent = leave ? '✓ 完成，回到今天的任务 →' : '再来一组';
+    a.onclick = leave ?? again;
     const b = document.createElement('button');
     b.className = 'btn ghost';
-    b.textContent = '返回学棋首页';
-    b.onclick = showHome;
+    b.textContent = '← 返回';
+    b.onclick = () => (leave ?? menuBack)();
     scr.appendChild(a);
     scr.appendChild(b);
-    wrap.appendChild(scr);
-  }
-
-  // ---------------- 杀法图形 ----------------
-  async function showMateList() {
-    clear();
-    await loadLibrary();
-    if (!wrap.isConnected) return;
-    const groups = matesByName();
-    const cleared = new Set(getCleared().mates);
-    const scr = document.createElement('div');
-    scr.className = 'screen xq-coach-home';
-    scr.innerHTML = `
-      <h1>⚔️ 杀法图形</h1>
-      <div class="sub">有名字的杀棋。先看图形长什么样，再做题把它认熟</div>
-      <div class="xq-advice">
-        <b>为什么先背图形</b>
-        <p>真人高手不是每步现算，是<b>一眼认出来</b>——看到马在卧槽位就想到马后炮。
-        杀法图形是有限的、有名字的，认熟了就变成条件反射，这才是"棋感"的真实来源。</p>
-        <p class="dim">下面每个图形都是引擎生成并验证过的：解唯一、步数准确，且几何上确实是这个形状。</p>
-      </div>`;
-    const list = document.createElement('div');
-    list.className = 'card-list';
-    for (const g of groups) {
-      const done = g.items.filter((i) => cleared.has(i.id)).length;
-      const el = document.createElement('div');
-      el.className = 'card home-card';
-      el.innerHTML = `
-        <div class="title">${g.name}<span class="tag">${g.items.length} 题</span>${
-          done === g.items.length ? '<span class="tag warn">已掌握</span>' : done ? `<span class="tag">${done}/${g.items.length}</span>` : ''
-        }</div>
-        <div class="desc">${g.shape}</div>`;
-      el.onclick = () => showMateLesson(g);
-      list.appendChild(el);
-    }
-    scr.appendChild(list);
-    const back = document.createElement('button');
-    back.className = 'btn ghost';
-    back.textContent = '← 返回';
-    back.onclick = showHome;
-    scr.appendChild(back);
-    wrap.appendChild(scr);
-  }
-
-  /** 一个图形一课：先讲清楚形状和道理，再连做几题 */
-  function showMateLesson(g: ReturnType<typeof matesByName>[number]) {
-    clear();
-    const scr = document.createElement('div');
-    scr.className = 'screen xq-coach-report';
-    scr.innerHTML = `
-      <h1>${g.name}</h1>
-      <div class="xq-advice">
-        <b>图形</b><p>${g.shape}</p>
-        <b>为什么成立</b><p>${g.why}</p>
-      </div>
-      <div class="sub">一共 ${g.items.length} 题，从一步杀开始，逐步加长</div>`;
-    const go = document.createElement('button');
-    go.className = 'btn';
-    go.textContent = '开始练这个图形 →';
-    go.onclick = () => runMateSeries(g, 0, 0);
-    const back = document.createElement('button');
-    back.className = 'btn ghost';
-    back.textContent = '← 返回';
-    back.onclick = showMateList;
-    scr.appendChild(go);
-    scr.appendChild(back);
-    wrap.appendChild(scr);
-  }
-
-  function runMateSeries(g: ReturnType<typeof matesByName>[number], i: number, right: number) {
-    if (i >= g.items.length) {
-      checkIn();
-      finishSession(`${g.name}`, right, g.items.length, () => runMateSeries(g, 0, 0));
-      return;
-    }
-    const p = g.items[i];
-    clear();
-    const host = document.createElement('div');
-    host.className = 'xq-coach-stage';
-    wrap.appendChild(host);
-    disposeScreen = runPuzzle(
-      host,
-      { id: p.id, kind: 'mate', fen: p.fen, answer: p.answer, also: p.also, line: p.line, mateIn: p.mateIn, rating: p.rating },
-      {
-        caption: `${g.name} ${i + 1}/${g.items.length}`,
-        allowHint: true,
-        onDone: (r) => {
-          const ok = r.correct && !r.usedHint;
-          if (firstAttempt(p.id)) updateRating('mate', p.rating, ok);
-          if (ok) {
-            markRight(p.id);
-            markMateCleared(p.id);
-          } else markWrong(p.id);
-          runMateSeries(g, i + 1, right + (ok ? 1 : 0));
-        },
-      },
-    );
+    mount(scr);
   }
 
   // ---------------- 实用残局 ----------------
@@ -1263,9 +1279,9 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   function showEndgameGroup(g: ReturnType<typeof endgamesByName>[number]) {
@@ -1358,7 +1374,7 @@ export function runCoach(
     back.textContent = '← 返回';
     back.onclick = showEndgameList;
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   /**
@@ -1411,7 +1427,7 @@ export function runCoach(
         : `<br><span class="dim">棋书上：${e.book}</span>`;
   }
 
-  function runEndgame(g: ReturnType<typeof endgamesByName>[number], i: number) {
+  function runEndgame(g: ReturnType<typeof endgamesByName>[number], i: number, exit?: () => void) {
     const e: EndgamePos = g.items[i];
     clear();
     const host = document.createElement('div');
@@ -1425,7 +1441,7 @@ export function runCoach(
       subtitle: `${e.material} · 局面 ${i + 1}`,
       tips: e.tips,
       book: e.book,
-      onRestart: () => runEndgame(g, i),
+      onRestart: () => runEndgame(g, i, exit),
       onDone: (r, _moves, st) => {
         // 你在标着「和棋」的局面里赢了：说明这个标注保守了，以你的结果为准。
         // 引擎的判定是最好的自动近似，但它不是裁判。
@@ -1436,10 +1452,11 @@ export function runCoach(
         if (pass) markEndgameCleared(e.id);
         if (firstAttempt(`eg:${e.id}`)) updateRating('endgame', e.rating, pass && !st.hints && !st.undos);
         checkIn();
+        finishTask();
       },
       onExit: () => {
         checkIn();
-        showEndgameGroup(g);
+        (exit ?? (() => showEndgameGroup(g)))();
       },
     });
   }
@@ -1472,66 +1489,6 @@ export function runCoach(
       被对方立刻吃子算眼力，其余算战术。</p></div>`;
   }
 
-  // ---------------- 今日训练 ----------------
-  function showToday() {
-    clear();
-    const rs = getRatings();
-    const stage = stageFor(rs, gameEvidence());
-    const due = srsCount().due;
-    const loss = lossProfile(10);
-    const blocks = dailyPlan({
-      stage,
-      ratings: rs,
-      loss,
-      accuracy: (d) => recentAccuracy(d),
-      dueCount: due,
-      daysSinceQuiz: daysSinceQuiz(),
-      play: getPlay(),
-      fresh: (d) => freshCount(DIM_KIND[d]).fresh,
-    });
-    const total = blocks.reduce((a, b) => a + b.minutes, 0);
-
-    const scr = document.createElement('div');
-    scr.className = 'screen xq-coach-report';
-    scr.innerHTML = `
-      <h1>今日训练</h1>
-      <div class="sub">${stage.emoji} 阶段${stage.id} · ${stage.name} — ${stage.goal}</div>
-      <div class="xq-chips"><span class="xq-chip">⏱ 约 <b>${total}</b> 分钟</span>${
-        loss.games ? `<span class="xq-chip">📊 依据最近 <b>${loss.games}</b> 盘实战</span>` : ''
-      }</div>
-      ${lossCard(loss)}`;
-
-    const list = document.createElement('div');
-    list.className = 'xq-block-list';
-    blocks.forEach((b, i) => {
-      const el = document.createElement('div');
-      el.className = 'xq-block';
-      el.innerHTML = `
-        <div class="n">${i + 1}</div>
-        <div class="bd">
-          <div class="t">${b.title}<span class="m">${b.minutes} 分钟</span></div>
-          <div class="d">${b.desc}</div>
-          ${b.why ? `<div class="w">${b.why}</div>` : ''}
-        </div>`;
-      el.onclick = () => runBlock(b, blocks, i);
-      list.appendChild(el);
-    });
-    scr.appendChild(list);
-
-    const start = document.createElement('button');
-    start.className = 'btn';
-    start.textContent = '开始今天的训练 →';
-    start.onclick = () => runBlock(blocks[0], blocks, 0);
-    scr.appendChild(start);
-
-    const back = document.createElement('button');
-    back.className = 'btn ghost';
-    back.textContent = '← 返回';
-    back.onclick = showHome;
-    scr.appendChild(back);
-    wrap.appendChild(scr);
-  }
-
   /**
    * 从还没过的组里挑**难度最贴近你水平**的那一组。
    *
@@ -1549,110 +1506,6 @@ export function runCoach(
     if (!pool.length) return undefined;
     const avg = (g: T) => g.items.reduce((a, i) => a + i.rating, 0) / g.items.length;
     return pool.reduce((best, g) => (Math.abs(avg(g) - myRating) < Math.abs(avg(best) - myRating) ? g : best), pool[0]);
-  }
-
-  /** 跑一个训练块；做完自动接下一块，最后一块结束回今日训练页 */
-  function runBlock(b: Block, all: Block[], idx: number) {
-    const goNext = () => {
-      const next = all[idx + 1];
-      if (next) runBlock(next, all, idx + 1);
-      else {
-        checkIn();
-        showToday();
-      }
-    };
-    if (b.kind === 'game') {
-      // 实战不在学棋里做，交回对弈流程——那边已经有完整的对局与复盘
-      clear();
-      const scr = document.createElement('div');
-      scr.className = 'screen xq-coach-report';
-      scr.innerHTML = `
-        <h1>实战一局</h1>
-        <div class="sub">${b.desc}</div>
-        <div class="xq-advice"><b>怎么下才算练到</b>
-          <p>每步走之前先扫一遍：对方的车、炮、马分别能打到哪。下完<b>一定要点复盘</b>——
-          引擎会逐手标出你哪里走坏了、该走什么，那才是这一局真正的价值。</p></div>`;
-      const go = document.createElement('button');
-      go.className = 'btn';
-      const play = getPlay();
-      const lv = play && play.n >= 3 ? suggestLevel(play.r) : undefined;
-      if (startFrom) {
-        go.textContent = lv !== undefined ? `⚔️ 直接开始（对手：${AI_LEVEL_NAMES[lv]}）` : '⚔️ 直接开始一盘';
-        go.onclick = () => startFrom([], 'r', lv);
-      } else {
-        go.textContent = '去下一局 →';
-        go.onclick = onExit; // 回到象棋一级菜单，从那里进对弈
-      }
-      const skip = document.createElement('button');
-      skip.className = 'btn ghost';
-      skip.textContent = '今天先跳过实战';
-      skip.onclick = goNext;
-      scr.appendChild(go);
-      scr.appendChild(skip);
-      wrap.appendChild(scr);
-      return;
-    }
-    if (b.kind === 'srs') {
-      startReview(goNext);
-      return;
-    }
-    if (b.kind === 'quiz') {
-      void startQuiz(goNext);
-      return;
-    }
-    if (b.kind === 'timed') {
-      void startTimed(goNext);
-      return;
-    }
-    if (b.kind === 'opening') {
-      showOpenings();
-      return;
-    }
-    if (b.kind === 'replay') {
-      void showGames();
-      return;
-    }
-    if (b.kind === 'combo') {
-      void loadPuzzles().then(() => {
-        if (!wrap.isConnected) return;
-        const all = combos();
-        if (!all.length) return goNext();
-        runComboSession(all, '今日组合', 5, goNext);
-      });
-      return;
-    }
-    if (b.kind === 'ladder') {
-      void loadCounterKill().then(() => {
-        if (!wrap.isConnected) return;
-        const it = nextCounterKill();
-        if (!it) return goNext();
-        runCounterKill(it, goNext);
-      });
-      return;
-    }
-    if (b.kind === 'mate-shape') {
-      void loadLibrary().then(() => {
-        if (!wrap.isConnected) return;
-        const cleared = new Set(getCleared().mates);
-        const groups = matesByName();
-        const next = pickByLevel(groups, cleared, getRatings().mate.r);
-        if (!next) return goNext();
-        showMateLesson(next);
-      });
-      return;
-    }
-    if (b.kind === 'endgame') {
-      void loadLibrary().then(() => {
-        if (!wrap.isConnected) return;
-        const cleared = new Set(getCleared().endgames);
-        const next = pickByLevel(endgamesByName(), new Set(getCleared().endgames), getRatings().endgame.r);
-        void cleared;
-        if (!next) return goNext();
-        showEndgameGroup(next);
-      });
-      return;
-    }
-    startPractice(b.dim ?? weakestDim(getRatings()), b.count ?? 10, goNext, b.ratingBias ?? 40);
   }
 
   // ---------------- 打谱 ----------------
@@ -1727,9 +1580,9 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   // ---------------- 限时计算 ----------------
@@ -1772,6 +1625,7 @@ export function runCoach(
         allowHint: false,
         timeLimit: LIMIT,
         playToEnd: false,
+        onExit: () => menuBack(),
         onDone: (r) => {
           if (r.correct) inTime++;
           else missed.push(p);
@@ -1796,6 +1650,7 @@ export function runCoach(
         caption: `不限时重做 ${j}/${missed.length} · 这次慢慢算`,
         allowHint: false,
         playToEnd: false,
+        onExit: () => menuBack(),
         onDone: (r) => {
           if (r.correct) solvedUnlimited++;
           round2();
@@ -1829,10 +1684,10 @@ export function runCoach(
         </div>`;
       const go = document.createElement('button');
       go.className = 'btn';
-      go.textContent = then ? '继续今天的训练 →' : '返回';
-      go.onclick = () => (then ? then() : showHome());
+      go.textContent = then ? '完成，回到今天的任务 →' : '← 返回';
+      go.onclick = () => (then ? then() : menuBack());
       scr.appendChild(go);
-      wrap.appendChild(scr);
+      mount(scr, then);
     };
 
     round1();
@@ -1888,7 +1743,7 @@ export function runCoach(
     list.appendChild(ex);
     const tk = document.createElement('div');
     tk.className = 'card home-card';
-    tk.innerHTML = `<div class="title">🗡 邪门布局破解<span class="tag">${TRICKS.length} 条</span></div>
+    tk.innerHTML = `<div class="title">🗡 江湖布局破解<span class="tag">${TRICKS.length} 条</span></div>
       <div class="desc">对手不按定式走、专走江湖套路时怎么办。</div>`;
     tk.onclick = () => showTricks();
     list.appendChild(tk);
@@ -1921,9 +1776,9 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   function showOpening(o: Opening) {
@@ -1938,7 +1793,7 @@ export function runCoach(
     const flagged = o.moves.filter((m) => m.book && m.loss && m.loss >= 60);
     scr.dataset.opPage = o.id;
     scr.innerHTML = `<h1>${o.name}</h1><div class="sub">${o.tag}</div>
-      <div class="xq-advice"><b>核心思路——要记住的是这个</b><p>${o.idea}</p>
+      <div class="xq-advice" data-keep><b>核心思路——要记住的是这个</b><p>${o.idea}</p>
         <b>${o.side === 'red' ? '对方怎么破' : '怎么破'}</b><p>${o.breaks}</p>
         <b>容易踩的坑</b><ul>${o.traps.map((t) => `<li>${t}</li>`).join('')}</ul>
         <p class="dim">主线 ${Math.ceil(o.moves.length / 2)} 回合，${o.final}。${
@@ -2001,7 +1856,7 @@ export function runCoach(
     back.textContent = '← 返回';
     back.onclick = showOpenings;
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   /** 布局自己走过的成绩：key = 套路 id + 执哪方（+ 变化号），值 = 最好的一次猜对几成 */
@@ -2079,6 +1934,7 @@ export function runCoach(
           if (!v) scheduleOpening(`${o.id}:${guessFor}`, pct);
         }
         if (guessFor) checkIn();
+        if (guessFor && tried) finishTask();
       },
       outro: `<b>${v ? v.final : o.final}</b>（皮卡鱼评估）。${summary}${v ? '' : `<br>${o.breaks}`}`,
       notes: o.traps,
@@ -2179,11 +2035,11 @@ export function runCoach(
       .filter((x): x is [Opening, Color] => !!x);
   }
   /** 一套一套复习下去，走完一套接下一套 */
-  function runOpeningReview(queue: [Opening, Color][]) {
+  function runOpeningReview(queue: [Opening, Color][], end: () => void = () => showOpenings()) {
     const [head, ...rest] = queue;
-    if (!head) return showOpenings();
+    if (!head) return end();
     // 变招数据先到（走到谱上的变招、错着当场认得出、讲解也是新的），加载失败照样开始
-    void loadOpeningExtras().then(() => runOpening(head[0], head[1], undefined, () => (rest.length ? runOpeningReview(rest) : showOpenings())));
+    void loadOpeningExtras().then(() => runOpening(head[0], head[1], undefined, () => (rest.length ? runOpeningReview(rest, end) : end())));
   }
 
   /** 开局浏览器：谱上所有走法 + 皮卡鱼候选着；startMoves 先走好，back 是返回去哪 */
@@ -2266,13 +2122,13 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   /** 一组 10 道：没做过的先出，难度贴近你的战术分 */
-  function runComboSession(items: Puzzle[], title: string, count = 10, onDone: () => void = () => void showCombos()) {
+  function runComboSession(items: Puzzle[], title: string, count = 10, onDone: () => void = () => void showCombos(), leave?: () => void) {
     const seen = attemptedMap();
     const r = getRatings().tactic.r;
     const order = [...items].sort((a, b) => {
@@ -2284,7 +2140,7 @@ export function runCoach(
     let i = 0;
     let right = 0;
     const step = () => {
-      if (i >= pick.length) return finishSession(`中局组合 · ${title}`, right, pick.length, onDone);
+      if (i >= pick.length) return finishSession(`中局组合 · ${title}`, right, pick.length, onDone, '', leave);
       const p = pick[i++];
       runOne(p, 'tactic', `${title} ${i}/${pick.length} · ${(p.themes ?? []).join('、')}`, (ok) => {
         if (ok) right++;
@@ -2320,7 +2176,7 @@ export function runCoach(
     const back = () => {
       markDaily();
       checkIn();
-      showHome();
+      menuBack();
     };
     if (day % 2 === 0) {
       await loadCounterKill();
@@ -2334,7 +2190,7 @@ export function runCoach(
     if (!wrap.isConnected) return;
     const pool = combos();
     const p = pool[(day * 7919) % Math.max(1, pool.length)];
-    if (!p) return showHome();
+    if (!p) return menuBack();
     runOne(p, 'tactic', `每日一题 · ${(p.themes ?? []).join('、')}`, () => back());
   }
 
@@ -2419,9 +2275,9 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   /** 一章的关卡格子：1、2、3……最后一关是关底 */
@@ -2452,7 +2308,7 @@ export function runCoach(
     back.textContent = '← 返回';
     back.onclick = () => void showCounterKill();
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   /** 每日训练里的"闯一关"：已开的章里，按顺序第一道还没过的 */
@@ -2497,6 +2353,7 @@ export function runCoach(
         // 只有第一次计分：算进"杀法"这一维
         if (first) updateRating('mate', it.rating, r.correct && !r.usedHint);
         checkIn();
+        finishTask();
         back();
       },
     });
@@ -2583,7 +2440,7 @@ export function runCoach(
     const scr = document.createElement('div');
     scr.className = 'screen xq-coach-report';
     scr.innerHTML = `
-      <h1>🗡 邪门布局破解</h1>
+      <h1>🗡 江湖布局破解</h1>
       <div class="sub">江湖套路本身都是亏的，专门赌你应错</div>
       <div class="xq-advice"><b>江湖套路的精髓：宁失一子，不失一先</b>
         <p>弃马十三着、铁滑车、敢死炮、瞎眼狗……这些套路都是先送你一点东西（一匹马、一门炮、一个卒，或者一条中路），
@@ -2620,9 +2477,9 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   /** 几个兵（一位小数），给账本用 */
@@ -2730,7 +2587,7 @@ export function runCoach(
     scr.dataset.trickPage = t.id;
     scr.innerHTML = `<h1>${t.name}</h1>
       <div class="sub">${t.alias ? `又叫${t.alias} · ` : ''}对方执${sideWord(t.by)} · 你执${sideWord(me)}破解 · ${t.level}</div>
-      <div class="xq-advice">
+      <div class="xq-advice" data-keep>
         <b>套路：它在赌什么</b><p>${t.lure}</p>
       </div>
       ${ledgerHtml(t)}
@@ -2744,7 +2601,7 @@ export function runCoach(
           .join('')}</ol>
         <p class="dim">着法：${line}</p>
       </div>
-      <div class="xq-advice xq-trick-anatomy" data-anatomy>
+      <div class="xq-advice xq-trick-anatomy" data-keep data-anatomy>
         <b>🔍 陷阱拆解</b>
         <p><b>表面上：</b>${t.anatomy.looks}</p>
         <p><b>陷阱在哪：</b>${t.anatomy.bait}</p>
@@ -2752,7 +2609,7 @@ export function runCoach(
         <p><b>怎么认出来：</b>${t.anatomy.spot}</p>
         ${pitfallHtml(t)}
       </div>
-      <div class="xq-advice">
+      <div class="xq-advice" data-keep>
         <b>怎么破</b><p><b>${t.refute[0].t}</b>——${t.refute[0].why}</p>
         ${
           k
@@ -2821,7 +2678,7 @@ export function runCoach(
     back.textContent = '← 返回';
     back.onclick = showTricks;
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   function runTrick(t: TrickOpening, mode: 'refute' | 'trap' | 'guess', exit?: () => void) {
@@ -3000,8 +2857,8 @@ export function runCoach(
       : `<p class="dim">${inp.games.length ? '最近的实战还没有复盘过，或者复盘里没有明显的毛病。' : '还没有实战记录。'}下完棋看一下复盘，私教就有教案了。</p>`;
     scr.innerHTML = `<h1>🧑‍🏫 私教</h1>
       <div class="sub">一节课只讲一件事：先看证据，再讲三条，当堂练，下节课检查</div>
-      ${prevHtml ? `<div class="xq-advice" data-tutor-check><b>📋 先检查作业</b>${prevHtml}</div>` : ''}
-      <div class="xq-advice xq-tutor-lesson" data-tutor-lesson="${lesson.theme}">
+      ${prevHtml ? `<div class="xq-advice" data-keep data-tutor-check><b>📋 先检查作业</b>${prevHtml}</div>` : ''}
+      <div class="xq-advice xq-tutor-lesson" data-keep data-tutor-lesson="${lesson.theme}">
         <b>今天这一课：${lesson.title}</b>
         <p>${lesson.why}</p>
         <ol class="xq-trick-steps">${lesson.points.map((x) => `<li>${x}</li>`).join('')}</ol>
@@ -3039,9 +2896,9 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   function stepDesc(st: Step): string {
@@ -3193,9 +3050,9 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   // ---------------- 我的训练方案 ----------------
@@ -3327,8 +3184,8 @@ export function runCoach(
 
     const act = document.createElement('button');
     act.className = 'btn';
-    act.textContent = sinceAssess >= 28 ? '🔁 去做这个月的完整测评' : '📅 开始今天的训练';
-    act.onclick = () => (sinceAssess >= 28 ? startAssessment() : showToday());
+    act.textContent = sinceAssess >= 28 ? '🔁 去做这个月的完整测评' : '📅 去做今天的任务';
+    act.onclick = () => (sinceAssess >= 28 ? startAssessment() : showHome());
     scr.appendChild(act);
 
     const road = document.createElement('button');
@@ -3340,9 +3197,9 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   // ---------------- 学习路线 ----------------
@@ -3414,9 +3271,9 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   // ---------------- 成长曲线 ----------------
@@ -3457,16 +3314,16 @@ export function runCoach(
     const back = document.createElement('button');
     back.className = 'btn ghost';
     back.textContent = '← 返回';
-    back.onclick = showHome;
+    back.onclick = () => menuBack();
     scr.appendChild(back);
-    wrap.appendChild(scr);
+    mount(scr);
   }
 
   // 第一次进学棋先问一句水平——不然报出来的分你没有参照系
   const land = () => {
-    if (entry === 'today') showToday();
-    else if (entry === 'puzzles') showPickDim();
+    if (entry === 'puzzles') showMenu('tactics');
     else if (entry === 'tutor') showTutor();
+    else if (entry === 'progress') showMenu('progress');
     else showHome();
   };
   if (getDeclared()) land();
@@ -3477,6 +3334,8 @@ export function runCoach(
     (window as unknown as Record<string, unknown>).__xqCoach = {
       /** 回到学棋首页（逐屏体检用） */
       home: () => showHome(),
+      /** 直接打开某个二级菜单（tactics / endgame / opening / play / progress） */
+      menu: (id: MenuId) => showMenu(id),
       puzzle: async (id: string) => {
         await loadPuzzles();
         const p = byId(id);

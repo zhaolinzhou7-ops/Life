@@ -83,6 +83,34 @@ let mateCache: MatePattern[] | null = null;
 let egCache: EndgamePos[] | null = null;
 let loading: Promise<void> | null = null;
 
+/**
+ * 一眼必胜的残局不出。用户原话："题库里还是有太多一眼就能看出来的必胜残局（比如对方只剩老将，或者只剩士和老将）"。
+ * 要你赢的局面里，对方一个能动手的子都没有（只剩将、士、象），而且：你手里有车、或者有两个以上能进攻的子、
+ * 或者对方是光将——单车对双士、车炮对士象全、单兵对光将这种，怎么走都赢，练不到东西。
+ * 留下的：守和的局面（少子守住是真本事），和你只有一个马/兵、对方还有一两个士象的技术残局
+ * （单马对单士、单兵对单士……走错一步就成和棋）。
+ */
+export function obviousWin(e: { fen: string; you: Color; target: string }): boolean {
+  if (e.target !== 'win') return false;
+  const board = e.fen.split(' ')[0];
+  const isRed = (ch: string) => ch === ch.toUpperCase();
+  const mine = (ch: string) => (e.you === 'r') === isRed(ch);
+  let oppAttackers = 0;
+  let oppGuards = 0;
+  let myAttackers = 0;
+  let myRook = false;
+  for (const ch of board) {
+    if (/[AEB]/i.test(ch) && !mine(ch)) oppGuards++;
+    if (!/[RNHCP]/i.test(ch)) continue;
+    if (mine(ch)) {
+      myAttackers++;
+      if (/r/i.test(ch)) myRook = true;
+    } else oppAttackers++;
+  }
+  // 光将（对方士象都没了）也算：单兵、单马对光将，怎么走都赢
+  return oppAttackers === 0 && (myRook || myAttackers >= 2 || oppGuards === 0);
+}
+
 /** 两个库一起按需加载，不进首屏 */
 export function loadLibrary(): Promise<void> {
   if (mateCache && egCache) return Promise.resolve();
@@ -92,7 +120,7 @@ export function loadLibrary(): Promise<void> {
       mateCache = ((m.default ?? m) as MatePattern[]).slice();
     }),
     import('./endgamelib.json').then((m) => {
-      egCache = ((m.default ?? m) as EndgamePos[]).slice();
+      egCache = ((m.default ?? m) as EndgamePos[]).filter((e) => !obviousWin(e));
     }),
   ])
     .then(() => undefined)

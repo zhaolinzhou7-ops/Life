@@ -21,21 +21,23 @@ async function openDrill(group) {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.evaluate(() => { localStorage.setItem('xq-power', 'save'); localStorage.removeItem('xq-po-opp'); });
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
-  await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(700);
+  await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(700);
   if (await page.getByText('业 4-5').count()) {
     await page.getByText('业 4-5').first().click(); await page.waitForTimeout(500);
     const go = page.getByText('开始', { exact: false }).first();
     if (await go.count()) { await go.click(); await page.waitForTimeout(700); }
   }
-  await page.getByText('实用残局 · 下到底').first().click(); await page.waitForTimeout(800);
+  await page.evaluate(() => window.__xqCoach.menu('endgame')); await page.waitForTimeout(300);
+  await page.getByText('实用残局：下到底').first().click(); await page.waitForTimeout(800);
   await page.locator('.card', { hasText: group }).first().click(); await page.waitForTimeout(500);
   const guess = page.locator('.xq-eg-guess [data-g="win"]').first();
   if (await guess.count()) { await guess.click(); await page.waitForTimeout(300); }
   await page.locator('.card', { hasText: '局面 1' }).first().click(); await page.waitForTimeout(800);
 }
 
-// ───────── 1. 单车对双士：跟着教练的首选走，要赢下来 ─────────
-await openDrill('单车对双士');
+// ───────── 1. 单车对单炮：跟着教练的首选走，要赢下来 ─────────
+// （原来用单车对双士——对方只剩士，一眼必胜，残局库里已经不出了）
+await openDrill('单车对单炮');
 ok('进了残局练习', (await page.locator('.xq-po').count()) === 1);
 ok('对手是皮卡鱼（不再有换成自带引擎的开关）', (await page.evaluate(() => window.__xqPlay.opp().setting)) === 'pro' && (await page.locator('button.xq-po-opp').count()) === 0);
 ok('教练在算，并按目标说局面（胜势）', await until(page, () => /胜势/.test(window.__xqPlay.coach() ?? '') && (window.__xqPlay.study()?.depth ?? 0) >= 10, null, 20000));
@@ -75,7 +77,7 @@ ok('对手确实是专业引擎', (await page.evaluate(() => window.__xqPlay.opp
 await page.screenshot({ path: OUT + '/drill-done.png' });
 
 // ───────── 2. 走一手把子送掉：要当场说"胜势走丢了"，能悔棋 ─────────
-await openDrill('车兵对士象全');
+await openDrill('车兵对车双士');
 await until(page, () => (window.__xqPlay.study()?.depth ?? 0) >= 10, null, 20000);
 const blunder = await page.evaluate(async () => {
   const R = await import('/Life/src/xiangqi/rules.ts');
@@ -114,8 +116,9 @@ if (blunder) {
 // ───────── 4. 守方练习：不问"能不能赢"；提和引擎同意就算守住；操作条一直在 ─────────
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
-await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(700);
-await page.getByText('实用残局 · 下到底').first().click(); await page.waitForTimeout(800);
+await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(700);
+await page.evaluate(() => window.__xqCoach.menu('endgame')); await page.waitForTimeout(300);
+await page.getByText('实用残局：下到底').first().click(); await page.waitForTimeout(800);
 await page.locator('.card', { hasText: '炮双士守单车' }).first().click(); await page.waitForTimeout(500);
 ok('守方练习不问"能赢/只能和"', (await page.locator('.xq-eg-guess').count()) === 0 && (await page.getByText('守和练习').count()) > 0);
 await page.locator('.card', { hasText: '局面 1' }).first().click(); await page.waitForTimeout(800);
@@ -131,8 +134,9 @@ await page.screenshot({ path: OUT + '/drill-def.png' });
 // ───────── 5. 死和局面：连续几步都是和势，引擎提前判和，不用走满 60 回合 ─────────
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
-await page.locator('.xq-home-card').nth(3).click(); await page.waitForTimeout(700);
-await page.getByText('实用残局 · 下到底').first().click(); await page.waitForTimeout(800);
+await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(700);
+await page.evaluate(() => window.__xqCoach.menu('endgame')); await page.waitForTimeout(300);
+await page.getByText('实用残局：下到底').first().click(); await page.waitForTimeout(800);
 await page.locator('.card', { hasText: '单车对马士象全' }).first().click(); await page.waitForTimeout(500);
 await page.locator('.card', { hasText: '局面 1' }).first().click(); await page.waitForTimeout(800);
 let ended = '';
