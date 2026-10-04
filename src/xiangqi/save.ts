@@ -133,8 +133,9 @@ export function migrateLevel(old: number): number {
  * 赢一半输一半的对手最涨棋——总是赢说明太弱，总是输学不到东西。
  */
 export function suggestLevel(r: number): number {
+  // 往上看六十分：档位细分以后两档只差一百来分，看一百分就成了"总比你高一档"
   let best = 0;
-  for (let i = 0; i < AI_LEVEL_RATING.length; i++) if (AI_LEVEL_RATING[i] <= r + 100) best = i;
+  for (let i = 0; i < AI_LEVEL_RATING.length; i++) if (AI_LEVEL_RATING[i] <= r + 60) best = i;
   return best;
 }
 
