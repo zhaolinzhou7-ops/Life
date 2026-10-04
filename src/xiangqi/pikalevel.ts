@@ -78,10 +78,11 @@ export const PIKA_LEVELS: LevelCfg[] = [
   { nodes: 8000, multipv: 6, temp: 62, maxLoss: 220, slip: 0.04, slipLoss: 480 },
   // 特级大师
   { nodes: 12000, multipv: 5, temp: 50, maxLoss: 180, slip: 0.03, slipLoss: 400 },
-  // 特级大师 · 二段、三段、国手（新）：节点一档翻一倍，挑着法越来越认真，看走眼越来越少
+  // 特级大师 · 二段、三段、国手（新）：节点越来越多，挑着法越来越认真，看走眼越来越少。
+  // 国手原来试的是 8 万节点、只在前两名里挑：对棋王 5 盘一胜四和，和棋王分不开，退到 5 万节点、温度放一点
   { nodes: 20000, multipv: 4, temp: 35, maxLoss: 130, slip: 0.02, slipLoss: 300 },
   { nodes: 40000, multipv: 3, temp: 22, maxLoss: 80, slip: 0.01, slipLoss: 200 },
-  { nodes: 80000, multipv: 2, temp: 10, maxLoss: 40, slip: 0, slipLoss: 0 },
+  { nodes: 50000, multipv: 2, temp: 16, maxLoss: 60, slip: 0.008, slipLoss: 160 },
   // 棋王：全力
   { movetime: 3000, multipv: 1, temp: 0, maxLoss: 0, slip: 0, slipLoss: 0 },
 ];
