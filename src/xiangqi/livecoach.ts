@@ -27,6 +27,7 @@ import { explain, type Facts } from './llm';
 import { INTENT_INFO, deepFacts, intentsOf } from './deepcoach';
 import { moveToText, pieceName } from './notation';
 import { planHtml, planOf } from './plan';
+import { punishBrief, punishLine } from './punish';
 
 export type HintLevel = 0 | 1 | 2 | 3;
 
@@ -252,9 +253,13 @@ export function warnText(level: HintLevel, v: MoveVerdict, before?: Board, move?
     const mine = lineLosses(before, v.played.pv, side);
     const ref = lineLosses(before, v.best.pv, side);
     if (eaten) return `${eaten}——算下去比最好的下法少${amount}。`;
+    // 用户原话："不能只是笼统地说当前没问题、后面会怎么样，而是要告诉我对手接下来会怎么应对、具体怎么走会导致我陷入劣势。"
+    // 有主变就一手一手说出来：对方接什么、你怎么应、他再走什么，最后丢了什么
+    const p = v.played.pv?.length && level >= 2 ? punishLine(before, v.played.pv, side, 7) : null;
     if (ref.net - mine.net >= 90 && mine.mine.length) {
-      return `对方接 ${reply || '下一手'} 之后，几步之内你会丢${mine.mine[0]}——算下去比最好的下法少${amount}。`;
+      return p ? `这一手要亏约${amount}：${punishBrief(p)}` : `对方接 ${reply || '下一手'} 之后，几步之内你会丢${mine.mine[0]}——算下去比最好的下法少${amount}。`;
     }
+    if (p) return `这一手不直接丢子，但吃亏约${amount}：${punishBrief(p)}`;
   }
   return `这一手不直接丢子，但位置和主动权上吃亏：比最好的下法差约${amount}${reply ? `（对方会接 ${reply}）` : ''}。`;
 }

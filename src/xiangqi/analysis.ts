@@ -126,16 +126,20 @@ export const PHASE_NAME: Record<Phase, string> = { opening: '开局', middle: '�
  */
 export type MoveLabel = 'brilliant' | 'only' | 'top' | 'best' | 'good' | 'ok' | 'dubious' | 'mistake' | 'blunder';
 
-export const MOVE_LABEL: Record<MoveLabel, { name: string; sym: string; color: string }> = {
-  brilliant: { name: '妙手', sym: '!!', color: '#26c6da' },
-  only: { name: '唯一着', sym: '!', color: '#2eb7a0' },
-  top: { name: '最佳', sym: '★', color: '#3ec46d' },
-  best: { name: '好棋', sym: '', color: '#6cc46d' },
-  good: { name: '不错', sym: '', color: '#9cc46d' },
-  ok: { name: '可以', sym: '', color: '#c9c48a' },
-  dubious: { name: '不佳', sym: '?!', color: '#e8a33d' },
-  mistake: { name: '失误', sym: '?', color: '#e8703d' },
-  blunder: { name: '漏着', sym: '??', color: '#e0433a' },
+/**
+ * short：棋子角标上的那一个字。用户原话："走子的时候，棋子上直接显示该步的评级（比如优、良、中、差，或者是否为最佳着法）。"
+ * badge：角标底色（比 color 深一点，白字要看得清）。
+ */
+export const MOVE_LABEL: Record<MoveLabel, { name: string; sym: string; color: string; short: string; badge: string }> = {
+  brilliant: { name: '妙手', sym: '!!', color: '#26c6da', short: '妙', badge: '#0f9fb3' },
+  only: { name: '唯一着', sym: '!', color: '#2eb7a0', short: '唯', badge: '#13907c' },
+  top: { name: '最佳', sym: '★', color: '#3ec46d', short: '★', badge: '#22a052' },
+  best: { name: '好棋', sym: '', color: '#6cc46d', short: '优', badge: '#46a14a' },
+  good: { name: '不错', sym: '', color: '#9cc46d', short: '良', badge: '#76a03f' },
+  ok: { name: '可以', sym: '', color: '#c9c48a', short: '中', badge: '#9a8f3c' },
+  dubious: { name: '不佳', sym: '?!', color: '#e8a33d', short: '差', badge: '#d18412' },
+  mistake: { name: '失误', sym: '?', color: '#e8703d', short: '错', badge: '#d4561c' },
+  blunder: { name: '漏着', sym: '??', color: '#e0433a', short: '漏', badge: '#c92a20' },
 };
 
 /** 统计表里的顺序：从好到坏 */

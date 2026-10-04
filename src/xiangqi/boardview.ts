@@ -14,7 +14,7 @@
  * 原本调用的那组方法（syncBoard / select / animateMove / flashCheck…），
  * 这样对局和复盘的代码几乎不用改，也就不会在搬运过程中搬出新 bug。
  */
-import { Board2D, type Mark } from './board2d';
+import { Board2D, type Badge, type Mark } from './board2d';
 import { applyMove, type Board, type Move } from './rules';
 
 export class BoardView {
@@ -50,9 +50,9 @@ export class BoardView {
   /**
    * 走一手。
    *
-   * 这里**不做棋子飞行动画**：棋子离开交叉点的那一瞬间，盘面就是错的，
-   * 而"棋子位置不对"是这个项目修过的历史 bug。节奏感由 slideMs 这个纯等待
-   * 提供——落子即到，然后停一下再往下走，既准确又不机械。
+   * 盘面立刻换成走完的样子（"棋子位置不对"是这个项目修过的历史 bug，盘面绝不跟着动画走）；
+   * 棋子沿路线滑过去、留一道渐隐的路线，是 board2d 换盘面时自己画的，只是画法。
+   * 节奏感仍由 slideMs 这个等待提供。
    */
   animateMove(m: Move, onDone: () => void) {
     /*
@@ -110,6 +110,11 @@ export class BoardView {
 
   setLastMove(m: Move | null, fade = true) {
     this.view.setLastMove(m, fade);
+  }
+
+  /** 棋子上的评级角标（复盘逐手、对局里自己那一手）；传 null 去掉 */
+  setBadge(b: Badge | null) {
+    this.view.setBadge(b);
   }
 
   setArrows(arrows: { fx: number; fy: number; tx: number; ty: number; color?: string }[]) {

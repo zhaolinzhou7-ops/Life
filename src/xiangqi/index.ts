@@ -308,7 +308,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       setupEl = bad;
       return;
     }
-    const scene = new BoardView(wrap, () => {}, g.side === 'b');
+    // 棋盘放进和对局一样的容器：复盘面板打开时它会让出面板那一截，不被盖住
+    const play = document.createElement('div');
+    play.className = 'xq-play';
+    wrap.appendChild(play);
+    const scene = new BoardView(play, () => {}, g.side === 'b');
     scene.syncBoard(opened.start);
     const closeRv = runReview({
       host: wrap,
@@ -1628,7 +1632,13 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       if (idx < 0) return;
       const best = s.moves[0];
       const runnerUp = s.moves[1] && !s.moves[1].bound ? s.moves[1].score : undefined;
-      bookAt.set(ply, { best, played: s.moves[idx], depth: s.depth, engine: s.engine, second: runnerUp });
+      const judged: Judged = { best, played: s.moves[idx], depth: s.depth, engine: s.engine, second: runnerUp };
+      bookAt.set(ply, judged);
+      // 你这一手的评级直接挂在棋子上（★ 优 良 中 差 错 漏）——关掉提示的"安静对弈"不挂
+      if (hintLevel >= 1) {
+        const L = MOVE_LABEL[labelOf(reviewMove(board, ply, me, judged))];
+        scene.setBadge({ x: m.tx, y: m.ty, text: L.short, color: L.badge, c: me });
+      }
       if (hintLevel < 2 || ply - praisedAt < 6) return;
       const after = applyMove(board, m);
       if (threatAtTurn && !mateInOne(after, foe) && idx <= 2) {
@@ -1650,8 +1660,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       busy = true;
       selected = null;
       moveToken++;
-      if (turn === me) noteMyMove(m);
-      else setCoachLine(null);
+      if (turn === me) {
+        scene.setBadge(null);
+        noteMyMove(m);
+      } else setCoachLine(null);
       // 局面变了，这一份研究就没用了。掐掉它，把算力还给对手的搜索
       dropStudy();
       closeLost?.();
@@ -1793,6 +1805,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       refreshTray();
       refreshLog();
       scene.setLastMove(moveLog.length ? moveLog[moveLog.length - 1] : null);
+      scene.setBadge(null);
       scene.setSlideSec(TEMPO.slide);
       scene.syncBoard(board);
       setTurnUI();
@@ -1834,6 +1847,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       warmupAi(board, foe);
       scene.dealIn();
       scene.setLastMove(null);
+      scene.setBadge(null);
       refreshTray();
       refreshLog();
       setTurnUI(turn !== me);
@@ -2176,6 +2190,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           selected = null;
           scene.syncBoard(board);
           scene.setLastMove(null);
+          scene.setBadge(null);
           refreshTray();
           refreshLog();
           setTurnUI();

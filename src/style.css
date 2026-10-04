@@ -2379,11 +2379,6 @@ canvas {
   }
 }
 
-/* 复盘：收起状态只留点评与翻页，把棋盘让出来 */
-.xq-rv.mini .xq-rv-summary,
-.xq-rv.mini .xq-rv-list {
-  display: none;
-}
 .xq-rv-fold {
   background: none;
   border: 0;
@@ -3820,8 +3815,7 @@ canvas {
 }
 
 /* 复盘面板打开时，棋盘让出下半屏，托盘藏起来 */
-.xq-root:has(.xq-rv) .xq-play { bottom: calc(var(--app-h, 100vh) * 0.48); }
-.xq-root:has(.xq-rv.mini) .xq-play { bottom: calc(var(--app-h, 100vh) * 0.28); }
+.xq-root:has(.xq-rv) .xq-play { bottom: var(--rv-h, calc(var(--app-h, 100vh) * 0.48)); }
 .xq-root:has(.xq-rv) .xq-tray { display: none; }
 
 /* ---------- 吃子托盘 + 棋谱 ---------- */
@@ -4178,7 +4172,6 @@ canvas {
 @media (min-width: 720px) {
   .xq-rv-list { flex: none; max-height: 34vh; }
 }
-.xq-rv.mini .xq-rv-score { display: none; }
 
 /* 结算页：本局评分 */
 .xq-score {
@@ -4460,21 +4453,28 @@ canvas {
  * 讲解压在总结下面要往下翻，翻页只能点一排小字。
  */
 @media (max-width: 719px) {
-  .xq-root:has(.xq-rv:not(.mini)) .xq-play {
-    justify-content: flex-start;
-    top: 6px;
-    bottom: 50vh;
+  /* 棋盘占面板上面的全部高度、整块露出来；面板高度由 review.ts 按屏幕算好放在 --rv-h 里 */
+  .xq-root:has(.xq-rv) .xq-play {
+    justify-content: center;
+    top: 4px;
+    bottom: var(--rv-h, 50vh);
   }
-  .xq-root:has(.xq-rv:not(.mini)) .xq-tray,
-  .xq-root:has(.xq-rv:not(.mini)) .xq-coachline,
-  .xq-root:has(.xq-rv:not(.mini)) .xq-bar,
-  .xq-root:has(.xq-rv:not(.mini)) .xq-bubble {
+  .xq-root:has(.xq-rv) .xq-tray,
+  .xq-root:has(.xq-rv) .xq-coachline,
+  .xq-root:has(.xq-rv) .xq-bar,
+  .xq-root:has(.xq-rv) .xq-bubble {
     display: none;
   }
-  .xq-rv:not(.mini) {
-    height: 50vh;
-    max-height: 50vh;
+  .xq-rv {
+    height: var(--rv-h, 50vh);
+    max-height: none;
+    gap: 6px;
+    padding-top: 8px;
   }
+  /* 棋盘为主的时候面板矮：整盘统计和曲线只在总览里看，看某一手时只留这一手的讲解 */
+  .xq-rv:not(.tall).focus .xq-rv-score { display: none; }
+  /* 着法条放在讲解上面、钉住不动：翻到哪一手都看得见前后几手 */
+  .xq-rv-list { order: -1; position: sticky; top: 0; z-index: 2; background: rgba(9, 14, 19, 0.97); flex: none; }
 }
 /* 看某一手时收起整盘总结：这一手的讲解直接在最上面 */
 .xq-rv.focus .xq-rv-summary { display: none; }
@@ -4780,3 +4780,53 @@ details.xq-fold > summary::before { content: '▸ '; color: var(--muted); }
 details.xq-fold[open] > summary::before { content: '▾ '; }
 details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-weight: 400; font-size: 12px; color: var(--muted); }
 .xq-hub .xq-sec, .xq-coach-home > .xq-sec { align-self: stretch; text-align: left; }
+
+/* ===================== 复盘：劣势推演 ===================== */
+.xq-rv-punish {
+  border: 1px solid rgba(224, 67, 58, 0.4);
+  background: rgba(224, 67, 58, 0.08);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.xq-rv-punish.foe { border-color: rgba(62, 196, 109, 0.4); background: rgba(62, 196, 109, 0.07); }
+.xq-rv-punish .hd { font-weight: 700; color: #f2a39c; margin-bottom: 4px; }
+.xq-rv-punish.foe .hd { color: #8fe0a9; }
+.xq-rv-punish ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; counter-reset: st; }
+.xq-rv-punish li { display: flex; gap: 6px; align-items: baseline; counter-increment: st; }
+.xq-rv-punish li::before { content: counter(st); font-size: 10px; opacity: 0.5; min-width: 12px; text-align: right; }
+.xq-rv-punish li .w { flex: none; font-size: 11px; padding: 0 5px; border-radius: 4px; background: rgba(255, 215, 110, 0.16); color: #ffd76e; }
+.xq-rv-punish li.foe .w { background: rgba(159, 196, 232, 0.16); color: #9fc4e8; }
+.xq-rv-punish li.first .w { background: rgba(224, 67, 58, 0.25); color: #ffb3ab; }
+.xq-rv-punish.foe li.first .w { background: rgba(62, 196, 109, 0.22); color: #9fe6b5; }
+.xq-rv-punish li b { flex: none; }
+.xq-rv-punish li em { font-style: normal; opacity: 0.72; font-size: 11.5px; min-width: 0; }
+.xq-rv-punish .sum { margin-top: 6px; font-weight: 600; }
+.xq-rv-punish .xq-rv-deep { margin-top: 8px; width: 100%; }
+
+.xq-rv-demo { font-size: 13.5px; line-height: 1.6; display: flex; flex-direction: column; gap: 6px; }
+.xq-rv-demo .pg { font-size: 12px; opacity: 0.85; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.xq-rv-demo .dots { display: inline-flex; gap: 4px; }
+.xq-rv-demo .dots i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.15); }
+.xq-rv-demo .dots i.on { background: #ffd76e; }
+.xq-rv-demo .dots i.on.foe { background: #9fc4e8; }
+.xq-rv-demo .now { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 15px; }
+.xq-rv-demo .now .w { font-size: 12px; padding: 1px 6px; border-radius: 5px; background: rgba(255, 215, 110, 0.18); color: #ffd76e; }
+.xq-rv-demo .now.foe .w { background: rgba(159, 196, 232, 0.18); color: #9fc4e8; }
+.xq-rv-demo .now em { font-style: normal; font-size: 13px; opacity: 0.8; }
+.xq-rv-demo .sum { font-weight: 600; color: #f2c9a0; }
+.xq-rv-demo .nx { font-size: 12px; opacity: 0.6; }
+.xq-rv.demo .xq-rv-list, .xq-rv.demo .xq-rv-score, .xq-rv.demo .xq-rv-summary { display: none; }
+.xq-rv-pun {
+  flex: none;
+  margin-left: auto;
+  border: 1px solid rgba(224, 67, 58, 0.55);
+  background: rgba(224, 67, 58, 0.16);
+  color: #ffc2bb;
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.xq-rv-move:has(.xq-rv-pun) .xq-rv-acc { margin-left: 6px; }
