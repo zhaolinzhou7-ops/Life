@@ -599,9 +599,12 @@ export function runCoach(
       mount(scr, () => showHome());
       return;
     }
-    const groups = new Map<ErrTag, typeof os>();
+    // 这一版之前存的错着没记是哪种毛病：单独一组，不硬塞进"走软"
+    type G = ErrTag | 'old';
+    const INFO = (t: G) => (t === 'old' ? { name: '早先存的错着', desc: '更新前复盘存下来的，当时没记是哪种毛病', advice: '重走一遍正确的那一手，想清楚当时少看了什么。' } : ERR_INFO[t]);
+    const groups = new Map<G, typeof os>();
     for (const x of os) {
-      const t = x.p.tag ?? 'slow';
+      const t: G = x.p.tag ?? 'old';
       groups.set(t, [...(groups.get(t) ?? []), x]);
     }
     // 按"还没过关的那几手一共亏了多少分"排：送掉一个炮比两手走软贵得多
@@ -612,8 +615,10 @@ export function runCoach(
     const days = new Set(os.map((x) => x.p.from?.d ?? '')).size;
     scr.innerHTML = `<h1>🎯 我的专属课</h1>
       <div class="sub">从你 ${days} 天的对局复盘里来：一共 ${os.length} 手，已过关 ${os.filter((x) => x.mastered).length} 手。每一手隔 1/3/7/21/60 天回来一次，连对五次算过关。</div>
-      <div class="xq-advice" data-keep><b>你现在最贵的毛病：${ERR_INFO[topTag].name}（${topList.length} 手，一共亏了约${inPieces(cost(topList))}）</b>
-        <p>${ERR_INFO[topTag].desc}。</p><p>👉 ${ERR_INFO[topTag].advice}</p></div>`;
+      <div class="xq-advice" data-keep><b>${
+        topTag === 'old' ? `先把早先存的错着练掉（${topList.length} 手）` : `你现在最贵的毛病：${INFO(topTag).name}（${topList.length} 手，一共亏了约${inPieces(cost(topList))}）`
+      }</b>
+        <p>${INFO(topTag).desc}。</p><p>👉 ${INFO(topTag).advice}</p></div>`;
     if (dueAll) {
       const go = document.createElement('button');
       go.className = 'btn';
@@ -633,12 +638,12 @@ export function runCoach(
       const recent = items
         .slice(-3)
         .reverse()
-        .map((x) => `${x.p.from ? `${x.p.from.d.slice(5)} 第${x.p.from.round}回合` : '实战'}走了 ${x.p.blunder ?? '?'}`)
+        .map((x) => (x.p.blunder ? `${x.p.from ? `${x.p.from.d.slice(5)} 第${x.p.from.round}回合` : '实战里'}走了 ${x.p.blunder}` : '实战里走错过'))
         .join('；');
-      el.innerHTML = `<div class="title">${ERR_INFO[tag].name} · ${items.length} 手<span class="tag ${due ? 'warn' : ''}">${
+      el.innerHTML = `<div class="title">${INFO(tag).name} · ${items.length} 手<span class="tag ${due ? 'warn' : ''}">${
         due ? `${due} 手该练` : `${items.length - left.length}/${items.length} 过关`
       }</span></div>
-        <div class="desc">${ERR_INFO[tag].desc}</div>
+        <div class="desc">${INFO(tag).desc}</div>
         <div class="desc dim">最近：${recent}</div>`;
       el.onclick = () => {
         // 没过关的先来（该练的排最前）；都过关了就整门再过一遍
@@ -647,8 +652,8 @@ export function runCoach(
           .sort((a, b) => Number(b.due) - Number(a.due) || b.wrong - a.wrong)
           .map((x) => x.p)
           .slice(0, 8);
-        const dim = TAG_DIM[tag] ?? (pick[0]?.kind as Dim);
-        void loadPuzzles().then(() => runOwnSession(pick, `专属课 · ${ERR_INFO[tag].name}`, undefined, () => void startPractice(dim, 6)));
+        const dim = (tag !== 'old' && TAG_DIM[tag]) || (pick[0]?.kind as Dim);
+        void loadPuzzles().then(() => runOwnSession(pick, `专属课 · ${INFO(tag).name}`, undefined, () => void startPractice(dim, 6)));
       };
       list.appendChild(el);
     }
