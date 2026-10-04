@@ -22,8 +22,8 @@ import {
   honestLevel,
   gameEvidence,
   getPlay,
-  suggestLevel,
   AI_LEVEL_NAMES,
+  opponentFor,
   getStreak,
   checkIn,
   markWrong,
@@ -363,7 +363,7 @@ export function runCoach(
     const rs = getRatings();
     const r = (d: Dim) => `${rs[d].r}`;
     const play = getPlay();
-    const lvl = play && play.n >= 3 ? suggestLevel(play.r) : undefined;
+    const lvl = play && play.n >= 3 ? opponentFor(play.r) : undefined;
     type Item = { icon: string; t: string; d: string; go: () => void; act?: string; badge?: string };
     const M: Record<MenuId, { title: string; sub: string; items: Item[] }> = {
       tactics: {
@@ -593,7 +593,7 @@ export function runCoach(
         go.className = 'btn';
         go.textContent = '⚔️ 先下一盘';
         const play = getPlay();
-        go.onclick = () => startFrom([], 'r', play && play.n >= 3 ? suggestLevel(play.r) : undefined);
+        go.onclick = () => startFrom([], 'r', play && play.n >= 3 ? opponentFor(play.r) : undefined);
         scr.appendChild(go);
       }
       mount(scr, () => showHome());
@@ -769,7 +769,7 @@ export function runCoach(
       case 'game': {
         // 带着"下完看复盘"直接开一盘：对手按实战分挑，下完的棋会自动算进今天的任务
         const play = getPlay();
-        const lv = play && play.n >= 3 ? suggestLevel(play.r) : undefined;
+        const lv = play && play.n >= 3 ? opponentFor(play.r) : undefined;
         if (startFrom) startFrom([], 'r', lv);
         else onExit();
         return;
@@ -2229,7 +2229,7 @@ export function runCoach(
     const w = walkMoves(texts);
     if (!w || !startFrom) return;
     const play = getPlay();
-    startFrom(w.moves, me, play && play.n >= 3 ? suggestLevel(play.r) : undefined);
+    startFrom(w.moves, me, play && play.n >= 3 ? opponentFor(play.r) : undefined);
   }
 
   // ---------------- 中局组合：按主题、按步数 ----------------
@@ -3140,7 +3140,7 @@ export function runCoach(
         // 带练：教练开"教学提示"——会读出对方每一步的意图，还能追问为什么
         if (getHintLevel() < 3) setHintLevel(3);
         const play = getPlay();
-        const lv = play && play.n >= 3 ? suggestLevel(play.r) : undefined;
+        const lv = play && play.n >= 3 ? opponentFor(play.r) : undefined;
         if (startFrom) startFrom([], 'r', lv);
         else onExit();
         return;

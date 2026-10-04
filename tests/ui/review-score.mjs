@@ -22,7 +22,7 @@ await page.evaluate(() => { localStorage.setItem('xq-hint-level', '2'); localSto
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
 await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
 ok('设置页有"教练算力"', (await page.getByText('教练算力').count()) > 0);
-await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
+await page.evaluate(() => { const d = document.querySelector('.xq-lowlv'); if (d) d.open = true; }); await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
 await page.getByText('执红先行').first().click();
 await page.getByText('开始对弈').first().click();
 ok('专业引擎加载', await until(page, () => window.__xq.engine() === 'pro', null, 15000));

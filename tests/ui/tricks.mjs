@@ -134,7 +134,7 @@ ok('两关都自己走对（炮8进7 → 马8进7 → 炮8平9），破解谱走
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
 await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
-await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
+await page.evaluate(() => { const d = document.querySelector('.xq-lowlv'); if (d) d.open = true; }); await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
 await page.locator('[data-tricky="1"]').click();
 await page.getByText('执红先行').first().click();
 await page.getByText('开始对弈').first().click(); await page.waitForTimeout(800);

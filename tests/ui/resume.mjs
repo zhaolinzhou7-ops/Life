@@ -19,7 +19,7 @@ await page.evaluate(() => { localStorage.setItem('xq-hint-level', '0'); localSto
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(500);
 ok('没有没下完的棋时不显示"继续"', (await page.locator('.xq-resume').count()) === 0);
 await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
-await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
+await page.evaluate(() => { const d = document.querySelector('.xq-lowlv'); if (d) d.open = true; }); await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
 await page.getByText('执红先行').first().click();
 await page.getByText('开始对弈').first().click(); await page.waitForTimeout(800);
 for (let i = 0; i < 3; i++) {

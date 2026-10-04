@@ -18,7 +18,7 @@ import { engineCapable, engineLevelMove, engineLost, engineReady, engineStats, l
 import { PIKA_LEVELS } from './pikalevel';
 import { MOVE_LABEL, labelOf, reviewMove, type Judged, type MoveLabel } from './analysis';
 import { GameAnalysis } from './gamescore';
-import { AI_LEVEL_RATING, LADDER, getPlay, recentGameAccuracy, recordPlay, suggestLevel } from './save';
+import { AI_LEVEL_RATING, LADDER, LEVEL_FLOOR, getPlay, migrateLevel, opponentFor, ownTopTag, recentGameAccuracy, recordPlay } from './save';
 import { runReview } from './review';
 import { runCoach, type CoachEntry } from './coach';
 import { liftBack } from './navbar';
@@ -61,7 +61,7 @@ import {
 } from './endings';
 import { mateInOne } from './teach';
 import { BoardView } from './boardview';
-import { PIECE_VALUE, inPieces } from './teach';
+import { ERR_INFO, PIECE_VALUE, inPieces } from './teach';
 import { moveToText, pieceName, toFen } from './notation';
 import {
   isMuted,
@@ -103,15 +103,35 @@ const TEMPOS = [
  * 每一档值多少分是对下实测的（save.ts 的 AI_LEVEL_RATING）。
  */
 const LEVELS = [
-  // 七档都是皮卡鱼（按档位削弱，见 pikalevel.ts）。depth / jitter / timeMs 只在皮卡鱼起不来时给自带引擎替补用
+  // 十一档都是皮卡鱼（按档位削弱，见 pikalevel.ts）。depth / jitter / timeMs 只在皮卡鱼起不来时给自带引擎替补用。
+  // 大师往上细分了四档：用户原话"对手档位建议多分几个细分级别……我至少要从'大师'档位起步"
   { id: 0, name: '入门', desc: '算得很浅，常走次好的棋，隔几步就看走眼', depth: 64, jitter: 200, timeMs: 200 },
   { id: 1, name: '初级', desc: '看得见一两步的吃子，松着不少', depth: 64, jitter: 90, timeMs: 400 },
   { id: 2, name: '中级', desc: '明显的战术不漏，局面上常走软', depth: 64, jitter: 25, timeMs: 900 },
   { id: 3, name: '高级', desc: '不太送子，会抓你的漏着', depth: 64, jitter: 0, timeMs: 1800 },
   { id: 4, name: '大师', desc: '很少犯错，抓杀抓子', depth: 64, jitter: 0, timeMs: 2800 },
-  { id: 5, name: '特级大师', desc: '皮卡鱼算得很深，几乎只走最好的几步', depth: 64, jitter: 0, timeMs: 4500 },
-  { id: 6, name: '棋王', desc: '皮卡鱼全力，每步想 3 秒，几乎不犯错', depth: 64, jitter: 0, timeMs: 6500 },
+  { id: 5, name: '大师 · 二段', desc: '算得更深一点，松着更少', depth: 64, jitter: 0, timeMs: 3300 },
+  { id: 6, name: '特级大师', desc: '几乎只走最好的几步', depth: 64, jitter: 0, timeMs: 4500 },
+  { id: 7, name: '特级大师 · 二段', desc: '只在前四名里挑，很少看走眼', depth: 64, jitter: 0, timeMs: 5000 },
+  { id: 8, name: '特级大师 · 三段', desc: '只在前三名里挑，几乎不送机会', depth: 64, jitter: 0, timeMs: 5500 },
+  { id: 9, name: '国手', desc: '前两名里挑，差一点就是全力', depth: 64, jitter: 0, timeMs: 6000 },
+  { id: 10, name: '棋王', desc: '皮卡鱼全力，每步想 3 秒，几乎不犯错', depth: 64, jitter: 0, timeMs: 6500 },
 ];
+
+/** 存下来的档位编号：老版本是七档，换成十一档的编号；什么都没存过就从大师开始 */
+function storedLevel(): number {
+  try {
+    if (localStorage.getItem('xq-level-v') !== '2') {
+      const old = localStorage.getItem('xq-level');
+      if (old !== null) localStorage.setItem('xq-level', String(migrateLevel(Number(old) || 0)));
+      localStorage.setItem('xq-level-v', '2');
+    }
+    const v = localStorage.getItem('xq-level');
+    return Math.max(0, Math.min(LEVELS.length - 1, v === null ? LEVEL_FLOOR : Number(v) || 0));
+  } catch {
+    return LEVEL_FLOOR;
+  }
+}
 
 /** 皮卡鱼还在加载就等它，最多等这么久；等不到返回 false，由自带引擎替补 */
 function waitEngine(ms = 15000): Promise<boolean> {
@@ -156,12 +176,16 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     start: string;
     moves: string;
     practice: boolean;
+    /** 存的是十一档的编号（老版本七档的没有这个标记，读出来要换算） */
+    lv2?: boolean;
   }
   const readOngoing = (): Ongoing | null => {
     try {
       const o = JSON.parse(localStorage.getItem(ONGOING_KEY) || 'null') as Ongoing | null;
       // 两个星期前的残局就别再提了
       if (!o || !o.moves || Date.now() - o.ts > 14 * 864e5) return null;
+      if (!o.lv2) o.level = migrateLevel(o.level);
+      o.lv2 = true;
       return o;
     } catch {
       return null;
@@ -247,7 +271,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       disposeCoach?.();
       disposeCoach = null;
       if (level !== undefined) localStorage.setItem('xq-level', String(level));
-      const lv = Math.max(0, Math.min(LEVELS.length - 1, Number(localStorage.getItem('xq-level') ?? 1) || 0));
+      const lv = storedLevel();
       if (!moves.length) {
         // 今日训练里的"实战一局"：正常的一盘，计入实战分
         startGame(lv, CHARACTERS[Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length], Number(localStorage.getItem('xq-tempo') ?? 1), undefined, meColor);
@@ -328,7 +352,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       title: `中国象棋 · ${g.d} · 你执${g.side === 'r' ? '红' : '黑'} · ${g.result === 'win' ? '胜' : g.result === 'loss' ? '负' : '和'} · ${g.level}${g.rival ? ` · 对手 ${g.rival}` : ''}`,
       onReplayFrom: (b, t) => {
         clearAll();
-        const lv = Number(localStorage.getItem('xq-level') ?? 2);
+        const lv = storedLevel();
         const rv = Number(localStorage.getItem('xq-rival') ?? 0) % CHARACTERS.length;
         startGame(lv, CHARACTERS[rv], Number(localStorage.getItem('xq-tempo') ?? 1), undefined, g.side, { board: b, turn: t });
       },
@@ -353,7 +377,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   function showSetup() {
     clearAll();
 
-    let level = Math.max(0, Math.min(LEVELS.length - 1, Number(localStorage.getItem('xq-level') ?? 1) || 0));
+    let level = storedLevel();
     let rival = Number(localStorage.getItem('xq-rival') ?? 2);
     let tempo = Math.max(0, Math.min(TEMPOS.length - 1, Number(localStorage.getItem('xq-tempo') ?? 1)));
     let hint: HintLevel = getHintLevel();
@@ -406,10 +430,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       lvRow.className = 'diff-row';
       // 按实战分推荐对手：赢一半输一半的最涨棋
       const pl = getPlay();
-      const rec = pl && pl.n >= 3 ? suggestLevel(pl.r) : -1;
-      LEVELS.forEach((L) => {
+      const rec = pl && pl.n >= 3 ? opponentFor(pl.r) : -1;
+      const lvCard = (L: (typeof LEVELS)[number]) => {
         const card = document.createElement('div');
         card.className = 'card' + (L.id === level ? ' selected' : '');
+        card.dataset.level = String(L.id);
         card.innerHTML = `<div class="title" style="justify-content:center">${L.name}${
           L.id === rec ? '<span class="tag warn">推荐</span>' : ''
         }</div>
@@ -419,10 +444,20 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           sfxTap();
           render();
         };
-        lvRow.appendChild(card);
-      });
-
+        return card;
+      };
+      // 大师往上七档摆出来；入门～高级四档折起来（选着其中一档时展开）
+      LEVELS.filter((L) => L.id >= LEVEL_FLOOR).forEach((L) => lvRow.appendChild(lvCard(L)));
       s.appendChild(lvRow);
+      const low = document.createElement('details');
+      low.className = 'xq-lowlv';
+      low.open = level < LEVEL_FLOOR;
+      low.innerHTML = '<summary>更低的档位（入门～高级）</summary>';
+      const lowRow = document.createElement('div');
+      lowRow.className = 'diff-row';
+      LEVELS.filter((L) => L.id < LEVEL_FLOOR).forEach((L) => lowRow.appendChild(lvCard(L)));
+      low.appendChild(lowRow);
+      s.appendChild(low);
       // 专业引擎跑不起来（老浏览器、隐私模式禁了 service worker）时如实说一声，
       // 不然"专业引擎"几个字就是空头支票
       if (!engineCapable()) {
@@ -706,6 +741,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           start: startKey,
           moves: encodeMoves(moveLog),
           practice,
+          lv2: true,
         };
         localStorage.setItem(ONGOING_KEY, JSON.stringify(o));
       } catch {
@@ -2086,6 +2122,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     setTurnUI(turn !== me);
     renderCoachLine();
     prepareTurn();
+    // 这盘盯住一件事：复盘里现在最贵的毛病（我的专属课），开局提醒一句——把复盘的结论带进下一盘
+    const focusTag = moveLog.length === 0 && hintLevel >= 1 && !practice && !handicap ? ownTopTag() : null;
+    if (focusTag) setCoachLine(`这盘盯住一件事——少犯「${ERR_INFO[focusTag].name}」：${ERR_INFO[focusTag].advice}`, 'info', 9000);
     /*
      * 专业引擎是异步加载的。开局第一步如果它还没好，这一步的研究先用自带引擎顶着；
      * 它一加载好，就把当前这一步换成它重算——前提是你还没在这一步上做过任何决定

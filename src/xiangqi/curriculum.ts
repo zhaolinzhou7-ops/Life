@@ -11,7 +11,7 @@
  * 另一条原则：**毕业看能力，不看天数**。每个阶段有明确的出师标准，
  * 达标才放行，否则就在这一阶段继续磨。
  */
-import { AI_LEVEL_NAMES, AI_LEVEL_RATING, DIM_INFO, DIMS, suggestLevel, type Dim } from './save';
+import { AI_LEVEL_NAMES, AI_LEVEL_RATING, DIM_INFO, DIMS, opponentFor, type Dim } from './save';
 
 export interface Stage {
   id: number;
@@ -453,7 +453,7 @@ function gameBlock(play: { r: number; n: number } | null | undefined): Block {
       why: `实战才下了 ${n} 盘——下够 3 盘，水平和每天的任务都改按实战定。`,
     };
   }
-  const lv = suggestLevel(play.r);
+  const lv = opponentFor(play.r);
   return {
     id: 'game',
     kind: 'game',

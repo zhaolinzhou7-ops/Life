@@ -34,7 +34,7 @@ import { runPuzzle } from './train';
 import { toFen } from './notation';
 import { applyMove, initialBoard } from './rules';
 import type { Puzzle } from './puzzles';
-import { inPieces } from './teach';
+import { ERR_INFO, inPieces, type ErrTag } from './teach';
 import { punishLine, type Punish } from './punish';
 
 const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
@@ -272,6 +272,11 @@ export function runReview(opts: ReviewOpts): () => void {
       </div>
       <div class="xq-rv-eval">局面：${before === after ? before : `${before} → ${after}`}</div>
       <div class="xq-rv-comment">${badgeWhy(m)}${m.comment}</div>
+      ${
+        m.color === playerColor && m.tag && m.loss >= 80
+          ? `<div class="xq-rv-ask-self" data-ask-self>🤔 <b>下次在这种局面，落子前先问自己</b>（${ERR_INFO[m.tag].name}）：${ERR_INFO[m.tag].advice}</div>`
+          : ''
+      }
       ${punishBlock(m, cursor)}
       ${coachFlags.has(m.ply) ? `<div class="xq-rv-flag">🧑‍🏫 对局时教练拦过这一手，你选择了"就这么走"。教练当时说：${esc(coachFlags.get(m.ply)!)}</div>` : ''}
       ${trickNote(m, cursor)}
@@ -510,6 +515,23 @@ export function runReview(opts: ReviewOpts): () => void {
       : '';
     // 找回好棋：你走错的那几手，一手一手重新想（lichess "Learn from your mistakes"、chess.com "Retry"）
     const retry = retryItems();
+    // 教练复盘的两样：一是把这盘最贵的毛病变成一个下盘就能用的习惯；二是对手的错着你抓住了没有——
+    // 复盘不只找自己的错，也要找对手的错（象棋教练的说法），没抓住的机会和走错一样亏
+    const cost = new Map<ErrTag, number>();
+    for (const m of rep.moves) if (m.color === playerColor && m.tag && m.loss >= 80) cost.set(m.tag, (cost.get(m.tag) ?? 0) + m.loss);
+    const habitTag = [...cost.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    const habit = habitTag
+      ? `<div class="xq-rv-habit" data-habit>🧭 <b>这盘要改的一个习惯</b>：少犯「${ERR_INFO[habitTag].name}」（这盘亏了约${inPieces(cost.get(habitTag)!)}）。${ERR_INFO[habitTag].advice}</div>`
+      : '';
+    const missed = rep.moves
+      .map((m, i) => ({ m, i, reply: rep.moves[i + 1] }))
+      .filter(({ m, reply }) => m.color === foe && (m.grade === 'mistake' || m.grade === 'blunder') && reply && reply.color === playerColor && reply.loss >= 100)
+      .slice(0, 2)
+      .map(
+        ({ m, i }) =>
+          `<button class="xq-rv-turn alt" data-i="${i}" data-missed>😮 错过的机会：第 ${roundOf(m.ply)} 回合对手 <b>${m.text}</b> 走软了，你没抓住——看看怎么罚他</button>`,
+      )
+      .join('');
     elSummary.innerHTML = `
       ${opLine}
       <div class="xq-rv-chips">${chips}</div>
@@ -522,6 +544,8 @@ export function runReview(opts: ReviewOpts): () => void {
              </button>`
           : '<div class="xq-rv-empty">这一局你没有明显失误。</div>'
       }
+      ${habit}
+      ${missed}
       ${
         t
           ? `<button class="xq-rv-turn alt" data-i="${rep.turning}">

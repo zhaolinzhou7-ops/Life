@@ -64,7 +64,7 @@ for (const [w, h] of SIZES) {
   await page.evaluate(() => localStorage.setItem('xq-power', 'save'));
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
   await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
-  await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
+  await page.evaluate(() => { const d = document.querySelector('.xq-lowlv'); if (d) d.open = true; }); await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
   await page.getByText('执红先行').first().click();
   await page.getByText('开始对弈').first().click(); await page.waitForTimeout(1200);
   let r = await visible(page, '.xq-bar .xq-btn');

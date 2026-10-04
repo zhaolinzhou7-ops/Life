@@ -72,7 +72,16 @@ export const PIKA_LEVELS: LevelCfg[] = [
   { nodes: 1500, multipv: 7, temp: 140, maxLoss: 450, slip: 0.08, slipLoss: 1000 },
   { nodes: 2500, multipv: 6, temp: 110, maxLoss: 380, slip: 0.06, slipLoss: 900 },
   { nodes: 5000, multipv: 6, temp: 80, maxLoss: 280, slip: 0.05, slipLoss: 600 },
+  // 大师
   { nodes: 6000, multipv: 6, temp: 72, maxLoss: 250, slip: 0.045, slipLoss: 550 },
+  // 大师 · 二段（新）
+  { nodes: 8000, multipv: 6, temp: 62, maxLoss: 220, slip: 0.04, slipLoss: 480 },
+  // 特级大师
   { nodes: 12000, multipv: 5, temp: 50, maxLoss: 180, slip: 0.03, slipLoss: 400 },
+  // 特级大师 · 二段、三段、国手（新）：节点一档翻一倍，挑着法越来越认真，看走眼越来越少
+  { nodes: 20000, multipv: 4, temp: 35, maxLoss: 130, slip: 0.02, slipLoss: 300 },
+  { nodes: 40000, multipv: 3, temp: 22, maxLoss: 80, slip: 0.01, slipLoss: 200 },
+  { nodes: 80000, multipv: 2, temp: 10, maxLoss: 40, slip: 0, slipLoss: 0 },
+  // 棋王：全力
   { movetime: 3000, multipv: 1, temp: 0, maxLoss: 0, slip: 0, slipLoss: 0 },
 ];

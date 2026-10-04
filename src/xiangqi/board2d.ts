@@ -165,6 +165,8 @@ export class Board2D {
   setBadge(b: Badge | null) {
     this.badge = b;
     this.dirty = true;
+    // 画在画布上的东西测试看不见：挂一个属性（"x,y,字"）
+    this.canvas.dataset.badge = b ? `${b.x},${b.y},${b.text}` : '';
   }
   setFlip(f: boolean) {
     if (this.flip === f) return;
@@ -222,6 +224,8 @@ export class Board2D {
     // 走一格 0.2 秒、车炮跨大半个盘 0.36 秒：看得清从哪来，又不拖节奏
     const dur = reduce ? 0 : Math.min(360, 170 + dist * 24);
     this.anim = { m, p, cap: prev[m.ty][m.tx], path, t0: performance.now(), dur };
+    this.canvas.dataset.anim = `${m.fx}${m.fy}${m.tx}${m.ty}`;
+    this.canvas.dataset.anims = String(Number(this.canvas.dataset.anims ?? 0) + 1);
     this.trail = { path, c: p.c, at: performance.now() + dur, cap: !!prev[m.ty][m.tx] };
     this.dirty = true;
   }
@@ -544,7 +548,10 @@ export class Board2D {
     if (this.last && this.lastFade && performance.now() - this.lastAt < LAST_FADE_MS) this.dirty = true;
     // 走子动画、路线淡出这一阵也要每帧画
     const now = performance.now();
-    if (this.anim && now - this.anim.t0 >= this.anim.dur) this.anim = null;
+    if (this.anim && now - this.anim.t0 >= this.anim.dur) {
+      this.anim = null;
+      this.canvas.dataset.anim = '';
+    }
     if (this.anim || (this.trail && now - this.trail.at < TRAIL_MS)) this.dirty = true;
     if (!this.dirty) return;
     this.dirty = false;

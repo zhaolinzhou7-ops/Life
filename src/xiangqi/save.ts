@@ -9,6 +9,7 @@
  */
 
 import type { Puzzle } from './puzzles';
+import type { ErrTag } from './teach';
 
 const KEY = 'xq-save';
 
@@ -106,11 +107,26 @@ export function ttNear(r: number) {
  * 同一个引擎自己跟自己下会把差距放大，所以只要能对旧档下的，都按对旧档的结果算。
  * 估得不准也不要紧——你的实战分跟着输赢走，几盘之后自己会落到对的位置。
  */
-export const AI_LEVEL_RATING = [650, 880, 1050, 1300, 1420, 1690, 2200];
+export const AI_LEVEL_RATING = [650, 880, 1050, 1300, 1420, 1530, 1690, 1860, 1960, 2070, 2200];
 /** 旧版本各档（前五档是自带引擎）的分：只给补算老存档里的棋用 */
 export const LEGACY_LEVEL_RATING = [750, 950, 1150, 1300, 1450, 1900, 2100];
 /** 和对弈设置页的难度名一一对应（单元测试核对） */
-export const AI_LEVEL_NAMES = ['入门', '初级', '中级', '高级', '大师', '特级大师', '棋王'];
+export const AI_LEVEL_NAMES = ['入门', '初级', '中级', '高级', '大师', '大师 · 二段', '特级大师', '特级大师 · 二段', '特级大师 · 三段', '国手', '棋王'];
+
+/**
+ * 对弈设置默认展开、推荐对手的最低一档：大师。
+ * 用户原话："对手档位建议多分几个细分级别。目前前面那几档我基本用不上……我至少要从目前显示的'大师'档位起步。"
+ * 低四档还在（给刚学棋的人），设置页里折起来。
+ */
+export const LEVEL_FLOOR = 4;
+
+/**
+ * 档位从七档细分成十一档（大师往上多了四档），老存档里记的是旧编号：换成新编号。
+ * 旧 0～4 不变，旧 5（特级大师）→ 6，旧 6（棋王）→ 10。
+ */
+export function migrateLevel(old: number): number {
+  return [0, 1, 2, 3, 4, 6, 10][old] ?? old;
+}
 
 /**
  * 该跟哪一档下：实战分附近、稍微高一点的那一档。
@@ -120,6 +136,11 @@ export function suggestLevel(r: number): number {
   let best = 0;
   for (let i = 0; i < AI_LEVEL_RATING.length; i++) if (AI_LEVEL_RATING[i] <= r + 100) best = i;
   return best;
+}
+
+/** 给你排对手：实战分附近那一档，但不低于大师（LEVEL_FLOOR） */
+export function opponentFor(r: number): number {
+  return Math.max(LEVEL_FLOOR, suggestLevel(r));
 }
 
 export interface Rating {
@@ -469,7 +490,7 @@ export const LADDER: { id: string; name: string; desc: string; strip: number; lv
   { id: 'h1', name: '让单马', desc: '对手（高级）少一个马', strip: 1, lv: 3, approx: AI_LEVEL_RATING[3] - 250 },
   { id: 'e0', name: '分先 · 进阶', desc: '子力相同，对手是高级', strip: 0, lv: 3, approx: AI_LEVEL_RATING[3] },
   { id: 'e1', name: '分先 · 高手', desc: '子力相同，对手是大师', strip: 0, lv: 4, approx: AI_LEVEL_RATING[4] },
-  { id: 'e2', name: '分先 · 大师', desc: '子力相同，对手是特级大师', strip: 0, lv: 5, approx: AI_LEVEL_RATING[5] },
+  { id: 'e2', name: '分先 · 大师', desc: '子力相同，对手是特级大师', strip: 0, lv: 6, approx: AI_LEVEL_RATING[6] },
 ];
 
 export interface LadderState {
@@ -953,6 +974,21 @@ export function addOwnPuzzle(p: Omit<Puzzle, 'id'>): string | null {
 
 export function getOwnPuzzles(): Puzzle[] {
   return load().own;
+}
+
+/**
+ * 复盘出来的毛病里，现在最贵的那一种：还没过关的那几手加起来亏分最多的。
+ * 下一盘开局时教练提醒的"这盘盯住一件事"就是它——复盘的结论带进下一盘棋里。
+ */
+export function ownTopTag(): ErrTag | null {
+  const d = load();
+  const cost = new Map<ErrTag, number>();
+  for (const p of d.own) {
+    if (!p.tag || !d.srs.some((c) => c.id === p.id)) continue;
+    cost.set(p.tag, (cost.get(p.tag) ?? 0) + (p.from?.loss ?? 100));
+  }
+  const top = [...cost.entries()].sort((a, b) => b[1] - a[1])[0];
+  return top ? top[0] : null;
 }
 
 /**

@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { chooseMove, PIKA_LEVELS, type Cand } from '../src/xiangqi/pikalevel';
-import { AI_LEVEL_NAMES, AI_LEVEL_RATING, LADDER } from '../src/xiangqi/save';
+import { AI_LEVEL_NAMES, AI_LEVEL_RATING, LADDER, LEVEL_FLOOR, migrateLevel, opponentFor } from '../src/xiangqi/save';
 import { endgameTarget } from '../src/xiangqi/train';
 import type { Puzzle } from '../src/xiangqi/puzzles';
 
@@ -23,7 +23,7 @@ describe('按档位挑着', () => {
   ];
 
   it('只看第一名的档（全力）永远走引擎首选', () => {
-    expect(chooseMove(cands, PIKA_LEVELS[6], seq([0.99]))).toEqual(mv(0));
+    expect(chooseMove(cands, PIKA_LEVELS[PIKA_LEVELS.length - 1], seq([0.99]))).toEqual(mv(0));
   });
 
   it('一步杀谁都不会放过', () => {
@@ -58,17 +58,32 @@ describe('按档位挑着', () => {
   });
 });
 
-describe('七档配置', () => {
-  it('七档，名字、分数、配置一一对应，分数一档比一档高', () => {
-    expect(PIKA_LEVELS.length).toBe(7);
-    expect(AI_LEVEL_NAMES.length).toBe(7);
-    expect(AI_LEVEL_RATING.length).toBe(7);
-    for (let i = 1; i < 7; i++) expect(AI_LEVEL_RATING[i]).toBeGreaterThan(AI_LEVEL_RATING[i - 1]);
+describe('十一档配置', () => {
+  it('十一档，名字、分数、配置一一对应，分数一档比一档高', () => {
+    expect(PIKA_LEVELS.length).toBe(11);
+    expect(AI_LEVEL_NAMES.length).toBe(11);
+    expect(AI_LEVEL_RATING.length).toBe(11);
+    for (let i = 1; i < 11; i++) expect(AI_LEVEL_RATING[i]).toBeGreaterThan(AI_LEVEL_RATING[i - 1]);
+  });
+
+  it('大师往上细分成七档，一档之间差一百多分（用户原话："至少要从大师档位起步"）', () => {
+    const top = AI_LEVEL_RATING.slice(LEVEL_FLOOR);
+    expect(AI_LEVEL_NAMES[LEVEL_FLOOR]).toBe('大师');
+    expect(top.length).toBe(7);
+    for (let i = 1; i < top.length; i++) expect(top[i] - top[i - 1]).toBeLessThanOrEqual(220);
+    // 给你排对手不低于大师
+    expect(opponentFor(600)).toBe(LEVEL_FLOOR);
+    expect(opponentFor(AI_LEVEL_RATING[9])).toBe(9);
+  });
+
+  it('老存档的七档编号换成新编号：特级大师、棋王的名字不变', () => {
+    const OLD = ['入门', '初级', '中级', '高级', '大师', '特级大师', '棋王'];
+    OLD.forEach((name, i) => expect(AI_LEVEL_NAMES[migrateLevel(i)]).toBe(name));
   });
 
   it('越往上算得越多、挑得越认真', () => {
     const work = (i: number) => PIKA_LEVELS[i].nodes ?? 1e9;
-    for (let i = 1; i < 7; i++) {
+    for (let i = 1; i < PIKA_LEVELS.length; i++) {
       expect(work(i)).toBeGreaterThan(work(i - 1));
       expect(PIKA_LEVELS[i].temp).toBeLessThanOrEqual(PIKA_LEVELS[i - 1].temp);
     }
@@ -77,7 +92,7 @@ describe('七档配置', () => {
   it('让子阶梯用的是存在的档位，参考分由档位分数推出来', () => {
     for (const r of LADDER) {
       expect(r.lv).toBeGreaterThanOrEqual(0);
-      expect(r.lv).toBeLessThan(7);
+      expect(r.lv).toBeLessThan(AI_LEVEL_RATING.length);
       expect(r.approx).toBeLessThanOrEqual(AI_LEVEL_RATING[r.lv]);
     }
     for (let i = 1; i < LADDER.length; i++) expect(LADDER[i].approx).toBeGreaterThan(LADDER[i - 1].approx);
