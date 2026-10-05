@@ -72,6 +72,8 @@ export interface ReplayBranch {
   outro?: string;
   /** 这一路看完了（打勾） */
   onSeen?: () => void;
+  /** 以前已经看过（分岔点上标"✓ 看过"） */
+  seen?: boolean;
 }
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
@@ -285,8 +287,8 @@ export function runReplay(host: HTMLElement, opts: ReplayOpts): () => void {
         .map(
           (o, n) =>
             `<button class="xq-fork" data-fork="${o.b}" style="--c:${KIND_TAG[o.kind].color}"><b>${CIRCLED[n]} ${o.move.t}</b><span class="tg">${KIND_TAG[o.kind].tag}</span>${
-              seenOpt.has(`${i}:${o.b}`) ? '<span class="tg seen">✓ 看过</span>' : ''
-            }<em>${o.b === -1 ? o.name : o.name}${first(o.move.why) ? `：${first(o.move.why)}` : ''}</em></button>`,
+              seenOpt.has(`${i}:${o.b}`) || (o.b >= 0 && opts.branches![o.b].seen) ? '<span class="tg seen">✓ 看过</span>' : ''
+            }<em>${o.name}${first(o.move.why) ? `：${first(o.move.why)}` : ''}</em></button>`,
         )
         .join('')}</div>`;
     elSay.querySelectorAll<HTMLButtonElement>('[data-fork]').forEach((el) => (el.onclick = () => chooseFork(Number(el.dataset.fork))));

@@ -189,9 +189,12 @@ export class Board2D {
     this.dirty = true;
     // 测试看不见画布：点得动的箭头挂在属性上
     this.canvas.dataset.arrows = arrows.filter((a) => a.id).map((a) => a.id).join(',');
-    // 箭头中点在画布上的位置（测试按这个去点箭头）
+    this.exposeArrows();
+  }
+  /** 箭头中点在画布上的位置（测试按这个去点箭头）；棋盘尺寸变了要跟着更新 */
+  private exposeArrows() {
     this.canvas.dataset.arrowsxy = JSON.stringify(
-      arrows
+      this.arrows
         .filter((a) => a.id)
         .map((a) => {
           const [sx, sy] = this.px(a.fx, a.fy);
@@ -200,6 +203,7 @@ export class Board2D {
         }),
     );
   }
+
   /** 换一个"点箭头"回调（复盘的棋盘是对局那块，建的时候还不知道要点箭头） */
   setArrowTap(fn: ((id: string) => void) | undefined) {
     this.onArrowTap = fn;
@@ -316,6 +320,7 @@ export class Board2D {
     this.bgCv = null;
     this.sprites.clear();
     this.dirty = true;
+    if (this.arrows.some((a) => a.id)) this.exposeArrows();
   };
 
   // ---------- 静态层 ----------

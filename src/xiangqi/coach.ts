@@ -2095,6 +2095,7 @@ export function runCoach(
                 moves: withKey(sg, evB, fm).map((m) => ({ t: m.t, why: m.why })),
                 outro: `<b>${x.final}</b>（皮卡鱼评估）。${lineSummary({ kind: x.kind ?? 'var', moves: sg, evBefore: evB, firstMover: fm, ply0: x.at, mainMove: o.moves[x.at]?.t })}`,
                 onSeen: () => markSeen(`op:${o.id}:${x.name}`),
+                seen: seenLines().has(`op:${o.id}:${x.name}`),
               };
             })
         : undefined;
@@ -2959,6 +2960,7 @@ export function runCoach(
             moves: withKey(x.moves, evB, fm).map((m) => ({ t: m.t, why: m.why })),
             outro: `<b>${x.final}</b>（皮卡鱼评估）。${lineSummary({ kind: x.kind, moves: x.moves, evBefore: evB, firstMover: fm, ply0, mainMove: base[ply0]?.t })}`,
             onSeen: () => markSeen(`trick:${t.id}:${x.name}`),
+            seen: seenLines().has(`trick:${t.id}:${x.name}`),
           };
         }),
       ].filter((b) => b.moves.length && b.at < base.length);

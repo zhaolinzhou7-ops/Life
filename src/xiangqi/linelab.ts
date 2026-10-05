@@ -142,6 +142,12 @@ export function runLineLab(host: HTMLElement, opts: LabOpts): () => void {
     const c = colorAt(k);
     const red = (s: MoveScore) => (c === 'r' ? s.score : -s.score);
     const redMate = (s: MoveScore) => (s.mateIn === undefined ? undefined : c === 'r' ? s.mateIn : -s.mateIn);
+    // 对"你"这一方好不好：红优黑优要换算一下才知道，直接说出来
+    const forMe = (s: MoveScore) => {
+      if (s.mateIn !== undefined) return (s.mateIn > 0) === (c === me) ? '（对你有利）' : '（对你不利）';
+      const mine = c === me ? s.score : -s.score;
+      return mine >= 60 ? '（对你有利）' : mine <= -60 ? '（对你不利）' : '（差不多）';
+    };
     const arrows: Arrow[] = alts.map((s, i) => ({ ...s.move, color: ALT_COLOR[i], label: CIRCLED[i], id: `alt-${i}` }));
     view.setArrows(arrows);
     const onLine = k < seq.length ? seq[k] : null;
@@ -150,7 +156,7 @@ export function runLineLab(host: HTMLElement, opts: LabOpts): () => void {
       alts
         .map(
           (s, i) =>
-            `<button class="xq-lab-alt" data-alt="${i}" style="--c:${ALT_COLOR[i]}"><b>${CIRCLED[i]} ${moveToText(b, s.move)}</b><em>走完：${evalWords(red(s), redMate(s))}</em>${
+            `<button class="xq-lab-alt" data-alt="${i}" style="--c:${ALT_COLOR[i]}"><b>${CIRCLED[i]} ${moveToText(b, s.move)}</b><em>走完：${evalWords(red(s), redMate(s))}${forMe(s)}</em>${
               onLine && same(onLine, s.move) ? '<span class="cur">现在这一路</span>' : ''
             }</button>`,
         )
