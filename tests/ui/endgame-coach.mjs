@@ -236,7 +236,9 @@ const tipOpen = (page) => page.evaluate(() => !!document.querySelector('.xq-tip:
   const detail = await page.locator('.xq-rv-detail').innerText();
   console.log('   复盘：' + detail.replace(/\s+/g, ' ').slice(0, 150));
   ok('复盘里写明教练当时说了什么', detail.includes('教练拦过这一手'));
-  ok('复盘对这一手的评级和教练一致（不是"最佳"）', !/最佳|好棋/.test(detail.split('教练')[0]));
+  // 看这一手的评级标签本身（下面那行"✅ 最佳走法 ……"说的是该走什么，不是这一手的评级）
+  const grade = await page.locator('.xq-rv-grade').first().innerText();
+  ok(`复盘对这一手的评级和教练一致（不是"最佳"，是「${grade.trim()}」）`, !/最佳|好棋/.test(grade));
   await page.screenshot({ path: OUT + '/eg-review-flag.png' });
   await page.close();
 }
