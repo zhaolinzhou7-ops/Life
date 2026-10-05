@@ -17,6 +17,7 @@
  */
 import { fromFen, moveToText, textToMove, toFen } from './notation';
 import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color, type Move } from './rules';
+import { movesFromTexts, openLineLab } from './linelab';
 import { Board2D, type Mark } from './board2d';
 import { requestMove } from './aiclient';
 import { promptOf, type Puzzle } from './puzzles';
@@ -423,6 +424,22 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       <button class="xq-btn ghost" id="xq-tr-again">从头再走一遍</button>`;
     (elBar.querySelector('#xq-tr-next') as HTMLButtonElement).onclick = () => opts.onDone(r);
     (elBar.querySelector('#xq-tr-again') as HTMLButtonElement).onclick = () => restart();
+    // 原谱别只写一串字：在棋盘上一步步走给你看，走到哪一步还能问"这里还有哪几种走法"
+    if (puzzle.line.length > 1 && !elFb.querySelector('[data-lab-open]')) {
+      const b = document.createElement('button');
+      b.className = 'xq-lab-open';
+      b.dataset.labOpen = '';
+      b.textContent = '▶ 在棋盘上一步步看原谱（还能看别的走法）';
+      b.onclick = () =>
+        openLineLab({
+          board: start,
+          turn: me,
+          line: movesFromTexts(start, me, puzzle.line),
+          title: '原谱 · 一步步看',
+          intro: promptOf(puzzle),
+        });
+      elFb.appendChild(b);
+    }
   }
 
   async function wrong(text: string, why: string, before: Board) {

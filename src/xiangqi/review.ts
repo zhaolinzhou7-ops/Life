@@ -35,7 +35,8 @@ import { toFen } from './notation';
 import { applyMove, initialBoard } from './rules';
 import type { Puzzle } from './puzzles';
 import { ERR_INFO, inPieces, type ErrTag } from './teach';
-import { punishLine, type Punish } from './punish';
+import { lineSteps, punishLine, type Punish, type PunishStep } from './punish';
+import { openLineLab } from './linelab';
 
 const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 
@@ -89,6 +90,8 @@ export function runReview(opts: ReviewOpts): () => void {
   let ownAnalysis = !opts.analysis;
   const boards = analysis.boards;
   let cursor = -1; // -1 = 初始局面
+  /** 正在看的这一手是不是"对比"摆法（棋盘停在走之前，你走的和最佳两条箭头） */
+  let compare = false;
   let jumped = false;
 
   const panel = document.createElement('div');
@@ -225,7 +228,11 @@ export function runReview(opts: ReviewOpts): () => void {
     stopDemo();
     const list = reviewed();
     cursor = Math.max(-1, Math.min(list.length - 1, i));
-    scene.syncBoard(boards[cursor + 1]);
+    const cm = cursor >= 0 ? list[cursor] : null;
+    // 你走得不好的一手：棋盘停在走之前，红箭头是你走的、绿箭头是最佳——点箭头看两条路各自怎么发展
+    compare = !!cm && cm.color === playerColor && !!cm.bestMove && isBad(cm);
+    scene.syncBoard(boards[compare ? cursor : cursor + 1]);
+    scene.setArrows([]);
     drawGraph();
 
     // 总览（开局）时看整盘总结；看某一手时把总结收起来，这一手的讲解直接露在最上面，不用往下翻
@@ -247,15 +254,23 @@ export function runReview(opts: ReviewOpts): () => void {
     const lb = labelOf(m);
     const L = MOVE_LABEL[lb];
     // 这一手标在盘上：走的路线 + 棋子右上角的评级（★ 优 良 中 差 错 漏）
-    scene.setLastMove(m.move, false);
-    scene.setBadge({ x: m.move.tx, y: m.move.ty, text: L.short, color: L.badge });
+    if (compare) {
+      // 走之前的局面：评级挂在要走的那个子上，两条箭头都点得动
+      scene.setLastMove(cursor > 0 ? list[cursor - 1].move : null, false);
+      scene.setBadge({ x: m.move.fx, y: m.move.fy, text: L.short, color: L.badge });
+      scene.setArrows([
+        { ...m.move, color: 'rgba(224,67,58,0.9)', label: '你', id: 'mine' },
+        { ...m.bestMove!, color: 'rgba(46,170,90,0.95)', label: '★', id: 'best' },
+      ]);
+    } else {
+      scene.setLastMove(m.move, false);
+      scene.setBadge({ x: m.move.tx, y: m.move.ty, text: L.short, color: L.badge });
+      // 对手走软的一手：绿箭头是你该怎么罚他（他这一路主变里你的下一手），点它看整条
+      const pun = m.color !== playerColor && isBad(m) ? m.playedLine?.[1] : undefined;
+      if (pun) scene.setArrows([{ ...pun, color: 'rgba(46,170,90,0.95)', label: '罚', id: 'punish' }]);
+    }
 
-    // 走得不好就把「该走的那一手」标在盘上：起点选中、终点画成可走点
-    const bm = m.grade === 'best' || m.grade === 'good' ? null : m.bestMove;
-    if (bm) {
-      const before = boards[cursor];
-      scene.select({ x: bm.fx, y: bm.fy }, [{ x: bm.tx, y: bm.ty, capture: !!before[bm.ty][bm.tx] }]);
-    } else scene.select(null);
+    scene.select(null);
 
     // 走之前 → 走之后，红方视角
     const toRed = (s: number) => (m.color === 'r' ? s : -s);
@@ -268,8 +283,9 @@ export function runReview(opts: ReviewOpts): () => void {
         <span class="xq-rv-grade">${L.sym ? `${L.sym} ` : ''}${L.name}</span>
         <b>${m.text}</b>
         ${punishOf(m, cursor) ? `<button class="xq-rv-pun" data-act="punish-demo">▶ ${m.color === playerColor ? '演示对手怎么罚' : '演示怎么罚他'}</button>` : ''}
-        <span class="xq-rv-acc" title="这一手的准确率">${m.accuracy} 分</span>
+        <span class="xq-rv-acc" title="这一手的准确率（0～100）">准确率 ${m.accuracy}</span>
       </div>
+      ${bestBlock(m)}
       <div class="xq-rv-eval">局面：${before === after ? before : `${before} → ${after}`}</div>
       <div class="xq-rv-comment">${badgeWhy(m)}${m.comment}</div>
       ${
@@ -288,6 +304,36 @@ export function runReview(opts: ReviewOpts): () => void {
       </div>
       <div class="xq-rv-deepbox"></div>`;
     renderList();
+  }
+
+  /** 不佳、失误、漏着 */
+  function isBad(m: ReviewedMove): boolean {
+    const lb = labelOf(m);
+    return lb === 'dubious' || lb === 'mistake' || lb === 'blunder';
+  }
+
+  /**
+   * 最佳走法那一行。用户原话："能看到最好的走法应该是什么，以及这步最佳走法能多得多少分。
+   * 最好能支持交互，比如有一个箭头，我点着箭头就能知道最佳走法及接下来的后续发展。"
+   */
+  function bestBlock(m: ReviewedMove): string {
+    const mine = m.color === playerColor;
+    if (m.isBest) return `<div class="xq-rv-best ok" data-best>✅ ${mine ? '这就是最佳走法' : '对手这一手就是最佳走法'}。</div>`;
+    if (!m.bestMove || !m.bestText) return '';
+    const pawns = (m.loss / 100).toFixed(1);
+    const who = mine ? '你这手' : '他这手';
+    const hint = compare
+      ? `<div class="tip">棋盘上 <b class="g">绿箭头 ★</b> 是最佳、<b class="r">红箭头「你」</b>是你走的——点箭头，看两条路各自怎么走下去。</div>`
+      : !mine && isBad(m)
+        ? '<div class="tip">棋盘上 <b class="g">绿箭头「罚」</b>是你该怎么罚他——点它看整条。</div>'
+        : '';
+    return `<div class="xq-rv-best" data-best>
+      <div>✅ ${mine ? '最佳走法' : '他该走'} <b>${m.bestText}</b>：比${who}多得约 <b>${m.loss} 分</b>（约 ${pawns} 个兵）</div>
+      ${hint}
+      <div class="acts">${mine ? '<button class="xq-rv-act" data-act="best-demo">▶ 看最佳走法的后续</button>' : ''}${
+        isBad(m) ? `<button class="xq-rv-act bad" data-act="punish-demo">▶ ${mine ? '看你这手的后果' : '看怎么罚他'}</button>` : ''
+      }<button class="xq-rv-act" data-act="lab">🔀 推演板：自己试别的走法</button></div>
+    </div>`;
   }
 
   /** 这一手走得不好（不佳、失误、漏着）：对手接下来具体怎么罚 */
@@ -392,7 +438,7 @@ export function runReview(opts: ReviewOpts): () => void {
           data-i="${i}" style="--g:${L.color}">
           <span class="n">${roundOf(m.ply)}${m.color === 'r' ? '.' : '…'}</span>
           <span class="t">${m.text}</span>
-          ${L.sym ? `<span class="s">${L.sym}</span>` : ''}
+          <span class="lv" style="--g:${L.badge}" title="${L.name}">${L.short}</span>
           ${coachFlags.has(m.ply) ? '<span class="f" title="教练拦过">🧑‍🏫</span>' : ''}
           ${loud ? `<span class="g">${L.name}</span>` : ''}
         </button>`;
@@ -696,7 +742,9 @@ export function runReview(opts: ReviewOpts): () => void {
       runRetry();
       return;
     }
-    if (act === 'punish-demo') return startDemo();
+    if (act === 'punish-demo') return startDemo('punish');
+    if (act === 'best-demo') return startDemo('best');
+    if (act === 'lab') return openLab();
     if (act === 'train-own' && opts.onTrainOwn) {
       close();
       opts.onTrainOwn();
@@ -709,7 +757,7 @@ export function runReview(opts: ReviewOpts): () => void {
       return;
     }
     if (demo && act === 'demo-play') {
-      if (demo.k >= demo.p.steps.length) demoShow(1);
+      if (demo.k >= demo.d.steps.length) demoShow(1);
       demoAuto(!demo.timer);
       return;
     }
@@ -739,18 +787,52 @@ export function runReview(opts: ReviewOpts): () => void {
     if (target.closest('[data-act="overview"]')) goto(-1);
   });
 
-  // ───────── 劣势推演：在棋盘上一步步演示 ─────────
-  let demo: { p: Punish; k: number; timer: number; mine: boolean } | null = null;
+  // ───────── 在棋盘上一步步演示一条路：对手怎么罚你 / 最佳走法怎么走下去 ─────────
+  interface DemoLine {
+    steps: PunishStep[];
+    summary: string;
+    title: string;
+    /** 第一步那个标签："你走错" / "应该走" */
+    firstWho: string;
+    /** 第一步是不是你走的 */
+    mine: boolean;
+  }
+  let demo: { d: DemoLine; k: number; timer: number } | null = null;
   const navEl = panel.querySelector('.xq-rv-nav') as HTMLElement;
   const navHtml = navEl.innerHTML;
-  function startDemo() {
+
+  function punishDemo(m: ReviewedMove, i: number): DemoLine | null {
+    const p = punishOf(m, i);
+    if (!p) return null;
+    const mine = m.color === playerColor;
+    return { steps: p.steps, summary: p.summary, title: mine ? '⚠️ 对手怎么罚你' : '💡 你可以怎么罚他', firstWho: mine ? '你走错' : '他走软', mine };
+  }
+  /** 最佳走法这一路：引擎的主变，一手手讲；结尾说这一路的计划和走完谁好 */
+  function bestDemo(m: ReviewedMove, i: number): DemoLine | null {
+    if (!m.bestMove) return null;
+    const line = m.bestLine?.length ? m.bestLine : [m.bestMove];
+    const steps = lineSteps(boards[i], line, m.color, m.color, 10);
+    if (!steps.length) return null;
+    const p = planOf(boards[i], m.color, { move: m.bestMove, score: m.bestScore, mateIn: m.bestMate, pv: line }, 10);
+    const toRed = (x: number) => (m.color === 'r' ? x : -x);
+    const end = evalWords(toRed(m.bestScore), m.bestMate === undefined ? undefined : toRed(m.bestMate));
+    const mine = m.color === playerColor;
+    return {
+      steps,
+      summary: `${mine ? '这一手该走' : '他该走'} <b>${m.bestText}</b>——${p.goal}。这一路走下去：${end}；比${mine ? '你' : '他'}走的 ${m.text} 多得约 ${m.loss} 分。`,
+      title: `✅ 最佳走法 ${m.bestText} 怎么走下去`,
+      firstWho: mine ? '应该走' : '他该走',
+      mine,
+    };
+  }
+  function startDemo(kind: 'punish' | 'best') {
     const m = reviewed()[cursor];
-    const p = m ? punishOf(m, cursor) : null;
-    if (!m || !p) return;
+    const d = m ? (kind === 'best' ? bestDemo(m, cursor) : punishDemo(m, cursor)) : null;
+    if (!m || !d) return;
     const at = cursor;
     stopDemo();
     cursor = at;
-    demo = { p, k: 1, timer: 0, mine: m.color === playerColor };
+    demo = { d, k: 1, timer: 0 };
     panel.classList.add('demo');
     // 演示看的是棋盘：讲解展开着的先收起来，棋盘放到最大
     if (tall) {
@@ -765,26 +847,30 @@ export function runReview(opts: ReviewOpts): () => void {
       <button class="xq-btn" data-act="demo-end">✕ 结束演示</button>`;
     scene.select(null);
     scene.setBadge(null);
+    scene.setArrows([]);
+    // 从走之前的局面开始，第一步就是这一路的第一手（对比摆法下棋盘本来就在走之前）
+    scene.syncBoard(boards[at]);
     demoShow(1);
     demoAuto(true);
   }
-  /** 演示到第 k 步（第 1 步是走错的那一手）：棋盘走过去、下面讲这一步在干什么 */
+  /** 演示到第 k 步：棋盘走过去、下面讲这一步在干什么 */
   function demoShow(k: number) {
     if (!demo) return;
-    const { p, mine } = demo;
-    const n = p.steps.length;
+    const { d } = demo;
+    const n = d.steps.length;
     k = Math.max(1, Math.min(n, k));
     demo.k = k;
-    const st = p.steps[k - 1];
+    const st = d.steps[k - 1];
     scene.syncBoard(applyMove(st.before, st.move));
     scene.setLastMove(st.move, false);
-    const isMe = (st.who === 'me') === mine;
-    const who = k === 1 ? (mine ? '你走错' : '他走软') : isMe ? '你' : '对手';
-    const dots = p.steps.map((x, j) => `<i class="${j < k ? 'on' : ''}${(x.who === 'me') === mine ? '' : ' foe'}"></i>`).join('');
+    scene.setArrows(k < n ? [{ ...d.steps[k].move, color: 'rgba(255,215,110,0.45)' }] : []);
+    const isMe = (st.who === 'me') === d.mine;
+    const who = k === 1 ? d.firstWho : isMe ? '你' : '对手';
+    const dots = d.steps.map((x, j) => `<i class="${j < k ? 'on' : ''}${(x.who === 'me') === d.mine ? '' : ' foe'}"></i>`).join('');
     elDetail.innerHTML = `<div class="xq-rv-demo" data-demo>
-      <div class="pg">${mine ? '⚠️ 对手怎么罚你' : '💡 你可以怎么罚他'} · 第 ${k} / ${n} 步<span class="dots">${dots}</span></div>
+      <div class="pg">${d.title} · 第 ${k} / ${n} 步<span class="dots">${dots}</span></div>
       <div class="now ${isMe ? 'me' : 'foe'}"><span class="w">${who}</span><b>${st.text}</b><em>${st.note}${st.tags.length ? `（${st.tags.join('、')}）` : ''}</em></div>
-      ${k === n ? `<div class="sum">${p.summary}</div>` : `<div class="nx">下一步：${(p.steps[k].who === 'me') === mine ? '你' : '对手'} ${p.steps[k].text}</div>`}
+      ${k === n ? `<div class="sum">${d.summary}</div>` : `<div class="nx">下一步：${(d.steps[k].who === 'me') === d.mine ? '你' : '对手'} ${d.steps[k].text}（棋盘上淡黄箭头）</div>`}
     </div>`;
     if (k === n) demoAuto(false);
   }
@@ -794,8 +880,23 @@ export function runReview(opts: ReviewOpts): () => void {
     demo.timer = 0;
     if (on) demo.timer = window.setInterval(() => demo && demoShow(demo.k + 1), 1400);
     const b = navEl.querySelector('[data-act="demo-play"]') as HTMLButtonElement | null;
-    if (b) b.textContent = on ? '⏸ 暂停' : demo.k >= demo.p.steps.length ? '↻ 再看一遍' : '▶ 自动';
+    if (b) b.textContent = on ? '⏸ 暂停' : demo.k >= demo.d.steps.length ? '↻ 再看一遍' : '▶ 自动';
   }
+  /** 推演板：从这一手走之前的局面开始，先摆最佳走法这一路，任何一步都能问"还有哪几种走法" */
+  function openLab() {
+    const m = reviewed()[cursor];
+    if (!m) return;
+    openLineLab({
+      board: boards[cursor],
+      turn: m.color,
+      line: m.bestLine?.length ? m.bestLine : m.bestMove ? [m.bestMove] : [],
+      title: `第 ${roundOf(m.ply)} 回合 · 推演`,
+      intro: `这一手${m.color === playerColor ? '你' : '对手'}走的是 ${m.text}${m.bestText ? `，最佳是 ${m.bestText}` : ''}。点「下一步」看最佳这一路，或者点「🔀 几种走法」看别的走法各自怎么发展`,
+      me: playerColor,
+      forkFirst: true,
+    });
+  }
+
   /** 收起演示（不动棋盘）：翻到别的手、关掉复盘时用 */
   function stopDemo() {
     if (!demo) return;
@@ -933,6 +1034,13 @@ export function runReview(opts: ReviewOpts): () => void {
     layout();
   };
 
+  // 点棋盘上的箭头：绿 ★ 看最佳走法的后续，红「你」看这一手的后果，绿「罚」看怎么罚他
+  scene.setArrowTap((id) => {
+    if (demo) return;
+    if (id === 'best') startDemo('best');
+    else if (id === 'mine' || id === 'punish') startDemo('punish');
+  });
+
   goto(-1);
   onProgress();
   requestAnimationFrame(drawGraph);
@@ -954,6 +1062,8 @@ export function runReview(opts: ReviewOpts): () => void {
     panel.remove();
     scene.select(null);
     scene.setBadge(null);
+    scene.setArrows([]);
+    scene.setArrowTap(undefined);
     scene.syncBoard(boards[boards.length - 1]);
   }
   return close;

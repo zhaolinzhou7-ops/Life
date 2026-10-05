@@ -48,6 +48,18 @@ export interface Plan {
   endgame?: EndgameInfo;
   /** 局面判断："你占优（约多一个马炮）" */
   outlook: string;
+  /** 这一串着法本身（从哪个局面、谁先走）：计划底下"在棋盘上看"用 */
+  line?: { board: Board; color: Color; moves: Move[] };
+}
+
+/**
+ * 计划写成 HTML 时给它一个号，"▶ 在棋盘上一步步看"点下去，推演板按号取出这一串（linelab.ts 里统一接）。
+ * 用户原话："不要只干巴巴地写'炮八平五、炮二进六'这种文字，光看文字真的很累，我希望能直接从棋盘的变化上直观感受出来。"
+ */
+const PLAN_LINES = new Map<string, { board: Board; color: Color; moves: Move[]; me: Color; goal: string }>();
+let planSeq = 0;
+export function planLine(id: string) {
+  return PLAN_LINES.get(id) ?? null;
 }
 
 const same = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
@@ -122,6 +134,7 @@ export function planOf(board: Board, me: Color, best: MoveScore, maxPlies = 7): 
   const gave: { t: string; c: Color }[] = [];
   let checks = 0;
   const limit = best.mateIn !== undefined && best.mateIn > 0 ? Math.min(2 * best.mateIn - 1, 11) : maxPlies;
+  const used: Move[] = [];
   for (const m of pv.slice(0, limit)) {
     // 主变里的每一手都要在我们的规则下合法；不合法就截断（引擎和我们对规则的理解有出入时）
     if (!legalMoves(cur, c).some((x) => same(x, m))) break;
@@ -139,12 +152,13 @@ export function planOf(board: Board, me: Color, best: MoveScore, maxPlies = 7): 
     }
     if (c === me && isInCheck(applyMove(cur, m), foe)) checks++;
     steps.push({ who: c === me ? 'me' : 'foe', text: moveToText(cur, m), tags: stepTags(cur, m, c, me) });
+    used.push(m);
     cur = applyMove(cur, m);
     c = other(c);
   }
   const delta = gained - lost;
   const endgame = !isEndgame(board) && isEndgame(cur) ? classifyEndgame(cur, me) ?? undefined : undefined;
-  const base = { steps, materialDelta: delta, endgame, outlook };
+  const base = { steps, materialDelta: delta, endgame, outlook, line: { board, color: me, moves: used } };
 
   if (best.mateIn !== undefined && best.mateIn > 0) {
     const mine = steps.filter((s) => s.who === 'me').length;
@@ -202,8 +216,16 @@ export function planHtml(p: Plan): string {
     )
     .join('<i>→</i>');
   const eg = p.endgame?.book?.note ? `<div class="eg">📘 ${p.endgame.book.book}：${p.endgame.book.note}</div>` : '';
+  let lab = '';
+  if (p.line && p.line.moves.length >= 2) {
+    const id = `p${++planSeq}`;
+    PLAN_LINES.set(id, { ...p.line, me: p.line.color, goal: p.goal });
+    // 别让存档里攒太多：只留最近两百条
+    if (PLAN_LINES.size > 200) PLAN_LINES.delete(PLAN_LINES.keys().next().value!);
+    lab = `<button class="xq-lab-open" data-plan-lab="${id}">▶ 在棋盘上一步步看这个计划（还能看别的走法）</button>`;
+  }
   return `<div class="xq-plan"><div class="goal">📋 <b>计划</b>：${p.goal}</div>
-    <div class="line">${steps}</div>${eg}<div class="out">走完之后：${p.outlook}</div></div>`;
+    <div class="line">${steps}</div>${eg}<div class="out">走完之后：${p.outlook}</div>${lab}</div>`;
 }
 
 // ───────────────────────── 对方的想法 ─────────────────────────

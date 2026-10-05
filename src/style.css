@@ -4852,3 +4852,123 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
 .xq-lowlv .diff-row { margin-top: 6px; }
 .xq-rv-ask-self { font-size: 12.5px; line-height: 1.6; padding: 6px 10px; border-left: 3px solid #ffd76e; background: rgba(255, 215, 110, 0.07); border-radius: 0 8px 8px 0; }
 .xq-rv-ask-self b { color: #ffd76e; }
+
+/* ===================== 推演板：一串着法在棋盘上走，任何一步都能分出几条路 ===================== */
+.xq-lab-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: var(--bg, #0d141b);
+  display: flex;
+  flex-direction: column;
+  height: var(--app-h, 100vh);
+}
+.xq-lab {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px calc(env(safe-area-inset-bottom) + 8px);
+  max-width: 560px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+.xq-lab > * { flex: 0 0 auto; }
+.xq-lab-head { display: flex; align-items: center; gap: 10px; }
+.xq-lab-head .t { font-size: 15px; color: #ffd76e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xq-lab-board { flex: 1 1 0; min-height: 150px; display: flex; justify-content: center; }
+.xq-lab-board canvas { width: 100%; height: 100%; }
+.xq-lab-say { font-size: 13.5px; line-height: 1.6; max-height: 6.6em; overflow-y: auto; }
+.xq-lab-say .h { font-size: 14.5px; }
+.xq-lab-say .h b { color: #ffd76e; }
+.xq-lab-say .w { font-size: 11px; padding: 1px 6px; border-radius: 5px; margin-right: 4px; background: rgba(255, 215, 110, 0.18); color: #ffd76e; }
+.xq-lab-say .w.foe { background: rgba(159, 196, 232, 0.18); color: #9fc4e8; }
+.xq-lab-say .n { opacity: 0.8; font-size: 12.5px; }
+.xq-lab-alts:empty { display: none; }
+.xq-lab-alts { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.xq-lab-alts .hd { opacity: 0.85; }
+.xq-lab-alt {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--c) 70%, transparent);
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+  color: var(--text);
+  border-radius: 9px;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.xq-lab-alt b { color: var(--c); flex: none; }
+.xq-lab-alt em { font-style: normal; opacity: 0.8; font-size: 12px; }
+.xq-lab-alt .cur { margin-left: auto; font-size: 11px; opacity: 0.6; }
+.xq-lab-bar { display: flex; gap: 8px; }
+.xq-lab-bar .xq-btn { min-height: 42px; }
+.xq-lab-bar [data-lab="next"] { flex: 1; }
+.xq-lab-trail { font-size: 12px; line-height: 1.9; max-height: 3.9em; overflow-y: auto; opacity: 0.75; word-break: break-all; }
+.xq-lab-trail [data-n] { cursor: pointer; }
+.xq-lab-trail .on { color: #ffd76e; font-weight: 700; opacity: 1; }
+.xq-lab-trail .ahead { opacity: 0.45; }
+.xq-lab-trail .fk { font-style: normal; font-size: 11px; }
+
+/* ===================== 讲解里的分岔点 ===================== */
+.xq-forks { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
+.xq-fork {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--c) 70%, transparent);
+  background: color-mix(in srgb, var(--c) 13%, transparent);
+  color: var(--text);
+  border-radius: 9px;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.xq-fork b { color: var(--c); }
+.xq-fork .tg { font-size: 10.5px; padding: 0 5px; border-radius: 4px; background: color-mix(in srgb, var(--c) 28%, transparent); }
+.xq-fork .tg.seen { background: rgba(62, 196, 109, 0.25); color: #9fe6b5; }
+.xq-fork em { font-style: normal; opacity: 0.75; font-size: 12px; flex-basis: 100%; }
+.xq-br-tag { font-size: 11px; padding: 1px 6px; border-radius: 5px; background: color-mix(in srgb, var(--c) 25%, transparent); color: var(--text); font-weight: 400; }
+.xq-rp-trail .br { color: #9fc4e8; }
+.xq-rp-trail .fk { font-style: normal; font-size: 11px; color: #c9a7f5; margin-right: 2px; }
+.xq-forks-left { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.xq-fork-back {
+  border: 1px solid rgba(168, 85, 247, 0.5);
+  background: rgba(168, 85, 247, 0.12);
+  color: var(--text);
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.xq-lab-open {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid rgba(46, 170, 90, 0.5);
+  background: rgba(46, 170, 90, 0.12);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+
+/* 复盘：最佳走法那一行 + 着法条上每一手的评级 */
+.xq-rv-best { font-size: 13px; line-height: 1.6; padding: 7px 10px; border-radius: 9px; border: 1px solid rgba(46, 170, 90, 0.45); background: rgba(46, 170, 90, 0.09); }
+.xq-rv-best.ok { border-color: rgba(46, 170, 90, 0.3); }
+.xq-rv-best b { color: #8fe0a9; }
+.xq-rv-best .tip { font-size: 12px; opacity: 0.85; margin-top: 2px; }
+.xq-rv-best .tip b.g { color: #5fd389; }
+.xq-rv-best .tip b.r { color: #f08a80; }
+.xq-rv-best .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.xq-rv-act { border: 1px solid rgba(46, 170, 90, 0.55); background: rgba(46, 170, 90, 0.16); color: var(--text); border-radius: 999px; font-size: 12px; padding: 4px 10px; cursor: pointer; }
+.xq-rv-act.bad { border-color: rgba(224, 67, 58, 0.55); background: rgba(224, 67, 58, 0.14); }
+.xq-rv-item .lv { display: inline-block; min-width: 16px; text-align: center; font-size: 10.5px; font-weight: 700; color: #fff; background: var(--g); border-radius: 50%; padding: 1px 3px; margin-left: 3px; line-height: 14px; }

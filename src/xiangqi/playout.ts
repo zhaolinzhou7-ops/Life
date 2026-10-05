@@ -23,6 +23,7 @@ import { applyMove, isInCheck, legalMoves, statusAfter, type Board, type Color, 
 import type { MoveScore } from './ai';
 import { fromFen, moveToText, toFen } from './notation';
 import { Board2D, type Mark } from './board2d';
+import { openLineLab } from './linelab';
 import { requestMove } from './aiclient';
 import { Study } from './study';
 import { engineBestMove, engineCapable, engineReady, loadEngine } from './pikafish';
@@ -154,6 +155,7 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
       <button class="xq-btn" data-act="restart">↺ 重来</button>
       <button class="xq-btn" data-act="draw">🤝 提和</button>
       <button class="xq-btn" data-act="resign">🏳️ 认输</button>
+      <button class="xq-btn" data-act="lab" title="在推演板上看这个局面有哪几种走法、各自怎么发展">🔀 推演</button>
     </div>
     <div class="xq-po-bar"></div>`;
 
@@ -193,6 +195,9 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
       finish('loss', '你认输了');
     } else if (act === 'draw') {
       offerDraw();
+    } else if (act === 'lab') {
+      // 残局走着走着就有分支：把现在这个局面搬到推演板上，引擎给出前三种走法，点哪条看哪条怎么发展
+      openLineLab({ board, turn, me, title: `${opts.title} · 推演`, intro: '现在这个局面', forkFirst: true });
     }
   });
   (wrap.querySelector('#xq-po-undo') as HTMLButtonElement).onclick = () => undo();

@@ -14,7 +14,7 @@
  * 原本调用的那组方法（syncBoard / select / animateMove / flashCheck…），
  * 这样对局和复盘的代码几乎不用改，也就不会在搬运过程中搬出新 bug。
  */
-import { Board2D, type Badge, type Mark } from './board2d';
+import { Board2D, type Arrow, type Badge, type Mark } from './board2d';
 import { applyMove, type Board, type Move } from './rules';
 
 export class BoardView {
@@ -117,8 +117,13 @@ export class BoardView {
     this.view.setBadge(b);
   }
 
-  setArrows(arrows: { fx: number; fy: number; tx: number; ty: number; color?: string }[]) {
+  setArrows(arrows: Arrow[]) {
     this.view.setArrows(arrows);
+  }
+
+  /** 点带 id 的箭头时回调（复盘：点"最佳"那条箭头看后续） */
+  setArrowTap(fn: ((id: string) => void) | undefined) {
+    this.view.setArrowTap(fn);
   }
 
   dispose() {

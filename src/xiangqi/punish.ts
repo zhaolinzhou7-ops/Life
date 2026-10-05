@@ -98,6 +98,24 @@ export function punishLine(
   return { steps, lost, won, net, summary: summaryOf(steps, lost, won, net, cur, me, names) };
 }
 
+/**
+ * 一串着法逐手翻译（不做"罚完就停"、不写结论）：推演板、复盘里"最佳走法的后续"用。
+ * me：这一串第一手是谁走的（称呼"你"的那一方）。走不通的着法到此为止，不编。
+ */
+export function lineSteps(before: Board, line: Move[], first: Color, me: Color = first, max = 16): PunishStep[] {
+  const out: PunishStep[] = [];
+  let cur = before;
+  let c: Color = first;
+  for (const m of line.slice(0, max)) {
+    if (!legalMoves(cur, c).some((x) => same(x, m))) break;
+    if (cur[m.ty][m.tx]?.t === 'K') break;
+    out.push({ who: c === me ? 'me' : 'foe', move: m, text: moveToText(cur, m), note: noteMove(cur, m, c).replace(/。$/, ''), tags: stepTags(cur, m, c, me), before: cur });
+    cur = applyMove(cur, m);
+    c = other(c);
+  }
+  return out;
+}
+
 /** 一句话结论：先说结果（丢了什么 / 被将死 / 被压住），再说是怎么发生的 */
 function summaryOf(
   steps: PunishStep[],

@@ -46,6 +46,8 @@ export interface Arrow {
   color?: string;
   /** 箭头中间标一个字（选择题的 A / B / C / D） */
   label?: string;
+  /** 给了 id 的箭头点得动：点在箭头上（离箭身不到半格）回调 onArrowTap(id)，不再当成点格子 */
+  id?: string;
 }
 
 /** 棋子上的小角标：这一手的评级（复盘逐手、对局里自己走完那一手） */
@@ -83,6 +85,8 @@ export interface Board2DOpts {
   /** true = 黑方在下（执黑时用） */
   flip?: boolean;
   onTap?: (x: number, y: number) => void;
+  /** 点到带 id 的箭头上（分支讲解"点箭头走这一路"、复盘"点箭头看最佳走法的后续"） */
+  onArrowTap?: (id: string) => void;
   /** 画纵线号。新手照着棋谱学的时候没有这个根本对不上 */
   coords?: boolean;
 }
@@ -96,6 +100,7 @@ export class Board2D {
   private flip: boolean;
   private coords: boolean;
   private onTap?: (x: number, y: number) => void;
+  private onArrowTap?: (id: string) => void;
   /** 上一手棋。不标出来的话，对手走完你根本不知道他动了哪个子 */
   private last: Move | null = null;
   /** 上一手是什么时候标上去的，用来做淡出 */
@@ -136,6 +141,7 @@ export class Board2D {
     this.flip = !!opts.flip;
     this.coords = opts.coords !== false;
     this.onTap = opts.onTap;
+    this.onArrowTap = opts.onArrowTap;
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'xq-b2d';
     parent.appendChild(this.canvas);
@@ -181,10 +187,27 @@ export class Board2D {
   setArrows(arrows: Arrow[]) {
     this.arrows = arrows;
     this.dirty = true;
+    // 测试看不见画布：点得动的箭头挂在属性上
+    this.canvas.dataset.arrows = arrows.filter((a) => a.id).map((a) => a.id).join(',');
+    // 箭头中点在画布上的位置（测试按这个去点箭头）
+    this.canvas.dataset.arrowsxy = JSON.stringify(
+      arrows
+        .filter((a) => a.id)
+        .map((a) => {
+          const [sx, sy] = this.px(a.fx, a.fy);
+          const [tx, ty] = this.px(a.tx, a.ty);
+          return { id: a.id, x: Math.round((sx + tx) / 2), y: Math.round((sy + ty) / 2) };
+        }),
+    );
+  }
+  /** 换一个"点箭头"回调（复盘的棋盘是对局那块，建的时候还不知道要点箭头） */
+  setArrowTap(fn: ((id: string) => void) | undefined) {
+    this.onArrowTap = fn;
   }
   clearMarks() {
     this.marks = [];
     this.arrows = [];
+    this.canvas.dataset.arrows = '';
     this.dirty = true;
   }
 
@@ -247,10 +270,25 @@ export class Board2D {
   }
 
   private pointer = (e: PointerEvent) => {
-    if (!this.onTap) return;
     const r = this.canvas.getBoundingClientRect();
     const cx = e.clientX - r.left;
     const cy = e.clientY - r.top;
+    // 点在带 id 的箭头上：算"选这一路"（离箭身最近的那一条；终点那一格也算）
+    if (this.onArrowTap) {
+      let best: { id: string; d: number } | null = null;
+      for (const ar of this.arrows) {
+        if (!ar.id) continue;
+        const [sx, sy] = this.px(ar.fx, ar.fy);
+        const [tx, ty] = this.px(ar.tx, ar.ty);
+        const d = segDist(cx, cy, sx, sy, tx, ty);
+        if (d < this.cell * 0.45 && (!best || d < best.d)) best = { id: ar.id, d };
+      }
+      if (best) {
+        this.onArrowTap(best.id);
+        return;
+      }
+    }
+    if (!this.onTap) return;
     let gx = Math.round((cx - this.ox) / this.cell);
     let gy = Math.round((cy - this.oy) / this.cell);
     if (this.flip) {
@@ -889,4 +927,13 @@ export function pathOf(m: Move, t: PType): [number, number][] {
     [m.fx, m.fy],
     [m.tx, m.ty],
   ];
+}
+
+/** 点 (px,py) 到线段 (ax,ay)-(bx,by) 的距离 */
+function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const L = dx * dx + dy * dy || 1;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }

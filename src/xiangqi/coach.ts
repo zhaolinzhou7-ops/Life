@@ -63,7 +63,7 @@ import { loadPuzzles, pickNear, byId, ratingRange, freshCount, combos, type Puzz
 import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
-import { runReplay } from './replay';
+import { runReplay, type ReplayBranch } from './replay';
 import { runQuiz, tapThreatened, tapLoose, choiceQuestion, judgeQuestion, type QuizQ } from './quiz';
 import type { Color, Move } from './rules';
 import { OPENINGS, SYSTEM_ORDER, loadOpeningExtras, moveNote, type Opening } from './openings';
@@ -2079,6 +2079,25 @@ export function runCoach(
       known: v ? undefined : knownAt(o, i),
     }));
     const sideOf = (ply: number) => (ply % 2 === 0 ? '红' : '黑');
+    // 看主线讲解时，变招、错着都挂成分支：走到分岔那一手停下来，列出几条路，点哪条走哪条
+    const branches: ReplayBranch[] | undefined =
+      !v && !guessFor
+        ? o.variations
+            .filter((x) => x.at < o.moves.length && x.moves.length)
+            .map((x) => {
+              const evB = x.at > 0 ? o.moves[x.at - 1].ev : 0;
+              const fm: Color = x.at % 2 === 0 ? 'r' : 'b';
+              const sg = x.moves.map((m) => ({ t: m.t, why: moveNote(m), ev: m.ev }));
+              return {
+                at: x.at,
+                name: x.name,
+                kind: x.kind === 'trap' ? ('no' as const) : ('ok' as const),
+                moves: withKey(sg, evB, fm).map((m) => ({ t: m.t, why: m.why })),
+                outro: `<b>${x.final}</b>（皮卡鱼评估）。${lineSummary({ kind: x.kind ?? 'var', moves: sg, evBefore: evB, firstMover: fm, ply0: x.at, mainMove: o.moves[x.at]?.t })}`,
+                onSeen: () => markSeen(`op:${o.id}:${x.name}`),
+              };
+            })
+        : undefined;
     // 抽查：对方那一手（分岔的那一手）摆出来，你执另一方接着走
     const drillIntro =
       drill && v
@@ -2094,8 +2113,10 @@ export function runCoach(
           ? `${v.kind === 'trap' ? '错着' : v.kind === 'alt' ? '变招' : '变化'}：${v.name}。前 ${v.at} 手和主线一样，从这里分出去。${
               v.kind === 'trap' ? '这一手看着很自然，其实要亏——看对方怎么惩罚。' : v.kind === 'alt' ? '这一手和主线差不多一样好，换一条路走。' : ''
             }每一手都讲它的意义：防住了什么、威胁什么、引擎怎么看；局面变化最大的那一手标着 ⭐。`
-          : o.idea,
+          : `${o.idea}${branches?.length ? '<br><br>🔀 走到有变招、错着的那一手会停下来，把几条路都列出来——点哪条走哪条，走完回来看另一条。' : ''}`,
       moves,
+      branches,
+      mainLabel: '主线',
       guessFor,
       startAt: v ? (drill ? v.at + 1 : v.at) : undefined,
       judge: guessFor ? (b, c, mine, exp) => judgeAgainst(b, c, mine, exp) : undefined,
@@ -2906,8 +2927,46 @@ export function runCoach(
           : m.why;
       return { ...m, why, known: knownBy.get(i) };
     });
+    // 看"套路和破解"时，上当的那一路和江湖布局的几种变化都挂成分支：走到分岔那一手停下来，点哪条走哪条
+    let branches: ReplayBranch[] | undefined;
+    if (mode === 'refute') {
+      const trapAt = from + (t.trapAfter ?? 0);
+      const tBase = [...pre, trick, ...t.refute.slice(0, t.trapAfter ?? 0), ...trapLine(t)];
+      const tEvs = lineEvs(t, 'trap');
+      const tN = Math.max(0, Math.min(tBase.length, tEvs.length) - from);
+      const tSeg = tBase.slice(from, from + tN).map((m, j) => ({ t: m.t, why: m.why, ev: tEvs[from + j] }));
+      const tMiss = new Map(pitfalls(t).map((p) => [p.ply, p]));
+      const trapMoves = tBase.slice(trapAt).map((m, j) => {
+        const p = tMiss.get(trapAt + j);
+        return { t: m.t, why: p ? `⚠️ <b>坑：</b>这里该走 <b>${p.best}</b>（这一手差约${inPieces(p.loss)}）。${m.why}` : m.why };
+      });
+      branches = [
+        {
+          at: trapAt,
+          name: `上当：${trapMoves[0]?.t ?? ''}`,
+          kind: 'no' as const,
+          moves: trapMoves,
+          outro: `${tN ? lineSummary({ kind: 'fall', moves: tSeg, evBefore, firstMover: victim, ply0: from }) : ''}`,
+        },
+        ...trickVars(t.id).map((x) => {
+          const ply0 = from + x.at;
+          const evB = evs[ply0 - 1] ?? 0;
+          const fm: Color = ply0 % 2 === 0 ? 'r' : 'b';
+          return {
+            at: ply0,
+            name: x.name,
+            kind: x.kind === 'dev' ? ('dev' as const) : x.kind === 'alt' ? ('ok' as const) : ('no' as const),
+            moves: withKey(x.moves, evB, fm).map((m) => ({ t: m.t, why: m.why })),
+            outro: `<b>${x.final}</b>（皮卡鱼评估）。${lineSummary({ kind: x.kind, moves: x.moves, evBefore: evB, firstMover: fm, ply0, mainMove: base[ply0]?.t })}`,
+            onSeen: () => markSeen(`trick:${t.id}:${x.name}`),
+          };
+        }),
+      ].filter((b) => b.moves.length && b.at < base.length);
+    }
     disposeScreen = runReplay(host, {
       title: t.name,
+      branches,
+      mainLabel: '破解谱',
       subtitle:
         mode === 'trap' ? '上当会怎样：最常见的错误应法' : mode === 'guess' ? `你来破解：你执${sideWord(me)}，先走再对答案` : '套路和破解，每一手都讲在干什么',
       intro:
@@ -2917,7 +2976,7 @@ export function runCoach(
             }看清楚它为什么亏，下次一眼认出来。`
           : mode === 'guess'
             ? `套路已经摆好：对方刚走了 <b>${t.trick.t}</b>。${t.trick.why}<br><br>该你了：怎么破？`
-            : t.lure,
+            : `${t.lure}${branches?.length ? '<br><br>🔀 走到分岔的那一手会停下来：破解、上当、他不按套路走的几条路都列出来，点哪条走哪条。' : ''}`,
       moves,
       guessFor: mode === 'guess' ? me : undefined,
       startAt: mode === 'guess' ? pre.length + 1 : undefined,
