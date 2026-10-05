@@ -17,6 +17,15 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/*
+ * hidden 属性必须真的藏起来。浏览器默认的 [hidden]{display:none} 优先级最低，
+ * 任何写了 display 的类（.xq-tr 是 flex）都会把它盖掉：做残局题"接着下到底"时，
+ * 题目界面设了 hidden 却照样显示，和下到底的界面叠成两层（用户截图：两个棋盘、两排按钮压在一起）。
+ */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -4517,58 +4526,9 @@ canvas {
   /* 棋盘区正好占面板上面那一块：画布铺满，棋盘按能放下的最大尺寸画（宽了两边留空，高了上下留空） */
   .xq-root:has(.xq-rv) .xq-play .xq-boardwrap { flex: 1 1 0; min-height: 0; }
   .xq-root:has(.xq-rv) .xq-play .xq-boardwrap canvas { width: 100%; height: 100%; max-height: none; }
-  /* 棋盘为主的时候面板矮：整盘统计和曲线只在总览里看，看某一手时只留这一手的讲解 */
-  .xq-rv:not(.tall).focus .xq-rv-score { display: none; }
-  /* 着法条放在讲解上面、钉住不动：翻到哪一手都看得见前后几手 */
-  .xq-rv-list { order: -1; position: sticky; top: 0; z-index: 2; background: rgba(9, 14, 19, 0.97); flex: none; }
 }
-/* 看某一手时收起整盘总结：这一手的讲解直接在最上面 */
-.xq-rv.focus .xq-rv-summary { display: none; }
-.xq-rv-nav .xq-btn {
-  flex: 1;
-  min-height: 44px;
-  font-size: 14px;
-  padding: 8px 6px;
-}
-.xq-rv-nav .xq-btn.warn {
-  background: rgba(232, 112, 61, 0.18);
-  border-color: rgba(232, 112, 61, 0.5);
-}
-.xq-rv-item {
-  padding: 8px 10px;
-  font-size: 13px;
-  min-height: 36px;
-}
-.xq-rv-head .xq-rv-pos {
-  font-size: 12px;
-  opacity: 0.75;
-}
-
-/* 总览按钮：只在看某一手时出现 */
-.xq-rv:not(.focus) .xq-rv-ov { display: none; }
-.xq-rv-ov { font-size: 12px; }
 /* 复盘面板里的每一块都按内容撑开，整块面板滚动——不许被压扁后内容溢出盖住下一块 */
 .xq-rv-body > * { flex-shrink: 0; }
-/* 复盘标题行：一行放下，放不下的进度文字省略，不许折成一长条把讲解挤下去 */
-.xq-rv-head {
-  flex-wrap: nowrap;
-  gap: 6px;
-  min-height: 34px;
-}
-.xq-rv-head > * { white-space: nowrap; flex-shrink: 0; }
-.xq-rv-head .xq-rv-progress {
-  flex: 1 1 auto;
-  flex-shrink: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 11px;
-  opacity: 0.6;
-}
-@media (max-width: 719px) {
-  .xq-rv-head .xq-rv-ask { font-size: 0; padding: 4px 6px; }
-  .xq-rv-head .xq-rv-ask::first-letter { font-size: 16px; }
-}
 
 /* 残局阶梯：没解锁的档 */
 .card.home-card.locked {
@@ -5015,3 +4975,144 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
 .xq-rv-act { border: 1px solid rgba(46, 170, 90, 0.55); background: rgba(46, 170, 90, 0.16); color: var(--text); border-radius: 999px; font-size: 12px; padding: 4px 10px; cursor: pointer; }
 .xq-rv-act.bad { border-color: rgba(224, 67, 58, 0.55); background: rgba(224, 67, 58, 0.14); }
 .xq-rv-item .lv { display: inline-block; min-width: 16px; text-align: center; font-size: 10.5px; font-weight: 700; color: #fff; background: var(--g); border-radius: 50%; padding: 1px 3px; margin-left: 3px; line-height: 14px; }
+
+/* ===================== 复盘：天天象棋式布局 =====================
+ * 用户原话："复盘的布局也是需要彻底优化，可以参照天天象棋的复盘。"
+ * 棋盘最大；棋盘下面一条局势图（按住左右拖就翻）；一张"这一手"的卡片；底部一排图标工具条。
+ * 长讲解在卡片下面（📖 讲解把面板拉高）；整盘报告和棋谱在 📊 报告里。
+ */
+.xq-rv {
+  gap: 6px;
+  padding: 8px 10px calc(env(safe-area-inset-bottom) + 6px);
+}
+.xq-rv-score { flex: none; display: flex; align-items: stretch; gap: 6px; }
+.xq-rv-side { width: 46px; border-radius: 9px; padding: 3px 0; }
+.xq-rv-side span { font-size: 10px; }
+.xq-rv-side b { font-size: 19px; }
+.xq-rv-chart { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.xq-rv-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 10.5px; line-height: 14px; white-space: nowrap; }
+.xq-rv-meta .xq-rv-pos { color: #ffd76e; opacity: 0.9; flex: none; }
+.xq-rv-meta .xq-rv-progress { min-width: 0; overflow: hidden; text-overflow: ellipsis; opacity: 0.55; }
+.xq-rv-meta .xq-rv-progress.flash { opacity: 1; color: #8fd3ff; }
+.xq-rv-graph { flex: none; width: 100%; height: 40px; touch-action: none; cursor: ew-resize; border-radius: 7px; background: rgba(255, 255, 255, 0.035); }
+.xq-rv-body { gap: 7px; }
+.xq-rv-detail { min-height: 0; }
+
+/* 讲解 / 报告：报告打开时只看报告和棋谱 */
+.xq-rv-report,
+.xq-rv-list { display: none; }
+.xq-rv[data-sheet='report'] .xq-rv-report { display: flex; flex-direction: column; }
+.xq-rv[data-sheet='report'] .xq-rv-list { display: flex; }
+.xq-rv[data-sheet='report'] .xq-rv-detail { display: none; }
+
+/* 这一手的卡片 */
+.xq-rv-card { display: flex; flex-direction: column; gap: 6px; }
+.xq-rv-card.start .xq-rv-empty { padding: 2px; line-height: 1.6; opacity: 0.75; }
+.xq-rv-card .xq-rv-empty b { color: #ffd76e; font-weight: 600; }
+.xq-rv-move { gap: 6px; font-size: 14px; min-width: 0; }
+.xq-rv-move .n { font-size: 11px; opacity: 0.5; }
+.xq-rv-move > b { font-size: 16px; white-space: nowrap; }
+.xq-rv-move .who { font-size: 11px; opacity: 0.55; white-space: nowrap; }
+.xq-rv-grade { background: var(--b, var(--g)); color: #fff; font-size: 12px; white-space: nowrap; padding: 2px 8px; }
+.xq-rv-move .xq-rv-loss { font-size: 11.5px; opacity: 1; color: #f2a39c; white-space: nowrap; }
+.xq-rv-move .xq-rv-acc { white-space: nowrap; font-size: 11px; padding: 2px 7px; }
+.xq-rv-best { padding: 6px 9px; }
+.xq-rv-best .rec em { font-style: normal; font-size: 11.5px; opacity: 0.65; }
+.xq-rv-best .acts { margin-top: 5px; }
+.xq-rv-best .xq-rv-pun { margin-left: 0; }
+.xq-rv-more { display: flex; flex-direction: column; gap: 7px; }
+
+/* 底部工具条：图标 + 两个字 */
+.xq-rv-nav { flex: none; display: flex; gap: 4px; justify-content: stretch; }
+.xq-rv-tb {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 1px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+}
+.xq-rv-tb i { font-style: normal; font-size: 16px; line-height: 19px; }
+.xq-rv-tb span { font-size: 10.5px; line-height: 13px; opacity: 0.8; white-space: nowrap; }
+.xq-rv-tb:active { background: rgba(255, 255, 255, 0.12); }
+.xq-rv-tb.warn { background: rgba(232, 112, 61, 0.16); border-color: rgba(232, 112, 61, 0.45); }
+.xq-rv-tb.on { background: rgba(255, 215, 110, 0.16); border-color: rgba(255, 215, 110, 0.55); }
+.xq-rv-tb.wide { flex-grow: 1.6; }
+.xq-rv-tb.xq-rv-close { flex-grow: 0.85; opacity: 0.85; }
+.xq-rv-tb.xq-rv-close i { font-size: 15px; }
+
+/* 复盘报告：你和对手并排一张表 */
+.xq-rv-report { gap: 8px; }
+.xq-rv-summary { display: flex; flex-direction: column; gap: 8px; }
+.xq-rv-rephd { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.xq-rv-rephd b { font-size: 15px; margin-right: auto; }
+.xq-rv-rephd .xq-rv-act { border-color: var(--line); background: rgba(255, 255, 255, 0.06); }
+.xq-rv-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.xq-rv-table th,
+.xq-rv-table td { padding: 4px 6px; text-align: center; border-bottom: 1px solid var(--line); }
+.xq-rv-table th { font-size: 11px; font-weight: 600; }
+.xq-rv-table td:first-child { text-align: left; opacity: 0.7; white-space: nowrap; }
+.xq-rv-table .me { color: #ffd76e; }
+.xq-rv-table .foe { color: #9fc4e8; }
+.xq-rv-table tr.acc b { font-size: 18px; }
+.xq-rv-table tr.good td:first-child { color: #6fe09a; opacity: 0.9; }
+.xq-rv-table tr.warn td:first-child { color: #e8703d; opacity: 0.95; }
+.xq-rv-table tr.bad td:first-child { color: #ef7a72; opacity: 0.95; }
+
+/* 整盘棋谱：一回合一行，红一手黑一手 */
+.xq-rv-list { flex-direction: column; gap: 3px; overflow: visible; max-height: none; padding: 0; }
+.xq-rv-list .hd { font-size: 12px; opacity: 0.6; margin: 4px 0 2px; }
+.xq-rv-round { display: grid; grid-template-columns: 24px 1fr 1fr; gap: 4px; align-items: center; }
+.xq-rv-round .rn { font-size: 10px; opacity: 0.45; text-align: right; }
+.xq-rv-list .xq-rv-item {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 6px 4px 8px;
+  font-size: 13px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--g);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.xq-rv-list .xq-rv-item .t { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; }
+.xq-rv-list .xq-rv-item.me .t { font-weight: 600; }
+.xq-rv-list .xq-rv-item.on { background: color-mix(in srgb, var(--g) 30%, transparent); border-color: var(--g); }
+
+/* 试下 */
+.xq-rv-trial { display: flex; flex-direction: column; gap: 5px; font-size: 13px; line-height: 1.6; }
+.xq-rv-trial .hd { font-weight: 600; color: #8fd3ff; font-size: 13px; }
+.xq-rv-trial .log { display: flex; flex-wrap: wrap; gap: 3px 10px; font-size: 14px; }
+.xq-rv-trial .log i { font-style: normal; font-size: 10.5px; padding: 0 4px; margin-right: 3px; border-radius: 4px; background: rgba(255, 215, 110, 0.16); color: #ffd76e; }
+.xq-rv-trial .log .foe i { background: rgba(159, 196, 232, 0.16); color: #9fc4e8; }
+.xq-rv-trial .vd { padding: 5px 9px; border-radius: 8px; background: rgba(143, 211, 255, 0.08); border: 1px solid rgba(143, 211, 255, 0.3); }
+.xq-rv-trial .vd b.up { color: #6fe09a; }
+.xq-rv-trial .vd b.down { color: #ef7a72; }
+.xq-rv-trial .lv { display: inline-block; min-width: 18px; text-align: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--g); border-radius: 50%; padding: 1px 3px; margin-right: 3px; }
+.xq-rv-trial .ev,
+.xq-rv-trial .tip { font-size: 12px; opacity: 0.75; }
+
+@media (max-width: 719px) {
+  .xq-root:has(.xq-rv) .xq-play { top: calc(env(safe-area-inset-top, 0px) + 4px); }
+  .xq-rv { height: var(--rv-h, 50vh); }
+  .xq-rv-side em { display: none; }
+}
+/* 宽屏：右侧面板，讲解、棋谱一直摆着；棋盘让出右边那一块，不被面板盖 */
+@media (min-width: 720px) {
+  .xq-rv { top: 10px; width: 360px; }
+  /* 棋盘占左边整块（原来一条全局规则把棋盘区底边定在屏高 48%，宽屏上棋盘只用了上半屏） */
+  .xq-root:has(.xq-rv) .xq-play { top: 10px; right: 380px; bottom: 10px; }
+  .xq-root:has(.xq-rv) .xq-play .xq-boardwrap { flex: 1 1 0; min-height: 0; }
+  .xq-root:has(.xq-rv) .xq-play .xq-boardwrap canvas { width: 100%; height: 100%; max-height: none; }
+  .xq-rv .xq-rv-list { display: flex; }
+  .xq-rv-graph { height: 56px; }
+  .xq-rv-list .xq-rv-item { border-bottom: 1px solid var(--line); }
+}

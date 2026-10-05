@@ -24,11 +24,18 @@ export class BoardView {
   /** 落子后的轻微延时，纯粹为了节奏，不做位移动画——棋子一帧都不离开交叉点 */
   private slideMs = 0;
 
+  /** 临时接管点棋盘（复盘里的"试下"）：给了就不再走构造时的那个回调 */
+  private tapOverride?: (x: number, y: number) => void;
+
   constructor(parent: HTMLElement, onTap: (x: number, y: number) => void, flip = false) {
     this.host = document.createElement('div');
     this.host.className = 'xq-boardwrap';
     parent.appendChild(this.host);
-    this.view = new Board2D(this.host, { flip, coords: true, onTap });
+    this.view = new Board2D(this.host, { flip, coords: true, onTap: (x, y) => (this.tapOverride ?? onTap)(x, y) });
+  }
+
+  setTapOverride(fn: ((x: number, y: number) => void) | undefined) {
+    this.tapOverride = fn;
   }
 
   syncBoard(b: Board) {

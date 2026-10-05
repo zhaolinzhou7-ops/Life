@@ -231,6 +231,7 @@ const tipOpen = (page) => page.evaluate(() => !!document.querySelector('.xq-tip:
   await until(page, () => (document.querySelector('.xq-rv-progress')?.textContent ?? '').includes('共'), null, 30000);
   const flagged = await page.locator('.xq-rv-item .f').count();
   ok('复盘列表里那一手标了 🧑‍🏫', flagged === 1);
+  await page.locator('[data-act="overview"]').click();
   await page.locator('.xq-rv-item').first().click();
   await page.waitForTimeout(300);
   const detail = await page.locator('.xq-rv-detail').innerText();

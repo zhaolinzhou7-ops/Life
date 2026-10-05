@@ -5,6 +5,15 @@
  * 对方的反驳着法，并把该走的正确一手标在盘上。分数的作用是**排优先级**——
  * 六十手棋，先看哪几手；以及**跟自己比**——这盘比上几盘有没有进步。
  *
+ * 布局参照天天象棋的复盘（用户原话："复盘的布局也是需要彻底优化，可以参照天天象棋的复盘"）：
+ *   - 棋盘最大，整块露出来；
+ *   - 棋盘正下方一条局势图（红上黑下，以中线为界），手指在上面左右拖就一手手翻，问题手是红点；
+ *   - 下面一张"这一手"的卡片：评级、亏多少分、★ 推荐走法和多得几分，▶ 看后续 / ⚠ 怎么罚 两个按钮；
+ *   - 底部一排工具：返回、上一手、问题手、下一手、试下、讲解、报告；
+ *   - 试下：直接点棋盘上的子走走看，引擎替对方应，告诉你这一手比最佳差多少——不影响棋谱；
+ *   - 报告：你和对手的准确率、开局/中局/残局三段、好棋和错着各几手，下面是整盘棋谱，每手挂评级。
+ * 长讲解（对手怎么罚、计划、残局、邪门布局……）都在卡片下面，点「📖 讲解」把面板拉高看。
+ *
  * 分析本身在 gamescore.ts：一盘下完就在后台开算，这里只负责展示。
  */
 import type { Board, Color, Move } from './rules';
@@ -13,8 +22,10 @@ import {
   MOVE_LABEL,
   PHASE_NAME,
   evalWords,
+  gradeOf,
   labelOf,
   type Judged,
+  type MoveLabel,
   type Phase,
   type ReviewedMove,
 } from './analysis';
@@ -32,13 +43,16 @@ import { trickAt, trickStageAt } from './tricks';
 import { identify } from './explorer';
 import { runPuzzle } from './train';
 import { toFen } from './notation';
-import { applyMove, initialBoard } from './rules';
+import { applyMove, initialBoard, isInCheck, legalMoves } from './rules';
 import type { Puzzle } from './puzzles';
 import { ERR_INFO, inPieces, type ErrTag } from './teach';
 import { lineSteps, punishLine, type Punish, type PunishStep } from './punish';
 import { openLineLab } from './linelab';
+import { engineAnalyse, engineReady, loadEngine } from './pikafish';
 
 const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
+const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
+const same = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
 
 export interface ReviewOpts {
   host: HTMLElement;
@@ -69,10 +83,13 @@ export interface ReviewOpts {
   onClose: () => void;
 }
 
+/** 面板拉高时看什么：不拉高 / 讲解 / 报告（整盘总结 + 棋谱） */
+type Sheet = 'none' | 'detail' | 'report';
+
 export function runReview(opts: ReviewOpts): () => void {
   const { host, scene, startColor, moves, playerColor, playerWon, onClose } = opts;
   const coachFlags = opts.coachFlags ?? new Map<number, string>();
-  const foe: Color = playerColor === 'r' ? 'b' : 'r';
+  const foe: Color = other(playerColor);
 
   let analysis =
     opts.analysis ??
@@ -93,55 +110,66 @@ export function runReview(opts: ReviewOpts): () => void {
   /** 正在看的这一手是不是"对比"摆法（棋盘停在走之前，你走的和最佳两条箭头） */
   let compare = false;
   let jumped = false;
+  let sheet: Sheet = 'none';
 
   const panel = document.createElement('div');
   panel.className = 'xq-rv';
+  panel.dataset.sheet = sheet;
   panel.innerHTML = `
-    <div class="xq-rv-head">
-      <button class="xq-rv-close" data-nav-back title="回到上一屏">← 返回</button>
-      <b>复盘</b>
-      <span class="xq-rv-pos">开局</span>
-      <button class="xq-rv-hbtn xq-rv-ov" data-act="overview" title="回到整盘总结">📊 总览</button>
-      <span class="xq-rv-progress">分析中 0/${moves.length}</span>
-      <button class="xq-rv-hbtn" data-act="copy" title="复制棋谱">📋</button>
-      <button class="xq-rv-ask" title="问教练">🧑‍🏫 问</button>
-      <button class="xq-rv-fold" title="展开讲解（棋盘跟着缩小，但一直完整露出来）">▴</button>
+    <div class="xq-rv-score">
+      <div class="xq-rv-side me"><span>你</span><b>—</b><em>准确率</em></div>
+      <div class="xq-rv-chart">
+        <div class="xq-rv-meta"><span class="xq-rv-pos">开局</span><span class="xq-rv-progress">分析中 0/${moves.length}</span></div>
+        <canvas class="xq-rv-graph" title="局势图：红方占优在上、黑方占优在下。手指左右拖，一手一手翻"></canvas>
+      </div>
+      <div class="xq-rv-side foe"><span>对手</span><b>—</b><em>准确率</em></div>
     </div>
     <div class="xq-rv-body">
-      <div class="xq-rv-score">
-        <div class="xq-rv-side me"><span>你</span><b>—</b><em>准确率</em></div>
-        <canvas class="xq-rv-graph"></canvas>
-        <div class="xq-rv-side foe"><span>对手</span><b>—</b><em>准确率</em></div>
-      </div>
-      <div class="xq-rv-summary"></div>
       <div class="xq-rv-detail"></div>
+      <div class="xq-rv-report"><div class="xq-rv-summary"></div></div>
       <div class="xq-rv-list"></div>
     </div>
-    <div class="xq-rv-nav">
-      <button class="xq-btn" data-go="-1">◀ 上一手</button>
-      <button class="xq-btn warn" data-act="next-bad" title="跳到你下一个走得有问题的地方">⚠ 下个问题手</button>
-      <button class="xq-btn" data-go="1">下一手 ▶</button>
-    </div>`;
+    <div class="xq-rv-nav"></div>`;
   host.appendChild(panel);
 
   const elProgress = panel.querySelector('.xq-rv-progress') as HTMLElement;
   const elSummary = panel.querySelector('.xq-rv-summary') as HTMLElement;
   const elList = panel.querySelector('.xq-rv-list') as HTMLElement;
   const elDetail = panel.querySelector('.xq-rv-detail') as HTMLElement;
+  const elBody = panel.querySelector('.xq-rv-body') as HTMLElement;
   const elPos = panel.querySelector('.xq-rv-pos') as HTMLElement;
   const elMeAcc = panel.querySelector('.xq-rv-side.me b') as HTMLElement;
   const elFoeAcc = panel.querySelector('.xq-rv-side.foe b') as HTMLElement;
   const graph = panel.querySelector('.xq-rv-graph') as HTMLCanvasElement;
+  const navEl = panel.querySelector('.xq-rv-nav') as HTMLElement;
+
+  /** 底部工具条：像天天象棋那样一排图标 + 两个字，单手也点得到 */
+  const tb = (attrs: string, icon: string, label: string, cls = '') =>
+    `<button class="xq-rv-tb${cls ? ` ${cls}` : ''}" ${attrs}><i>${icon}</i><span>${label}</span></button>`;
+  const navHtml =
+    tb('data-nav-back title="回到上一屏"', '←', '返回', 'xq-rv-close') +
+    tb('data-go="-1" title="上一手（也可以在棋盘上往右滑）"', '◀', '上一手') +
+    tb('data-act="next-bad" title="跳到你下一个走得有问题的地方"', '⚠', '问题手', 'warn') +
+    tb('data-go="1" title="下一手（也可以在棋盘上往左滑）"', '▶', '下一手') +
+    tb('data-act="try" title="在棋盘上自己走走看，引擎替对方应"', '🧪', '试下') +
+    tb('data-act="detail" title="展开这一手的讲解（棋盘跟着缩小，但一直完整露出来）"', '📖', '讲解', 'xq-rv-fold') +
+    tb('data-act="overview" title="复盘报告和整盘棋谱"', '📊', '报告', 'xq-rv-ov');
+  navEl.innerHTML = navHtml;
 
   const sideName = (c: Color) => (c === playerColor ? '你' : '对手');
   const reviewed = () => analysis.reviewed;
   const roundOf = (ply: number) => Math.floor((ply + (startColor === 'b' ? 1 : 0)) / 2) + 1;
+  /** 第 i 手走完之后、红方视角的分（局势图上滑到这一手时显示） */
+  const redAfter = (m: ReviewedMove) => ({
+    score: m.color === 'r' ? m.playedScore : -m.playedScore,
+    mate: m.playedMate === undefined ? undefined : m.color === 'r' ? m.playedMate : -m.playedMate,
+  });
 
-  // ───────── 优势曲线 ─────────
+  // ───────── 局势图 ─────────
   /**
-   * 红方胜率随着一手一手怎么变。中线是五五开，线往上是红好、往下是黑好。
-   * 你走坏的那几手在线上标成红点，走得好的（妙手/唯一着）标成青点；点曲线任何地方跳到那一手。
-   * 一盘棋的起伏一眼就看完了——哪里开始落后、哪里被翻盘，不用一手一手翻。
+   * 天天象棋叫"局势图"：以中线为界，红方占优往上（红）、黑方占优往下（灰），一盘棋的起伏一眼看完。
+   * 你走坏的那几手标成红点，妙手 / 唯一着标成青点；开局、中局、残局之间画一条虚线。
+   * 手指按住左右拖，棋盘跟着一手一手翻，上面写着这一手走完的局面分。
    */
   function drawGraph() {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -158,6 +186,8 @@ export function runReview(opts: ReviewOpts): () => void {
     const n = Math.max(moves.length, 1);
     const xOf = (i: number) => ((i + 1) / n) * (w - 4) + 2;
     const yOf = (redWin: number) => h - 2 - (redWin / 100) * (h - 4);
+    g.font = '9px -apple-system, "PingFang SC", sans-serif';
+    g.textBaseline = 'middle';
     // 中线
     g.strokeStyle = 'rgba(255,255,255,0.18)';
     g.lineWidth = 1;
@@ -165,12 +195,30 @@ export function runReview(opts: ReviewOpts): () => void {
     g.moveTo(0, h / 2);
     g.lineTo(w, h / 2);
     g.stroke();
+    g.fillStyle = 'rgba(240,150,140,0.45)';
+    g.fillText('红优', 3, 7);
+    g.fillStyle = 'rgba(190,205,220,0.4)';
+    g.fillText('黑优', 3, h - 7);
     if (!list.length) return;
-    // 红方占优的部分填红、黑方占优的填蓝灰
+    // 阶段分界：开局 | 中局 | 残局
+    g.setLineDash([2, 3]);
+    g.strokeStyle = 'rgba(255,255,255,0.16)';
+    list.forEach((m, i) => {
+      if (i === 0 || m.phase === list[i - 1].phase) return;
+      const x = (xOf(i) + xOf(i - 1)) / 2;
+      g.beginPath();
+      g.moveTo(x, 0);
+      g.lineTo(x, h);
+      g.stroke();
+      g.fillStyle = 'rgba(255,255,255,0.32)';
+      g.fillText(PHASE_NAME[m.phase], x + 3, h - 7);
+    });
+    g.setLineDash([]);
+    // 红方占优的部分填红、黑方占优的填灰
     const pts = [{ x: 2, y: yOf(50) }, ...list.map((m, i) => ({ x: xOf(i), y: yOf(m.redWin) }))];
     for (const [fill, clipTop] of [
-      ['rgba(224,67,58,0.28)', true],
-      ['rgba(120,150,190,0.28)', false],
+      ['rgba(224,67,58,0.32)', true],
+      ['rgba(150,170,195,0.28)', false],
     ] as const) {
       g.save();
       g.beginPath();
@@ -203,22 +251,62 @@ export function runReview(opts: ReviewOpts): () => void {
       g.arc(xOf(i), yOf(m.redWin), m.color === playerColor ? 3.2 : 2.4, 0, Math.PI * 2);
       g.fill();
     });
-    // 当前这一手
-    if (cursor >= 0) {
+    // 当前这一手：竖线 + 曲线上的点 + 这一手走完的局面分
+    if (cursor >= 0 && list[cursor]) {
+      const m = list[cursor];
+      const x = xOf(cursor);
+      const y = yOf(m.redWin);
       g.strokeStyle = 'rgba(255,215,110,0.9)';
       g.lineWidth = 1;
       g.beginPath();
-      g.moveTo(xOf(cursor), 0);
-      g.lineTo(xOf(cursor), h);
+      g.moveTo(x, 0);
+      g.lineTo(x, h);
       g.stroke();
+      g.fillStyle = '#ffd76e';
+      g.beginPath();
+      g.arc(x, y, 3.6, 0, Math.PI * 2);
+      g.fill();
+      const r = redAfter(m);
+      const t =
+        r.mate !== undefined
+          ? `${r.mate > 0 ? '红' : '黑'}方 ${Math.abs(r.mate)} 步杀`
+          : Math.abs(r.score) < 60
+            ? '均势'
+            : `${r.score > 0 ? '红' : '黑'} +${(Math.abs(r.score) / 100).toFixed(1)}`;
+      g.font = 'bold 10px -apple-system, "PingFang SC", sans-serif';
+      const tw = g.measureText(t).width + 8;
+      const tx = Math.max(1, Math.min(w - tw - 1, x + 5));
+      const ty = y < h / 2 ? h - 15 : 2;
+      g.fillStyle = 'rgba(12,18,25,0.85)';
+      g.fillRect(tx, ty, tw, 13);
+      g.fillStyle = r.mate !== undefined ? (r.mate > 0 ? '#ff9b91' : '#c9d6e3') : r.score >= 60 ? '#ff9b91' : r.score <= -60 ? '#c9d6e3' : '#f0e6d2';
+      g.fillText(t, tx + 4, ty + 7);
     }
   }
-  graph.addEventListener('click', (e) => {
+  /** 局势图上按住左右拖：天天象棋就是这么翻的，几十手棋一拖就到 */
+  let scrubbing = false;
+  const scrubTo = (e: PointerEvent) => {
     const r = graph.getBoundingClientRect();
     const n = Math.max(moves.length, 1);
-    const i = Math.round(((e.clientX - r.left - 2) / (r.width - 4)) * n) - 1;
-    if (reviewed().length) goto(Math.max(0, Math.min(reviewed().length - 1, i)));
+    const i = Math.round(((e.clientX - r.left - 2) / Math.max(1, r.width - 4)) * n) - 1;
+    const k = Math.max(-1, Math.min(reviewed().length - 1, i));
+    if (k !== cursor || demo || trial || sheet === 'report') goto(k);
+  };
+  graph.addEventListener('pointerdown', (e) => {
+    scrubbing = true;
+    try {
+      graph.setPointerCapture(e.pointerId);
+    } catch {
+      // 老浏览器没有 pointer capture：拖出画布就停，不影响点
+    }
+    scrubTo(e);
   });
+  graph.addEventListener('pointermove', (e) => {
+    if (scrubbing) scrubTo(e);
+  });
+  const endScrub = () => (scrubbing = false);
+  graph.addEventListener('pointerup', endScrub);
+  graph.addEventListener('pointercancel', endScrub);
   const onResize = () => drawGraph();
   window.addEventListener('resize', onResize);
 
@@ -226,6 +314,8 @@ export function runReview(opts: ReviewOpts): () => void {
   /** 把棋盘摆到第 i 手走完的样子；并把该走的正确着法标出来 */
   function goto(i: number) {
     stopDemo();
+    stopTrial();
+    if (sheet === 'report') setSheet('none');
     const list = reviewed();
     cursor = Math.max(-1, Math.min(list.length - 1, i));
     const cm = cursor >= 0 ? list[cursor] : null;
@@ -233,18 +323,16 @@ export function runReview(opts: ReviewOpts): () => void {
     compare = !!cm && cm.color === playerColor && !!cm.bestMove && isBad(cm);
     scene.syncBoard(boards[compare ? cursor : cursor + 1]);
     scene.setArrows([]);
+    scene.select(null);
     drawGraph();
-
-    // 总览（开局）时看整盘总结；看某一手时把总结收起来，这一手的讲解直接露在最上面，不用往下翻
-    panel.classList.toggle('focus', cursor >= 0);
-    const body = panel.querySelector('.xq-rv-body') as HTMLElement | null;
-    if (body) body.scrollTop = 0;
+    elBody.scrollTop = 0;
     if (cursor < 0) {
       scene.setLastMove(null);
       scene.setBadge(null);
-      elPos.textContent = '总览';
-      elDetail.innerHTML = '<div class="xq-rv-empty">点「下一手」一手一手看，或者点「⚠ 下个问题手」直接跳到你走得有问题的地方。在棋盘上左右滑也能翻。</div>';
-      scene.select(null);
+      elPos.textContent = '开局';
+      elDetail.innerHTML = `<div class="xq-rv-card start"><div class="xq-rv-empty">${
+        list.length ? `开局局面 · 共 ${moves.length} 手。` : `正在给每一手打分（${list.length}/${moves.length}）……`
+      }点 <b>▶</b> 一手一手看，点 <b>⚠ 问题手</b> 直接跳到你走得有问题的地方；在上面的局势图上按住左右拖能快速翻；点棋盘上的子可以<b>试下</b>。</div></div>`;
       renderList();
       return;
     }
@@ -270,39 +358,44 @@ export function runReview(opts: ReviewOpts): () => void {
       if (pun) scene.setArrows([{ ...pun, color: 'rgba(46,170,90,0.95)', label: '罚', id: 'punish' }]);
     }
 
-    scene.select(null);
-
     // 走之前 → 走之后，红方视角
     const toRed = (s: number) => (m.color === 'r' ? s : -s);
     const mateRed = (x?: number) => (x === undefined ? undefined : m.color === 'r' ? x : -x);
     const before = evalWords(toRed(m.bestScore), mateRed(m.bestMate));
     const after = evalWords(toRed(m.playedScore), mateRed(m.playedMate));
 
+    // 卡片：一眼看完这一手（评级、亏多少、该走什么、两个按钮）；下面是长讲解，点「📖 讲解」拉高看
     elDetail.innerHTML = `
-      <div class="xq-rv-move" style="--g:${L.color}">
-        <span class="xq-rv-grade">${L.sym ? `${L.sym} ` : ''}${L.name}</span>
-        <b>${m.text}</b>
-        ${punishOf(m, cursor) ? `<button class="xq-rv-pun" data-act="punish-demo">▶ ${m.color === playerColor ? '演示对手怎么罚' : '演示怎么罚他'}</button>` : ''}
-        <span class="xq-rv-acc" title="这一手的准确率（0～100）">准确率 ${m.accuracy}</span>
+      <div class="xq-rv-card" data-card>
+        <div class="xq-rv-move" style="--g:${L.color}">
+          <span class="xq-rv-grade" style="--b:${L.badge}">${L.short === L.name.slice(0, 1) ? L.name : `${L.short} ${L.name}`}</span>
+          <span class="n">${roundOf(m.ply)}${m.color === 'r' ? '.' : '…'}</span><b>${m.text}</b>
+          <span class="who">${sideName(m.color)}</span>
+          ${m.loss >= 30 ? `<span class="xq-rv-loss">亏 ${m.loss}</span>` : ''}
+          <span class="xq-rv-acc" title="这一手的准确率（0～100）">准确率 ${m.accuracy}</span>
+        </div>
+        ${bestBlock(m)}
       </div>
-      ${bestBlock(m)}
-      <div class="xq-rv-eval">局面：${before === after ? before : `${before} → ${after}`}</div>
-      <div class="xq-rv-comment">${badgeWhy(m)}${m.comment}</div>
-      ${
-        m.color === playerColor && m.tag && m.loss >= 80
-          ? `<div class="xq-rv-ask-self" data-ask-self>🤔 <b>下次在这种局面，落子前先问自己</b>（${ERR_INFO[m.tag].name}）：${ERR_INFO[m.tag].advice}</div>`
-          : ''
-      }
-      ${punishBlock(m, cursor)}
-      ${coachFlags.has(m.ply) ? `<div class="xq-rv-flag">🧑‍🏫 对局时教练拦过这一手，你选择了"就这么走"。教练当时说：${esc(coachFlags.get(m.ply)!)}</div>` : ''}
-      ${trickNote(m, cursor)}
-      ${planBlock(m, boards[cursor])}
-      ${endgameNote(m, boards[cursor])}
-      <div class="xq-rv-actions">
-        <button class="xq-rv-deep" data-deep="${cursor}">🔍 从全局讲讲这一手</button>
-        ${opts.onReplayFrom ? `<button class="xq-rv-deep" data-replay="${cursor}">♟ 从这里重下</button>` : ''}
-      </div>
-      <div class="xq-rv-deepbox"></div>`;
+      <div class="xq-rv-more">
+        <div class="xq-rv-eval">局面：${before === after ? before : `${before} → ${after}`}</div>
+        <div class="xq-rv-comment">${badgeWhy(m)}${m.comment}</div>
+        ${
+          m.color === playerColor && m.tag && m.loss >= 80
+            ? `<div class="xq-rv-ask-self" data-ask-self>🤔 <b>下次在这种局面，落子前先问自己</b>（${ERR_INFO[m.tag].name}）：${ERR_INFO[m.tag].advice}</div>`
+            : ''
+        }
+        ${punishBlock(m, cursor)}
+        ${coachFlags.has(m.ply) ? `<div class="xq-rv-flag">🧑‍🏫 对局时教练拦过这一手，你选择了"就这么走"。教练当时说：${esc(coachFlags.get(m.ply)!)}</div>` : ''}
+        ${trickNote(m, cursor)}
+        ${planBlock(m, boards[cursor])}
+        ${endgameNote(m, boards[cursor])}
+        <div class="xq-rv-actions">
+          <button class="xq-rv-deep" data-deep="${cursor}">🔍 从全局讲讲这一手</button>
+          ${opts.onReplayFrom ? `<button class="xq-rv-deep" data-replay="${cursor}">♟ 从这里重下</button>` : ''}
+          <button class="xq-rv-deep xq-rv-ask" data-act="ask" title="问教练这一手">🧑‍🏫 问教练</button>
+        </div>
+        <div class="xq-rv-deepbox"></div>
+      </div>`;
     renderList();
   }
 
@@ -313,26 +406,28 @@ export function runReview(opts: ReviewOpts): () => void {
   }
 
   /**
-   * 最佳走法那一行。用户原话："能看到最好的走法应该是什么，以及这步最佳走法能多得多少分。
+   * 最佳走法那一行（卡片的第二行）。用户原话："能看到最好的走法应该是什么，以及这步最佳走法能多得多少分。
    * 最好能支持交互，比如有一个箭头，我点着箭头就能知道最佳走法及接下来的后续发展。"
    */
   function bestBlock(m: ReviewedMove): string {
     const mine = m.color === playerColor;
-    if (m.isBest) return `<div class="xq-rv-best ok" data-best>✅ ${mine ? '这就是最佳走法' : '对手这一手就是最佳走法'}。</div>`;
-    if (!m.bestMove || !m.bestText) return '';
+    const pun =
+      isBad(m) && punishOf(m, cursor)
+        ? `<button class="xq-rv-act bad xq-rv-pun" data-act="punish-demo">⚠ ${mine ? '对手怎么罚你' : '怎么罚他'}</button>`
+        : '';
+    if (m.isBest) return `<div class="xq-rv-best ok" data-best>✅ ${mine ? '这就是最佳走法' : '对手这一手就是最佳走法'}。${pun ? `<div class="acts">${pun}</div>` : ''}</div>`;
+    if (!m.bestMove || !m.bestText) return pun ? `<div class="xq-rv-best"><div class="acts">${pun}</div></div>` : '';
     const pawns = (m.loss / 100).toFixed(1);
     const who = mine ? '你这手' : '他这手';
     const hint = compare
-      ? `<div class="tip">棋盘上 <b class="g">绿箭头 ★</b> 是最佳、<b class="r">红箭头「你」</b>是你走的——点箭头，看两条路各自怎么走下去。</div>`
+      ? `<div class="tip">棋盘上 <b class="g">绿箭头 ★</b> 是最佳、<b class="r">红箭头「你」</b>是你走的——点箭头看两条路各自怎么走下去。</div>`
       : !mine && isBad(m)
         ? '<div class="tip">棋盘上 <b class="g">绿箭头「罚」</b>是你该怎么罚他——点它看整条。</div>'
         : '';
     return `<div class="xq-rv-best" data-best>
-      <div>✅ ${mine ? '最佳走法' : '他该走'} <b>${m.bestText}</b>：比${who}多得约 <b>${m.loss} 分</b>（约 ${pawns} 个兵）</div>
+      <div class="rec">★ ${mine ? '最佳走法' : '他该走'} <b>${m.bestText}</b>：比${who}多得约 <b>${m.loss} 分</b><em>（约 ${pawns} 个兵）</em></div>
       ${hint}
-      <div class="acts">${mine ? '<button class="xq-rv-act" data-act="best-demo">▶ 看最佳走法的后续</button>' : ''}${
-        isBad(m) ? `<button class="xq-rv-act bad" data-act="punish-demo">▶ ${mine ? '看你这手的后果' : '看怎么罚他'}</button>` : ''
-      }<button class="xq-rv-act" data-act="lab">🔀 推演板：自己试别的走法</button></div>
+      <div class="acts"><button class="xq-rv-act" data-act="best-demo">▶ 看最佳的后续</button>${pun}<button class="xq-rv-act" data-act="lab">🔀 推演</button></div>
     </div>`;
   }
 
@@ -386,7 +481,7 @@ export function runReview(opts: ReviewOpts): () => void {
    */
   function trickNote(m: ReviewedMove, i: number): string {
     const after = boards[i + 1];
-    const played = trickAt(after, m.color === 'r' ? 'b' : 'r');
+    const played = trickAt(after, other(m.color));
     if (played) return `<div class="xq-rv-trick">🗡 邪门布局「${played.name}」：${played.lure}</div>`;
     const stage = trickStageAt(boards[i], m.color);
     if (stage) {
@@ -425,27 +520,54 @@ export function runReview(opts: ReviewOpts): () => void {
     return '';
   }
 
+  /**
+   * 整盘棋谱：一回合一行，红一手、黑一手，每手挂评级（天天象棋的"棋谱"页）。点哪手跳哪手。
+   * 手机上在「📊 报告」里，宽屏一直摆在右侧面板下面。
+   */
   function renderList() {
     const list = reviewed();
-    elList.innerHTML = list
-      .map((m, i) => {
-        const lb = labelOf(m);
-        const L = MOVE_LABEL[lb];
-        const loud = lb === 'brilliant' || lb === 'only' || lb === 'dubious' || lb === 'mistake' || lb === 'blunder';
-        const bad = lb === 'dubious' || lb === 'mistake' || lb === 'blunder';
-        const turn = analysis.report && analysis.report.turning === i;
-        return `<button class="xq-rv-item${i === cursor ? ' on' : ''}${bad ? ' bad' : ''}${turn ? ' turn' : ''}"
-          data-i="${i}" style="--g:${L.color}">
-          <span class="n">${roundOf(m.ply)}${m.color === 'r' ? '.' : '…'}</span>
-          <span class="t">${m.text}</span>
-          <span class="lv" style="--g:${L.badge}" title="${L.name}">${L.short}</span>
-          ${coachFlags.has(m.ply) ? '<span class="f" title="教练拦过">🧑‍🏫</span>' : ''}
-          ${loud ? `<span class="g">${L.name}</span>` : ''}
-        </button>`;
-      })
-      .join('');
-    const on = elList.querySelector('.xq-rv-item.on') as HTMLElement | null;
-    on?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (!list.length) {
+      elList.innerHTML = '';
+      return;
+    }
+    const cell = (i: number) => {
+      const m = list[i];
+      if (!m) return '<span></span>';
+      const lb = labelOf(m);
+      const L = MOVE_LABEL[lb];
+      const bad = lb === 'dubious' || lb === 'mistake' || lb === 'blunder';
+      const turn = analysis.report && analysis.report.turning === i;
+      return `<button class="xq-rv-item${i === cursor ? ' on' : ''}${bad ? ' bad' : ''}${turn ? ' turn' : ''}${m.color === playerColor ? ' me' : ''}"
+        data-i="${i}" style="--g:${L.color}" title="${L.name}">
+        <span class="t">${m.text}</span>
+        <span class="lv" style="--g:${L.badge}">${L.short}</span>
+        ${coachFlags.has(m.ply) ? '<span class="f" title="教练拦过">🧑‍🏫</span>' : ''}
+      </button>`;
+    };
+    // 黑方先走的棋（从中途摆的局面）：第一行红那一格空着
+    const off = startColor === 'b' ? 1 : 0;
+    const rows: string[] = [];
+    for (let r = 0; 2 * r - off < list.length; r++) {
+      const ri = 2 * r - off;
+      rows.push(`<div class="xq-rv-round"><span class="rn">${r + 1}.</span>${ri >= 0 ? cell(ri) : '<span></span>'}${cell(ri + 1)}</div>`);
+    }
+    // 不自动滚到当前这一手：宽屏时棋谱就摆在讲解下面，一滚讲解就看不见了；报告里打分一刷新也会把人拽走
+    elList.innerHTML = `<div class="hd">📜 棋谱${analysis.done ? '' : `（打分中 ${list.length}/${moves.length}）`} · 点哪一手看哪一手</div>${rows.join('')}`;
+  }
+
+  // ───────── 面板拉高：讲解 / 报告 ─────────
+  function setSheet(s: Sheet) {
+    sheet = s;
+    panel.dataset.sheet = s;
+    panel.classList.toggle('tall', s !== 'none');
+    navEl.querySelector('[data-act="detail"]')?.classList.toggle('on', s === 'detail');
+    navEl.querySelector('[data-act="overview"]')?.classList.toggle('on', s === 'report');
+    if (s === 'report') {
+      renderSummary();
+      renderList();
+    }
+    elBody.scrollTop = 0;
+    layout();
   }
 
   // ───────── 总评 ─────────
@@ -516,10 +638,17 @@ export function runReview(opts: ReviewOpts): () => void {
     next();
   }
 
+  /**
+   * 复盘报告（天天象棋的复盘报告：整盘准确率、开中残三段各打一个分、好棋和错着漏着各几手）。
+   * 你和对手并排一张表，下面是这盘要改的一个习惯、最该改的一手、错过的机会……
+   */
   function renderSummary() {
     const rep = analysis.report;
+    const head = `<div class="xq-rv-rephd"><b>📊 复盘报告</b>
+      <button class="xq-rv-act" data-act="copy" title="复制棋谱">📋 复制棋谱</button>
+      <button class="xq-rv-act" data-act="ask" title="问教练">🧑‍🏫 问教练</button></div>`;
     if (!rep) {
-      elSummary.innerHTML = '';
+      elSummary.innerHTML = `${head}<div class="xq-rv-empty">还在给每一手打分（${reviewed().length}/${moves.length}），算完这里出整盘报告。</div>`;
       return;
     }
     const me = rep.stats[playerColor];
@@ -531,6 +660,24 @@ export function runReview(opts: ReviewOpts): () => void {
     // "决定胜负的一手"只在真有一手亏得很重时才说：一盘双方都没大错的棋硬挑出一手来，是胡说
     const t = rep.turning >= 0 && rep.turning !== wi && rep.moves[rep.turning].loss >= 200 ? rep.moves[rep.turning] : null;
 
+    // 你和对手对照表：准确率、三个阶段、好棋 / 不佳 / 失误 / 漏着
+    const cnt = (c: Color, ls: MoveLabel[]) => ls.reduce((a, l) => a + rep.counts[c][l], 0);
+    const phaseRow = (p: Phase) =>
+      rep.phaseAcc[playerColor][p] === undefined && rep.phaseAcc[foe][p] === undefined
+        ? ''
+        : `<tr><td>${PHASE_NAME[p]}</td><td class="me">${rep.phaseAcc[playerColor][p] ?? '—'}</td><td class="foe">${rep.phaseAcc[foe][p] ?? '—'}</td></tr>`;
+    const countRow = (name: string, ls: MoveLabel[], cls = '') =>
+      `<tr class="${cls}"><td>${name}</td><td class="me">${cnt(playerColor, ls)}</td><td class="foe">${cnt(foe, ls)}</td></tr>`;
+    const table = `<table class="xq-rv-table" data-report>
+      <tr><th></th><th class="me">你</th><th class="foe">对手</th></tr>
+      <tr class="acc"><td>准确率</td><td class="me"><b>${me.accuracy}</b></td><td class="foe"><b>${them.accuracy}</b></td></tr>
+      ${(['opening', 'middle', 'endgame'] as Phase[]).map(phaseRow).join('')}
+      ${countRow('★ 好棋', ['brilliant', 'only', 'top', 'best'], 'good')}
+      ${countRow('?! 不佳', ['dubious'])}
+      ${countRow('? 失误', ['mistake'], 'warn')}
+      ${countRow('?? 漏着', ['blunder'], 'bad')}
+    </table>`;
+
     // 各种称号各几手（只列有的）
     const chips = LABEL_ORDER.filter((l) => rep.counts[playerColor][l] > 0)
       .map((l) => {
@@ -538,11 +685,6 @@ export function runReview(opts: ReviewOpts): () => void {
         return `<span class="xq-rv-chip" style="--g:${L.color}">${L.sym ? `<i>${L.sym}</i>` : ''}${L.name} <b>${rep.counts[playerColor][l]}</b></span>`;
       })
       .join('');
-    // 分阶段：分丢在哪个阶段，比一个总分有用
-    const phases = (['opening', 'middle', 'endgame'] as Phase[])
-      .filter((p) => rep.phaseAcc[playerColor][p] !== undefined)
-      .map((p) => `${PHASE_NAME[p]} <b>${rep.phaseAcc[playerColor][p]}</b>`)
-      .join(' · ');
     // 跟自己比
     const hist = recentGameAccuracy(5);
     const cmp = hist
@@ -579,10 +721,12 @@ export function runReview(opts: ReviewOpts): () => void {
       )
       .join('');
     elSummary.innerHTML = `
+      ${head}
+      ${table}
       ${opLine}
       <div class="xq-rv-chips">${chips}</div>
+      ${cmp ? `<div class="xq-rv-phase">${cmp}</div>` : ''}
       ${retry.length ? `<button class="xq-rv-retry" data-act="retry">🔁 找回好棋：你走错的 ${retry.length} 手，先自己想一遍更好的</button>` : ''}
-      <div class="xq-rv-phase">${phases ? `分阶段准确率：${phases}` : ''}${cmp ? `<br>${cmp}` : ''}</div>
       ${
         w && w.loss >= 80
           ? `<button class="xq-rv-turn" data-i="${wi}">
@@ -626,13 +770,14 @@ export function runReview(opts: ReviewOpts): () => void {
         jumped = true;
         const rep = analysis.report!;
         const jump = rep.worst[playerColor] >= 0 ? rep.worst[playerColor] : rep.turning;
-        if (cursor < 0 || analysis.opts.deep) {
+        if ((cursor < 0 && !trial && !demo) || analysis.opts.deep) {
           goto(cursor < 0 ? (jump >= 0 ? jump : reviewed().length - 1) : cursor);
           return;
         }
       }
     } else {
       elProgress.textContent = `${analysis.opts.deep ? '深度' : ''}分析中 ${n}/${moves.length}`;
+      if (sheet === 'report') renderSummary();
     }
     renderList();
     drawGraph();
@@ -677,8 +822,8 @@ export function runReview(opts: ReviewOpts): () => void {
     ownAnalysis = true;
     jumped = false;
     offAnalysis = analysis.subscribe(onProgress);
-    elSummary.innerHTML = '<div class="xq-rv-empty">深度复盘中，算完会替换上面的结果……</div>';
     onProgress();
+    elSummary.insertAdjacentHTML('afterbegin', '<div class="xq-rv-empty">深度复盘中，算完会替换下面的结果……</div>');
   }
 
   /** 复制棋谱：发给朋友、贴到论坛、拿去别的软件里看 */
@@ -727,24 +872,27 @@ export function runReview(opts: ReviewOpts): () => void {
     return moves.map((m, i) => list[i]?.text ?? textOf(boards[i], m));
   }
 
-  panel.addEventListener('click', (e) => {
+  function onClick(e: MouseEvent) {
     const target = e.target as HTMLElement;
     const act = target.closest('[data-act]')?.getAttribute('data-act');
-    if (act === 'copy') {
-      void copyRecord();
+    if (target.closest('[data-nav-back]')) {
+      close();
+      onClose();
       return;
     }
-    if (act === 'deep-review') {
-      deepReview();
-      return;
-    }
-    if (act === 'retry') {
-      runRetry();
-      return;
-    }
+    if (act === 'copy') return void copyRecord();
+    if (act === 'ask') return toggleChat();
+    if (act === 'deep-review') return deepReview();
+    if (act === 'retry') return runRetry();
     if (act === 'punish-demo') return startDemo('punish');
     if (act === 'best-demo') return startDemo('best');
     if (act === 'lab') return openLab();
+    if (act === 'detail') return setSheet(sheet === 'detail' ? 'none' : 'detail');
+    if (act === 'overview') return setSheet(sheet === 'report' ? 'none' : 'report');
+    if (act === 'try') return trial ? endTrial() : startTrial();
+    if (act === 'trial-undo') return trialUndo();
+    if (act === 'trial-lab') return trialLab();
+    if (act === 'trial-end') return endTrial();
     if (act === 'train-own' && opts.onTrainOwn) {
       close();
       opts.onTrainOwn();
@@ -772,20 +920,14 @@ export function runReview(opts: ReviewOpts): () => void {
       return;
     }
     const deep = target.closest('[data-deep]') as HTMLElement | null;
-    if (deep) {
-      void showDeep(Number(deep.dataset.deep));
-      return;
-    }
+    if (deep) return void showDeep(Number(deep.dataset.deep));
     const el = target.closest('[data-i]') as HTMLElement | null;
-    if (el) {
-      goto(Number(el.dataset.i));
-      return;
-    }
+    if (el) return goto(Number(el.dataset.i));
     const go = target.closest('[data-go]') as HTMLElement | null;
-    if (go) goto(cursor + Number(go.dataset.go));
-    if (target.closest('[data-act="next-bad"]')) nextBad();
-    if (target.closest('[data-act="overview"]')) goto(-1);
-  });
+    if (go) return goto(cursor + Number(go.dataset.go));
+    if (act === 'next-bad') nextBad();
+  }
+  panel.addEventListener('click', onClick);
 
   // ───────── 在棋盘上一步步演示一条路：对手怎么罚你 / 最佳走法怎么走下去 ─────────
   interface DemoLine {
@@ -798,8 +940,6 @@ export function runReview(opts: ReviewOpts): () => void {
     mine: boolean;
   }
   let demo: { d: DemoLine; k: number; timer: number } | null = null;
-  const navEl = panel.querySelector('.xq-rv-nav') as HTMLElement;
-  const navHtml = navEl.innerHTML;
 
   function punishDemo(m: ReviewedMove, i: number): DemoLine | null {
     const p = punishOf(m, i);
@@ -831,20 +971,17 @@ export function runReview(opts: ReviewOpts): () => void {
     if (!m || !d) return;
     const at = cursor;
     stopDemo();
+    stopTrial();
     cursor = at;
     demo = { d, k: 1, timer: 0 };
     panel.classList.add('demo');
     // 演示看的是棋盘：讲解展开着的先收起来，棋盘放到最大
-    if (tall) {
-      tall = false;
-      panel.classList.remove('tall');
-      foldBtn.textContent = '▴';
-      layout();
-    }
-    navEl.innerHTML = `<button class="xq-btn" data-act="demo-prev" title="上一步">◀</button>
-      <button class="xq-btn warn" data-act="demo-play">⏸ 暂停</button>
-      <button class="xq-btn" data-act="demo-next" title="下一步">▶</button>
-      <button class="xq-btn" data-act="demo-end">✕ 结束演示</button>`;
+    if (sheet !== 'none') setSheet('none');
+    navEl.innerHTML =
+      tb('data-act="demo-prev" title="上一步"', '◀', '上一步') +
+      tb('data-act="demo-play"', '⏸', '暂停', 'warn') +
+      tb('data-act="demo-next" title="下一步"', '▶', '下一步') +
+      tb('data-act="demo-end"', '✕', '结束演示', 'wide');
     scene.select(null);
     scene.setBadge(null);
     scene.setArrows([]);
@@ -880,7 +1017,10 @@ export function runReview(opts: ReviewOpts): () => void {
     demo.timer = 0;
     if (on) demo.timer = window.setInterval(() => demo && demoShow(demo.k + 1), 1400);
     const b = navEl.querySelector('[data-act="demo-play"]') as HTMLButtonElement | null;
-    if (b) b.textContent = on ? '⏸ 暂停' : demo.k >= demo.d.steps.length ? '↻ 再看一遍' : '▶ 自动';
+    if (b) {
+      const [icon, label] = on ? ['⏸', '暂停'] : demo.k >= demo.d.steps.length ? ['↻', '再看一遍'] : ['▶', '自动'];
+      b.innerHTML = `<i>${icon}</i><span>${label}</span>`;
+    }
   }
   /** 推演板：从这一手走之前的局面开始，先摆最佳走法这一路，任何一步都能问"还有哪几种走法" */
   function openLab() {
@@ -893,6 +1033,7 @@ export function runReview(opts: ReviewOpts): () => void {
       title: `第 ${roundOf(m.ply)} 回合 · 推演`,
       intro: `这一手${m.color === playerColor ? '你' : '对手'}走的是 ${m.text}${m.bestText ? `，最佳是 ${m.bestText}` : ''}。点「下一步」看最佳这一路，或者点「🔀 几种走法」看别的走法各自怎么发展`,
       me: playerColor,
+      flip: playerColor === 'b',
       forkFirst: true,
     });
   }
@@ -904,11 +1045,273 @@ export function runReview(opts: ReviewOpts): () => void {
     demo = null;
     panel.classList.remove('demo');
     navEl.innerHTML = navHtml;
+    setSheetButtons();
   }
   function endDemo() {
     stopDemo();
     goto(cursor);
   }
+  /** 工具条换回来以后，讲解 / 报告按钮的"按下"状态跟着面板 */
+  function setSheetButtons() {
+    navEl.querySelector('[data-act="detail"]')?.classList.toggle('on', sheet === 'detail');
+    navEl.querySelector('[data-act="overview"]')?.classList.toggle('on', sheet === 'report');
+  }
+
+  // ───────── 试下：在复盘的棋盘上自己走走看 ─────────
+  /**
+   * 天天象棋复盘里最常用的一样：看到一手不满意，直接在棋盘上换一种走法，看对手怎么应。
+   * 点轮到走的那一方的子就进来（或者点工具条上的 🧪 试下）；你走一步，引擎替对方应一步；
+   * 第一手和这个局面的最佳走法比，告诉你比最佳差多少、比实战那一手好还是差。棋谱一手不动。
+   */
+  interface Trial {
+    start: Board;
+    /** 试下从哪一方开始走（你替这一方走，引擎替另一方应） */
+    first: Color;
+    moves: Move[];
+    log: { text: string; color: Color }[];
+    /** 这个局面在棋谱里对应的那一手（拿它的最佳分来比），没有就是 -1 */
+    ref: number;
+    sel: { x: number; y: number } | null;
+    busy: boolean;
+    token: number;
+    /** 引擎起得来就替对方应；起不来两边都由你走 */
+    auto: boolean;
+    verdict: string;
+    evalText: string;
+    say: string;
+  }
+  let trial: Trial | null = null;
+  let lastSwipe = 0;
+
+  /** 棋盘上现在摆的是哪个局面、轮到谁走 */
+  function shownPosition(): { board: Board; turn: Color; ref: number } {
+    const list = reviewed();
+    if (cursor >= 0 && compare) return { board: boards[cursor], turn: list[cursor].color, ref: cursor };
+    const turn: Color = cursor >= 0 ? other(list[cursor].color) : startColor;
+    const ref = list[cursor + 1] && list[cursor + 1].color === turn ? cursor + 1 : -1;
+    return { board: boards[cursor + 1], turn, ref };
+  }
+  const trialBoard = (t: Trial) => t.moves.reduce((b, m) => applyMove(b, m), t.start);
+  const trialTurn = (t: Trial): Color => (t.moves.length % 2 === 0 ? t.first : other(t.first));
+  const legalOf = (b: Board, c: Color) => legalMoves(b, c).filter((m) => !isInCheck(applyMove(b, m), c));
+
+  function startTrial(tap?: { x: number; y: number }) {
+    stopDemo();
+    const p = shownPosition();
+    trial = { start: p.board, first: p.turn, moves: [], log: [], ref: p.ref, sel: null, busy: false, token: 0, auto: true, verdict: '', evalText: '', say: '' };
+    if (sheet !== 'none') setSheet('none');
+    panel.classList.add('trial');
+    navEl.innerHTML =
+      tb('data-act="trial-undo" title="退回你上一步之前"', '↶', '悔一步') +
+      tb('data-act="trial-lab" title="引擎列出这一步的几种走法"', '🔀', '几种走法') +
+      tb('data-act="trial-end" title="回到棋谱"', '✕', '结束试下', 'wide');
+    scene.setArrows([]);
+    scene.setBadge(null);
+    scene.select(null);
+    scene.syncBoard(p.board);
+    renderTrial();
+    void loadEngine();
+    if (tap) trialTap(tap.x, tap.y);
+  }
+  /** 收起试下（不动棋盘）：翻到别的手、演示、关掉复盘时用 */
+  function stopTrial() {
+    if (!trial) return;
+    trial.token++;
+    trial = null;
+    panel.classList.remove('trial');
+    navEl.innerHTML = navHtml;
+    setSheetButtons();
+    scene.select(null);
+  }
+  function endTrial() {
+    stopTrial();
+    goto(cursor);
+  }
+
+  function trialTap(x: number, y: number) {
+    const t = trial;
+    if (!t || t.busy) return;
+    const b = trialBoard(t);
+    const c = trialTurn(t);
+    if (t.auto && c !== t.first) return;
+    const legal = legalOf(b, c);
+    if (t.sel) {
+      const mv = legal.find((m) => m.fx === t.sel!.x && m.fy === t.sel!.y && m.tx === x && m.ty === y);
+      if (mv) {
+        t.sel = null;
+        scene.select(null);
+        void trialPlay(mv);
+        return;
+      }
+    }
+    const pc = b[y][x];
+    if (pc && pc.c === c) {
+      t.sel = { x, y };
+      scene.select(
+        { x, y },
+        legal.filter((m) => m.fx === x && m.fy === y).map((m) => ({ x: m.tx, y: m.ty, capture: !!b[m.ty][m.tx] })),
+      );
+    } else {
+      t.sel = null;
+      scene.select(null);
+    }
+  }
+
+  async function trialPlay(mv: Move) {
+    const t = trial;
+    if (!t) return;
+    const b = trialBoard(t);
+    const c = trialTurn(t);
+    t.log.push({ text: textOf(b, mv), color: c });
+    t.moves.push(mv);
+    const nb = applyMove(b, mv);
+    scene.setBadge(null);
+    scene.syncBoard(nb);
+    scene.setLastMove(mv, false);
+    if (!legalOf(nb, other(c)).length) {
+      t.say = isInCheck(nb, other(c)) ? '将死了！' : '对方无棋可走（困毙）。';
+      t.evalText = '';
+      return renderTrial();
+    }
+    if (!t.auto) return renderTrial();
+    t.busy = true;
+    t.say = '';
+    const my = ++t.token;
+    renderTrial();
+    if (!engineReady()) await loadEngine();
+    if (trial !== t || my !== t.token) return;
+    if (!engineReady()) {
+      t.auto = false;
+      t.busy = false;
+      t.say = '引擎没起来：对方这一步也由你来走。';
+      return renderTrial();
+    }
+    const res = await engineAnalyse(nb, other(c), { movetime: 900, multipv: 1 });
+    if (trial !== t || my !== t.token) return;
+    t.busy = false;
+    const top = res?.find((s) => !s.bound) ?? res?.[0];
+    if (!top) return renderTrial();
+    // 对方应的那一手之前的局面分（对方视角）就是你这一手的分，换成你的视角来评
+    if (t.moves.length === 1) t.verdict = rateTry(t, mv, -top.score, top.mateIn === undefined ? undefined : -top.mateIn);
+    const red = other(c) === 'r' ? top.score : -top.score;
+    const redMate = top.mateIn === undefined ? undefined : other(c) === 'r' ? top.mateIn : -top.mateIn;
+    t.evalText = evalWords(red, redMate);
+    const reply = top.move;
+    t.log.push({ text: textOf(nb, reply), color: other(c) });
+    t.moves.push(reply);
+    scene.syncBoard(applyMove(nb, reply));
+    scene.setLastMove(reply, false);
+    renderTrial();
+  }
+
+  /** 你试的第一手和这个局面的最佳比：评级（★ 优 良 中 差 错 漏）、比最佳少多少、比实战那一手好还是差 */
+  function rateTry(t: Trial, mv: Move, score: number, mate?: number): string {
+    const ref = t.ref >= 0 ? reviewed()[t.ref] : undefined;
+    const text = t.log[0].text;
+    if (!ref || ref.color !== t.first) return `试的是 <b>${text}</b>。`;
+    let loss: number;
+    if (same(mv, ref.move)) loss = ref.loss;
+    else if (ref.bestMove && same(mv, ref.bestMove)) loss = 0;
+    else if (mate !== undefined && mate > 0) loss = ref.bestMate !== undefined && ref.bestMate > 0 && ref.bestMate < mate ? 40 : 0;
+    else if (mate !== undefined) loss = 2000;
+    else loss = Math.max(0, ref.bestScore - score);
+    const grade = gradeOf(loss);
+    const lb: MoveLabel = loss < 10 || (ref.bestMove && same(mv, ref.bestMove)) ? 'top' : grade;
+    const L = MOVE_LABEL[lb];
+    const chip = `<span class="lv" style="--g:${L.badge}">${L.short}</span>`;
+    const vsBest = lb === 'top' ? '这就是最佳走法' : loss < 30 ? `和最佳 ${ref.bestText ?? ''} 差不多` : `比最佳 <b>${ref.bestText ?? ''}</b> 少约 ${loss} 分`;
+    const vsGame = same(mv, ref.move)
+      ? '——就是实战走的那一手'
+      : ref.loss - loss >= 30
+        ? `，比实战走的 ${ref.text} <b class="up">好约 ${ref.loss - loss} 分</b>`
+        : loss - ref.loss >= 30
+          ? `，比实战走的 ${ref.text} <b class="down">还差约 ${loss - ref.loss} 分</b>`
+          : `，和实战走的 ${ref.text} 差不多`;
+    return `${chip} 你试的 <b>${text}</b>：${L.name}，${vsBest}${vsGame}。`;
+  }
+
+  function renderTrial() {
+    const t = trial;
+    if (!t) return;
+    const who = (c: Color) => (c === playerColor ? '你' : '对手');
+    const side = (c: Color) => (c === 'r' ? '红' : '黑');
+    const at = t.ref >= 0 ? `第 ${roundOf(reviewed()[t.ref].ply)} 回合` : cursor >= 0 ? `第 ${roundOf(reviewed()[cursor].ply)} 回合之后` : '开局';
+    const log = t.log
+      .map((l, i) => `<span class="${l.color === t.first ? 'me' : 'foe'}"><i>${i % 2 === 0 ? `${Math.floor(i / 2) + 1}.` : ''}${who(l.color)}</i>${l.text}</span>`)
+      .join('');
+    const c = trialTurn(t);
+    const tip = t.busy
+      ? `${who(c)}在想怎么应……`
+      : t.say ||
+        (t.moves.length
+          ? `接着点${side(c)}子再走一步，或者「↶ 悔一步」换一种走法。`
+          : `点一个${side(c)}子，再点它要去的地方。${t.auto ? `${who(other(c))}由引擎来应。` : ''}`);
+    elDetail.innerHTML = `<div class="xq-rv-trial" data-trial>
+      <div class="hd">🧪 试下 · 从${at}${side(t.first)}方走之前 · 不影响棋谱</div>
+      ${log ? `<div class="log">${log}</div>` : ''}
+      ${t.verdict ? `<div class="vd">${t.verdict}</div>` : ''}
+      ${t.evalText && !t.busy ? `<div class="ev">现在的局面：${t.evalText}</div>` : ''}
+      <div class="tip">${tip}</div>
+    </div>`;
+  }
+
+  function trialUndo() {
+    const t = trial;
+    if (!t) return;
+    t.token++;
+    t.busy = false;
+    if (!t.moves.length) return endTrial();
+    // 退回你上一步之前：引擎应过的话连它那一手一起退
+    const n = t.auto ? (t.moves.length % 2 === 0 ? 2 : 1) : 1;
+    t.moves.splice(-n);
+    t.log.splice(-n);
+    t.sel = null;
+    t.say = '';
+    t.evalText = '';
+    if (!t.moves.length) t.verdict = '';
+    scene.select(null);
+    scene.syncBoard(trialBoard(t));
+    scene.setLastMove(t.moves.length ? t.moves[t.moves.length - 1] : null, false);
+    renderTrial();
+  }
+
+  /** 试到这里想看"这一步还有哪几种走法"：推演板接着这个局面，引擎列前三 */
+  function trialLab() {
+    const t = trial;
+    if (!t) return;
+    openLineLab({
+      board: trialBoard(t),
+      turn: trialTurn(t),
+      line: [],
+      title: '试下 · 几种走法',
+      intro: '这是你试下走到的局面',
+      me: playerColor,
+      flip: playerColor === 'b',
+      forkFirst: true,
+    });
+  }
+
+  /** 点棋盘：试下中就是走棋；不在试下时，点到轮到走的那一方的子直接进试下 */
+  function onBoardTap(x: number, y: number) {
+    if (Date.now() - lastSwipe < 400 || demo) return;
+    if (trial) return trialTap(x, y);
+    const p = shownPosition();
+    const pc = p.board[y]?.[x];
+    if (pc && pc.c === p.turn) startTrial({ x, y });
+    else if (pc) flashMeta(`现在轮到${p.turn === 'r' ? '红' : '黑'}方走：点${p.turn === 'r' ? '红' : '黑'}子试下，或者先 ◀ 退一手`);
+  }
+  /** 局势图上面那一小行临时说一句话，过一会儿换回分析进度 */
+  let flashTimer = 0;
+  function flashMeta(text: string) {
+    clearTimeout(flashTimer);
+    elProgress.textContent = text;
+    elProgress.classList.add('flash');
+    flashTimer = window.setTimeout(() => {
+      elProgress.classList.remove('flash');
+      onProgress();
+    }, 2200);
+  }
+  scene.setTapOverride(onBoardTap);
 
   /** 你下一个走得有问题的地方（不佳、失误、漏着）；到头了从头找 */
   function nextBad() {
@@ -926,9 +1329,10 @@ export function runReview(opts: ReviewOpts): () => void {
         return;
       }
     }
-    const btn = panel.querySelector('[data-act="next-bad"]') as HTMLButtonElement;
-    btn.textContent = analysis.done ? '👍 没有问题手' : '还在打分…';
-    setTimeout(() => (btn.textContent = '⚠ 下个问题手'), 1600);
+    const label = navEl.querySelector('[data-act="next-bad"] span') as HTMLElement | null;
+    if (!label) return;
+    label.textContent = analysis.done ? '没有问题手' : '还在打分';
+    setTimeout(() => (label.textContent = '问题手'), 1600);
   }
 
   // 在棋盘上左右滑翻页；键盘左右键也行。手机上点小按钮翻几十手太累了
@@ -943,12 +1347,20 @@ export function runReview(opts: ReviewOpts): () => void {
     const dx = e.changedTouches[0].clientX - touchX;
     const dy = e.changedTouches[0].clientY - touchY;
     if (!(Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5)) return;
+    lastSwipe = Date.now();
+    if (trial) return; // 试下时手指在棋盘上是走棋，不翻页
     if (demo) {
       demoAuto(false);
       demoShow(demo.k + (dx < 0 ? 1 : -1));
     } else goto(cursor + (dx < 0 ? 1 : -1));
   };
   const onKey = (e: KeyboardEvent) => {
+    const el = e.target as HTMLElement | null;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+    if (e.key === 'Home' || e.key === 'End') {
+      goto(e.key === 'Home' ? -1 : reviewed().length - 1);
+      return;
+    }
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     const d = e.key === 'ArrowRight' ? 1 : -1;
     if (demo) {
@@ -959,17 +1371,13 @@ export function runReview(opts: ReviewOpts): () => void {
   boardEl?.addEventListener('touchstart', onTouchStart, { passive: true });
   boardEl?.addEventListener('touchend', onTouchEnd, { passive: true });
   window.addEventListener('keydown', onKey);
-  (panel.querySelector('.xq-rv-close') as HTMLButtonElement).onclick = () => {
-    close();
-    onClose();
-  };
 
   /**
    * 问教练。上下文取的是**当前选中的那一手**——
    * 用户点着第 12 回合问"这一步为什么错"，答的必须是第 12 回合那一手。
    */
   let closeChat: (() => void) | null = null;
-  (panel.querySelector('.xq-rv-ask') as HTMLButtonElement).onclick = () => {
+  function toggleChat() {
     if (closeChat) {
       closeChat();
       closeChat = null;
@@ -1003,40 +1411,32 @@ export function runReview(opts: ReviewOpts): () => void {
         closeChat = null;
       },
     });
-  };
+  }
   /*
-   * 手机竖屏：棋盘尽量大、整块露出来，面板只占棋盘下面剩下的那一截（至少 210 像素）。
+   * 手机竖屏：棋盘尽量大、整块露出来，面板只占棋盘下面剩下的那一截（至少放得下局势图、这一手的卡片和工具条）。
    * 用户原话："复盘时要能看到完整的棋局界面，不能光在底下显示一堆文字，否则很难和棋局联系起来。"
-   * 原来面板固定占半屏，存档里打开的棋局棋盘还没放进让位的容器，下半盘直接被面板盖住。
-   * 点 ▴ 展开讲解：面板升高、棋盘跟着缩小，但永远完整、不被盖住；宽屏是右侧面板，不用管。
+   * 点 📖 讲解 / 📊 报告：面板升高、棋盘跟着缩小，但永远完整、不被盖住；宽屏是右侧面板，不用管。
    */
-  let tall = false;
-  const layout = () => {
+  const MIN_PANEL = 196;
+  function layout() {
     const appH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-h')) || window.innerHeight;
     const w = host.clientWidth || window.innerWidth;
     if (w >= 720) {
       host.style.removeProperty('--rv-h');
-      return;
+    } else {
+      const boardH = ((w - 6) * 11.2) / 9.9; // 棋盘满宽时有多高（和 board2d 的比例一致）
+      const h = sheet !== 'none' ? Math.max(MIN_PANEL, appH * 0.6) : Math.min(appH * 0.52, Math.max(MIN_PANEL, appH - boardH - 6));
+      host.style.setProperty('--rv-h', `${Math.round(h)}px`);
     }
-    const boardH = ((w - 6) * 11.2) / 9.9; // 棋盘满宽时有多高（和 board2d 的比例一致）
-    const h = tall ? appH * 0.6 : Math.min(appH * 0.5, Math.max(210, appH - boardH - 8));
-    host.style.setProperty('--rv-h', `${Math.round(h)}px`);
-  };
+    requestAnimationFrame(drawGraph);
+  }
   layout();
   window.addEventListener('resize', layout);
   window.visualViewport?.addEventListener('resize', layout);
-  const foldBtn = panel.querySelector('.xq-rv-fold') as HTMLButtonElement;
-  foldBtn.onclick = () => {
-    tall = !tall;
-    panel.classList.toggle('tall', tall);
-    foldBtn.textContent = tall ? '▾' : '▴';
-    foldBtn.title = tall ? '收起讲解，看大棋盘' : '展开讲解（棋盘跟着缩小，但一直完整露出来）';
-    layout();
-  };
 
   // 点棋盘上的箭头：绿 ★ 看最佳走法的后续，红「你」看这一手的后果，绿「罚」看怎么罚他
   scene.setArrowTap((id) => {
-    if (demo) return;
+    if (demo || trial) return;
     if (id === 'best') startDemo('best');
     else if (id === 'mine' || id === 'punish') startDemo('punish');
   });
@@ -1045,8 +1445,23 @@ export function runReview(opts: ReviewOpts): () => void {
   onProgress();
   requestAnimationFrame(drawGraph);
 
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__xqReview = {
+      cursor: () => cursor,
+      sheet: () => sheet,
+      tap: (x: number, y: number) => onBoardTap(x, y),
+      shown: () => {
+        const p = shownPosition();
+        return { turn: p.turn, ref: p.ref, fen: toFen(p.board, p.turn) };
+      },
+      trial: () => (trial ? { moves: trial.moves.length, busy: trial.busy, auto: trial.auto, verdict: trial.verdict, log: trial.log.map((l) => l.text) } : null),
+    };
+  }
+
   function close() {
+    clearTimeout(flashTimer);
     stopDemo();
+    stopTrial();
     offAnalysis();
     // 自己开的分析跟着复盘一起停；刚下完的棋那份归对局管（它还要落地存档和战绩）
     if (ownAnalysis && !analysis.done) analysis.cancel();
@@ -1064,6 +1479,7 @@ export function runReview(opts: ReviewOpts): () => void {
     scene.setBadge(null);
     scene.setArrows([]);
     scene.setArrowTap(undefined);
+    scene.setTapOverride(undefined);
     scene.syncBoard(boards[boards.length - 1]);
   }
   return close;

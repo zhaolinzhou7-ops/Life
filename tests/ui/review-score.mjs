@@ -64,8 +64,13 @@ ok('优势曲线画出来了', await page.evaluate(() => {
   return !!c && c.width > 50;
 }));
 ok('有称号统计', (await page.locator('.xq-rv-chips .xq-rv-chip').count()) > 0);
+// 整盘棋谱在「📊 报告」里（天天象棋式布局：平时棋盘下面只有局势图和这一手的卡片）
+await page.locator('[data-act="overview"]').click();
+await page.waitForTimeout(200);
+ok('报告里有你和对手的对照表（准确率、开局、好棋、失误……）', /准确率[\s\S]*开局[\s\S]*好棋[\s\S]*失误/.test(await page.locator('[data-report]').innerText()));
 await page.locator('.xq-rv-item').first().click();
 await page.waitForTimeout(200);
+ok('点棋谱里的一手：报告收起，看这一手', (await page.evaluate(() => window.__xqReview.sheet())) === 'none');
 const det = (await page.locator('.xq-rv-detail').innerText()).replace(/\s+/g, ' ');
 console.log('   单手：' + det.slice(0, 120));
 ok('每一手都有分数（准确率）和局面评价', /准确率 \d+/.test(det) && det.includes('局面'));
@@ -85,7 +90,7 @@ ok('深度复盘算完', await until(page, () => (document.querySelector('.xq-rv
 console.log('   ' + (await page.locator('.xq-rv-progress').textContent()));
 
 // 翻页：键盘右键、⚠ 下个问题手
-await page.locator('[data-act="overview"]').click().catch(() => {});
+await page.keyboard.press('Home');
 await page.waitForTimeout(150);
 await page.keyboard.press('ArrowRight');
 await page.waitForTimeout(200);
@@ -100,7 +105,9 @@ ok('棋盘整块露在面板上面（面板不压棋盘）', await page.evaluate
 }));
 await page.screenshot({ path: OUT + '/rs-review2.png' });
 
-// 复制棋谱
+// 复制棋谱（在报告里）
+await page.locator('[data-act="overview"]').click();
+await page.waitForTimeout(200);
 await page.locator('[data-act="copy"]').click();
 await page.waitForTimeout(300);
 const clip = await page.evaluate(() => navigator.clipboard.readText().catch(() => ''));

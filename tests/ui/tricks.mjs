@@ -191,7 +191,7 @@ await page.locator('.xq-confirm [data-act="yes"]').click();
 await page.waitForTimeout(800);
 await page.getByText('复盘这一局').click();
 await until(page, (n) => document.querySelectorAll('.xq-rv-item').length > n, before, 60000);
-await page.locator('.xq-rv-item').nth(before).click();
+await page.evaluate((n) => document.querySelectorAll('.xq-rv-item')[n]?.click(), before);
 await page.waitForTimeout(300);
 const rv = (await page.locator('.xq-rv-detail').innerText()).replace(/\s+/g, ' ');
 console.log('   复盘：' + rv.slice(0, 120));

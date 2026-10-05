@@ -106,6 +106,13 @@ await page.locator('#xq-tr-on').click();
 await page.waitForTimeout(800);
 ok('进了下到底的界面，对手是皮卡鱼', (await page.locator('.xq-po').count()) === 1 && (await page.locator('.xq-po-opp').innerText()).includes('皮卡鱼'));
 ok('目标是守和', (await page.locator('.xq-po-goal').innerText()).includes('守和'));
+// 用户截图：题目界面设了 hidden 却还显示着（.xq-tr 写了 display:flex 把默认的 [hidden] 盖掉了），
+// 和下到底的界面叠成两层——两个棋盘、两排按钮压在一起
+const layers = await page.evaluate(() => ({
+  tr: [...document.querySelectorAll('.xq-tr')].filter((e) => e.getBoundingClientRect().height > 0).length,
+  boards: [...document.querySelectorAll('canvas')].filter((e) => e.getBoundingClientRect().height > 0).length,
+}));
+ok(`下到底时题目界面整个藏起来，只看得见一块棋盘（题目界面 ${layers.tr} 个、棋盘 ${layers.boards} 块）`, layers.tr === 0 && layers.boards === 1);
 await page.screenshot({ path: OUT + '/puzzle-playout.png' });
 await until(() => window.__xqPlay.state().turn === 'b' || window.__xqPlay.state().turn === 'r', null, 5000);
 await page.locator('.xq-po-acts [data-act="resign"]').click();
