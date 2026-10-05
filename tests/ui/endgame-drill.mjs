@@ -122,7 +122,7 @@ await page.getByText('实用残局：下到底').first().click(); await page.wai
 await page.locator('.card', { hasText: '炮双士守单车' }).first().click(); await page.waitForTimeout(500);
 ok('守方练习不问"能赢/只能和"', (await page.locator('.xq-eg-guess').count()) === 0 && (await page.getByText('守和练习').count()) > 0);
 await page.locator('.card', { hasText: '局面 1' }).first().click(); await page.waitForTimeout(800);
-ok('操作条一直在：重来 / 提和 / 认输', (await page.locator('.xq-po-acts [data-act]').count()) === 3);
+ok('操作条一直在：重来 / 提和 / 认输 / 🔀 推演', (await page.locator('.xq-po-acts [data-act]').count()) === 4 && (await page.locator('.xq-po-acts [data-act="lab"]').count()) === 1);
 await until(page, () => (window.__xqPlay.study()?.depth ?? 0) >= 14 || !!window.__xqPlay.study()?.done, null, 30000);
 await page.locator('.xq-po-acts [data-act="draw"]').click();
 await page.waitForTimeout(500);
