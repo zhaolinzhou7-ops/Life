@@ -142,7 +142,7 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       ${opts.onExit ? '<button class="xq-tr-quit" title="退出练习">← 退出</button>' : ''}
       <span class="xq-tr-cap">${opts.caption ?? ''}</span>
       <span class="xq-tr-ask">${promptOf(puzzle)}${puzzle.mateIn && !puzzle.prompt ? `（${puzzle.mateIn} 步杀）` : ''}</span>
-      <span class="xq-tr-side">${me === 'r' ? '红方走' : '黑方走'} · 难度 ${puzzle.rating}</span>
+      <span class="xq-tr-side"><i class="who ${me}">${me === 'r' ? '红方走' : '黑方走'}</i><span>难度 ${puzzle.rating}</span></span>
     </div>
     <div class="xq-tr-steps"></div>
     ${

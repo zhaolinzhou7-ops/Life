@@ -2824,26 +2824,69 @@ canvas {
   padding: calc(env(safe-area-inset-top) + 6px) 10px calc(env(safe-area-inset-bottom) + 10px);
   gap: 8px;
 }
+/*
+ * 做题表头：第一行 [← 退出] 标题（最多两行） 谁走/难度；第二行题目要求单独占满一行。
+ * 原来四样东西挤在一行 flex 里，标题一长，题目要求被挤成一个字宽、竖着排了十几行，
+ * 把表头撑到一百多像素高，棋盘只剩半屏（用户截图）。
+ */
 .xq-tr-top {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'quit cap side'
+    'ask ask ask';
   align-items: center;
-  gap: 8px;
+  column-gap: 8px;
+  row-gap: 5px;
   font-size: 11px;
   flex: 0 0 auto;
 }
+.xq-tr-top > .xq-tr-quit { grid-area: quit; }
 .xq-tr-cap {
-  opacity: 0.6;
+  grid-area: cap;
+  min-width: 0;
+  opacity: 0.66;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .xq-tr-ask {
-  flex: 1;
+  grid-area: ask;
   text-align: center;
-  font-size: 14px;
+  font-size: 15px;
+  line-height: 1.4;
   font-weight: 600;
   color: #ffd76e;
+  overflow-wrap: anywhere;
 }
 .xq-tr-side {
-  opacity: 0.6;
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  white-space: nowrap;
+  line-height: 1.3;
+  opacity: 0.75;
 }
+.xq-tr-side .who {
+  font-weight: 600;
+  font-style: normal;
+}
+.xq-tr-side .who::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: 0;
+  background: #d6403a;
+}
+.xq-tr-side .who.b::before { background: #1d2733; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55); }
 .xq-tr-steps {
   flex: 0 0 auto;
   text-align: center;
