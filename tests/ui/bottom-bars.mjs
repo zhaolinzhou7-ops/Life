@@ -121,12 +121,14 @@ for (const [w, h] of SIZES) {
   await page.getByText('📖 布局体系').first().click(); await page.waitForTimeout(400);
   await page.locator('[data-opening="pfm-niutougun"]').click(); await page.waitForTimeout(300);
   await page.locator('[data-act="op-watch"]').click(); await page.waitForTimeout(400);
-  for (let i = 0; i < 12; i++) { await page.locator('#rp-next').click(); await page.waitForTimeout(40); }
+  // 走到分岔点会停下来列出几条路：沿主线走
+  const step = async () => { if (await page.locator('#rp-fork-main').count()) await page.locator('#rp-fork-main').click(); else await page.locator('#rp-next').click(); await page.waitForTimeout(40); };
+  for (let i = 0; i < 12; i++) await step();
   r = await visible(page, '.xq-rp-bar .xq-btn');
   ok(`${tag} 打谱：下一手/返回看得到 ${r.bad.join('；')}`, r.n >= 1 && !r.bad.length);
   await page.screenshot({ path: `${OUT}/bars-rp-${w}x${h}.png` });
   // 讲到底：走完了那段总结（局面判断 + 几个容易踩的坑）很长，按钮原来被挤出屏幕（用户截图）
-  for (let i = 0; i < 80 && (await page.locator('#rp-next').count()); i++) { await page.locator('#rp-next').click(); await page.waitForTimeout(20); }
+  for (let i = 0; i < 80 && (await page.locator('#rp-next, #rp-fork-main').count()); i++) await step();
   r = await visible(page, '.xq-rp-bar .xq-btn');
   ok(`${tag} 打谱走完了：再看一遍/返回看得到 ${r.bad.join('；')}`, r.n >= 2 && !r.bad.length);
   r = await toolbar(page, '.xq-rp-bar .xq-btn');

@@ -55,6 +55,8 @@ await page.locator('[data-act="op-watch"]').click(); await page.waitForTimeout(3
 let silent = 0;
 let steps = 0;
 for (let i = 0; i < 80; i++) {
+  // 走到分岔点（有变招、错着的那一手）会停下来列出几条路：这里沿主线走到底
+  if (await page.locator('#rp-fork-main').count()) { await page.locator('#rp-fork-main').click(); await page.waitForTimeout(60); }
   const b = page.locator('#rp-next');
   if (!(await b.count())) break;
   await b.click(); await page.waitForTimeout(60);

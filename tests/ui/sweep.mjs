@@ -145,7 +145,20 @@ for (const [w, h] of SIZES) {
     await page.evaluate((m) => window.__xqCoach.menu(m), id); await page.waitForTimeout(300);
     if (act) { await page.locator(`[data-act="${act}"]`).click(); await page.waitForTimeout(600); }
   };
-  const nextToEnd = async () => { for (let i = 0; i < 80 && (await page.locator('#rp-next').count()); i++) { await page.locator('#rp-next').click(); await page.waitForTimeout(25); } };
+  // 一直点到底；走到分岔点（会停下来列出几条路）就沿主线走
+  const nextToEnd = async () => {
+    for (let i = 0; i < 80 && (await page.locator('#rp-next, #rp-fork-main').count()); i++) {
+      await page.locator((await page.locator('#rp-fork-main').count()) ? '#rp-fork-main' : '#rp-next').click();
+      await page.waitForTimeout(25);
+    }
+  };
+  /** 一直点到第一个分岔点（停下来列出几条路） */
+  const nextToFork = async () => {
+    for (let i = 0; i < 60 && !(await page.locator('#rp-fork-main').count()) && (await page.locator('#rp-next').count()); i++) {
+      await page.locator('#rp-next').click();
+      await page.waitForTimeout(25);
+    }
+  };
 
   // ── 首页、对弈 ──
   await step('象棋首页', fresh);
@@ -180,6 +193,7 @@ for (const [w, h] of SIZES) {
   await step('布局体系', async () => { await menu('opening', 'openings'); });
   await step('布局详情（变招加载后）', async () => { await page.locator('[data-opening="pfm-guohe"]').click(); await page.waitForTimeout(1200); });
   await step('布局讲解·中途', async () => { await page.locator('[data-act="op-watch"]').click(); for (let i = 0; i < 12; i++) await page.locator('#rp-next').click(); });
+  await step('布局讲解·分岔点', nextToFork);
   await step('布局讲解·走完了', nextToEnd);
   await step('布局·执红走一遍', async () => { await page.locator('#rp-out').first().click(); await page.waitForTimeout(300); await page.locator('[data-act="op-red"]').click(); });
   await step('布局·变招走完了', async () => {
