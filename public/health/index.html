@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111315" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="健康打卡">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="format-detection" content="telephone=no">
+<meta name="referrer" content="no-referrer">
+<!-- 页面自己不发任何网络请求：connect-src 'none' 由浏览器强制执行 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<title>健康打卡</title>
+<style>
+/* 健康打卡 · 全局样式
+ * 正文 ≥16px（小程序里的 30rpx 在 iPhone 上约 15.6–17px），可点区域 ≥48px（88rpx 约 46–50px）。
+ * 输入框字号 ≥16px，iPhone 点进去才不会自动放大页面。
+ */
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --text: #1f2328;
+  --sub: #59636e;
+  --line: #e3e6ea;
+  --green: #1a7f37;
+  --green-bg: #dafbe1;
+  --red: #cf222e;
+  --red-bg: #ffebe9;
+  --amber: #9a6700;
+  --amber-bg: #fff8c5;
+  --gray: #8c959f;
+  --gray-bg: #eef0f2;
+  --tabbar-h: 56px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111315;
+    --card: #1c1f23;
+    --text: #e6e8eb;
+    --sub: #9aa4ae;
+    --line: #2d3238;
+    --green: #3fb950;
+    --green-bg: #12261a;
+    --red: #f85149;
+    --red-bg: #2d1416;
+    --amber: #d29922;
+    --amber-bg: #2b2111;
+    --gray: #6e7681;
+    --gray-bg: #23272c;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, input, select, textarea { font: inherit; font-size: max(16px, 1em); color: inherit; }
+
+a { color: var(--green); }
+
+/* 顶部：标题 + 右上角按钮 */
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 52px;
+  padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.top h1 { margin: 0; font-size: 22px; font-weight: 600; }
+
+.top-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  min-height: 48px;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--green);
+  font-size: 17px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.top-btn.back { justify-content: flex-start; padding-left: 0; }
+
+/* 内容区：底部留出标签栏和 iPhone 底部横条的位置 */
+.main {
+  padding: 16px max(16px, env(safe-area-inset-right)) calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 24px) max(16px, env(safe-area-inset-left));
+}
+
+.main.no-tabbar { padding-bottom: calc(env(safe-area-inset-bottom) + 24px); }
+
+.card {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.sub { color: var(--sub); font-size: 16px; }
+
+.notice {
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: 16px;
+}
+.notice-title { font-weight: 600; }
+.notice ol { margin: 4px 0 0; padding-left: 1.4em; }
+.notice li + li { margin-top: 4px; }
+.notice.info { background: var(--green-bg); }
+.notice.warn { background: var(--amber-bg); }
+.notice.bad { background: var(--red-bg); color: var(--red); }
+
+/* 底部标签栏：只有文字 */
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--card);
+  border-top: 1px solid var(--line);
+}
+
+.tabbar[hidden] { display: none; }
+
+.tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--tabbar-h);
+  color: var(--sub);
+  font-size: 17px;
+  text-decoration: none;
+}
+
+.tab[aria-current="page"] { color: var(--green); font-weight: 600; }
+
+/* 有新版本时的提示条 */
+.update-bar {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 12px);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+}
+
+.update-bar button {
+  min-height: 48px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--green);
+  color: #fff;
+}
+
+</style>
+</head>
+<body>
+<div id="app"></div>
+<noscript>这个工具需要开启 JavaScript 才能使用。</noscript>
+<script>
+window.__BUILD__ = "58d2f3dbce3c";
+(function () {
+  var defs = {}, cache = {};
+  function resolve(from, request) {
+  if (request.charAt(0) !== '.') return request.replace(/\.js$/, '');
+  var parts = from.split('/');
+  parts.pop();
+  request.split('/').forEach(function (p) {
+    if (p === '..') parts.pop();
+    else if (p !== '.' && p !== '') parts.push(p);
+  });
+  return parts.join('/').replace(/\.js$/, '');
+}
+  function load(id) {
+    if (cache[id]) return cache[id].exports;
+    if (!defs[id]) throw new Error('找不到模块 ' + id);
+    var module = (cache[id] = { exports: {} });
+    defs[id].call(module.exports, module, module.exports, function (request) {
+      return load(resolve(id, request));
+    });
+    return module.exports;
+  }
+  window.__def = function (id, fn) { defs[id] = fn; };
+  window.__run = load;
+})();
+__def("src/offline", function (module, exports, require) {
+/**
+ * 离线缓存：第一次打开后，程序文件存进手机，以后断网也能用。
+ * 有新版本时后台装好，弹出「刷新」提示条，不自动刷新，免得打断正在填的内容。
+ *
+ * 在页面程序之前单独启动：就算页面程序出错，也能收到修好的新版本。
+ */
+
+function showUpdateBar() {
+  if (document.querySelector('.update-bar')) return;
+  const bar = document.createElement('div');
+  bar.className = 'update-bar';
+  bar.setAttribute('role', 'status');
+  const text = document.createElement('span');
+  text.textContent = '新版本已准备好';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = '刷新';
+  button.addEventListener('click', () => location.reload());
+  bar.append(text, button);
+  document.body.appendChild(bar);
+}
+
+function setupOfflineCache() {
+  if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
+  const sw = navigator.serviceWorker;
+  const scriptURL = new URL('sw.js', location.href).href;
+  // 同一个网站上还有小游戏合集的 service worker，别把它当成我们的
+  const ours = () => !!sw.controller && sw.controller.scriptURL === scriptURL;
+  let controlled = ours();
+  sw.addEventListener('controllerchange', () => {
+    // 之前已经由旧版本接管 → 这次是新版本到了
+    if (controlled) showUpdateBar();
+    controlled = ours();
+  });
+  // 每次都重新 register：已经装好时什么也不做；第一次安装失败（比如网站缓存
+  // 还没刷新、网络断了）被浏览器删掉时，能重新装上
+  const register = () => sw.register('sw.js', { scope: './' });
+  register().catch(() => {});
+  // 回到前台时检查新版本（iPhone 上主屏幕 App 可能好几天都不重新启动）
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    register()
+      .then((reg) => reg.update())
+      .catch(() => {});
+  });
+}
+
+setupOfflineCache();
+
+// 申请“长期保存”：手机空间紧张时，浏览器别清掉这里的数据
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().catch(() => {});
+}
+
+});
+__def("src/app", function (module, exports, require) {
+/**
+ * 健康打卡 · 页面骨架（阶段 0）
+ *
+ * 四个标签页（今天／本周／记录／规则）+ 设置页（从「今天」右上角进入，不在标签栏里）。
+ * 页面用地址里 # 后面的部分切换：#today #week #records #rules #settings。
+ * 数据只存在本机，不发任何网络请求。离线缓存在 src/offline.js。
+ */
+
+const TABS = ['today', 'week', 'records', 'rules'];
+
+const PAGES = {
+  today: { title: '今天', stage: 2 },
+  week: { title: '本周', stage: 3 },
+  records: { title: '记录', stage: 4 },
+  rules: { title: '规则', stage: 5 },
+  settings: { title: '设置', stage: 5, parent: 'today' },
+};
+
+/** 建一个元素：h('div', {class: 'card', text: '…'}, [子元素…]) */
+function h(tag, props, children) {
+  const el = document.createElement(tag);
+  for (const key in props || {}) {
+    const value = props[key];
+    if (value == null || value === false) continue;
+    if (key === 'class') el.className = value;
+    else if (key === 'text') el.textContent = value;
+    else if (key.slice(0, 2) === 'on') el.addEventListener(key.slice(2), value);
+    else el.setAttribute(key, value === true ? '' : value);
+  }
+  for (const child of children || []) {
+    if (child == null || child === false) continue;
+    el.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+  }
+  return el;
+}
+
+function clear(el) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+}
+
+/** 浏览器现在能不能存数据（Safari 设成“阻止所有 Cookie”时不能；无痕浏览能存，但关掉就丢） */
+function storageWorks() {
+  try {
+    const key = '__probe__';
+    localStorage.setItem(key, '1');
+    localStorage.removeItem(key);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/** 打开方式不对时给的提示：在微信等 App 里打开、还没添加到主屏幕 */
+function openingHints() {
+  const ua = navigator.userAgent;
+  if (/MicroMessenger/i.test(ua)) {
+    return [{
+      kind: 'warn',
+      title: '你是在微信里打开的',
+      steps: ['点右上角「···」→「在默认浏览器中打开」（有的版本叫「在 Safari 中打开」），再按提示添加到主屏幕。在微信里记的数据，换到 Safari 里看不到。'],
+    }];
+  }
+  if (/\bQQ\/|AlipayClient|Weibo|aweme|NewsArticle/i.test(ua)) {
+    return [{ kind: 'warn', title: '你是在别的 App 里打开的', steps: ['请复制这个网址，到 Safari 里打开，再按提示添加到主屏幕。'] }];
+  }
+  // navigator.standalone 只有 iPhone 有：Safari 里是 false，从主屏幕图标打开是 true
+  if (navigator.standalone === false) {
+    return [{
+      kind: 'info',
+      title: '还没添加到主屏幕',
+      steps: [
+        '在 Safari 里点「共享」按钮（方框带向上箭头）。底部栏有就直接点；没有就先点地址栏旁边的「···」，或者按住地址栏，再点「共享」。',
+        '往下滑，点「添加到主屏幕」（没看到就先点「查看更多」）。',
+        '有“网页 App”之类的开关就保持打开，然后点「添加」。',
+        '马上从主屏幕图标打开一次（这时要联网）。以后只从主屏幕图标打开——Safari 里和主屏幕里的数据是分开存的。不要在无痕浏览里用。',
+      ],
+    }];
+  }
+  return [];
+}
+
+/** 浏览器版本，例如“Safari 18.5”（排查问题用） */
+function browserName() {
+  const ua = navigator.userAgent;
+  const safari = ua.match(/Version\/([\d.]+).*Safari/);
+  if (safari) return 'Safari ' + safari[1];
+  const chrome = ua.match(/(?:Chrome|CriOS)\/(\d+)/);
+  return chrome ? 'Chrome ' + chrome[1] : '其他浏览器';
+}
+
+function notice(kind, title, steps) {
+  return h('div', { class: 'notice ' + kind }, [
+    h('div', { class: 'notice-title', text: title }),
+    steps.length > 1
+      ? h('ol', null, steps.map((step) => h('li', { text: step })))
+      : h('div', { text: steps[0] }),
+  ]);
+}
+
+const app = document.getElementById('app');
+const top = h('header', { class: 'top' });
+const main = h('main', { class: 'main' });
+const tabbar = h('nav', { class: 'tabbar', 'aria-label': '页面' });
+const tabLinks = {};
+for (const id of TABS) {
+  tabLinks[id] = h('a', { class: 'tab', href: '#' + id, text: PAGES[id].title });
+  tabbar.appendChild(tabLinks[id]);
+}
+app.append(top, main, tabbar);
+
+const canStore = storageWorks();
+
+function currentPage() {
+  const id = location.hash.replace(/^#\/?/, '');
+  return PAGES[id] ? id : 'today';
+}
+
+function renderTop(id) {
+  const page = PAGES[id];
+  clear(top);
+  if (page.parent) {
+    top.append(
+      h('a', { class: 'top-btn back', href: '#' + page.parent, text: '‹ ' + PAGES[page.parent].title }),
+      h('h1', { text: page.title }),
+      h('span', { class: 'top-btn', 'aria-hidden': 'true' }),
+    );
+  } else {
+    top.append(h('h1', { text: page.title }));
+    if (id === 'today') top.append(h('a', { class: 'top-btn', href: '#settings', text: '设置' }));
+  }
+}
+
+function renderMain(id) {
+  const page = PAGES[id];
+  clear(main);
+  if (!canStore) {
+    main.append(notice('bad', '这个浏览器现在存不了数据', ['可能在手机设置里给 Safari 打开了「阻止所有 Cookie」。现在记的内容，关掉页面就会丢。']));
+  }
+  if (id === 'today') {
+    for (const hint of openingHints()) main.append(notice(hint.kind, hint.title, hint.steps));
+  }
+  main.append(h('div', { class: 'card' }, [h('div', { text: '「' + page.title + '」页：阶段 ' + page.stage + ' 来做' })]));
+  if (id === 'settings') {
+    const mode = navigator.standalone ? '主屏幕图标' : '浏览器';
+    main.append(h('p', { class: 'sub', text: '程序版本 ' + (window.__BUILD__ || '开发中') + ' · ' + browserName() + ' · 从' + mode + '打开' }));
+  }
+}
+
+function render() {
+  const id = currentPage();
+  const page = PAGES[id];
+  document.title = page.title + ' · 健康打卡';
+  renderTop(id);
+  renderMain(id);
+  tabbar.hidden = !!page.parent;
+  main.classList.toggle('no-tabbar', !!page.parent);
+  for (const tab of TABS) {
+    if (tab === id) tabLinks[tab].setAttribute('aria-current', 'page');
+    else tabLinks[tab].removeAttribute('aria-current');
+  }
+  window.scrollTo(0, 0);
+}
+
+window.addEventListener('hashchange', render);
+render();
+
+});
+(function () {
+  ["src/offline","src/app"].forEach(function (id) {
+    try {
+      __run(id);
+    } catch (e) {
+      if (window.console) console.error(e);
+      var box = document.getElementById('app');
+      if (!box) return;
+      box.textContent = '';
+      var p = document.createElement('p');
+      p.style.cssText = 'margin:0;padding:24px 16px;font-size:17px;line-height:1.6';
+      p.textContent = '出错了，页面没能打开。请把这一屏截图发给 Claude：' + ((e && e.message) || e) + '（版本 ' + window.__BUILD__ + '，' + id + '）';
+      box.appendChild(p);
+    }
+  });
+})();
+</script>
+</body>
+</html>
