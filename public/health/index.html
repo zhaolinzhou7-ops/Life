@@ -36,6 +36,13 @@
   --amber-bg: #fff8c5;
   --gray: #8c959f;
   --gray-bg: #eef0f2;
+  --blue: #0969da;
+  --blue-bg: #ddf4ff;
+  --line-strong: #c9d0d7;
+  --track: #d0d5da;
+  /* 白字底下的填充色（✓ ✗ 圆圈、选中的精力）：深色模式要更深一点，白字才看得清 */
+  --fill-green: #1a7f37;
+  --fill-red: #cf222e;
   --tabbar-h: 56px;
   color-scheme: light dark;
 }
@@ -55,10 +62,18 @@
     --amber-bg: #2b2111;
     --gray: #6e7681;
     --gray-bg: #23272c;
+    --blue: #58a6ff;
+    --blue-bg: #0d2238;
+    --line-strong: #444c56;
+    --track: #3a4048;
+    --fill-green: #238636;
+    --fill-red: #b62324;
   }
 }
 
 * { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
 
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
@@ -193,13 +208,278 @@ a { color: var(--green); }
   color: #fff;
 }
 
+/* ---------- 「今天」页 ---------- */
+
+.card-title { font-size: 17px; font-weight: 600; }
+
+.day-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.day-rate { text-align: right; }
+.day-rate-label { font-size: 15px; color: var(--sub); }
+.day-rate-num { font-size: 28px; font-weight: 700; line-height: 1.2; color: var(--green); }
+.sick-line { padding: 4px 0 10px; }
+
+/* 开关（像 iPhone 设置里的那种） */
+.toggles { padding-top: 4px; padding-bottom: 4px; }
+.toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  text-align: left;
+  font-size: 17px;
+  cursor: pointer;
+}
+.toggle:last-child { border-bottom: 0; }
+.toggle-track {
+  position: relative;
+  flex: none;
+  width: 51px;
+  height: 31px;
+  border-radius: 16px;
+  background: var(--track);
+  transition: background 0.2s;
+}
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s;
+}
+.toggle[aria-checked="true"] .toggle-track { background: var(--green); }
+.toggle[aria-checked="true"] .toggle-thumb { transform: translateX(20px); }
+
+/* 下一步 */
+.next .card-title { margin-bottom: 6px; }
+.next-item + .next-item { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.next-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.next-time { font-size: 20px; font-weight: 700; color: var(--green); }
+.next-what { font-size: 18px; font-weight: 600; }
+.next-how { margin-top: 4px; }
+
+/* 打卡列表 */
+.group { padding-top: 12px; padding-bottom: 4px; }
+.group > .card-title { margin-bottom: 4px; }
+.how-to { margin-bottom: 6px; }
+.check-row { display: flex; align-items: stretch; border-top: 1px solid var(--line); }
+.check {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.badge {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 2px solid var(--gray);
+  border-radius: 50%;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+.is-done .badge { background: var(--fill-green); border-color: var(--fill-green); color: #fff; }
+.is-miss .badge { background: var(--fill-red); border-color: var(--fill-red); color: #fff; }
+.is-na .badge { background: var(--gray-bg); border-color: var(--gray); color: var(--sub); }
+.check-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.check-name { font-size: 17px; font-weight: 500; }
+.check-standard { font-size: 16px; line-height: 1.45; color: var(--sub); }
+.state-word { flex: none; font-size: 16px; color: var(--sub); }
+.is-done .state-word { color: var(--green); }
+.is-miss .state-word { color: var(--red); }
+.info {
+  flex: none;
+  width: 48px;
+  min-height: 48px;
+  border: 0;
+  background: none;
+  color: var(--sub);
+  font-size: 22px;
+  cursor: pointer;
+}
+.tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  font-size: 15px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
+.group-note { padding: 8px 0; border-top: 1px solid var(--line); }
+
+/* 加分项：默认折叠 */
+.bonus summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  list-style: none;
+  cursor: pointer;
+}
+.bonus summary::-webkit-details-marker { display: none; }
+.bonus summary .card-title::after { content: ' ▸'; color: var(--sub); }
+.bonus[open] summary .card-title::after { content: ' ▾'; }
+
+/* 记录 */
+.record .card-title { margin-bottom: 4px; }
+.record-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.record-row.column { flex-direction: column; align-items: stretch; gap: 0; }
+.record-row label { display: flex; flex-direction: column; }
+.record-label { font-size: 17px; margin-right: 8px; }
+.record-input { display: flex; align-items: center; gap: 4px; flex: none; }
+.time-input {
+  min-width: 110px;
+  min-height: 48px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 17px;
+}
+.clear-btn { min-height: 48px; padding: 0 8px; border: 0; background: none; color: var(--sub); font-size: 16px; cursor: pointer; }
+.sleep-line { padding: 10px 0; border-top: 1px solid var(--line); font-weight: 600; }
+.sleep-line.sub { font-weight: 400; }
+.energy { display: flex; gap: 8px; margin-top: 8px; }
+.energy-btn {
+  flex: 1;
+  min-height: 48px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--card);
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.energy-btn[aria-pressed="true"] { background: var(--fill-green); border-color: var(--fill-green); color: #fff; }
+.note-status { margin-top: 6px; color: var(--red); font-size: 16px; }
+.note-input {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 17px;
+  resize: vertical;
+}
+
+/* ---------- 证据等级标签 ---------- */
+.ev {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ev-strong { background: var(--green-bg); color: var(--green); }
+.ev-medium { background: var(--blue-bg); color: var(--blue); }
+.ev-weak { background: var(--amber-bg); color: var(--amber); }
+.ev-none { background: var(--red-bg); color: var(--red); }
+.ev-na { background: var(--gray-bg); color: var(--sub); }
+
+/* ---------- 弹窗、短提示 ---------- */
+.modal-overlay {
+  touch-action: none; /* 拖暗处不带着后面的页面滚 */
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, 0.45);
+}
+.modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 80vh;
+  overflow: auto;
+  padding: 8px 16px 16px;
+  border-radius: 16px;
+  background: var(--card);
+}
+.modal-head {
+  position: sticky; /* 内容长、往下滚时「关闭」一直在 */
+  top: -8px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -8px -16px 0;
+  padding: 8px 16px 4px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+}
+.modal-body > .field:first-child { border-top: 0; }
+.modal-head h2 { margin: 0; font-size: 20px; }
+.modal-close { min-width: 64px; min-height: 48px; border: 0; background: none; color: var(--green); font-size: 17px; cursor: pointer; }
+.field { padding: 10px 0; border-top: 1px solid var(--line); }
+.field-label { font-size: 16px; color: var(--sub); }
+.ev-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+
+.toast {
+  pointer-events: none; /* 不挡住下面的打卡行 */
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 76px);
+  z-index: 25;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+  text-align: center;
+}
+
+/* 很窄的屏幕（iPhone SE 一代，320px）：状态字省掉（圆圈里的符号还在），标准文字多点地方 */
+@media (max-width: 359px) {
+  .state-word { display: none; }
+}
+
 </style>
 </head>
 <body>
 <div id="app"></div>
 <noscript>这个工具需要开启 JavaScript 才能使用。</noscript>
 <script>
-window.__BUILD__ = "4be5e223e2cf";
+window.__BUILD__ = "21fd8802a5b9";
 (function () {
   var defs = {}, cache = {};
   function resolve(from, request) {
@@ -2954,6 +3234,497 @@ module.exports = {
 };
 
 });
+__def("pages/today", function (module, exports, require) {
+/**
+ * 「今天」页（指令第六节第 1 条）。
+ *
+ * 顶部：日期、星期、日类型、今日完成率（一直显示“✓数 / 分母”，开了「不适用」能看到分母变小）。
+ * 两个开关：今天加班、今天不适用。
+ * 「下一步」：按现在的时间，当天日程里下一条有开始时间的安排（同一时间的几条一起显示）。
+ * 打卡：核心 7 项、今日专项（补做日显示“补做”）、加分（默认折叠，设置里可隐藏）。
+ *   点一下循环：未填 → ✓ 做到 → ✗ 没做到 → — 不适用 → 未填；点右边 ⓘ 看标准、为什么、证据等级。
+ * 记录：昨晚熄灯、今天起床（时间选择器）、昨晚睡了几小时、今天精力 1–5、备注。
+ *
+ * 每次改动马上存；存之前确认还是同一天（主屏幕 App 隔夜从后台切回来、还没刷新时，
+ * 先换到新的一天，不把今天的打卡存到昨天）。
+ */
+const plan = require('../config/plan');
+const date = require('../utils/date');
+const text = require('../utils/text');
+const calc = require('../utils/calc');
+const ui = require('./ui');
+
+const h = ui.h;
+
+const STATES = {
+  '': { symbol: '', word: '未填', cls: 'empty' },
+  done: { symbol: '✓', word: '做到', cls: 'done' },
+  miss: { symbol: '✗', word: '没做到', cls: 'miss' },
+  na: { symbol: '—', word: '不适用', cls: 'na' },
+};
+
+const FIELDS = {};
+for (const f of plan.dailyFields) FIELDS[f.id] = f;
+
+// 加分项默认折叠；这次打开页面期间展开过，点了别的也保持展开
+let bonusOpen = false;
+// 「下一步」卡片：每 30 秒按新时间刷新（见 tick）
+let nextCard = null;
+let nextArgs = null;
+// 备注：边打字边存（稍等一下再存，免得每个字都写一次）；切走或关掉前一定存上
+let pendingNote = null;
+
+function flushNote() {
+  if (pendingNote) {
+    const job = pendingNote;
+    pendingNote = null;
+    clearTimeout(job.timer);
+    job.save();
+  }
+}
+document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flushNote());
+window.addEventListener('pagehide', flushNote);
+
+/** '2026-10-07' → '10月7日 周三' */
+function longDate(dateStr) {
+  const parts = dateStr.split('-');
+  return Number(parts[1]) + '月' + Number(parts[2]) + '日 ' + date.weekdayName(date.weekday(dateStr));
+}
+
+/**
+ * 「下一步」现在该显示什么：按第六节只要“时间＋做什么＋怎么做”。
+ * 例外：工作日 21:00 那条“力量训练（{strengthDays}）”不分日子都在日程里，不是训练日时
+ * 不显示动作，改显示计划里它自己的备注（“其他日子这段是自由时间”）。
+ */
+function nextContent(args) {
+  const now = date.nowTime(args.now());
+  const step = calc.nextStep(plan, args.settings, args.pageDate, now, args.overtime);
+  const trainingDay = args.settings.strengthDays.indexOf(date.weekday(args.pageDate)) >= 0;
+  if (step) {
+    return {
+      items: step.items.map((i) => {
+        const strengthSlot = /\{strengthDays\}/.test(i.entry.what || '');
+        return { time: i.time, what: i.what, how: strengthSlot && !trainingDay ? i.note : i.how };
+      }),
+    };
+  }
+  const tomorrow = calc.nextStep(plan, args.settings, date.addDays(args.pageDate, 1), '00:00', false);
+  return { done: true, tomorrow: tomorrow ? tomorrow.items[0].time + ' ' + tomorrow.items[0].what : '' };
+}
+
+function renderNext(card, args) {
+  const content = nextContent(args);
+  const signature = JSON.stringify(content);
+  // 内容没变就不动（Safari 不会自动保持滚动位置，卡片高度一变下面的列表会跳）
+  if (card.getAttribute('data-sig') === signature) return;
+  card.setAttribute('data-sig', signature);
+  ui.clear(card);
+  card.append(h('div', { class: 'card-title', text: '下一步' }));
+  if (content.items) {
+    for (const item of content.items) {
+      card.append(
+        h('div', { class: 'next-item' }, [
+          h('div', { class: 'next-head' }, [h('span', { class: 'next-time', text: item.time }), h('span', { class: 'next-what', text: item.what })]),
+          item.how && h('div', { class: 'next-how', text: item.how }),
+        ]),
+      );
+    }
+    return;
+  }
+  card.append(
+    h('div', { class: 'next-item' }, [
+      h('div', { class: 'next-what', text: '今天的安排都过了，早点休息' }),
+      content.tomorrow && h('div', { class: 'sub', text: '明天第一件：' + content.tomorrow }),
+    ]),
+  );
+}
+
+/** 每 30 秒、以及从后台切回来时调：只刷新「下一步」卡片 */
+function tick() {
+  if (nextCard && nextCard.isConnected) renderNext(nextCard, nextArgs);
+}
+
+/**
+ * ctx: { store, now(), today(), rerender(), newDay() }
+ * rerender：原地重画（保持滚动位置）；newDay：日期变了，整页换到新的一天。
+ */
+function render(container, ctx) {
+  const pageDate = ctx.today();
+  const allSettings = ctx.store.getSettings();
+  // 文字里的 {strengthDays} 按这一天实际用的训练日填（改训练日“从明天起”，今天的文字不提前变）
+  const settings = Object.assign({}, allSettings, { strengthDays: calc.strengthDaysOn(allSettings, pageDate) });
+  const day = ctx.store.getDay(pageDate);
+  const groups = calc.itemsForDay(plan, settings, pageDate);
+  const rate = calc.dayRate(plan, settings, pageDate, day);
+
+  /** 还是页面上显示的那一天吗？不是就换到新的一天，返回 false */
+  function sameDay() {
+    if (ctx.today() === pageDate) return true;
+    pendingNote = null;
+    ctx.newDay();
+    ui.toast('已经过了午夜，换到新的一天了，请再点一次');
+    return false;
+  }
+
+  /** 改当天的记录：change(day) 改好（或返回新的 day），存上，重画；after(旧, 新) 存好后调用 */
+  function update(change, after) {
+    flushNote();
+    if (!sameDay()) return;
+    const before = ctx.store.getDay(pageDate);
+    const working = JSON.parse(JSON.stringify(before));
+    const next = change(working) || working;
+    const saved = ctx.store.saveDay(pageDate, next);
+    ctx.rerender();
+    if (saved && after) after(before, next);
+  }
+
+  /* ---------- 顶部：日期、日类型、今日完成率 ---------- */
+  // 完成率：适用项一项都没填时显示空白（第七节），下面一行一直写着“✓数 / 分母”或要打几项
+  const rateText = rate.rate == null ? '' : Math.round(rate.rate * 100) + '%';
+  let rateSub;
+  if (rate.rate != null) rateSub = '✓ ' + rate.done + ' / ' + rate.denom + ' 项';
+  else if (rate.denom <= 0) rateSub = '今天全部不适用';
+  else if (!Object.keys(day.checks).length) rateSub = '还没打卡 · 今天要打 ' + rate.denom + ' 项';
+  else rateSub = '今天要打 ' + rate.denom + ' 项';
+  container.append(
+    h('section', { class: 'card day-head' }, [
+      h('div', null, [h('div', { class: 'today-date', text: longDate(pageDate) }), h('div', { class: 'sub', text: calc.dayTypeLabel(pageDate) })]),
+      h('div', { class: 'day-rate' }, [
+        h('div', { class: 'day-rate-label', text: '今日完成率' }),
+        rateText && h('div', { class: 'day-rate-num', text: rateText }),
+        h('div', { class: 'sub day-rate-sub', text: rateSub }),
+      ]),
+    ]),
+  );
+
+  /** 开着「不适用」时，一直写明哪些运动项现在是“—” */
+  function sickLine() {
+    const shown = groups.core.concat(groups.special.map((s) => s.item), settings.showBonus ? groups.bonus : []);
+    const names = shown.filter((i) => i.isExercise && day.checks[i.id] === 'na').map((i) => i.name);
+    return names.length ? h('div', { class: 'sub sick-line', text: '已把 ' + names.join('、') + ' 设为“—”，需要可以点回来' }) : null;
+  }
+
+  /* ---------- 两个开关 ---------- */
+  container.append(
+    h('section', { class: 'card toggles' }, [
+      ui.toggle('今天加班（' + date.displayTime(settings.overtimeLeaveAfter) + ' 后离厂）', day.overtime, () =>
+        update((d) => {
+          d.overtime = !d.overtime;
+        }),
+      ),
+      ui.toggle('今天不适用（生病、出差）', day.sick, () =>
+        update(
+          (d) => calc.setSick(plan, settings, pageDate, d, !d.sick),
+          (before, after) => {
+            const changed = plan.checkItems.filter((i) => (before.checks[i.id] || '') !== (after.checks[i.id] || '')).map((i) => i.name);
+            if (!changed.length) return;
+            ui.toast(after.sick ? '已把 ' + changed.join('、') + ' 设为“—”，需要可以点回来' : '已把 ' + changed.join('、') + ' 恢复成未填');
+          },
+        ),
+      ),
+      day.sick && sickLine(),
+    ]),
+  );
+
+  /* ---------- 下一步 ---------- */
+  nextCard = h('section', { class: 'card next', 'aria-live': 'polite' });
+  nextArgs = { settings, pageDate, overtime: day.overtime, now: ctx.now };
+  renderNext(nextCard, nextArgs);
+  container.append(nextCard);
+
+  /* ---------- 打卡 ---------- */
+  function showInfo(item) {
+    const legend = plan.evidenceLegend.find((l) => l.level === item.evidence);
+    const field = (label, value) => h('div', { class: 'field' }, [h('div', { class: 'field-label', text: label }), h('div', { text: value })]);
+    ui.modal(item.name, [
+      field('标准', text.fill(item.standard, settings)),
+      item.standardOvertime && field('加班时', text.fill(item.standardOvertime, settings)),
+      field('为什么', text.fill(item.why, settings)),
+      h('div', { class: 'field' }, [
+        h('div', { class: 'field-label', text: '证据等级' }),
+        h('div', { class: 'ev-line' }, [ui.evidenceTag(item.evidence), h('span', { text: legend ? legend.meaning : '' })]),
+      ]),
+    ]);
+  }
+
+  function itemRow(item, makeup) {
+    const value = day.checks[item.id] || '';
+    const st = STATES[value] || STATES[''];
+    const standard = text.fill(day.overtime && item.standardOvertime ? item.standardOvertime : item.standard, settings);
+    const name = item.name + (makeup ? '（补做）' : '');
+    return h('div', { class: 'check-row is-' + st.cls, 'data-name': item.name }, [
+      h(
+        'button',
+        {
+          class: 'check',
+          type: 'button',
+          'aria-label': name + '：' + st.word + '。点一下换成下一个',
+          onclick: () =>
+            update((d) => {
+              const n = calc.nextCheck(d.checks[item.id]);
+              if (n) d.checks[item.id] = n;
+              else delete d.checks[item.id];
+            }),
+        },
+        [
+          h('span', { class: 'badge', 'aria-hidden': 'true', text: st.symbol }),
+          h('span', { class: 'check-text' }, [
+            h('span', { class: 'check-name' }, [item.name, makeup && h('span', { class: 'tag', text: '补做' })]),
+            h('span', { class: 'check-standard', text: standard }),
+          ]),
+          h('span', { class: 'state-word', 'aria-hidden': 'true', text: st.word }),
+        ],
+      ),
+      h('button', { class: 'info', type: 'button', 'aria-label': item.name + '：标准、为什么、证据等级', text: 'ⓘ', onclick: () => showInfo(item) }),
+    ]);
+  }
+
+  container.append(
+    h('section', { class: 'card group' }, [
+      h('div', { class: 'card-title', text: '核心 ' + groups.core.length + ' 项' }),
+      h('div', { class: 'sub how-to', text: '点一下换：✓ 做到 → ✗ 没做到 → — 不适用 → 空白；点 ⓘ 看为什么' }),
+      ...groups.core.map((i) => itemRow(i, false)),
+    ]),
+  );
+  if (groups.special.length) {
+    const hasMakeup = groups.special.some((s) => s.makeup);
+    container.append(
+      h('section', { class: 'card group' }, [
+        h('div', { class: 'card-title', text: '今日专项' }),
+        ...groups.special.map((s) => itemRow(s.item, s.makeup)),
+        hasMakeup && h('div', { class: 'sub group-note', text: '“补做”的不算进今天的完成率，算进本周。' }),
+      ]),
+    );
+  }
+  if (settings.showBonus && groups.bonus.length) {
+    const doneCount = groups.bonus.filter((i) => day.checks[i.id] === 'done').length;
+    const details = h('details', { class: 'card group bonus' }, [
+      h('summary', null, [
+        h('span', { class: 'card-title', text: '加分 ' + groups.bonus.length + ' 项' }),
+        h('span', { class: 'sub', text: (doneCount ? '✓ ' + doneCount + ' · ' : '') + '不算进完成率' }),
+      ]),
+      ...groups.bonus.map((i) => itemRow(i, false)),
+    ]);
+    details.open = bonusOpen;
+    details.addEventListener('toggle', () => {
+      bonusOpen = details.open;
+    });
+    container.append(details);
+  }
+
+  /* ---------- 记录 ---------- */
+  /**
+   * 时间框。iPhone 上：一点开空的时间框，系统马上填上现在的时间；每转一下滚轮也算一次“改了”。
+   * 所以改了就存，但不能把正在用的这个框换掉（换掉滚轮就关了）——整页重画由 ctx.rerender
+   * 推迟到离开这个框以后；睡了几小时这一行当场更新。
+   */
+  function timeField(field, value) {
+    const id = 'f-' + field.id;
+    const input = h('input', {
+      id,
+      class: 'time-input',
+      type: 'time',
+      value: value || '',
+      onchange: (e) => {
+        update((d) => {
+          d[field.id] = e.target.value;
+        });
+        refreshSleepLine();
+      },
+    });
+    return h('div', { class: 'record-row' }, [
+      h('label', { for: id }, [h('span', { class: 'record-label', text: field.name }), field.hint && h('span', { class: 'sub', text: field.hint })]),
+      h('div', { class: 'record-input' }, [
+        input,
+        value &&
+          h('button', {
+            class: 'clear-btn',
+            type: 'button',
+            'aria-label': '清空' + field.name,
+            text: '清空',
+            onclick: () =>
+              update((d) => {
+                d[field.id] = '';
+              }),
+          }),
+      ]),
+    ]);
+  }
+
+  const SLEEP_HINT = '填好昨晚熄灯和今天起床时间，就能算出昨晚睡了多久';
+  const sleepText = (d) => {
+    const hrs = date.sleepHours(d.lightsOutLastNight, d.wake);
+    return hrs == null ? SLEEP_HINT : '昨晚睡了 ' + text.oneDecimal(hrs) + ' 小时';
+  };
+  const sleepLine = h('div', { class: 'sleep-line' + (sleepText(day) === SLEEP_HINT ? ' sub' : ''), text: sleepText(day) });
+  /** 按存储里的值更新“昨晚睡了几小时”（换到新的一天以后，这一行已经不在页面上，就不动） */
+  function refreshSleepLine() {
+    if (!sleepLine.isConnected) return;
+    const t = sleepText(ctx.store.getDay(pageDate));
+    sleepLine.textContent = t;
+    sleepLine.className = 'sleep-line' + (t === SLEEP_HINT ? ' sub' : '');
+  }
+  const energy = FIELDS.energy;
+  const energyButtons = [];
+  for (let n = energy.min; n <= energy.max; n++) {
+    energyButtons.push(
+      h('button', {
+        class: 'energy-btn',
+        type: 'button',
+        'aria-pressed': day.energy === n ? 'true' : 'false',
+        'aria-label': '精力 ' + n + ' 分',
+        text: String(n),
+        onclick: () =>
+          update((d) => {
+            d.energy = d.energy === n ? null : n;
+          }),
+      }),
+    );
+  }
+
+  const note = FIELDS.note;
+  const noteStatus = h('div', { class: 'note-status', role: 'status', hidden: true, text: '备注没存上。先把上面的字复制下来保存，等能存了再粘回来。' });
+  const noteBox = h('textarea', {
+    id: 'f-note',
+    class: 'note-input',
+    rows: '3',
+    value: day.note || '',
+    oninput: (e) => {
+      const valueNow = e.target.value;
+      if (pendingNote) clearTimeout(pendingNote.timer);
+      // 存到打字时页面上的那一天：哪怕存的时候已经过了午夜，这段话也属于那一天
+      const job = {
+        save: () => {
+          const d = ctx.store.getDay(pageDate);
+          d.note = valueNow;
+          const ok = ctx.store.saveDay(pageDate, d);
+          if (noteStatus.isConnected) noteStatus.hidden = ok;
+        },
+      };
+      job.timer = setTimeout(() => {
+        if (pendingNote === job) {
+          pendingNote = null;
+          job.save();
+        }
+      }, 400);
+      pendingNote = job;
+    },
+    onblur: flushNote,
+  });
+
+  container.append(
+    h('section', { class: 'card record' }, [
+      h('div', { class: 'card-title', text: '记录' }),
+      timeField(FIELDS.lightsOutLastNight, day.lightsOutLastNight),
+      timeField(FIELDS.wake, day.wake),
+      sleepLine,
+      h('div', { class: 'record-row column' }, [
+        h('div', null, [h('span', { class: 'record-label', text: energy.name }), energy.hint && h('span', { class: 'sub', text: energy.hint })]),
+        h('div', { class: 'energy', role: 'group', 'aria-label': energy.name }, energyButtons),
+      ]),
+      h('div', { class: 'record-row column' }, [h('label', { for: 'f-note', class: 'record-label', text: note.name }), noteBox, noteStatus]),
+    ]),
+  );
+}
+
+module.exports = { render, tick, flushNote };
+
+});
+__def("pages/ui", function (module, exports, require) {
+/**
+ * 页面公用的小工具：建元素、提示框、开关、弹窗、证据等级标签、短提示。
+ * 只在函数里碰 document，Node 测试 require 到也不会出错。
+ */
+
+/** 建一个元素：h('div', {class: 'card', text: '…'}, [子元素…])；on 开头的是事件 */
+function h(tag, props, children) {
+  const el = document.createElement(tag);
+  for (const key in props || {}) {
+    const value = props[key];
+    if (value == null || value === false) continue;
+    if (key === 'class') el.className = value;
+    else if (key === 'text') el.textContent = value;
+    else if (key === 'value') el.value = value;
+    else if (key.slice(0, 2) === 'on') el.addEventListener(key.slice(2), value);
+    else el.setAttribute(key, value === true ? '' : value);
+  }
+  for (const child of children || []) {
+    if (child == null || child === false) continue;
+    el.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+  }
+  return el;
+}
+
+function clear(el) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+}
+
+/** 提示框：kind 是 info / warn / bad；steps 多于一条时编号 */
+function notice(kind, title, steps) {
+  return h('div', { class: 'notice ' + kind }, [
+    h('div', { class: 'notice-title', text: title }),
+    steps.length > 1 ? h('ol', null, steps.map((step) => h('li', { text: step }))) : h('div', { text: steps[0] }),
+  ]);
+}
+
+const EVIDENCE_CLASS = { 强: 'strong', 中: 'medium', 弱: 'weak', 无: 'none', '—': 'na' };
+
+/** 证据等级小标签：强／中／弱／无／—，颜色区分 */
+function evidenceTag(level) {
+  return h('span', { class: 'ev ev-' + (EVIDENCE_CLASS[level] || 'na'), text: level === '—' ? '—' : '证据' + level, title: '证据等级：' + level });
+}
+
+/** 一行开关：点整行切换 */
+function toggle(label, on, onchange) {
+  return h('button', { class: 'toggle', type: 'button', role: 'switch', 'aria-checked': on ? 'true' : 'false', onclick: onchange }, [
+    h('span', { class: 'toggle-label', text: label }),
+    h('span', { class: 'toggle-track', 'aria-hidden': 'true' }, [h('span', { class: 'toggle-thumb' })]),
+  ]);
+}
+
+/** 弹窗：点“关闭”或窗外关掉 */
+function modal(title, body) {
+  const close = () => {
+    document.removeEventListener('keydown', onKey);
+    if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    if (opener && opener.focus) opener.focus();
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') close();
+  };
+  const opener = document.activeElement;
+  const closeBtn = h('button', { class: 'modal-close', type: 'button', text: '关闭', onclick: close });
+  const box = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, [
+    h('div', { class: 'modal-head' }, [h('h2', { text: title }), closeBtn]),
+    h('div', { class: 'modal-body' }, body),
+  ]);
+  const overlay = h('div', { class: 'modal-overlay', onclick: (e) => e.target === overlay && close() }, [box]);
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(overlay);
+  closeBtn.focus();
+  return close;
+}
+
+let toastTimer = null;
+
+/** 屏幕下方短暂显示一句话（3 秒） */
+function toast(message) {
+  let el = document.querySelector('.toast');
+  if (!el) {
+    el = h('div', { class: 'toast', role: 'status' });
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    el.hidden = true;
+  }, 3000);
+}
+
+module.exports = { h, clear, notice, evidenceTag, toggle, modal, toast };
+
+});
 __def("src/offline", function (module, exports, require) {
 /**
  * 离线缓存：第一次打开后，程序文件存进手机，以后断网也能用。
@@ -3012,49 +3783,30 @@ if (navigator.storage && navigator.storage.persist) {
 });
 __def("src/app", function (module, exports, require) {
 /**
- * 健康打卡 · 页面程序（阶段 1：骨架 + 数据层自检）
+ * 健康打卡 · 页面程序：顶栏、底部标签栏、按地址切换页面。
  *
  * 四个标签页（今天／本周／记录／规则）+ 设置页（从「今天」右上角进入，不在标签栏里）。
  * 页面用地址里 # 后面的部分切换：#today #week #records #rules #settings。
- * 数据只存在本机，不发任何网络请求。离线缓存在 src/offline.js。
+ * 每个页面的内容在 pages/ 下。数据只存在本机，不发任何网络请求。离线缓存在 src/offline.js。
  */
 
 const plan = require('../config/plan');
 const date = require('../utils/date');
-const calc = require('../utils/calc');
 const { createStore } = require('../utils/store');
+const ui = require('../pages/ui');
+const todayPage = require('../pages/today');
+
+const { h, clear, notice } = ui;
 
 const TABS = ['today', 'week', 'records', 'rules'];
 
 const PAGES = {
-  today: { title: '今天', stage: 2 },
+  today: { title: '今天', page: todayPage },
   week: { title: '本周', stage: 3 },
   records: { title: '记录', stage: 4 },
   rules: { title: '规则', stage: 5 },
   settings: { title: '设置', stage: 5, parent: 'today' },
 };
-
-/** 建一个元素：h('div', {class: 'card', text: '…'}, [子元素…]) */
-function h(tag, props, children) {
-  const el = document.createElement(tag);
-  for (const key in props || {}) {
-    const value = props[key];
-    if (value == null || value === false) continue;
-    if (key === 'class') el.className = value;
-    else if (key === 'text') el.textContent = value;
-    else if (key.slice(0, 2) === 'on') el.addEventListener(key.slice(2), value);
-    else el.setAttribute(key, value === true ? '' : value);
-  }
-  for (const child of children || []) {
-    if (child == null || child === false) continue;
-    el.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
-  }
-  return el;
-}
-
-function clear(el) {
-  while (el.firstChild) el.removeChild(el.firstChild);
-}
 
 /**
  * 浏览器现在能不能存数据：能存返回 null，不能存返回原因。
@@ -3112,15 +3864,6 @@ function browserName() {
   return chrome ? 'Chrome ' + chrome[1] : '其他浏览器';
 }
 
-function notice(kind, title, steps) {
-  return h('div', { class: 'notice ' + kind }, [
-    h('div', { class: 'notice-title', text: title }),
-    steps.length > 1
-      ? h('ol', null, steps.map((step) => h('li', { text: step })))
-      : h('div', { text: steps[0] }),
-  ]);
-}
-
 const app = document.getElementById('app');
 const top = h('header', { class: 'top' });
 const main = h('main', { class: 'main' });
@@ -3143,7 +3886,64 @@ function openStorage() {
   }
 }
 
-const store = createStore(openStorage(), { onError: (message) => window.alert(message) });
+// 存不上时提示；同一句话 10 秒内只弹一次（iPhone 上转时间滚轮，每停一下都会存一次）
+const lastAlert = { message: '', at: 0 };
+function alertOnce(message) {
+  const now = Date.now();
+  if (message === lastAlert.message && now - lastAlert.at < 10000) return;
+  lastAlert.message = message;
+  lastAlert.at = now;
+  window.alert(message);
+}
+
+const store = createStore(openStorage(), { onError: alertOnce });
+
+// 正在用的输入框（时间框、备注）：先不重画，等离开它再重画
+let rerenderWaiting = false;
+
+/** 焦点在页面里的输入框上吗 */
+function editing() {
+  const el = document.activeElement;
+  return !!el && main.contains(el) && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+}
+
+// 给页面用的：现在几点、今天几号（测试时可以拨时钟）、原地重画、换到新的一天
+const ctx = {
+  store,
+  now: () => new Date(),
+  today: () => date.today(),
+  /**
+   * 原地重画（保持滚动位置）。正在用时间框或备注时不能把它换掉——iPhone 上时间滚轮会被关掉——
+   * 所以推迟到离开这个框以后（跳到另一个框就接着等）。
+   */
+  rerender: () => {
+    if (editing()) {
+      if (!rerenderWaiting) {
+        rerenderWaiting = true;
+        document.activeElement.addEventListener(
+          'blur',
+          () =>
+            setTimeout(() => {
+              rerenderWaiting = false;
+              ctx.rerender();
+            }, 0),
+          { once: true },
+        );
+      }
+      return;
+    }
+    if (date.today() !== shownDate) {
+      // 比如刚过零点才选完时间：值已经记在昨天，页面换到新的一天并说一声
+      render();
+      ui.toast('已经过了午夜，换到新的一天了（刚才填的记在昨天）');
+      return;
+    }
+    const y = window.scrollY;
+    renderMain(currentPage());
+    window.scrollTo(0, y);
+  },
+  newDay: () => render(),
+};
 
 function currentPage() {
   const id = location.hash.replace(/^#\/?/, '');
@@ -3167,6 +3967,8 @@ function renderTop(id) {
 
 function renderMain(id) {
   const page = PAGES[id];
+  // 整页要重画了：之前“等离开输入框再重画”的等待作废（Safari 换掉输入框时不一定触发 blur）
+  rerenderWaiting = false;
   clear(main);
   if (storageIssue) {
     main.append(notice('bad', '这个浏览器现在存不了数据', [storageIssue]));
@@ -3174,14 +3976,9 @@ function renderMain(id) {
   if (id === 'today') {
     for (const hint of openingHints()) main.append(notice(hint.kind, hint.title, hint.steps));
   }
-  if (id === 'today') {
-    const today = date.today();
-    main.append(
-      h('div', { class: 'card' }, [
-        h('div', { class: 'today-date', text: today + '　' + date.weekdayName(date.weekday(today)) }),
-        h('div', { class: 'sub', text: calc.dayTypeLabel(today) }),
-      ]),
-    );
+  if (page.page) {
+    page.page.render(main, ctx);
+    return;
   }
   main.append(h('div', { class: 'card' }, [h('div', { text: '「' + page.title + '」页：阶段 ' + page.stage + ' 来做' })]));
   if (id === 'settings') {
@@ -3198,6 +3995,7 @@ function renderMain(id) {
 let shownDate = '';
 
 function render() {
+  todayPage.flushNote();
   shownDate = date.today();
   const id = currentPage();
   const page = PAGES[id];
@@ -3216,10 +4014,22 @@ function render() {
 window.addEventListener('hashchange', render);
 // 从后台切回来（或从缓存恢复）时，过了午夜就重新显示，免得打卡记到昨天
 const refreshIfNewDay = () => {
-  if (document.visibilityState === 'visible' && date.today() !== shownDate) render();
+  if (document.visibilityState !== 'visible') return;
+  if (date.today() !== shownDate) render();
+  else tickPage(); // 同一天：「下一步」马上按现在的时间更新，不等 30 秒
 };
+function tickPage() {
+  const page = PAGES[currentPage()].page;
+  if (page && page.tick) page.tick();
+}
 document.addEventListener('visibilitychange', refreshIfNewDay);
 window.addEventListener('pageshow', refreshIfNewDay);
+// 开着不动时：每 30 秒看一眼，过了午夜换新的一天，否则刷新「下一步」
+setInterval(() => {
+  if (document.visibilityState !== 'visible') return;
+  if (date.today() !== shownDate) render();
+  else tickPage();
+}, 30000);
 render();
 
 });
