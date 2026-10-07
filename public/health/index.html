@@ -124,6 +124,8 @@ a { color: var(--green); }
 
 .sub { color: var(--sub); font-size: 16px; }
 
+.today-date { font-size: 20px; font-weight: 600; }
+
 .notice {
   border-radius: 12px;
   padding: 12px 16px;
@@ -197,7 +199,7 @@ a { color: var(--green); }
 <div id="app"></div>
 <noscript>这个工具需要开启 JavaScript 才能使用。</noscript>
 <script>
-window.__BUILD__ = "58d2f3dbce3c";
+window.__BUILD__ = "4be5e223e2cf";
 (function () {
   var defs = {}, cache = {};
   function resolve(from, request) {
@@ -222,6 +224,2736 @@ window.__BUILD__ = "58d2f3dbce3c";
   window.__def = function (id, fn) { defs[id] = fn; };
   window.__run = load;
 })();
+__def("config/plan", function (module, exports, require) {
+module.exports = {
+  "version": 1,
+  "placeholders": {
+    "{wakeWeekday}": "settings.wakeWeekday",
+    "{wakeWeekendLatest}": "settings.wakeWeekendLatest",
+    "{phoneOut}": "settings.phoneOut",
+    "{lightsOut}": "settings.lightsOut",
+    "{phoneOutFriSat}": "settings.phoneOut + friSatShiftMinutes",
+    "{lightsOutFriSat}": "settings.lightsOut + friSatShiftMinutes",
+    "{caffeineCutoff}": "settings.caffeineCutoff",
+    "{strengthDays}": "settings.strengthDays 显示成“周二、周四”"
+  },
+  "evidenceLegend": [
+    {
+      "level": "强",
+      "meaning": "指南推荐，或多项随机试验结论一致"
+    },
+    {
+      "level": "中",
+      "meaning": "小规模随机试验，或大样本观察性研究（只能说明相关，不能证明因果）"
+    },
+    {
+      "level": "弱",
+      "meaning": "小样本、机制推理、实用经验或传统经验；成本低、风险低才值得做"
+    },
+    {
+      "level": "无",
+      "meaning": "没有可靠证据，或有风险"
+    },
+    {
+      "level": "—",
+      "meaning": "管理、安全、安排类条目，不分级"
+    }
+  ],
+  "settings": {
+    "wakeWeekday": "06:45",
+    "wakeWeekendLatest": "07:45",
+    "workStart": "08:00",
+    "phoneOut": "22:30",
+    "lightsOut": "23:00",
+    "friSatShiftMinutes": 30,
+    "caffeineCutoff": "14:00",
+    "dinnerLatest": "20:00",
+    "overtimeLeaveAfter": "19:00",
+    "strengthDays": [
+      2,
+      4
+    ],
+    "strengthMakeupDays": [
+      6,
+      7
+    ],
+    "showBonus": true
+  },
+  "checkItems": [
+    {
+      "id": "wake",
+      "group": "core",
+      "name": "按时起床",
+      "standard": "工作日 ≤{wakeWeekday}，周末 ≤{wakeWeekendLatest}",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "isExercise": false,
+      "evidence": "强",
+      "why": "起床时间是生物钟的锚，比几点睡更关键；周末晚起不超过 1 小时。"
+    },
+    {
+      "id": "phone",
+      "group": "core",
+      "name": "手机出卧室",
+      "standard": "{phoneOut}（周五、周六 {phoneOutFriSat}）；放下手机时就勾",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "isExercise": false,
+      "evidence": "中",
+      "why": "睡前刷手机是晚睡的主因；手机放卧室外比任何应用设置都可靠。"
+    },
+    {
+      "id": "lights",
+      "group": "core",
+      "name": "昨晚按时熄灯",
+      "standard": "前一晚 ≤{lightsOut}；周六、周日两格对应周五、周六晚，≤{lightsOutFriSat}；早上补勾",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "isExercise": false,
+      "evidence": "强",
+      "why": "保证 7 小时以上睡眠。熄灯后手机不在身边，所以第二天早上补勾。"
+    },
+    {
+      "id": "walk",
+      "group": "core",
+      "name": "快走",
+      "standard": "30 分钟，或当天 ≥8000 步；加班日 15 分钟也算",
+      "standardOvertime": "加班日：到家后快走 15–20 分钟就算",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "isExercise": true,
+      "evidence": "强",
+      "why": "每周累计 150 分钟中等强度有氧是指南推荐量；强度到“能说话、不能唱歌”。"
+    },
+    {
+      "id": "dinner",
+      "group": "core",
+      "name": "晚饭时间",
+      "standard": "睡前 3 小时前吃完（最晚 20:00）",
+      "standardOvertime": "加班日：在厂里吃晚饭，回家不再吃正餐",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "isExercise": false,
+      "evidence": "中",
+      "why": "减少反流，利于入睡和餐后血糖。"
+    },
+    {
+      "id": "nosugar",
+      "group": "core",
+      "name": "不喝含糖饮料、不喝酒",
+      "standard": "奶茶、果汁饮料、可乐都算",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "isExercise": false,
+      "evidence": "强",
+      "why": "含糖饮料是最容易砍掉的热量；酒会让后半夜睡眠变碎。"
+    },
+    {
+      "id": "caffeine",
+      "group": "core",
+      "name": "咖啡因截止",
+      "standard": "{caffeineCutoff} 后不喝咖啡、浓茶、功能饮料",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "isExercise": false,
+      "evidence": "强",
+      "why": "咖啡因半衰期约 5 小时，下午喝会影响当晚睡眠。"
+    },
+    {
+      "id": "strength",
+      "group": "special",
+      "name": "力量训练",
+      "standard": "{strengthDays}各 20–25 分钟；没做到，周末补做",
+      "standardOvertime": "加班日：顺延到周六或周日",
+      "days": [
+        2,
+        4
+      ],
+      "makeupDays": [
+        6,
+        7
+      ],
+      "weeklyTarget": 2,
+      "isExercise": true,
+      "evidence": "强",
+      "why": "40 岁后肌肉逐年流失；指南推荐每周至少 2 次。动作：深蹲、俯卧撑（可跪姿）、弹力带或哑铃划船、臀桥、平板支撑，各 2–3 组。"
+    },
+    {
+      "id": "kidOutdoor",
+      "group": "special",
+      "name": "亲子户外",
+      "standard": "周六 ≥2 小时；下雨换室内活动",
+      "days": [
+        6
+      ],
+      "isExercise": true,
+      "evidence": "强",
+      "why": "对你是运动和见光；对孩子是户外活动，户外时间还有助于防近视。从“亲子活动菜单”里选。"
+    },
+    {
+      "id": "prepReview",
+      "group": "special",
+      "name": "备餐 + 周复盘",
+      "standard": "周日：备好 3–5 天食材，看本周完成率",
+      "days": [
+        7
+      ],
+      "isExercise": false,
+      "evidence": "强",
+      "why": "自我监测是行为改变里证据最强的手段之一；提前备餐与更好的饮食质量相关。"
+    },
+    {
+      "id": "light",
+      "group": "bonus",
+      "name": "户外见光",
+      "standard": "≥10 分钟；冬天放在午饭后",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "isExercise": false,
+      "evidence": "中",
+      "why": "白天户外光（阴天也比室内亮很多倍）帮生物钟稳定，晚上更早犯困。成都冬季日出约 8 点。"
+    },
+    {
+      "id": "veg",
+      "group": "bonus",
+      "name": "每餐半盘蔬菜",
+      "standard": "三餐都做到才勾",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "isExercise": false,
+      "evidence": "强",
+      "why": "每天 300–500 克蔬菜，深色蔬菜占一半。"
+    },
+    {
+      "id": "water",
+      "group": "bonus",
+      "name": "喝水",
+      "standard": "约 1.7 升（500 ml 的杯子 3–4 杯）",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "isExercise": false,
+      "evidence": "中",
+      "why": "指南建议成年男性每天约 1700 ml；睡前 1 小时少喝，减少起夜。"
+    },
+    {
+      "id": "bath",
+      "group": "bonus",
+      "name": "温水澡 + 吹干头发",
+      "standard": "21:30 左右，40–42℃，吹干再睡",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "isExercise": false,
+      "evidence": "中",
+      "why": "睡前 1–2 小时洗温水澡，入睡平均快约 10 分钟。"
+    },
+    {
+      "id": "breath",
+      "group": "bonus",
+      "name": "慢呼吸或八段锦",
+      "standard": "慢呼吸 5 分钟或八段锦 1 遍",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "isExercise": false,
+      "evidence": "弱",
+      "why": "吸 4 秒、呼 6 秒，能较快拉低心率；零成本。"
+    }
+  ],
+  "dailyFields": [
+    {
+      "id": "lightsOutLastNight",
+      "name": "昨晚熄灯时间",
+      "type": "time",
+      "hint": "早上填"
+    },
+    {
+      "id": "wake",
+      "name": "今天起床时间",
+      "type": "time",
+      "hint": "早上填"
+    },
+    {
+      "id": "energy",
+      "name": "今天精力",
+      "type": "rating",
+      "min": 1,
+      "max": 5,
+      "hint": "手机出卧室前打分：1 很差，5 很好"
+    },
+    {
+      "id": "note",
+      "name": "备注",
+      "type": "text",
+      "hint": ""
+    }
+  ],
+  "schedules": {
+    "weekdayCommon": [
+      {
+        "start": "{wakeWeekday}",
+        "time": "{wakeWeekday}",
+        "what": "起床",
+        "how": "闹钟放在离床远的地方；周末最晚 {wakeWeekendLatest}",
+        "evidence": "强",
+        "note": "起床时间固定是生物钟的锚"
+      },
+      {
+        "start": null,
+        "time": "起床后 10 分钟",
+        "what": "开灯、拉开窗帘、喝一杯水",
+        "how": "开最亮的灯；水约 300 ml",
+        "evidence": "中",
+        "note": "早上亮光帮生物钟前移；喝水只是补水，没有“排毒”作用"
+      },
+      {
+        "start": null,
+        "time": "起床后 10–35 分钟",
+        "what": "洗漱、早餐",
+        "how": "刷牙 2 分钟；早餐按“饮食规划”模板：蛋 + 奶 + 全谷物 + 果蔬",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "start": "07:30",
+        "time": "7:30",
+        "what": "出门",
+        "how": "通勤里能步行的路段走室外",
+        "evidence": "中",
+        "note": "天亮后在户外待 10 分钟；成都冬季日出约 8 点，冬天改到午饭后"
+      },
+      {
+        "start": "08:00",
+        "time": "8:00–12:00",
+        "what": "工作",
+        "how": "每坐 60–90 分钟起身走 2–3 分钟；上午喝完 1 杯水（约 500 ml）",
+        "evidence": "中",
+        "note": "打断久坐能降低餐后血糖"
+      },
+      {
+        "start": null,
+        "time": "上午",
+        "what": "咖啡、茶",
+        "how": "可以喝，{caffeineCutoff} 前结束；咖啡因每天 ≤400 毫克（约 3–4 杯咖啡）",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "start": "12:00",
+        "time": "12:00",
+        "what": "午餐",
+        "how": "食堂餐盘法：半盘蔬菜、1/4 蛋白质、1/4 主食",
+        "evidence": "强",
+        "note": "见“饮食规划”"
+      },
+      {
+        "start": "12:20",
+        "time": "12:20–12:35",
+        "what": "饭后户外快走",
+        "how": "10–15 分钟",
+        "evidence": "中",
+        "note": "降低餐后血糖峰值；冬天这是一天里主要的户外光照"
+      },
+      {
+        "start": "12:40",
+        "time": "12:40–13:00",
+        "what": "午睡（可选）",
+        "how": "≤20 分钟，定闹钟；15:00 后不睡",
+        "evidence": "中",
+        "note": "夜里睡不好的阶段先不午睡"
+      },
+      {
+        "start": "{caffeineCutoff}",
+        "time": "{caffeineCutoff}",
+        "what": "咖啡因截止",
+        "how": "之后不喝咖啡、浓茶、奶茶、可乐、功能饮料",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "start": "15:30",
+        "time": "15:30–16:00",
+        "what": "下午加餐",
+        "how": "水果 1 个 + 原味坚果约 10 克，或无糖酸奶 1 杯；预计加班的日子一定吃",
+        "evidence": "弱",
+        "note": "防止晚饭太饿吃太多（实用经验）"
+      },
+      {
+        "start": null,
+        "time": "离厂前",
+        "what": "收工",
+        "how": "工作通知只保留“夜间升级标准”内的电话",
+        "evidence": "—",
+        "note": ""
+      }
+    ],
+    "weekdayNormal": [
+      {
+        "start": "19:00",
+        "time": "19:00–19:40",
+        "what": "晚饭",
+        "how": "两捧蔬菜 + 一掌心蛋白质 + 半拳头杂粮或薯类",
+        "evidence": "中",
+        "note": "最晚 20:00 吃完，距熄灯 ≥3 小时"
+      },
+      {
+        "start": "19:50",
+        "time": "19:50–20:20",
+        "what": "快走 30 分钟",
+        "how": "饭后 20 分钟开始；强度到“能说话、不能唱歌”；可以带孩子：他骑滑板车，你快走",
+        "evidence": "强",
+        "note": "听节奏明快的歌，见“其他规则—音乐”"
+      },
+      {
+        "start": "20:20",
+        "time": "20:20–21:00",
+        "what": "陪孩子",
+        "how": "不看手机：绘本、洗漱、哄睡",
+        "evidence": "—",
+        "note": ""
+      },
+      {
+        "start": "21:00",
+        "time": "21:00–21:25",
+        "what": "力量训练（{strengthDays}）",
+        "how": "深蹲、俯卧撑（可跪姿）、弹力带或哑铃划船、臀桥、平板支撑，各 2–3 组",
+        "evidence": "强",
+        "note": "其他日子这段是自由时间"
+      }
+    ],
+    "weekdayOvertime": [
+      {
+        "start": "17:30",
+        "time": "17:30–18:00",
+        "what": "在厂里吃晚饭",
+        "how": "食堂加班餐或带饭；没有条件就靠 16:00 加餐顶住，回家吃轻晚餐",
+        "evidence": "中",
+        "note": "目标仍是熄灯前 3 小时吃完"
+      },
+      {
+        "start": null,
+        "time": "到家后",
+        "what": "快走 15–20 分钟",
+        "how": "下雨或太晚：楼梯上下 15 分钟，或在家原地快走",
+        "evidence": "强",
+        "note": "15 分钟也算打卡"
+      },
+      {
+        "start": null,
+        "time": "到家后",
+        "what": "不再吃正餐",
+        "how": "饿了喝一杯牛奶或吃一个水果",
+        "evidence": "弱",
+        "note": ""
+      },
+      {
+        "start": null,
+        "time": "当天",
+        "what": "力量训练顺延",
+        "how": "改到周六或周日",
+        "evidence": "—",
+        "note": ""
+      }
+    ],
+    "bedtime": [
+      {
+        "start": "21:30",
+        "time": "21:30",
+        "what": "洗澡、洗头",
+        "how": "水温 40–42℃，10 分钟左右；头发每天或隔天洗（看出油），洗完马上吹干",
+        "evidence": "中",
+        "note": "睡前 1–1.5 小时温水澡帮助入睡；洗头几点洗无所谓，别湿着头发睡"
+      },
+      {
+        "start": "21:30",
+        "time": "21:30 起",
+        "what": "调暗灯光",
+        "how": "关主灯，只留暖色台灯",
+        "evidence": "中",
+        "note": "晚上强光会推迟生物钟"
+      },
+      {
+        "start": "22:00",
+        "time": "22:00",
+        "what": "写明天待办",
+        "how": "2 分钟，写在纸上；脑子里挂着的事也写下来",
+        "evidence": "弱",
+        "note": "小样本研究：睡前写待办入睡更快"
+      },
+      {
+        "start": null,
+        "time": "出卧室前",
+        "what": "给今天精力打分",
+        "how": "1–5 分，填进打卡",
+        "evidence": "—",
+        "note": ""
+      },
+      {
+        "start": "{phoneOut}",
+        "time": "{phoneOut}",
+        "what": "手机出卧室",
+        "how": "充电器放客厅。之后可以：纸书、电视上看一集剧、智能音箱放播客或助眠音乐（定时 30 分钟）、八段锦、慢呼吸 5 分钟",
+        "evidence": "中",
+        "note": "周五、周六顺延到 {phoneOutFriSat}"
+      },
+      {
+        "start": null,
+        "time": "出卧室后",
+        "what": "刷牙 + 牙线",
+        "how": "含氟牙膏刷 2 分钟",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "start": "{lightsOut}",
+        "time": "{lightsOut}",
+        "what": "熄灯",
+        "how": "卧室暗、凉、安静；躺下 20 分钟睡不着就起身去客厅暗光处，困了再回床",
+        "evidence": "强",
+        "note": "周五、周六顺延到 {lightsOutFriSat}；熄灯时间第二天早上补填"
+      }
+    ],
+    "saturday": [
+      {
+        "start": "07:00",
+        "time": "7:00–{wakeWeekendLatest}",
+        "what": "起床",
+        "how": "不晚于工作日 1 小时",
+        "evidence": "强",
+        "note": "想多睡就下午小睡 20 分钟"
+      },
+      {
+        "start": "07:45",
+        "time": "7:45–8:30",
+        "what": "家庭早餐",
+        "how": "同工作日模板；孩子的量按儿童标准，不按你的",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "start": "09:00",
+        "time": "9:00–11:30",
+        "what": "亲子户外（主活动）",
+        "how": "至少 2 小时，从“亲子活动菜单”里选；你自己“能说话、不能唱歌”的时间累计 ≥45 分钟",
+        "evidence": "强",
+        "note": "孩子：世卫建议 3–4 岁每天活动 ≥180 分钟，其中中高强度 ≥60 分钟；户外时间有助于防近视"
+      },
+      {
+        "start": null,
+        "time": "活动中",
+        "what": "补水、加餐",
+        "how": "带水和水果，不买饮料和零食",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "start": "11:30",
+        "time": "11:30–12:30",
+        "what": "午餐",
+        "how": "在家或外食；外食按“饮食规划—场景规则”",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "start": "12:30",
+        "time": "12:30–14:30",
+        "what": "孩子午睡",
+        "how": "你：小睡 ≤20 分钟，或补做力量训练，或自由时间",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "start": "14:30",
+        "time": "14:30–16:30",
+        "what": "下午轻活动",
+        "how": "菜市场或超市采购下周食材（让孩子认蔬菜、帮忙拿），或图书馆、博物馆",
+        "evidence": "—",
+        "note": "顺带完成周日备餐的采购"
+      },
+      {
+        "start": "16:00",
+        "time": "16:00",
+        "what": "加餐",
+        "how": "水果或无糖酸奶，和孩子一起吃",
+        "evidence": "弱",
+        "note": ""
+      },
+      {
+        "start": "18:00",
+        "time": "18:00",
+        "what": "晚饭（周末早吃）",
+        "how": "在家吃为主",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "start": "18:45",
+        "time": "18:45–19:15",
+        "what": "饭后家庭散步",
+        "how": "20–30 分钟",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "start": "19:30",
+        "time": "19:30–20:30",
+        "what": "亲子时间",
+        "how": "不用屏幕：绘本、积木、拼图；孩子洗漱、入睡",
+        "evidence": "中",
+        "note": "世卫建议 3–4 岁屏幕时间每天 ≤1 小时"
+      },
+      {
+        "start": "20:30",
+        "time": "20:30 以后",
+        "what": "你的自由时间",
+        "how": "可以刷手机，{phoneOutFriSat} 出卧室",
+        "evidence": "—",
+        "note": ""
+      },
+      {
+        "start": "21:30",
+        "time": "21:30–22:00",
+        "what": "洗澡、洗头、吹干",
+        "how": "同工作日",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "start": "{phoneOutFriSat}",
+        "time": "{phoneOutFriSat} / {lightsOutFriSat}",
+        "what": "手机出卧室 / 熄灯",
+        "how": "周六可顺延 30 分钟",
+        "evidence": "强",
+        "note": ""
+      }
+    ],
+    "sunday": [
+      {
+        "start": "07:00",
+        "time": "7:00–{wakeWeekendLatest}",
+        "what": "起床",
+        "how": "同周六",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "start": null,
+        "time": "起床后",
+        "what": "称体重",
+        "how": "排空后、早饭前、穿同样的衣服；每月第一个周日加量腰围",
+        "evidence": "中",
+        "note": "填进“记录”表"
+      },
+      {
+        "start": "08:00",
+        "time": "8:00",
+        "what": "早餐",
+        "how": "同模板",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "start": "08:30",
+        "time": "8:30–9:00",
+        "what": "力量训练（第 3 次或补做）",
+        "how": "可以带孩子一起：抱娃深蹲 10 个 × 3 组，屈膝、背挺直",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "start": "09:30",
+        "time": "9:30–11:30",
+        "what": "家庭户外（轻松版）",
+        "how": "公园、绿道散步 1–2 小时",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "start": "11:30",
+        "time": "11:30–12:30",
+        "what": "午餐",
+        "how": "在家吃为主",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "start": "12:30",
+        "time": "12:30–14:30",
+        "what": "孩子午睡",
+        "how": "你：小睡 ≤20 分钟或休息",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "start": "15:00",
+        "time": "15:00–16:30",
+        "what": "备餐",
+        "how": "煮杂粮饭分 5 盒，放凉后尽快冷冻；洗切 3 天的蔬菜；煮 5–6 个鸡蛋冷藏；坚果分装 5 小包（每包约 10 克）；补牛奶、酸奶、水果",
+        "evidence": "中",
+        "note": "提前规划饮食与更好的饮食质量相关（观察性）"
+      },
+      {
+        "start": "16:30",
+        "time": "16:30–16:45",
+        "what": "周复盘（10 分钟）",
+        "how": "看本周完成率；看下周哪几天可能加班，定好力量训练日；有血压读数就填进“记录”",
+        "evidence": "强",
+        "note": "自我监测是行为改变里证据最强的手段之一"
+      },
+      {
+        "start": "18:00",
+        "time": "18:00",
+        "what": "晚饭",
+        "how": "在家吃",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "start": "19:00",
+        "time": "19:00–19:30",
+        "what": "家庭散步",
+        "how": "20–30 分钟",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "start": "21:30",
+        "time": "21:30",
+        "what": "洗澡、洗头、吹干",
+        "how": "同工作日",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "start": "{phoneOut}",
+        "time": "{phoneOut} / {lightsOut}",
+        "what": "手机出卧室 / 熄灯",
+        "how": "周日不顺延，为周一准备",
+        "evidence": "强",
+        "note": ""
+      }
+    ]
+  },
+  "kidActivities": [
+    {
+      "scene": "晴天、阴天",
+      "activity": "公园追逐游戏",
+      "how": "孩子：老鹰捉小鸡、捉迷藏、一二三木头人；你：追跑冲刺 20–30 秒，休息 1 分钟，反复",
+      "note": "先热身 5 分钟"
+    },
+    {
+      "scene": "晴天、阴天",
+      "activity": "滑步车或儿童自行车",
+      "how": "孩子骑；你快走或慢跑跟在旁边",
+      "note": "孩子戴头盔，远离车道"
+    },
+    {
+      "scene": "晴天、阴天",
+      "activity": "绿道或郊野公园徒步 2–4 公里",
+      "how": "孩子走走停停，捡树叶、认植物；你背包快走，孩子累了背一段",
+      "note": "背孩子别弓腰，单次别太久"
+    },
+    {
+      "scene": "晴天、阴天",
+      "activity": "踢球、扔接球、放风筝",
+      "how": "让孩子追球，你多跑动",
+      "note": ""
+    },
+    {
+      "scene": "晴天、阴天",
+      "activity": "爬小山、爬台阶",
+      "how": "牵手爬；爬坡对你就是中高强度",
+      "note": "下坡放慢，保护膝盖"
+    },
+    {
+      "scene": "夏天",
+      "activity": "亲子游泳",
+      "how": "孩子戴浮具；你在水里走动、游几趟",
+      "note": "全程看护，手不离开孩子"
+    },
+    {
+      "scene": "下雨",
+      "activity": "室内蹦床馆、攀爬馆",
+      "how": "你也上去跳、爬",
+      "note": ""
+    },
+    {
+      "scene": "下雨",
+      "activity": "在家",
+      "how": "枕头和椅子搭障碍赛、跟着儿歌跳舞 20 分钟、抱娃深蹲",
+      "note": "顺带完成你的力量训练；注意家具边角"
+    },
+    {
+      "scene": "任何天气",
+      "activity": "逛菜市场",
+      "how": "认蔬菜、帮忙拿；步行往返",
+      "note": "避开零食和饮料区"
+    },
+    {
+      "scene": "全程",
+      "activity": "陪玩规则",
+      "how": "手机静音放包里",
+      "note": "两边都有质量"
+    }
+  ],
+  "diet": {
+    "source": "量来自《中国居民膳食指南（2022）》，按成年男性、轻体力活动；场景规则是把指南原则落到日常饮食的做法。",
+    "dailyTargets": [
+      {
+        "food": "谷类",
+        "amount": "200–300 克（生重），其中全谷物和杂豆 50–150 克",
+        "estimate": "每餐一拳头熟主食，其中三分之一换成粗粮：杂粮饭、玉米、燕麦",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "food": "薯类",
+        "amount": "50–100 克",
+        "estimate": "半个中等大小的红薯或土豆",
+        "evidence": "强",
+        "note": "算主食，不算蔬菜"
+      },
+      {
+        "food": "蔬菜",
+        "amount": "300–500 克，深色蔬菜占一半",
+        "estimate": "双手捧满的生蔬菜约 100 克，每天 3–5 捧；每餐半盘",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "food": "水果",
+        "amount": "200–350 克",
+        "estimate": "每天 1–2 个拳头大小的水果",
+        "evidence": "强",
+        "note": "不用果汁代替"
+      },
+      {
+        "food": "鱼禽蛋瘦肉",
+        "amount": "120–200 克；每周至少 2 次水产品；每天 1 个鸡蛋",
+        "estimate": "每餐一掌心大小的肉或鱼，加每天一个蛋",
+        "evidence": "强",
+        "note": "鸡蛋不弃蛋黄"
+      },
+      {
+        "food": "奶类",
+        "amount": "300–500 克",
+        "estimate": "牛奶 250 ml + 无糖酸奶 1 杯",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "food": "大豆和坚果",
+        "amount": "25–35 克",
+        "estimate": "一块豆腐或一杯无糖豆浆，加一小把坚果（约 10 克）",
+        "evidence": "强",
+        "note": "坚果选原味"
+      },
+      {
+        "food": "油",
+        "amount": "25–30 克",
+        "estimate": "约 3 瓷勺；家里用带刻度的控油壶",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "food": "盐",
+        "amount": "<5 克",
+        "estimate": "不到一个啤酒瓶盖（平装约 6 克）",
+        "evidence": "强",
+        "note": "酱油、郫县豆瓣、鸡精、泡菜里的盐都要算：一勺豆瓣酱就含盐约 2–3 克"
+      },
+      {
+        "food": "添加糖",
+        "amount": "<50 克，最好 <25 克",
+        "estimate": "一瓶 500 ml 含糖饮料约 50 克糖",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "food": "水",
+        "amount": "约 1700 ml",
+        "estimate": "500 ml 水杯 3–4 杯；尿色淡黄为宜",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "food": "酒",
+        "amount": "不喝最好；喝的话酒精 ≤15 克",
+        "estimate": "≈ 啤酒 450 ml / 葡萄酒 150 ml / 38 度白酒 50 ml / 高度白酒 30 ml",
+        "evidence": "强",
+        "note": ""
+      }
+    ],
+    "meals": [
+      {
+        "meal": "早餐",
+        "time": "7:00",
+        "what": "① 在家：煮蛋 1 个 + 牛奶 250 ml + 燕麦 40 克（或全麦面包 2 片、玉米 1 根）+ 水果或圣女果一份；② 食堂：鸡蛋 + 无糖豆浆 + 杂粮粥或菜包 1–2 个 + 凉拌蔬菜",
+        "evidence": "强",
+        "avoid": "油条、油饼、锅盔、甜面包、甜豆浆；红油抄手和重油小面每周最多 1 次"
+      },
+      {
+        "meal": "午餐",
+        "time": "12:00",
+        "what": "餐盘法：半盘蔬菜（至少一样深色）+ 1/4 蛋白质（优先清蒸、炖、白灼）+ 1/4 主食（有杂粮选杂粮）；先吃菜和肉、后吃饭（进餐顺序的证据弱）",
+        "evidence": "强",
+        "avoid": "菜汤拌饭；两样以上重油菜（红烧、干煸、水煮、回锅）；油炸"
+      },
+      {
+        "meal": "加餐",
+        "time": "15:30–16:00",
+        "what": "水果 1 个 + 原味坚果约 10 克，或无糖酸奶 1 杯",
+        "evidence": "弱",
+        "avoid": "饼干、蛋糕、辣条、奶茶"
+      },
+      {
+        "meal": "晚餐",
+        "time": "19:00–20:00",
+        "what": "两捧蔬菜 + 一掌心鱼虾、豆腐、鸡肉或蛋 + 半拳头杂粮或薯类；少油少辣",
+        "evidence": "中",
+        "avoid": "宵夜、烧烤、啤酒；加班日回家不再吃正餐"
+      },
+      {
+        "meal": "睡前",
+        "time": "—",
+        "what": "饿了：一杯牛奶或一个水果",
+        "evidence": "弱",
+        "avoid": "睡前 3 小时内的正餐和零食"
+      }
+    ],
+    "scenes": [
+      {
+        "scene": "餐馆、外卖点菜",
+        "rule": "“两素一荤一主食”；至少一道清蒸、白灼或凉拌；重口菜（水煮鱼、毛血旺、干锅）只点一个；红油和菜汤不喝；饮料点白水或茶",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "scene": "火锅、串串",
+        "rule": "每周最多 1 次，放在周末中午；选鸳鸯锅或菌汤锅；先涮蔬菜、菌菇、豆腐、鱼片；少点午餐肉、香肠、肥肠、脑花；不喝锅底汤；油碟少蘸",
+        "evidence": "中",
+        "note": "问题在盐、油和加工肉，不在辣"
+      },
+      {
+        "scene": "应酬聚餐",
+        "rule": "先吃菜和蛋白质再喝酒；每杯酒配一杯水；酒精 ≤15 克；散场后照常熄灯，第二天照常起床",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "scene": "带娃外出",
+        "rule": "自带水和水果；不买含糖饮料；不用零食当奖励",
+        "evidence": "弱",
+        "note": ""
+      },
+      {
+        "scene": "食堂只剩重口菜",
+        "rule": "只选一样重口菜，多打蔬菜；用一碗白开水把表面红油涮掉",
+        "evidence": "弱",
+        "note": ""
+      },
+      {
+        "scene": "冬季腊肉香肠",
+        "rule": "当配菜不当主菜，一次几片，每周最多 1–2 次，配大量蔬菜",
+        "evidence": "强",
+        "note": "加工肉是 1 类致癌物"
+      }
+    ],
+    "avoid": [
+      {
+        "food": "含糖饮料、奶茶、果汁饮料",
+        "why": "增加体重和糖尿病风险；最容易砍掉的热量",
+        "evidence": "强",
+        "instead": "白水、淡茶、无糖苏打水"
+      },
+      {
+        "food": "加工肉：香肠、腊肉、火腿、培根、午餐肉",
+        "why": "世卫组织国际癌症研究机构列为 1 类致癌物；每天吃 50 克，结直肠癌风险增加约 18%",
+        "evidence": "强",
+        "instead": "鲜肉、鱼、豆腐"
+      },
+      {
+        "food": "发霉的花生、玉米、坚果",
+        "why": "黄曲霉毒素是 1 类致癌物，伤肝；吃到发苦的坚果立刻吐掉",
+        "evidence": "强",
+        "instead": "买小包装，尽快吃完"
+      },
+      {
+        "food": "腌菜、泡菜、榨菜、腐乳",
+        "why": "盐高；高盐和盐腌食品与胃癌风险相关",
+        "evidence": "中",
+        "instead": "凉拌新鲜蔬菜"
+      },
+      {
+        "food": "油炸食品、肥肉、牛油或猪油锅底",
+        "why": "饱和脂肪和热量高",
+        "evidence": "中",
+        "instead": "蒸、煮、炖、白灼"
+      },
+      {
+        "food": "酒",
+        "why": "没有能带来健康益处的饮酒量；破坏后半夜睡眠",
+        "evidence": "强",
+        "instead": "不喝"
+      },
+      {
+        "food": "宵夜、烧烤",
+        "why": "晚吃影响睡眠和血糖；烤焦的肉含致癌物",
+        "evidence": "中",
+        "instead": "饿了喝牛奶或吃水果"
+      },
+      {
+        "food": "下午 2 点后的咖啡、浓茶、功能饮料、可乐",
+        "why": "影响当晚睡眠",
+        "evidence": "强",
+        "instead": "白水、不含茶叶的花草茶"
+      },
+      {
+        "food": "自行购买的保健品",
+        "why": "复合维生素、鱼油、NMN 等，没有检测出缺乏就不吃（见上一份方案）",
+        "evidence": "强",
+        "instead": "正常吃饭"
+      }
+    ],
+    "myths": [
+      {
+        "claim": "隔夜菜致癌",
+        "fact": "冷藏保存、24 小时内吃完、彻底加热就安全；问题在常温久放，尤其是绿叶菜",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "claim": "食物相克（螃蟹配柿子、菠菜配豆腐）",
+        "fact": "没有中毒证据；空腹大量吃柿子才可能形成胃结石；菠菜先焯水可减少草酸",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "claim": "酸碱体质",
+        "fact": "血液酸碱度由身体严格调节，吃什么改变不了",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "claim": "早上喝淡盐水“排毒”",
+        "fact": "只会多摄入盐",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "claim": "吃辣伤身、上火",
+        "fact": "约 50 万中国人的研究：常吃辣与死亡率略低相关；问题是辣菜里的油和盐；有胃病、反流的少吃",
+        "evidence": "中",
+        "note": "观察性研究"
+      },
+      {
+        "claim": "胆固醇高，鸡蛋不吃蛋黄",
+        "fact": "指南：每天一个鸡蛋，不弃蛋黄",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "claim": "喝骨头汤补钙",
+        "fact": "骨头汤含钙很少，主要是脂肪和嘌呤",
+        "evidence": "强",
+        "note": ""
+      },
+      {
+        "claim": "不吃主食减肥、生酮饮食",
+        "fact": "短期能减重，长期难坚持，长期安全性证据不足；不推荐",
+        "evidence": "中",
+        "note": ""
+      },
+      {
+        "claim": "红枣、枸杞、黄芪、菊花泡水“调理”",
+        "fact": "当饮品喝没问题，别指望治疗作用",
+        "evidence": "弱",
+        "note": ""
+      }
+    ]
+  },
+  "donts": [
+    {
+      "category": "睡眠",
+      "dont": "22:30 后把手机带进卧室",
+      "why": "睡前刷手机是晚睡的主因",
+      "evidence": "中"
+    },
+    {
+      "category": "睡眠",
+      "dont": "在床上刷手机、看剧、处理工作",
+      "why": "床只用来睡觉，大脑才会把床和困联系起来",
+      "evidence": "强"
+    },
+    {
+      "category": "睡眠",
+      "dont": "周末比工作日晚起 1 小时以上",
+      "why": "打乱生物钟，周一更难起",
+      "evidence": "强"
+    },
+    {
+      "category": "睡眠",
+      "dont": "喝酒助眠",
+      "why": "入睡快，但后半夜睡眠变碎",
+      "evidence": "强"
+    },
+    {
+      "category": "睡眠",
+      "dont": "自行长期吃安眠药或褪黑素",
+      "why": "安眠药要在医生指导下用；褪黑素解决不了手机问题",
+      "evidence": "强"
+    },
+    {
+      "category": "睡眠",
+      "dont": "睡不着躺在床上硬熬",
+      "why": "越熬越清醒；20 分钟睡不着就起身",
+      "evidence": "强"
+    },
+    {
+      "category": "睡眠",
+      "dont": "盯着手环的“深睡”“睡眠分数”",
+      "why": "测不准，越盯越焦虑",
+      "evidence": "中"
+    },
+    {
+      "category": "睡眠",
+      "dont": "睡前 1 小时内做高强度运动",
+      "why": "推迟入睡",
+      "evidence": "中"
+    },
+    {
+      "category": "睡眠",
+      "dont": "湿着头发睡觉",
+      "why": "不舒服、枕头潮",
+      "evidence": "弱"
+    },
+    {
+      "category": "运动",
+      "dont": "体检前、久不运动时突然剧烈运动或打比赛",
+      "why": "久坐的中年男性突然剧烈运动，短时间内心脏事件风险明显升高",
+      "evidence": "强"
+    },
+    {
+      "category": "运动",
+      "dont": "胸痛、胸闷、头晕时还坚持练",
+      "why": "立即停下，就医",
+      "evidence": "强"
+    },
+    {
+      "category": "运动",
+      "dont": "发烧、全身酸痛时运动",
+      "why": "只有鼻塞流涕时可以轻快走",
+      "evidence": "弱"
+    },
+    {
+      "category": "运动",
+      "dont": "吃撑后马上剧烈运动",
+      "why": "胃不舒服；饭后轻快走没问题",
+      "evidence": "弱"
+    },
+    {
+      "category": "运动",
+      "dont": "戴降噪耳机、大音量过马路",
+      "why": "室外只戴一只耳机，音量 ≤60%",
+      "evidence": "中"
+    },
+    {
+      "category": "运动",
+      "dont": "背孩子、抱孩子时弓腰",
+      "why": "腰椎受力大；屈膝、背挺直",
+      "evidence": "弱"
+    },
+    {
+      "category": "饮食",
+      "dont": "喝含糖饮料、奶茶",
+      "why": "见“饮食规划”",
+      "evidence": "强"
+    },
+    {
+      "category": "饮食",
+      "dont": "常吃香肠、腊肉等加工肉",
+      "why": "1 类致癌物",
+      "evidence": "强"
+    },
+    {
+      "category": "饮食",
+      "dont": "吃宵夜",
+      "why": "影响睡眠和血糖",
+      "evidence": "中"
+    },
+    {
+      "category": "饮食",
+      "dont": "用菜汤拌饭",
+      "why": "汤里是油和盐",
+      "evidence": "中"
+    },
+    {
+      "category": "饮食",
+      "dont": "晚饭吃到撑",
+      "why": "影响睡眠，加重反流",
+      "evidence": "中"
+    },
+    {
+      "category": "工作与压力",
+      "dont": "21:30 后回复非紧急工作消息",
+      "why": "按“夜间升级标准”只接紧急电话",
+      "evidence": "—"
+    },
+    {
+      "category": "工作与压力",
+      "dont": "把刷短视频当唯一的放松方式",
+      "why": "放松不了，还吃掉睡眠",
+      "evidence": "弱"
+    },
+    {
+      "category": "工作与压力",
+      "dont": "陪孩子时刷手机",
+      "why": "两边都没质量",
+      "evidence": "弱"
+    },
+    {
+      "category": "医疗与保健",
+      "dont": "买“调理”保健品、做养生馆套餐",
+      "why": "见上一份方案",
+      "evidence": "无"
+    },
+    {
+      "category": "医疗与保健",
+      "dont": "自行长期吃中药",
+      "why": "超过 1–2 个月复查肝肾功能；含何首乌的制剂不长期吃",
+      "evidence": "—"
+    },
+    {
+      "category": "医疗与保健",
+      "dont": "出现就医信号还靠“调理”扛",
+      "why": "见“其他规则—就医信号”",
+      "evidence": "强"
+    },
+    {
+      "category": "打卡本身",
+      "dont": "断了一天就放弃",
+      "why": "研究显示漏一次不影响习惯形成",
+      "evidence": "中"
+    },
+    {
+      "category": "打卡本身",
+      "dont": "一开始就把加分项全加满",
+      "why": "先稳住核心 7 项，4 周后再加",
+      "evidence": "中"
+    },
+    {
+      "category": "打卡本身",
+      "dont": "追求连续打卡天数",
+      "why": "看周完成率：每项 ≥5/7 就算达标",
+      "evidence": "弱"
+    }
+  ],
+  "ifThen": [
+    {
+      "id": "overtime",
+      "if": "19:00 以后才离厂",
+      "then": "晚饭在厂里吃；到家快走 15–20 分钟；力量训练顺延到周末",
+      "evidence": "—"
+    },
+    {
+      "id": "rain",
+      "if": "下雨或太冷",
+      "then": "快走换成：楼梯上下 15 分钟、商场里快走，或在家原地快走 20 分钟",
+      "evidence": "—"
+    },
+    {
+      "id": "tired",
+      "if": "下班后特别累，只想刷手机",
+      "then": "先出门走 10 分钟再决定（多数时候会走完）",
+      "evidence": "弱"
+    },
+    {
+      "id": "alcohol",
+      "if": "应酬喝了酒",
+      "then": "每杯酒配一杯水；照常熄灯；第二天照常起床，不补觉",
+      "evidence": "中"
+    },
+    {
+      "id": "cantSleep",
+      "if": "躺下 20 分钟还睡不着",
+      "then": "起身去客厅暗光处看纸书、听播客，困了再回床；不看手机、不看钟",
+      "evidence": "强"
+    },
+    {
+      "id": "nightCall",
+      "if": "半夜被工作电话吵醒",
+      "then": "处理完不刷手机；早上照常起床；中午小睡 ≤20 分钟",
+      "evidence": "中"
+    },
+    {
+      "id": "kidPlan",
+      "if": "周末被孩子打乱计划",
+      "then": "亲子户外本身就算运动；力量训练补到另一天",
+      "evidence": "—"
+    },
+    {
+      "id": "missed",
+      "if": "断签 1–2 天",
+      "then": "不补、不罚，接着打",
+      "evidence": "中"
+    },
+    {
+      "id": "travel",
+      "if": "出差",
+      "then": "起床时间不变；住处附近快走 30 分钟；早餐按模板选",
+      "evidence": "—"
+    },
+    {
+      "id": "cold",
+      "if": "感冒（只有鼻塞、流涕、嗓子痛）",
+      "then": "轻快走可以，不做力量训练",
+      "evidence": "弱"
+    },
+    {
+      "id": "fever",
+      "if": "发烧、全身酸痛、胸闷",
+      "then": "停练、休息，必要时就医",
+      "evidence": "强"
+    },
+    {
+      "id": "hotpot",
+      "if": "特别想吃火锅、串串",
+      "then": "放在周末中午，按“火锅、串串”规则",
+      "evidence": "—"
+    },
+    {
+      "id": "plateau",
+      "if": "执行率 ≥80%，但 4 周后体重、精力都没变化",
+      "then": "回看晚饭和加餐的量；精力仍差，去查甲状腺、睡眠呼吸、情绪",
+      "evidence": "—"
+    },
+    {
+      "id": "highBP",
+      "if": "家庭血压一周均值 ≥135/85",
+      "then": "去心内科或全科就诊",
+      "evidence": "强"
+    },
+    {
+      "id": "lowEnergy",
+      "if": "精力连续两周 ≤2 分",
+      "then": "做 PHQ-9、GAD-7 两个自评量表（抑郁、焦虑），分数高就去精神心理科",
+      "evidence": "—"
+    }
+  ],
+  "otherRules": {
+    "music": [
+      {
+        "item": "快走",
+        "do": "自己喜欢、节奏明快的歌，每分钟约 120–130 拍",
+        "extra": "室外只戴一只耳机或用开放式耳机，音量 ≤60%",
+        "evidence": "中",
+        "basis": "荟萃分析：运动时听音乐更不累、更愉快"
+      },
+      {
+        "item": "睡前 30 分钟",
+        "do": "慢节奏（每分钟 60–80 拍）、无歌词或轻声的音乐，自己听着放松的",
+        "extra": "用音箱放，定时 30 分钟关；不戴耳机入睡",
+        "evidence": "中",
+        "basis": "系统综述：听音乐能改善失眠人群的主观睡眠质量"
+      },
+      {
+        "item": "工作要专注时",
+        "do": "无歌词的音乐，或不听",
+        "extra": "写东西、看数据时歌词会干扰",
+        "evidence": "中",
+        "basis": ""
+      },
+      {
+        "item": "带娃",
+        "do": "儿歌、能跟着跳的音乐",
+        "extra": "当运动用",
+        "evidence": "—",
+        "basis": ""
+      },
+      {
+        "item": "不用信",
+        "do": "“432 赫兹”“α 脑波”“双耳节拍”助眠",
+        "extra": "没有证据比普通放松音乐更好",
+        "evidence": "无",
+        "basis": ""
+      },
+      {
+        "item": "耳机音量",
+        "do": "“60/60”：音量不超过 60%，连续不超过 60 分钟",
+        "extra": "",
+        "evidence": "中",
+        "basis": ""
+      }
+    ],
+    "bath": [
+      {
+        "item": "洗澡",
+        "do": "21:30 左右，水温 40–42℃，10 分钟左右",
+        "extra": "太烫、太久伤皮肤",
+        "evidence": "中",
+        "basis": "睡前 1–2 小时温水澡：入睡平均快约 10 分钟"
+      },
+      {
+        "item": "洗头频率",
+        "do": "每天或隔天，看头皮出油",
+        "extra": "",
+        "evidence": "中",
+        "basis": "洗头频率不会导致脱发"
+      },
+      {
+        "item": "吹干",
+        "do": "洗完马上吹，中温，离头发约 15 厘米",
+        "extra": "",
+        "evidence": "弱",
+        "basis": "“湿头发会中风、得风湿”没有证据，但湿着睡不舒服"
+      },
+      {
+        "item": "早上洗头",
+        "do": "也可以；冬天吹干再出门",
+        "extra": "",
+        "evidence": "弱",
+        "basis": ""
+      }
+    ],
+    "water": [
+      {
+        "item": "时间点",
+        "do": "起床一杯、上午一杯、下午一杯、晚饭前后一杯，共约 1.7 升",
+        "extra": "",
+        "evidence": "中",
+        "basis": ""
+      },
+      {
+        "item": "睡前 1 小时",
+        "do": "少喝",
+        "extra": "减少起夜",
+        "evidence": "弱",
+        "basis": ""
+      },
+      {
+        "item": "喝什么",
+        "do": "白水、淡茶（{caffeineCutoff} 前）",
+        "extra": "不用饮料代替水",
+        "evidence": "强",
+        "basis": ""
+      }
+    ],
+    "oral": [
+      {
+        "item": "刷牙",
+        "do": "早晚各一次，含氟牙膏，每次 2 分钟",
+        "extra": "",
+        "evidence": "强",
+        "basis": ""
+      },
+      {
+        "item": "牙线",
+        "do": "每晚一次",
+        "extra": "",
+        "evidence": "弱",
+        "basis": ""
+      },
+      {
+        "item": "洗牙",
+        "do": "每年一次，顺带口腔检查",
+        "extra": "",
+        "evidence": "中",
+        "basis": ""
+      }
+    ],
+    "eyesSitting": [
+      {
+        "item": "看屏幕",
+        "do": "每 20 分钟看 6 米外 20 秒",
+        "extra": "",
+        "evidence": "弱",
+        "basis": ""
+      },
+      {
+        "item": "久坐",
+        "do": "每 60–90 分钟起身走 2–3 分钟",
+        "extra": "",
+        "evidence": "中",
+        "basis": ""
+      }
+    ],
+    "measurement": [
+      {
+        "item": "体重",
+        "do": "每周日早上、排空后、早饭前，穿同样的衣服",
+        "extra": "",
+        "evidence": "中",
+        "basis": ""
+      },
+      {
+        "item": "腰围",
+        "do": "每月第一个周日；软尺水平绕过肋骨下缘和胯骨上缘连线的中点，呼气末读数",
+        "extra": "男性 ≥90 cm 为中心性肥胖",
+        "evidence": "强",
+        "basis": ""
+      },
+      {
+        "item": "家庭血压",
+        "do": "第一周连续 7 天早晚各测，之后每周 2–3 天；早上起床 1 小时内、排尿后、早饭和服药前，晚上睡前；坐着安静 5 分钟，用上臂式电子血压计，每次测 2 遍、间隔 1 分钟，取平均",
+        "extra": "均值 ≥135/85 为偏高",
+        "evidence": "强",
+        "basis": ""
+      },
+      {
+        "item": "精力",
+        "do": "每晚手机出卧室前，给当天精力打 1–5 分",
+        "extra": "",
+        "evidence": "—",
+        "basis": ""
+      }
+    ]
+  },
+  "redFlags": [
+    {
+      "situation": "活动时胸痛胸闷，或心慌伴头晕、晕厥",
+      "action": "立即就医"
+    },
+    {
+      "situation": "不明原因体重下降、黑便或便血、吞咽困难",
+      "action": "尽快就医"
+    },
+    {
+      "situation": "睡眠改善后，疲劳仍持续超过 1 个月",
+      "action": "尽快就医"
+    },
+    {
+      "situation": "情绪低落或兴趣减退超过两周",
+      "action": "尽快就医"
+    },
+    {
+      "situation": "出现“活着没意思”的念头",
+      "action": "当天找专业帮助"
+    },
+    {
+      "situation": "家庭血压一周均值 ≥135/85",
+      "action": "尽快就医"
+    }
+  ]
+};
+
+});
+__def("utils/calc", function (module, exports, require) {
+/**
+ * 计算规则（指令第七节）。都是纯函数：数据从参数传进来，不碰存储，Node 能直接测。
+ *
+ * day 的格式见 utils/store.js；settings 是 store.getSettings() 的结果（多一个 strengthDaysHistory）。
+ */
+const date = require('./date');
+const text = require('./text');
+
+const DAY_TYPE_LABELS = { workday: '工作日', saturday: '周六亲子户外日', sunday: '周日恢复准备日' };
+
+/** 日类型：workday / saturday / sunday */
+function dayType(dateStr) {
+  const w = date.weekday(dateStr);
+  return w === 6 ? 'saturday' : w === 7 ? 'sunday' : 'workday';
+}
+
+function dayTypeLabel(dateStr) {
+  return DAY_TYPE_LABELS[dayType(dateStr)];
+}
+
+/** 这一天的力量训练日（改过训练日的话，改之前的日子按旧的算） */
+function strengthDaysOn(settings, dateStr) {
+  const history = settings.strengthDaysHistory || [];
+  for (const h of history) {
+    if (dateStr < h.until) return h.days;
+  }
+  return settings.strengthDays;
+}
+
+/** 某个打卡项在这一天：'scheduled'（当天该做）、'makeup'（补做日）或 null（不显示） */
+function itemStatus(item, settings, dateStr) {
+  const w = date.weekday(dateStr);
+  const days = item.id === 'strength' ? strengthDaysOn(settings, dateStr) : item.days;
+  if (days.indexOf(w) >= 0) return 'scheduled';
+  const makeup = item.id === 'strength' ? settings.strengthMakeupDays : item.makeupDays;
+  if (makeup && makeup.indexOf(w) >= 0) return 'makeup';
+  return null;
+}
+
+/**
+ * 这一天显示的打卡项，分三组：
+ *   core    核心 7 项
+ *   special 今日专项 [{ item, makeup }]，makeup 为 true 时显示成“补做”
+ *   bonus   加分项
+ */
+function itemsForDay(plan, settings, dateStr) {
+  const out = { core: [], special: [], bonus: [] };
+  for (const item of plan.checkItems) {
+    const status = itemStatus(item, settings, dateStr);
+    if (!status) continue;
+    if (item.group === 'special') out.special.push({ item, makeup: status === 'makeup' });
+    else if (status === 'scheduled' && out[item.group]) out[item.group].push(item);
+  }
+  return out;
+}
+
+/** 当天适用项 ＝ 核心 7 项 ＋ 当天在 days 里的专项（补做的力量训练不算） */
+function applicableIds(plan, settings, dateStr) {
+  const groups = itemsForDay(plan, settings, dateStr);
+  return groups.core.map((i) => i.id).concat(groups.special.filter((s) => !s.makeup).map((s) => s.item.id));
+}
+
+/**
+ * 当天完成率 ＝ ✓ 数 ÷（适用项数 − “—”数）。
+ * 适用项一项都没填时 rate 为 null（页面显示空白，不显示 0%）。“—”也算填过（第六节的循环里
+ * 它是一种状态）：开了「今天不适用」，还没打卡的一天显示 0%，分母已经减少。
+ * 全部是“—”（分母为 0）也是空白。
+ */
+function dayRate(plan, settings, dateStr, day) {
+  const ids = applicableIds(plan, settings, dateStr);
+  const checks = (day && day.checks) || {};
+  let done = 0;
+  let na = 0;
+  let filled = 0;
+  for (const id of ids) {
+    if (checks[id]) filled++;
+    if (checks[id] === 'done') done++;
+    if (checks[id] === 'na') na++;
+  }
+  const denom = ids.length - na;
+  return { done, na, total: ids.length, denom, rate: filled === 0 || denom <= 0 ? null : done / denom };
+}
+
+const CYCLE = { '': 'done', done: 'miss', miss: 'na', na: '' };
+
+/** 点一下循环：未填（''）→ ✓ done → ✗ miss → — na → 未填 */
+function nextCheck(value) {
+  return CYCLE[value || ''] || '';
+}
+
+/**
+ * 「今天不适用（生病、出差）」开关：
+ * 打开时，当天显示的运动类项目（isExercise）自动设为“—”（已经打了 ✓ 的不动）；
+ * 关掉时，运动类项目里还是“—”的恢复成未填。返回新的 day，不改原来的。
+ */
+function setSick(plan, settings, dateStr, day, sick) {
+  const next = JSON.parse(JSON.stringify(day));
+  next.sick = !!sick;
+  const groups = itemsForDay(plan, settings, dateStr);
+  const shown = groups.core.concat(groups.special.map((s) => s.item), groups.bonus);
+  for (const item of shown) {
+    if (!item.isExercise) continue;
+    if (sick && next.checks[item.id] !== 'done') next.checks[item.id] = 'na';
+    if (!sick && next.checks[item.id] === 'na') delete next.checks[item.id];
+  }
+  return next;
+}
+
+/**
+ * 一位小数的平均数，按“把每个数先乘 10 取整、再求平均、四舍五入”的整数算法：
+ * 和用户拿页面上显示的每天数值手算的结果一致（不受小数精度影响，8.65 → 8.7）。
+ */
+function avg1(list) {
+  if (!list.length) return null;
+  const tenths = list.reduce((sum, v) => sum + Math.round(v * 10), 0);
+  return Math.floor((2 * tenths + list.length) / (2 * list.length)) / 10;
+}
+
+/**
+ * 一周的统计（周一到周日）。getDay(dateStr) 返回那天的记录。
+ *
+ * - 核心每项：✓数 / (7 − “—”数)
+ * - 力量：min(✓数, weeklyTarget) / weeklyTarget（✓ 打在训练日或补做日都算）
+ * - 亲子户外、备餐复盘：✓数 / 1
+ * - 周总完成率 ＝ (核心✓ ＋ min(力量✓, 2) ＋ 亲子✓ ＋ 备餐✓) ÷ (49 ＋ 4 − 适用格里的“—”数)
+ *   （4 ＝ 力量 weeklyTarget 2 ＋ 亲子 1 ＋ 备餐 1；“适用格”＝核心 49 格 ＋ 专项在它安排日的格子）
+ *   用户定的（2026-10-07）：力量训练日记了“—”、后来又补做了，补做的那次不再从分母里扣，
+ *   总完成率最高 100%。即力量在分母里占 max(min(✓,2), 2 − min(“—”,2)) 格。
+ * - 达标：每项 ≥ 5/7，周完成率 ≥ 80%
+ * - 平均睡眠、平均精力：只算填了的天
+ */
+function weekStats(plan, settings, anyDate, getDay) {
+  const dates = date.weekDates(anyDate);
+  const days = dates.map((d) => getDay(d) || { checks: {} });
+  const rows = [];
+  let numer = 0;
+  let denom = 0;
+  let coreDone = 0;
+  let coreDenom = 0;
+
+  for (const item of plan.checkItems) {
+    const cells = dates.map((d, i) => ({
+      date: d,
+      value: (days[i].checks || {})[item.id] || '',
+      status: itemStatus(item, settings, d),
+    }));
+    const doneAll = cells.filter((c) => c.value === 'done').length;
+    const scheduled = cells.filter((c) => c.status === 'scheduled');
+    const naScheduled = scheduled.filter((c) => c.value === 'na').length;
+    let x;
+    let y;
+    if (item.group === 'core' || item.group === 'bonus') {
+      x = doneAll;
+      y = scheduled.length - naScheduled;
+    } else if (item.weeklyTarget) {
+      x = Math.min(doneAll, item.weeklyTarget);
+      y = item.weeklyTarget;
+    } else {
+      x = scheduled.filter((c) => c.value === 'done').length;
+      y = scheduled.length;
+    }
+    const rate = y > 0 ? x / y : null;
+    rows.push({ item, cells, x, y, rate, met: rate != null && rate >= 5 / 7 });
+
+    if (item.group === 'core') {
+      coreDone += x;
+      coreDenom += y;
+      numer += x;
+      denom += y;
+    } else if (item.weeklyTarget) {
+      // 力量：“—”最多扣 weeklyTarget 格；补做回来的不扣（用户定的，见上）
+      numer += x;
+      denom += Math.max(x, item.weeklyTarget - Math.min(naScheduled, item.weeklyTarget));
+    } else if (item.group === 'special') {
+      numer += x;
+      denom += y - naScheduled;
+    }
+  }
+
+  const sleeps = days.map((d) => date.sleepHours(d.lightsOutLastNight, d.wake)).filter((v) => v != null);
+  const energies = days.map((d) => d.energy).filter((v) => Number.isInteger(v));
+  const totalRate = denom > 0 ? numer / denom : null;
+  return {
+    dates,
+    sick: days.map((d) => d.sick === true),
+    rows,
+    coreDone,
+    coreDenom,
+    coreRate: coreDenom > 0 ? coreDone / coreDenom : null,
+    totalDone: numer,
+    totalDenom: denom,
+    totalRate,
+    totalMet: totalRate != null && totalRate >= 0.8,
+    avgSleep: avg1(sleeps),
+    avgEnergy: avg1(energies),
+  };
+}
+
+/** 这一天用哪份日程：工作日＝通用＋正常或加班＋睡前；周六、周日各一份 */
+function scheduleFor(plan, dateStr, overtime) {
+  const s = plan.schedules;
+  const type = dayType(dateStr);
+  if (type === 'saturday') return s.saturday;
+  if (type === 'sunday') return s.sunday;
+  return s.weekdayCommon.concat(overtime ? s.weekdayOvertime : s.weekdayNormal, s.bedtime);
+}
+
+/**
+ * 「下一步」：当天日程里，开始时间 ≥ 现在的最早那一条（没有 start 的跳过）。
+ * 同一时间开始的几条一起给（比如 21:30 洗澡、调暗灯光）。
+ * 返回 { start: 'HH:MM', items: [{ entry, time, what, how, note, evidence }] }（占位符已替换），当天没有了返回 null。
+ */
+function nextStep(plan, settings, dateStr, nowHHMM, overtime) {
+  const now = date.toMinutes(nowHHMM);
+  const list = scheduleFor(plan, dateStr, overtime)
+    .map((entry, i) => ({ entry, i, start: text.resolveStart(entry.start, settings) }))
+    .filter((x) => x.start)
+    .sort((a, b) => date.toMinutes(a.start) - date.toMinutes(b.start) || a.i - b.i);
+  const hit = list.find((x) => date.toMinutes(x.start) >= now);
+  if (!hit) return null;
+  const items = list
+    .filter((x) => x.start === hit.start)
+    .map((x) => ({
+      entry: x.entry,
+      time: text.fill(x.entry.time, settings),
+      what: text.fill(x.entry.what, settings),
+      how: text.fill(x.entry.how, settings),
+      note: text.fill(x.entry.note, settings),
+      evidence: x.entry.evidence,
+    }));
+  return { start: hit.start, items };
+}
+
+/**
+ * 家庭血压：最近 7 天（今天和前 6 天）所有读数的平均。每条记录有两遍读数，各算一个。
+ * 均值取整后 ≥135/85（收缩压或舒张压任一达到）时 high 为 true——和页面上显示的数一致，
+ * 不会出现“显示 135/80 却不提示”。没有读数返回 null。
+ */
+function bpSummary(records, todayStr) {
+  const from = date.addDays(todayStr, -6);
+  const sys = [];
+  const dia = [];
+  for (const r of records) {
+    if (r.date < from || r.date > todayStr) continue;
+    sys.push(r.s1, r.s2);
+    dia.push(r.d1, r.d2);
+  }
+  if (!sys.length) return null;
+  const mean = (l) => l.reduce((a, b) => a + b, 0) / l.length;
+  const s = Math.round(mean(sys));
+  const d = Math.round(mean(dia));
+  return { readings: sys.length, records: sys.length / 2, sys: s, dia: d, high: s >= 135 || d >= 85 };
+}
+
+/**
+ * 精力连续 14 天 ≤2 分（第六节第 3 条）。
+ * 用户定的（2026-10-07）：忘了打分的那天跳过——最近 14 次打分都 ≤2，
+ * 而且这 14 次都在最近 21 天里（含今天），就算。状态差时最容易忘打分，不能因此漏掉提示。
+ */
+function lowEnergyStreak(getDay, todayStr) {
+  const NEED = 14;
+  const WINDOW = 21;
+  let count = 0;
+  for (let i = 0; i < WINDOW && count < NEED; i++) {
+    const e = (getDay(date.addDays(todayStr, -i)) || {}).energy;
+    if (!Number.isInteger(e)) continue;
+    if (e > 2) return false;
+    count++;
+  }
+  return count >= NEED;
+}
+
+module.exports = {
+  DAY_TYPE_LABELS,
+  dayType,
+  dayTypeLabel,
+  strengthDaysOn,
+  itemStatus,
+  itemsForDay,
+  applicableIds,
+  dayRate,
+  nextCheck,
+  setSick,
+  weekStats,
+  scheduleFor,
+  nextStep,
+  bpSummary,
+  lowEnergyStreak,
+};
+
+});
+__def("utils/date", function (module, exports, require) {
+/**
+ * 日期和时间：全部按手机的本地时间算，存成字符串。
+ *
+ * 规则（指令第五节 + 进度.md）：
+ * - 日期一律是 'YYYY-MM-DD'，时间一律是 'HH:MM'（24 小时制、补零），由本地时间拼出来；
+ * - 不用 toISOString()（那是 UTC，北京时间早上 8 点前会算成前一天），
+ *   也不用 new Date('YYYY-MM-DD') 解析（会按 UTC 解析），不把 Date 对象放进 JSON；
+ * - 一周从周一开始：周一 = 1 …… 周日 = 7。
+ *
+ * 都是纯函数，Node 能直接测。
+ */
+
+const WEEKDAY_NAMES = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+function pad(n) {
+  return (n < 10 ? '0' : '') + n;
+}
+
+/** Date → 'YYYY-MM-DD'（本地时间） */
+function formatDate(d) {
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
+/** Date → 'HH:MM'（本地时间） */
+function formatTime(d) {
+  return pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+/** 今天的日期字符串；now 可以传进来，方便测试 */
+function today(now) {
+  return formatDate(now || new Date());
+}
+
+/** 现在的时间字符串 'HH:MM' */
+function nowTime(now) {
+  return formatTime(now || new Date());
+}
+
+/** 'YYYY-MM-DD' 是不是一个真实存在的日期 */
+function isDate(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  return formatDate(parseDate(s)) === s;
+}
+
+/** 'YYYY-MM-DD' → 当天本地中午 12 点的 Date（用中午，避免夏令时切换时跨天） */
+function parseDate(s) {
+  const parts = s.split('-');
+  return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0, 0);
+}
+
+/** 星期几：周一 = 1 …… 周日 = 7 */
+function weekday(dateStr) {
+  const day = parseDate(dateStr).getDay(); // 周日 = 0
+  return day === 0 ? 7 : day;
+}
+
+function weekdayName(n) {
+  return WEEKDAY_NAMES[n] || '';
+}
+
+/** 日期加减天数 */
+function addDays(dateStr, n) {
+  const d = parseDate(dateStr);
+  d.setDate(d.getDate() + n);
+  return formatDate(d);
+}
+
+/** 这一周的周一 */
+function weekStart(dateStr) {
+  return addDays(dateStr, 1 - weekday(dateStr));
+}
+
+/** 这一周周一到周日 7 天 */
+function weekDates(dateStr) {
+  const monday = weekStart(dateStr);
+  const out = [];
+  for (let i = 0; i < 7; i++) out.push(addDays(monday, i));
+  return out;
+}
+
+/** 'HH:MM' 是不是合法时间 */
+function isTime(s) {
+  return typeof s === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
+}
+
+/** 'HH:MM' → 从 0 点起的分钟数 */
+function toMinutes(s) {
+  const parts = s.split(':');
+  return Number(parts[0]) * 60 + Number(parts[1]);
+}
+
+/** 分钟数 → 'HH:MM'（超过 24 小时或负数会绕回一天之内） */
+function fromMinutes(m) {
+  const day = 24 * 60;
+  const v = ((Math.round(m) % day) + day) % day;
+  return pad(Math.floor(v / 60)) + ':' + pad(v % 60);
+}
+
+/** 'HH:MM' 加减分钟，结果仍是 'HH:MM'（23:45 + 30 → 00:15） */
+function addMinutes(s, n) {
+  return fromMinutes(toMinutes(s) + n);
+}
+
+/** 显示用：'06:45' → '6:45'，'23:00' → '23:00' */
+function displayTime(s) {
+  return isTime(s) ? String(Number(s.slice(0, 2))) + s.slice(2) : s;
+}
+
+/**
+ * 睡眠时长（小时，保留 1 位小数）＝ 今天起床时间 − 昨晚熄灯时间。
+ * 熄灯晚于起床（23:20 → 6:50）说明跨了午夜，加 24 小时；熄灯在午夜后（00:40）直接相减。
+ * 任何一个没填或格式不对，返回 null。
+ */
+function sleepHours(lightsOut, wake) {
+  if (!isTime(lightsOut) || !isTime(wake)) return null;
+  let minutes = toMinutes(wake) - toMinutes(lightsOut);
+  if (minutes < 0) minutes += 24 * 60;
+  return Math.round((minutes / 60) * 10) / 10;
+}
+
+module.exports = {
+  pad,
+  formatDate,
+  formatTime,
+  today,
+  nowTime,
+  isDate,
+  parseDate,
+  weekday,
+  weekdayName,
+  addDays,
+  weekStart,
+  weekDates,
+  isTime,
+  toMinutes,
+  fromMinutes,
+  addMinutes,
+  displayTime,
+  sleepHours,
+};
+
+});
+__def("utils/store", function (module, exports, require) {
+/**
+ * 本机存储（localStorage）。键名固定，方便备份（指令第五节）：
+ *   settings              设置
+ *   day:YYYY-MM-DD        每天的打卡 { checks, lightsOutLastNight, wake, energy, overtime, sick, note }
+ *   records:weight        [{ date, kg }]
+ *   records:waist         [{ date, cm }]
+ *   records:bp            [{ date, period: '早' | '晚', s1, d1, s2, d2 }]
+ *
+ * 和 Life 网站同源：在 Safari 里，小游戏、孩子的英语学习也存在同一个 localStorage。
+ * 所以这里只读写上面这几类键（day: 后面必须是真实日期），导出、导入、清空都只动它们，
+ * 绝不用 localStorage.clear()。
+ *
+ * 不能静默丢数据：
+ * - 每次写入都检查，失败（空间满了、浏览器不让存）就调用 onError 提示；
+ * - 页面交来的值是文字（输入框、按钮），能明确转换的就转换（'3' → 3、'6:45' → '06:45'），
+ *   转换不了的不存，并提示是哪一项；
+ * - 导入备份写到一半失败，原样恢复；连恢复也失败，把原来的数据整理成备份文字交出来。
+ *
+ * 力量训练日只能用 changeStrengthDays() 改（会记下改之前的日子用的是哪几天），
+ * saveSettings() 不动它，免得设置页一保存就把过去几周的统计改掉。
+ *
+ * 用法：const store = createStore(window.localStorage, { onError: (msg) => alert(msg) });
+ * Node 测试时传一个内存里的假 storage 进来。
+ */
+const plan = require('../config/plan');
+const date = require('./date');
+const calc = require('./calc');
+
+const SETTINGS_KEY = 'settings';
+const DAY_PREFIX = 'day:';
+const RECORD_KEYS = { weight: 'records:weight', waist: 'records:waist', bp: 'records:bp' };
+const CHECK_VALUES = ['done', 'miss', 'na'];
+const BACKUP_APP = 'health-checkin';
+const BACKUP_FORMAT = 1;
+
+const SETTING_NAMES = {
+  wakeWeekday: '工作日起床',
+  wakeWeekendLatest: '周末最晚起床',
+  workStart: '上班时间',
+  phoneOut: '手机出卧室',
+  lightsOut: '熄灯',
+  friSatShiftMinutes: '周五周六顺延分钟数',
+  caffeineCutoff: '咖啡因截止',
+  dinnerLatest: '晚饭最晚',
+  overtimeLeaveAfter: '加班离厂',
+  strengthDays: '力量训练日',
+  strengthMakeupDays: '补做日',
+  showBonus: '显示加分项',
+};
+const DAY_NAMES = { lightsOutLastNight: '昨晚熄灯时间', wake: '今天起床时间', energy: '今天精力', overtime: '加班', sick: '不适用', note: '备注', checks: '打卡' };
+
+const clone = (v) => JSON.parse(JSON.stringify(v));
+const isNum = (v) => typeof v === 'number' && isFinite(v);
+const given = (v) => v !== undefined && v !== null && v !== '';
+
+/* ---------- 把页面交来的值转换成该有的类型；转换不了返回 null ---------- */
+
+/** '6:45' / '06:45' → '06:45' */
+function toTime(v) {
+  if (typeof v !== 'string') return null;
+  const m = v.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const t = (m[1].length === 1 ? '0' : '') + m[1] + ':' + m[2];
+  return date.isTime(t) ? t : null;
+}
+
+/** 3 / '3' / ' 72.5 ' → 数字 */
+function toNumber(v) {
+  if (isNum(v)) return v;
+  if (typeof v === 'string' && v.trim() !== '' && isFinite(Number(v))) return Number(v);
+  return null;
+}
+
+function toBool(v) {
+  if (typeof v === 'boolean') return v;
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  return null;
+}
+
+/** [4, '2', 2] → [2, 4]；空的、有不是 1–7 的 → null */
+function toWeekdays(v) {
+  if (!Array.isArray(v) || !v.length) return null;
+  const n = v.map((x) => (typeof x === 'string' ? Number(x) : x));
+  if (!n.every((x) => Number.isInteger(x) && x >= 1 && x <= 7)) return null;
+  return Array.from(new Set(n)).sort((a, b) => a - b);
+}
+
+/* ---------- 校验和整理（读出来的、导入的、页面交来的数据都过一遍） ---------- */
+
+/**
+ * 设置：以 plan.settings 为底，交来的值能转换成对的类型才用。
+ * dropped（可选数组）里记下交来了、但值不对没用上的项。
+ */
+function normalizeSettings(raw, dropped) {
+  const out = clone(plan.settings);
+  const src = raw && typeof raw === 'object' ? raw : {};
+  for (const key of Object.keys(out)) {
+    const def = out[key];
+    if (!(key in src)) continue;
+    let v = null;
+    if (typeof def === 'string') v = date.isTime(def) ? toTime(src[key]) : typeof src[key] === 'string' ? src[key] : null;
+    else if (typeof def === 'number') v = toNumber(src[key]);
+    else if (typeof def === 'boolean') v = toBool(src[key]);
+    else if (Array.isArray(def)) v = toWeekdays(src[key]);
+    if (v !== null) out[key] = v;
+    else if (dropped) dropped.push(key);
+  }
+  if (typeof out.friSatShiftMinutes === 'number') {
+    out.friSatShiftMinutes = Math.round(out.friSatShiftMinutes);
+  }
+  // 力量训练日改过的记录：until 之前的日子用 days（“只影响之后的日期，不改历史统计”）
+  out.strengthDaysHistory = Array.isArray(src.strengthDaysHistory)
+    ? src.strengthDaysHistory
+        .filter((h) => h && date.isDate(h.until) && toWeekdays(h.days))
+        .map((h) => ({ until: h.until, days: toWeekdays(h.days) }))
+        .sort((a, b) => (a.until < b.until ? -1 : a.until > b.until ? 1 : 0))
+    : [];
+  return out;
+}
+
+function emptyDay() {
+  return { checks: {}, lightsOutLastNight: '', wake: '', energy: null, overtime: false, sick: false, note: '' };
+}
+
+/** 一天的记录：只留认识的字段和合法的值；dropped 同上 */
+function normalizeDay(raw, dropped) {
+  const out = emptyDay();
+  if (!raw || typeof raw !== 'object') return out;
+  const drop = (key) => dropped && dropped.indexOf(key) < 0 && dropped.push(key);
+  if (raw.checks && typeof raw.checks === 'object') {
+    for (const id of Object.keys(raw.checks)) {
+      const v = raw.checks[id];
+      if (CHECK_VALUES.indexOf(v) >= 0) out.checks[id] = v;
+      else if (given(v)) drop('checks');
+    }
+  }
+  for (const key of ['lightsOutLastNight', 'wake']) {
+    if (!given(raw[key])) continue;
+    const t = toTime(raw[key]);
+    if (t) out[key] = t;
+    else drop(key);
+  }
+  if (given(raw.energy)) {
+    const e = toNumber(raw.energy);
+    if (Number.isInteger(e) && e >= 1 && e <= 5) out.energy = e;
+    else drop('energy');
+  }
+  for (const key of ['overtime', 'sick']) {
+    if (raw[key] === undefined) continue;
+    const b = toBool(raw[key]);
+    if (b !== null) out[key] = b;
+    else drop(key);
+  }
+  if (typeof raw.note === 'string') out.note = raw.note;
+  else if (given(raw.note)) drop('note');
+  return out;
+}
+
+function isEmptyDay(day) {
+  return (
+    Object.keys(day.checks).length === 0 &&
+    !day.lightsOutLastNight &&
+    !day.wake &&
+    day.energy == null &&
+    !day.overtime &&
+    !day.sick &&
+    !day.note
+  );
+}
+
+/** 导出用：只留和空白不一样的字段，备份文字短一半 */
+function compactDay(day) {
+  const empty = emptyDay();
+  const out = {};
+  for (const key of Object.keys(day)) {
+    if (key === 'checks' ? Object.keys(day.checks).length : day[key] !== empty[key]) out[key] = day[key];
+  }
+  return out;
+}
+
+const RECORD_FIELDS = { weight: ['date', 'kg'], waist: ['date', 'cm'], bp: ['date', 'period', 's1', 'd1', 's2', 'd2'] };
+
+/** 一条记录：数字转换好，缺东西返回 null */
+function normalizeRecord(kind, r) {
+  if (!r || typeof r !== 'object' || !date.isDate(r.date)) return null;
+  const o = { date: r.date };
+  for (const f of RECORD_FIELDS[kind].slice(1)) {
+    if (f === 'period') {
+      if (r.period !== '早' && r.period !== '晚') return null;
+      o.period = r.period;
+    } else {
+      const n = toNumber(r[f]);
+      if (n === null) return null;
+      o[f] = n;
+    }
+  }
+  return o;
+}
+
+/** 一类记录：去掉坏的，按日期排好（同一天的保持原来的先后） */
+function normalizeRecords(kind, raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((r) => normalizeRecord(kind, r))
+    .map((r, i) => ({ r, i }))
+    .filter((x) => x.r)
+    .sort((a, b) => (a.r.date < b.r.date ? -1 : a.r.date > b.r.date ? 1 : a.i - b.i))
+    .map((x) => x.r);
+}
+
+function isOwnKey(key) {
+  if (typeof key !== 'string') return false;
+  if (key === SETTINGS_KEY) return true;
+  if (key.indexOf(DAY_PREFIX) === 0) return date.isDate(key.slice(DAY_PREFIX.length));
+  return Object.keys(RECORD_KEYS).some((k) => RECORD_KEYS[k] === key);
+}
+
+/* ---------- 存储 ---------- */
+
+function describe(e) {
+  const name = e && e.name;
+  if (name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED') return '手机给这个网页的存储空间满了';
+  if (name === 'SecurityError') return '浏览器不允许这个网页存数据（可能在设置里阻止了所有 Cookie）';
+  return '原因不明' + (e && e.message ? '（' + e.message + '）' : '');
+}
+
+function createStore(storage, options) {
+  const onError = (options && options.onError) || function () {};
+  // 这次打开页面后读不出来的键：先不往里写，免得把读不出来的旧数据盖掉
+  const unreadable = {};
+  // 内容坏了的键：只提示一次
+  const reportedBroken = {};
+
+  function fail(what, e) {
+    onError(what + '：' + describe(e));
+    return false;
+  }
+
+  /* 底层操作：不提示，只返回成功与否，由调用的地方决定怎么说 */
+  function tryGet(key) {
+    try {
+      if (!storage) throw new Error('浏览器不能存数据');
+      return { ok: true, value: storage.getItem(key) };
+    } catch (e) {
+      return { ok: false, error: e };
+    }
+  }
+  function trySet(key, raw) {
+    try {
+      if (!storage) throw new Error('浏览器不能存数据');
+      storage.setItem(key, raw);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e };
+    }
+  }
+  function tryRemove(key) {
+    try {
+      if (storage) storage.removeItem(key);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e };
+    }
+  }
+  /** 属于健康打卡的键；读不了返回 null */
+  function tryOwnKeys() {
+    try {
+      if (!storage) return [];
+      const keys = [];
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
+        if (isOwnKey(key)) keys.push(key);
+      }
+      return keys;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function read(key) {
+    const got = tryGet(key);
+    if (!got.ok) {
+      unreadable[key] = true;
+      fail('读取失败', got.error);
+      return null;
+    }
+    if (got.value == null) return null;
+    try {
+      return JSON.parse(got.value);
+    } catch (e) {
+      if (!reportedBroken[key]) {
+        reportedBroken[key] = true;
+        onError('有一条数据坏了（' + key + '），先按空的显示；再保存会用新内容覆盖它。');
+      }
+      return null;
+    }
+  }
+
+  function write(key, value) {
+    if (unreadable[key]) {
+      onError('这条数据刚才读不出来，为了不把它盖掉，这次没保存（' + key + '）。请关掉页面重新打开再试。');
+      return false;
+    }
+    const done = trySet(key, JSON.stringify(value));
+    return done.ok || fail('没存上，刚才的改动没保存', done.error);
+  }
+
+  function remove(key) {
+    const done = tryRemove(key);
+    return done.ok || fail('删除失败', done.error);
+  }
+
+  function ownKeys() {
+    const keys = tryOwnKeys();
+    if (keys === null) {
+      onError('读取失败：' + describe(null));
+      return [];
+    }
+    return keys;
+  }
+
+  /* 设置 */
+
+  function getSettings() {
+    return normalizeSettings(read(SETTINGS_KEY));
+  }
+
+  /**
+   * 保存设置。力量训练日不在这里改（用 changeStrengthDays），交来的会被忽略；
+   * 值不对的项不存，并提示是哪几项。
+   */
+  function saveSettings(input) {
+    const stored = getSettings();
+    const dropped = [];
+    const merged = Object.assign({}, stored, input || {}, {
+      strengthDays: stored.strengthDays,
+      strengthDaysHistory: stored.strengthDaysHistory,
+    });
+    const next = normalizeSettings(merged, dropped);
+    if (dropped.length) onError('这几项没存上，值不对：' + dropped.map((k) => SETTING_NAMES[k] || k).join('、'));
+    return write(SETTINGS_KEY, next);
+  }
+
+  /**
+   * 改力量训练日：从 fromDate 这天起用新的，之前的日子还按当时的算。
+   * 设置页传明天（date.addDays(today, 1)）：“只影响之后的日期”，今天已经打的勾不受影响。
+   */
+  function changeStrengthDays(days, fromDate) {
+    const next = toWeekdays(days);
+    if (!next) {
+      onError('力量训练日没改成：至少要选一天。');
+      return false;
+    }
+    if (!date.isDate(fromDate)) {
+      onError('力量训练日没改成：日期不对（' + fromDate + '）。');
+      return false;
+    }
+    const s = getSettings();
+    // 改之前那天实际用的是哪几天（时钟往回调过也不会把更早的记录改掉）
+    const before = calc.strengthDaysOn(s, date.addDays(fromDate, -1));
+    s.strengthDaysHistory = s.strengthDaysHistory.filter((h) => h.until < fromDate).concat([{ until: fromDate, days: before }]);
+    s.strengthDays = next;
+    return write(SETTINGS_KEY, normalizeSettings(s));
+  }
+
+  /* 每天的打卡 */
+
+  function getDay(dateStr) {
+    return normalizeDay(read(DAY_PREFIX + dateStr));
+  }
+
+  function saveDay(dateStr, day) {
+    if (!date.isDate(dateStr)) {
+      onError('没存上：日期不对（' + dateStr + '）。');
+      return false;
+    }
+    const dropped = [];
+    const clean = normalizeDay(day, dropped);
+    if (dropped.length) onError('这几项没存上，值不对：' + dropped.map((k) => DAY_NAMES[k] || k).join('、'));
+    return isEmptyDay(clean) ? remove(DAY_PREFIX + dateStr) : write(DAY_PREFIX + dateStr, clean);
+  }
+
+  /** 有记录的日期，从早到晚 */
+  function listDays() {
+    return ownKeys()
+      .filter((k) => k.indexOf(DAY_PREFIX) === 0)
+      .map((k) => k.slice(DAY_PREFIX.length))
+      .sort();
+  }
+
+  /* 体重、腰围、血压 */
+
+  function getRecords(kind) {
+    return normalizeRecords(kind, read(RECORD_KEYS[kind]));
+  }
+
+  function addRecord(kind, record) {
+    const clean = normalizeRecord(kind, record);
+    if (!clean) {
+      onError('这条记录没存上：有空着的或者不是数字的。');
+      return false;
+    }
+    const list = getRecords(kind);
+    list.push(clean);
+    return write(RECORD_KEYS[kind], normalizeRecords(kind, list));
+  }
+
+  /** 删掉一条：传 getRecords 返回的那条记录本身（按内容找，和页面怎么排序无关） */
+  function removeRecord(kind, record) {
+    const list = getRecords(kind);
+    const target = normalizeRecord(kind, record);
+    const i = target ? list.findIndex((r) => JSON.stringify(r) === JSON.stringify(target)) : -1;
+    if (i < 0) {
+      onError('没找到要删的这条记录。');
+      return false;
+    }
+    list.splice(i, 1);
+    return write(RECORD_KEYS[kind], list);
+  }
+
+  /* 备份 */
+
+  function backupObject(settings, days, records, now) {
+    const at = now || new Date();
+    const compactDays = {};
+    for (const d of Object.keys(days).sort()) compactDays[d] = compactDay(days[d]);
+    return {
+      app: BACKUP_APP,
+      format: BACKUP_FORMAT,
+      exportedAt: date.formatDate(at) + ' ' + date.formatTime(at),
+      settings,
+      days: compactDays,
+      records,
+    };
+  }
+
+  /** 全部数据（只有健康打卡自己的） */
+  function exportData(now) {
+    const days = {};
+    for (const d of listDays()) days[d] = getDay(d);
+    const records = {};
+    for (const kind of Object.keys(RECORD_KEYS)) records[kind] = getRecords(kind);
+    return backupObject(getSettings(), days, records, now);
+  }
+
+  /** 导出成文字（复制到剪贴板保存） */
+  function exportText(now) {
+    return JSON.stringify(exportData(now));
+  }
+
+  /**
+   * 检查一段备份文字。返回 { ok:false, error } 或 { ok:true, data, summary: { days, weight, waist, bp, exportedAt } }。
+   * 只检查，不写入；用户确认后再调 importData(data)。
+   */
+  function parseBackup(textValue) {
+    let raw;
+    try {
+      raw = JSON.parse(String(textValue).replace(/^﻿/, '').trim());
+    } catch (e) {
+      return { ok: false, error: '这不是完整的备份内容（格式不对）。请把导出时复制的整段文字原样粘贴进来，不要漏掉开头或结尾。' };
+    }
+    if (!raw || raw.app !== BACKUP_APP) return { ok: false, error: '这不是健康打卡的备份。' };
+    if (raw.format !== BACKUP_FORMAT) return { ok: false, error: '备份的版本（' + raw.format + '）这个程序认不出。' };
+    const data = { settings: normalizeSettings(raw.settings), days: {}, records: {} };
+    const rawDays = raw.days && typeof raw.days === 'object' ? raw.days : {};
+    for (const d of Object.keys(rawDays)) {
+      if (!date.isDate(d)) continue;
+      const day = normalizeDay(rawDays[d]);
+      if (!isEmptyDay(day)) data.days[d] = day;
+    }
+    const rawRecords = raw.records && typeof raw.records === 'object' ? raw.records : {};
+    for (const kind of Object.keys(RECORD_KEYS)) data.records[kind] = normalizeRecords(kind, rawRecords[kind]);
+    return {
+      ok: true,
+      data,
+      summary: {
+        days: Object.keys(data.days).length,
+        weight: data.records.weight.length,
+        waist: data.records.waist.length,
+        bp: data.records.bp.length,
+        exportedAt: typeof raw.exportedAt === 'string' ? raw.exportedAt : '',
+      },
+    };
+  }
+
+  /** 要写进去的 { 键: 原始文字 } */
+  function entriesOf(data) {
+    const out = {};
+    out[SETTINGS_KEY] = JSON.stringify(normalizeSettings(data.settings));
+    for (const d of Object.keys(data.days || {})) out[DAY_PREFIX + d] = JSON.stringify(normalizeDay(data.days[d]));
+    for (const kind of Object.keys(RECORD_KEYS)) {
+      const list = (data.records && data.records[kind]) || [];
+      if (list.length) out[RECORD_KEYS[kind]] = JSON.stringify(list);
+    }
+    return out;
+  }
+
+  /** 原始文字快照 → 备份文字（恢复失败时交给用户保存） */
+  function snapshotText(snapshot) {
+    const parsed = {};
+    for (const key of Object.keys(snapshot)) {
+      try {
+        parsed[key] = JSON.parse(snapshot[key]);
+      } catch (e) {
+        // 本来就坏了的，跳过
+      }
+    }
+    const days = {};
+    const records = {};
+    for (const key of Object.keys(parsed)) {
+      if (key.indexOf(DAY_PREFIX) === 0) days[key.slice(DAY_PREFIX.length)] = normalizeDay(parsed[key]);
+    }
+    for (const kind of Object.keys(RECORD_KEYS)) records[kind] = normalizeRecords(kind, parsed[RECORD_KEYS[kind]]);
+    return JSON.stringify(backupObject(normalizeSettings(parsed[SETTINGS_KEY]), days, records));
+  }
+
+  /**
+   * 用备份覆盖现有数据。返回 { ok, rescueText }：
+   * - 成功：ok 为 true；
+   * - 写到一半失败：原样恢复成导入前的样子，ok 为 false（已提示）；
+   * - 连恢复也没完全成功：rescueText 是导入前数据的备份文字，页面要显示出来让用户复制保存。
+   */
+  function importData(data) {
+    // 1. 先把现有数据原样记下来；有一条读不出就不动手
+    const keys = tryOwnKeys();
+    if (keys === null) {
+      onError('导入取消，现有数据没动：读取现有数据失败。');
+      return { ok: false, rescueText: null };
+    }
+    const snapshot = {};
+    for (const key of keys) {
+      const got = tryGet(key);
+      if (!got.ok) {
+        fail('导入取消，现有数据没动：读取现有数据失败', got.error);
+        return { ok: false, rescueText: null };
+      }
+      if (got.value != null) snapshot[key] = got.value;
+    }
+
+    // 2. 删掉旧的（先删，腾出空间），再写新的
+    const incoming = entriesOf(data);
+    let error = null;
+    for (const key of keys) {
+      const done = tryRemove(key);
+      if (!done.ok) {
+        error = done.error;
+        break;
+      }
+    }
+    if (!error) {
+      for (const key of Object.keys(incoming)) {
+        const done = trySet(key, incoming[key]);
+        if (!done.ok) {
+          error = done.error;
+          break;
+        }
+      }
+    }
+    if (!error) return { ok: true, rescueText: null };
+
+    // 3. 失败了：删掉导入写进去的，把原来的原样放回去（一条失败也接着放其他的）
+    for (const key of tryOwnKeys() || Object.keys(incoming)) if (!(key in snapshot)) tryRemove(key);
+    let restored = true;
+    for (const key of Object.keys(snapshot)) if (!trySet(key, snapshot[key]).ok) restored = false;
+    if (restored) {
+      fail('导入失败，原来的数据已恢复，没有变化', error);
+      return { ok: false, rescueText: null };
+    }
+    fail('导入失败，原来的数据也没能全部恢复。下面是原来数据的备份文字，请马上全部复制保存', error);
+    return { ok: false, rescueText: snapshotText(snapshot) };
+  }
+
+  /** 清空健康打卡的全部数据（不碰同网站其他页面的数据） */
+  function clearAll() {
+    const keys = tryOwnKeys();
+    if (keys === null) {
+      onError('清空失败：读取数据失败。');
+      return false;
+    }
+    let error = null;
+    for (const key of keys) {
+      const done = tryRemove(key);
+      if (!done.ok) error = done.error;
+    }
+    return !error || fail('有的数据没删掉', error);
+  }
+
+  return {
+    getSettings,
+    saveSettings,
+    changeStrengthDays,
+    getDay,
+    saveDay,
+    listDays,
+    getRecords,
+    addRecord,
+    removeRecord,
+    exportData,
+    exportText,
+    parseBackup,
+    importData,
+    clearAll,
+  };
+}
+
+module.exports = {
+  createStore,
+  normalizeSettings,
+  normalizeDay,
+  normalizeRecords,
+  emptyDay,
+  isEmptyDay,
+  isOwnKey,
+  toTime,
+  RECORD_KEYS,
+};
+
+});
+__def("utils/text", function (module, exports, require) {
+/**
+ * 占位符替换：计划里的文字和 start 字段写着 {wakeWeekday} 这样的占位符，
+ * 按当前设置换成真实时间（见 plan.placeholders）。
+ *
+ * - 显示用的文字：时间写成 '6:45' 这种格式；{strengthDays} 写成 '周二、周四'；
+ * - 比较时间用的 start：换成 'HH:MM'（补零，方便比较），见 resolveStart()；
+ * - 两个 FriSat 占位符 ＝ 原时间 + friSatShiftMinutes 分钟。
+ *
+ * 纯函数，Node 能直接测。
+ */
+const date = require('./date');
+
+/** 每个占位符对应的 'HH:MM'（{strengthDays} 不是时间，单独处理） */
+function placeholderTimes(settings) {
+  const shift = Number(settings.friSatShiftMinutes) || 0;
+  return {
+    '{wakeWeekday}': settings.wakeWeekday,
+    '{wakeWeekendLatest}': settings.wakeWeekendLatest,
+    '{phoneOut}': settings.phoneOut,
+    '{lightsOut}': settings.lightsOut,
+    '{phoneOutFriSat}': date.addMinutes(settings.phoneOut, shift),
+    '{lightsOutFriSat}': date.addMinutes(settings.lightsOut, shift),
+    '{caffeineCutoff}': settings.caffeineCutoff,
+  };
+}
+
+/** [2, 4] → '周二、周四'（按周一到周日排序） */
+function weekdayList(days) {
+  return (days || [])
+    .slice()
+    .sort((a, b) => a - b)
+    .map(date.weekdayName)
+    .join('、');
+}
+
+const PLACEHOLDER = /\{[A-Za-z]+\}/g;
+
+/** 显示用：把文字里的占位符全部换掉。认不出的占位符原样留着（测试会检查计划里没有这种） */
+function fill(text, settings) {
+  if (typeof text !== 'string') return text;
+  const times = placeholderTimes(settings);
+  return text.replace(PLACEHOLDER, (key) => {
+    if (key === '{strengthDays}') return weekdayList(settings.strengthDays);
+    if (key in times) return date.displayTime(times[key]);
+    return key;
+  });
+}
+
+/**
+ * 比较用：start 字段 → 'HH:MM'。
+ * start 可能是 '07:30'、'{wakeWeekday}' 或 null（没有固定时间）；null 和认不出的返回 null。
+ */
+function resolveStart(start, settings) {
+  if (start == null) return null;
+  if (date.isTime(start)) return start;
+  const times = placeholderTimes(settings);
+  return start in times && date.isTime(times[start]) ? times[start] : null;
+}
+
+/** 显示一位小数：6 → '6.0'，7.25 → '7.3'；空的 → ''（睡眠时长、平均睡眠、平均精力都用它） */
+function oneDecimal(n) {
+  return typeof n === 'number' && isFinite(n) ? (Math.round(n * 10) / 10).toFixed(1) : '';
+}
+
+/** 文字里用到的所有占位符（测试用：检查计划里没有认不出的） */
+function placeholdersIn(text) {
+  return typeof text === 'string' ? text.match(PLACEHOLDER) || [] : [];
+}
+
+module.exports = {
+  placeholderTimes,
+  weekdayList,
+  fill,
+  resolveStart,
+  oneDecimal,
+  placeholdersIn,
+};
+
+});
 __def("src/offline", function (module, exports, require) {
 /**
  * 离线缓存：第一次打开后，程序文件存进手机，以后断网也能用。
@@ -280,12 +3012,17 @@ if (navigator.storage && navigator.storage.persist) {
 });
 __def("src/app", function (module, exports, require) {
 /**
- * 健康打卡 · 页面骨架（阶段 0）
+ * 健康打卡 · 页面程序（阶段 1：骨架 + 数据层自检）
  *
  * 四个标签页（今天／本周／记录／规则）+ 设置页（从「今天」右上角进入，不在标签栏里）。
  * 页面用地址里 # 后面的部分切换：#today #week #records #rules #settings。
  * 数据只存在本机，不发任何网络请求。离线缓存在 src/offline.js。
  */
+
+const plan = require('../config/plan');
+const date = require('../utils/date');
+const calc = require('../utils/calc');
+const { createStore } = require('../utils/store');
 
 const TABS = ['today', 'week', 'records', 'rules'];
 
@@ -319,15 +3056,21 @@ function clear(el) {
   while (el.firstChild) el.removeChild(el.firstChild);
 }
 
-/** 浏览器现在能不能存数据（Safari 设成“阻止所有 Cookie”时不能；无痕浏览能存，但关掉就丢） */
-function storageWorks() {
+/**
+ * 浏览器现在能不能存数据：能存返回 null，不能存返回原因。
+ * （Safari 设成“阻止所有 Cookie”时不能；无痕浏览能存，但关掉就丢）
+ */
+function storageProblem() {
   try {
     const key = '__probe__';
     localStorage.setItem(key, '1');
     localStorage.removeItem(key);
-    return true;
+    return null;
   } catch (e) {
-    return false;
+    if (e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+      return '手机给这个网页的存储空间满了。现在记的内容可能存不上。';
+    }
+    return '可能在手机设置里给 Safari 打开了「阻止所有 Cookie」。现在记的内容，关掉页面就会丢。';
   }
 }
 
@@ -389,7 +3132,18 @@ for (const id of TABS) {
 }
 app.append(top, main, tabbar);
 
-const canStore = storageWorks();
+const storageIssue = storageProblem();
+
+/** localStorage 本身也可能读不了（Safari 阻止所有 Cookie 时会报错），拿不到就传 null */
+function openStorage() {
+  try {
+    return window.localStorage;
+  } catch (e) {
+    return null;
+  }
+}
+
+const store = createStore(openStorage(), { onError: (message) => window.alert(message) });
 
 function currentPage() {
   const id = location.hash.replace(/^#\/?/, '');
@@ -414,20 +3168,37 @@ function renderTop(id) {
 function renderMain(id) {
   const page = PAGES[id];
   clear(main);
-  if (!canStore) {
-    main.append(notice('bad', '这个浏览器现在存不了数据', ['可能在手机设置里给 Safari 打开了「阻止所有 Cookie」。现在记的内容，关掉页面就会丢。']));
+  if (storageIssue) {
+    main.append(notice('bad', '这个浏览器现在存不了数据', [storageIssue]));
   }
   if (id === 'today') {
     for (const hint of openingHints()) main.append(notice(hint.kind, hint.title, hint.steps));
   }
+  if (id === 'today') {
+    const today = date.today();
+    main.append(
+      h('div', { class: 'card' }, [
+        h('div', { class: 'today-date', text: today + '　' + date.weekdayName(date.weekday(today)) }),
+        h('div', { class: 'sub', text: calc.dayTypeLabel(today) }),
+      ]),
+    );
+  }
   main.append(h('div', { class: 'card' }, [h('div', { text: '「' + page.title + '」页：阶段 ' + page.stage + ' 来做' })]));
   if (id === 'settings') {
+    const count = (group) => plan.checkItems.filter((i) => i.group === group).length;
+    main.append(
+      h('p', { class: 'sub', text: '打卡计划：核心 ' + count('core') + ' 项、专项 ' + count('special') + ' 项、加分 ' + count('bonus') + ' 项；本机已存 ' + store.listDays().length + ' 天打卡记录' }),
+    );
     const mode = navigator.standalone ? '主屏幕图标' : '浏览器';
     main.append(h('p', { class: 'sub', text: '程序版本 ' + (window.__BUILD__ || '开发中') + ' · ' + browserName() + ' · 从' + mode + '打开' }));
   }
 }
 
+// 页面上显示的是哪一天：主屏幕 App 可能隔夜才从后台切回来，那时要换成新的一天
+let shownDate = '';
+
 function render() {
+  shownDate = date.today();
   const id = currentPage();
   const page = PAGES[id];
   document.title = page.title + ' · 健康打卡';
@@ -443,6 +3214,12 @@ function render() {
 }
 
 window.addEventListener('hashchange', render);
+// 从后台切回来（或从缓存恢复）时，过了午夜就重新显示，免得打卡记到昨天
+const refreshIfNewDay = () => {
+  if (document.visibilityState === 'visible' && date.today() !== shownDate) render();
+};
+document.addEventListener('visibilitychange', refreshIfNewDay);
+window.addEventListener('pageshow', refreshIfNewDay);
 render();
 
 });
