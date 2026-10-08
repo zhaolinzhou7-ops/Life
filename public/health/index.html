@@ -87,6 +87,9 @@ body {
 
 button, input, select, textarea { font: inherit; font-size: max(16px, 1em); color: inherit; }
 
+/* 连点按钮时 iPhone 不要当成“双击放大” */
+button, a, summary { touch-action: manipulation; }
+
 a { color: var(--green); }
 
 /* 顶部：标题 + 右上角按钮 */
@@ -473,13 +476,76 @@ a { color: var(--green); }
   .state-word { display: none; }
 }
 
+/* ---------- 「本周」页 ---------- */
+
+.week-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; }
+.nav-btn { min-width: 88px; min-height: 48px; border: 0; background: none; color: var(--green); font-size: 17px; cursor: pointer; }
+.nav-btn:disabled { color: var(--gray); cursor: default; }
+.week-range { text-align: center; }
+.week-title { font-size: 18px; font-weight: 600; }
+.back-to-week {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  margin: -8px 0 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--green);
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.week-days,
+.week-cells { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.week-days { margin: 8px 0 4px; color: var(--sub); font-size: 15px; text-align: center; }
+.day-col { border-radius: 6px; }
+.day-col.is-today { color: var(--green); font-weight: 700; }
+.day-col.sick { background: var(--track); }
+.week-range .nowrap { white-space: nowrap; }
+.week-row { padding: 8px 0; border-top: 1px solid var(--line); }
+.week-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.week-name { font-size: 17px; }
+.week-xy { font-size: 17px; font-weight: 600; color: var(--sub); white-space: nowrap; }
+.week-xy.met { color: var(--green); }
+.week-row.met .week-name::after { content: ' ✓达标'; color: var(--green); font-size: 15px; }
+.cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font-size: 18px;
+  font-weight: 700;
+}
+.cell.v-done { background: var(--fill-green); border-color: var(--fill-green); color: #fff; }
+.cell.v-miss { background: var(--fill-red); border-color: var(--fill-red); color: #fff; }
+.cell.v-na { background: var(--gray-bg); color: var(--sub); }
+.cell.makeup { border-style: dashed; }
+/* 这天不安排这一项：没有框；改过训练日留下的记录还显示，但是灰的 */
+.cell.off { border-color: transparent; }
+.cell.off.v-done,
+.cell.off.v-miss { background: var(--gray-bg); border-color: transparent; color: var(--sub); }
+/* 开了「不适用」的那天：没打勾的格子灰底，但保留边框（空着的还算进分母）；那天不安排的项照样空白 */
+.cell.sick:not(.v-done):not(.v-miss) { background: var(--gray-bg); }
+.cell.sick.off:not(.v-done):not(.v-miss) { background: transparent; border-color: transparent; }
+.cell.future { opacity: 0.45; }
+.week-note { padding-top: 8px; }
+.week-remaining { margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: var(--amber-bg); color: var(--text); font-size: 16px; }
+
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.stat-label { font-size: 15px; color: var(--sub); }
+.stat-value { font-size: 24px; font-weight: 700; line-height: 1.3; }
+.stat.met .stat-value { color: var(--green); }
+
 </style>
 </head>
 <body>
 <div id="app"></div>
 <noscript>这个工具需要开启 JavaScript 才能使用。</noscript>
 <script>
-window.__BUILD__ = "21fd8802a5b9";
+window.__BUILD__ = "2156fff80366";
 (function () {
   var defs = {}, cache = {};
   function resolve(from, request) {
@@ -2222,7 +2288,7 @@ function avg1(list) {
  * 一周的统计（周一到周日）。getDay(dateStr) 返回那天的记录。
  *
  * - 核心每项：✓数 / (7 − “—”数)
- * - 力量：min(✓数, weeklyTarget) / weeklyTarget（✓ 打在训练日或补做日都算）
+ * - 力量：min(✓数, weeklyTarget) / weeklyTarget（这一周里打的 ✓ 都算，最多算 weeklyTarget 次）
  * - 亲子户外、备餐复盘：✓数 / 1
  * - 周总完成率 ＝ (核心✓ ＋ min(力量✓, 2) ＋ 亲子✓ ＋ 备餐✓) ÷ (49 ＋ 4 − 适用格里的“—”数)
  *   （4 ＝ 力量 weeklyTarget 2 ＋ 亲子 1 ＋ 备餐 1；“适用格”＝核心 49 格 ＋ 专项在它安排日的格子）
@@ -3219,6 +3285,15 @@ function oneDecimal(n) {
   return typeof n === 'number' && isFinite(n) ? (Math.round(n * 10) / 10).toFixed(1) : '';
 }
 
+/**
+ * 百分比，整数四舍五入，全程按整数算（23/40 → '58%'，不会因为小数误差变成 57%）。
+ * 分母为 0 返回 ''。
+ */
+function percent(num, den) {
+  if (!(den > 0)) return '';
+  return Math.floor((200 * num + den) / (2 * den)) + '%';
+}
+
 /** 文字里用到的所有占位符（测试用：检查计划里没有认不出的） */
 function placeholdersIn(text) {
   return typeof text === 'string' ? text.match(PLACEHOLDER) || [] : [];
@@ -3230,6 +3305,7 @@ module.exports = {
   fill,
   resolveStart,
   oneDecimal,
+  percent,
   placeholdersIn,
 };
 
@@ -3380,7 +3456,7 @@ function render(container, ctx) {
 
   /* ---------- 顶部：日期、日类型、今日完成率 ---------- */
   // 完成率：适用项一项都没填时显示空白（第七节），下面一行一直写着“✓数 / 分母”或要打几项
-  const rateText = rate.rate == null ? '' : Math.round(rate.rate * 100) + '%';
+  const rateText = rate.rate == null ? '' : text.percent(rate.done, rate.denom);
   let rateSub;
   if (rate.rate != null) rateSub = '✓ ' + rate.done + ' / ' + rate.denom + ' 项';
   else if (rate.denom <= 0) rateSub = '今天全部不适用';
@@ -3725,6 +3801,186 @@ function toast(message) {
 module.exports = { h, clear, notice, evidenceTag, toggle, modal, toast };
 
 });
+__def("pages/week", function (module, exports, require) {
+/**
+ * 「本周」页（指令第六节第 2 条）。
+ *
+ * 网格：行＝打卡项，列＝周一到周日，格子显示 ✓ ✗ —；开了「今天不适用」的那天表头和没打勾的格子是灰的。
+ * 手机屏幕窄，每项两行：上面是名字和本周 x/y，下面是七个格子（和最上面的“一 二 三…日”对齐）。
+ * 达标（每项 ≥5/7、周总完成率 ≥80%）显示绿色。可以切换上一周、下一周（最远到本周）。
+ * 底部：核心完成率、总完成率、平均睡眠时长、平均精力。不显示连续打卡天数。
+ *
+ * 只看不改：这一页不写存储。数字全部来自 utils/calc.js 的 weekStats（第七节的公式）。
+ */
+const plan = require('../config/plan');
+const date = require('../utils/date');
+const text = require('../utils/text');
+const calc = require('../utils/calc');
+const ui = require('./ui');
+
+const h = ui.h;
+
+const SYMBOLS = { done: '✓', miss: '✗', na: '—' };
+const WORDS = { done: '做到', miss: '没做到', na: '不适用', '': '未填' };
+const GROUPS = [
+  { key: 'core', title: '核心 7 项' },
+  { key: 'special', title: '专项' },
+  { key: 'bonus', title: '加分（不算进完成率）' },
+];
+
+// 看的是哪一周：0 ＝ 本周，-1 ＝ 上一周……（存相对数：过了周日午夜，“本周”自动跟着换）
+// 只在这一页里点「上一周/下一周」时保留；从别的页回来、过了午夜、再点「本周」标签都回到本周
+let weekOffset = 0;
+
+function enter() {
+  weekOffset = 0;
+}
+
+/**
+ * 周总完成率的显示：整数百分比；但差一点到 80%（比如 39/49 = 79.6%）时显示一位小数，
+ * 免得屏幕上写着“80%”却没变绿。
+ */
+function totalPercent(num, den, met) {
+  const shown = text.percent(num, den);
+  if (met || shown !== '80%') return shown;
+  const tenths = Math.min(799, Math.floor((2000 * num + den) / (2 * den)));
+  return (tenths / 10).toFixed(1) + '%';
+}
+
+/** '2026-10-05' → '10月5日' */
+function shortDate(d) {
+  const p = d.split('-');
+  return Number(p[1]) + '月' + Number(p[2]) + '日';
+}
+
+function cellView(cell, sick, future) {
+  const classes = ['cell'];
+  if (cell.value) classes.push('v-' + cell.value);
+  if (!cell.status) classes.push('off'); // 这天不安排这一项（比如周一的力量训练）
+  if (cell.status === 'makeup') classes.push('makeup');
+  if (sick) classes.push('sick');
+  if (future) classes.push('future');
+  return h('span', { class: classes.join(' '), 'aria-hidden': 'true', text: SYMBOLS[cell.value] || '' });
+}
+
+/**
+ * ctx: { store, now(), today(), rerender() }
+ */
+function render(container, ctx) {
+  const today = ctx.today();
+  const anchor = date.addDays(date.weekStart(today), weekOffset * 7);
+  const settings = ctx.store.getSettings();
+  const week = calc.weekStats(plan, settings, anchor, (d) => ctx.store.getDay(d));
+  const isCurrent = weekOffset === 0;
+  const futureFrom = isCurrent ? today : null; // 本周里今天以后的日子还没到
+
+  /* ---------- 切换周 ---------- */
+  const go = (delta) => () => {
+    weekOffset = Math.min(0, weekOffset + delta);
+    ctx.rerender();
+  };
+  container.append(
+    h('section', { class: 'card week-nav' }, [
+      h('button', { class: 'nav-btn', type: 'button', 'aria-label': '上一周', text: '‹ 上一周', onclick: go(-1) }),
+      h('div', { class: 'week-range' }, [
+        h('div', { class: 'week-title', text: isCurrent ? '本周' : weekOffset === -1 ? '上一周' : -weekOffset + ' 周前' }),
+        h('div', { class: 'sub' }, [h('span', { class: 'nowrap', text: shortDate(week.dates[0]) }), ' – ', h('span', { class: 'nowrap', text: shortDate(week.dates[6]) })]),
+      ]),
+      h('button', { class: 'nav-btn', type: 'button', 'aria-label': '下一周', text: '下一周 ›', disabled: isCurrent, onclick: go(1) }),
+    ]),
+  );
+  if (!isCurrent) {
+    container.append(
+      h('button', {
+        class: 'back-to-week',
+        type: 'button',
+        text: '回到本周',
+        onclick: () => {
+          weekOffset = 0;
+          ctx.rerender();
+        },
+      }),
+    );
+  }
+
+  /* ---------- 网格 ---------- */
+  const dayHeader = () =>
+    h(
+      'div',
+      { class: 'week-days', 'aria-hidden': 'true' },
+      week.dates.map((d, i) =>
+        h('span', {
+          class: 'day-col' + (d === today ? ' is-today' : '') + (week.sick[i] ? ' sick' : ''),
+          text: date.weekdayName(i + 1).slice(1),
+        }),
+      ),
+    );
+
+  for (const group of GROUPS) {
+    if (group.key === 'bonus' && !settings.showBonus) continue;
+    const rows = week.rows.filter((r) => r.item.group === group.key);
+    if (!rows.length) continue;
+    container.append(
+      h('section', { class: 'card week-group' }, [
+        h('div', { class: 'card-title', text: group.title }),
+        dayHeader(),
+        ...rows.map((r) => {
+          const label =
+            r.item.name +
+            '，本周 ' +
+            (r.y > 0 ? r.x + '/' + r.y : '没有要做的') +
+            (r.met ? '，达标' : '') +
+            '。' +
+            r.cells.map((c, i) => date.weekdayName(i + 1) + (c.status || c.value ? WORDS[c.value] : '不安排')).join('，');
+          return h('div', { class: 'week-row' + (r.met ? ' met' : ''), 'data-name': r.item.name, role: 'group', 'aria-label': label }, [
+            h('div', { class: 'week-row-head' }, [
+              h('span', { class: 'week-name', text: r.item.name }),
+              h('span', { class: 'week-xy' + (r.met ? ' met' : ''), text: r.y > 0 ? r.x + '/' + r.y : '—' }),
+            ]),
+            h(
+              'div',
+              { class: 'week-cells' },
+              r.cells.map((c, i) => cellView(c, week.sick[i], futureFrom && c.date > futureFrom)),
+            ),
+          ]);
+        }),
+        group.key === 'special' && h('div', { class: 'sub week-note', text: '力量训练：一周做到 ' + (plan.checkItems.find((i) => i.id === 'strength') || {}).weeklyTarget + ' 次就满分，补做也算；虚线格是补做日。' }),
+      ]),
+    );
+  }
+
+  /* ---------- 底部汇总 ---------- */
+  const stat = (label, value, detail, met) =>
+    h('div', { class: 'stat' + (met ? ' met' : '') }, [
+      h('div', { class: 'stat-label', text: label }),
+      h('div', { class: 'stat-value', text: value || '—' }),
+      detail && h('div', { class: 'sub', text: detail }),
+    ]);
+  const sleepDays = week.dates.filter((d) => {
+    const day = ctx.store.getDay(d);
+    return date.sleepHours(day.lightsOutLastNight, day.wake) != null;
+  }).length;
+  const energyDays = week.dates.filter((d) => Number.isInteger(ctx.store.getDay(d).energy)).length;
+  const remaining = isCurrent ? week.dates.filter((d) => d > today).length : 0;
+  container.append(
+    h('section', { class: 'card week-stats' }, [
+      h('div', { class: 'stats' }, [
+        stat('核心完成率', text.percent(week.coreDone, week.coreDenom), '✓ ' + week.coreDone + ' / ' + week.coreDenom, false),
+        stat('总完成率', totalPercent(week.totalDone, week.totalDenom, week.totalMet), '✓ ' + week.totalDone + ' / ' + week.totalDenom + (week.totalMet ? ' · 达标' : ''), week.totalMet),
+        stat('平均睡眠', week.avgSleep == null ? '' : text.oneDecimal(week.avgSleep) + ' 小时', sleepDays ? sleepDays + ' 天有记录' : '没有记录', false),
+        stat('平均精力', week.avgEnergy == null ? '' : text.oneDecimal(week.avgEnergy), energyDays ? energyDays + ' 天有记录' : '没有记录', false),
+      ]),
+      remaining > 0 && h('div', { class: 'week-remaining', text: '还剩 ' + remaining + ' 天没到，也算在分母里，所以现在的数会偏低。' }),
+      h('div', { class: 'sub week-note', text: '达标：每项做到的比例 ≥5/7（约 71%，比如 4/5、2/2 也算），周总完成率 ≥80%，显示绿色。' }),
+      h('div', { class: 'sub week-note', text: '格子：✓ 做到、✗ 没做到、— 不适用（不算进分母）；空着的是没打（也算进分母）。虚线框是补做日，没框是那天不安排，淡色是还没到；表头灰色的那天开了「今天不适用」。' }),
+      h('div', { class: 'sub week-note', text: '这一页只能看；打卡在「今天」页，只能打当天的。' }),
+    ]),
+  );
+}
+
+module.exports = { render, enter };
+
+});
 __def("src/offline", function (module, exports, require) {
 /**
  * 离线缓存：第一次打开后，程序文件存进手机，以后断网也能用。
@@ -3795,6 +4051,7 @@ const date = require('../utils/date');
 const { createStore } = require('../utils/store');
 const ui = require('../pages/ui');
 const todayPage = require('../pages/today');
+const weekPage = require('../pages/week');
 
 const { h, clear, notice } = ui;
 
@@ -3802,7 +4059,7 @@ const TABS = ['today', 'week', 'records', 'rules'];
 
 const PAGES = {
   today: { title: '今天', page: todayPage },
-  week: { title: '本周', stage: 3 },
+  week: { title: '本周', page: weekPage },
   records: { title: '记录', stage: 4 },
   rules: { title: '规则', stage: 5 },
   settings: { title: '设置', stage: 5, parent: 'today' },
@@ -3870,7 +4127,8 @@ const main = h('main', { class: 'main' });
 const tabbar = h('nav', { class: 'tabbar', 'aria-label': '页面' });
 const tabLinks = {};
 for (const id of TABS) {
-  tabLinks[id] = h('a', { class: 'tab', href: '#' + id, text: PAGES[id].title });
+  // 已经在这一页时再点它的标签：地址没变、不会触发 hashchange，手动重新进入（比如「本周」回到本周）
+  tabLinks[id] = h('a', { class: 'tab', href: '#' + id, text: PAGES[id].title, onclick: () => currentPage() === id && render() });
   tabbar.appendChild(tabLinks[id]);
 }
 app.append(top, main, tabbar);
@@ -3999,6 +4257,8 @@ function render() {
   shownDate = date.today();
   const id = currentPage();
   const page = PAGES[id];
+  // 进入一个页面（换页、换天、从后台回来）：页面自己的临时状态复位，比如「本周」回到本周
+  if (page.page && page.page.enter) page.page.enter();
   document.title = page.title + ' · 健康打卡';
   renderTop(id);
   renderMain(id);

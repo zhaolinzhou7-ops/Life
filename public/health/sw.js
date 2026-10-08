@@ -9,7 +9,7 @@
  * 只缓存程序文件。打卡数据在 localStorage 里，和这里无关。
  */
 
-const VERSION = "21fd8802a5b9";
+const VERSION = "2156fff80366";
 const FILES = ["./","manifest.webmanifest","icon-180.png","icon-192.png","icon-512.png"];
 const CACHE = 'health-' + VERSION;
 // 页面本身（…/health/），也是 FILES 的第一项
