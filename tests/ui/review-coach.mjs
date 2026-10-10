@@ -131,6 +131,26 @@ for (const [w, h] of [[390, 664], [375, 548]]) {
   await page.locator('[data-act="trial-undo"]').click(); await page.waitForTimeout(200);
   ok(`[${dev}] 悔一步：连对方应的那手一起退回`, (await page.evaluate(() => window.__xqReview.trial()?.moves)) === 0);
   await page.locator('[data-act="trial-end"]').click(); await page.waitForTimeout(300);
+  // 卡片上「🧪 换一手试试」：从这一手走之前开始，按你的想法走一手——每一步都讲对方怎么接、接下来大概怎么走
+  // 用户原话："增加一个复盘时，我如果按照我的想法走棋对方会怎么接，教练讲解再细致一些"
+  {
+    const back = async () => { await page.locator('[data-act="trial-end"]').click(); await page.waitForTimeout(300); };
+    await page.locator('[data-act="try-here"]').click(); await page.waitForTimeout(200);
+    ok(`[${dev}] 卡片上「🧪 换一手试试」：从这一手走之前开始试下`, !!(await page.evaluate(() => window.__xqReview.trial())));
+    await page.evaluate((m) => { window.__xqReview.tap(m.fx, m.fy); window.__xqReview.tap(m.tx, m.ty); }, tryMove);
+    const got = await page.waitForFunction(() => window.__xqReview.trial()?.steps?.[0]?.talk, null, { timeout: 30000 }).then(() => true, () => false);
+    const talk = (await page.locator('[data-trial] [data-talk]').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    note(`[${dev}] 试下讲解：${talk.slice(0, 200)}`);
+    ok(`[${dev}] 试下每一步都讲：你这手（带评级）、对方接的那手在干什么、这里最好走什么`, got && /你走\s*\S+/.test(talk) && talk.includes('对方接') && /这里最好|首选|差不多/.test(talk));
+    const st = await page.evaluate(() => window.__xqReview.trial().steps[0]);
+    ok(`[${dev}] 这一步记着评级和对方的应着（${st.label} → ${st.reply}）`, !!st.label && !!st.reply);
+    if (st.follow) {
+      await page.locator('[data-act="trial-follow"]').click(); await page.waitForTimeout(400);
+      ok(`[${dev}] 「▶ 看后续」在推演板上一步步看引擎预计的后续`, (await page.locator('.xq-lab-layer').count()) === 1 && (await page.evaluate(() => window.__xqLab.len())) === st.follow);
+      await page.locator('[data-lab-close]').click(); await page.waitForTimeout(300);
+    }
+    await back();
+  }
   ok(`[${dev}] 结束试下：回到这一手，棋谱没动，箭头回来了`, !(await page.evaluate(() => window.__xqReview.trial())) && (await page.evaluate(() => window.__xqReview.cursor())) === 4 && (await page.evaluate(() => document.querySelector('.xq-boardwrap canvas')?.dataset.arrows)) === arrows0);
 
   // 展开讲解：棋盘缩小但不被盖（画布铺满上面那一块，棋盘按能放下的最大尺寸画）

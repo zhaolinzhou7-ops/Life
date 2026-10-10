@@ -5116,3 +5116,48 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
   .xq-rv-graph { height: 56px; }
   .xq-rv-list .xq-rv-item { border-bottom: 1px solid var(--line); }
 }
+
+/* ===================== 教练讲解：走错一手 / 试下一步（做题、选择题、复盘共用） ===================== */
+.xq-talk { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 13px; line-height: 1.6; text-align: left; }
+.xq-talk-row .k {
+  display: inline-block;
+  font-size: 11px;
+  padding: 0 6px;
+  margin-right: 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(240, 230, 210, 0.85);
+  vertical-align: 1px;
+}
+.xq-talk-row b { color: #ffd76e; }
+.xq-talk-row.good .k { background: rgba(46, 170, 90, 0.2); color: #8fe0a9; }
+.xq-talk-row.good b { color: #8fe0a9; }
+.xq-talk-row.dim { font-size: 12px; opacity: 0.72; }
+.xq-talk-row .lv { display: inline-block; min-width: 18px; text-align: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--g); border-radius: 50%; padding: 0 3px; }
+.xq-talk-line { margin: 0; padding: 0 0 0 4px; list-style: none; display: flex; flex-direction: column; gap: 2px; counter-reset: st; }
+.xq-talk-line li { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; counter-increment: st; font-size: 12.5px; }
+.xq-talk-line li::before { content: counter(st); font-size: 10px; opacity: 0.45; min-width: 10px; text-align: right; }
+.xq-talk-line li .w { flex: none; font-size: 10.5px; padding: 0 5px; border-radius: 4px; background: rgba(255, 215, 110, 0.16); color: #ffd76e; }
+.xq-talk-line li.foe .w { background: rgba(159, 196, 232, 0.16); color: #9fc4e8; }
+.xq-talk-line li b { flex: none; }
+.xq-talk-line li em { font-style: normal; font-size: 12px; opacity: 0.75; }
+.xq-talk-sum { font-weight: 600; color: #f2c9a0; font-size: 12.5px; }
+.xq-talk .xq-plan { font-size: 12px; opacity: 0.9; }
+.xq-talk-lab {
+  margin-top: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(224, 67, 58, 0.45);
+  background: rgba(224, 67, 58, 0.12);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.xq-talk-wait { opacity: 0.6; font-size: 12px; }
+.xq-tr-fb .xq-tr-won { color: #8fe0a9; opacity: 0.95; }
+.xq-rv-trial .log { flex-direction: column; gap: 2px; }
+.xq-rv-trial .log em.lv { font-style: normal; display: inline-block; min-width: 16px; text-align: center; font-size: 10.5px; font-weight: 700; color: #fff; background: var(--g); border-radius: 50%; padding: 0 3px; }
+.xq-rv-trial .log .foe { opacity: 0.85; }
+.xq-rv-act.try { border-color: rgba(143, 211, 255, 0.55); background: rgba(143, 211, 255, 0.12); }

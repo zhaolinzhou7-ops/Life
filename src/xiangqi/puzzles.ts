@@ -14,6 +14,7 @@
 import type { Dim } from './save';
 import { getOwnPuzzles, effectiveRating, attemptedMap } from './save';
 import type { ErrTag } from './teach';
+import { WON_KEEP } from './analysis';
 
 export type PuzzleKind = 'mate' | 'tactic' | 'safety' | 'endgame' | 'opening';
 
@@ -54,6 +55,8 @@ export interface Puzzle {
   goal?: 'mate' | 'win' | 'only' | 'defend' | 'best';
   /** 走棋方这时的局面分（引擎，车≈1000）：说明"你现在是领先还是落后" */
   ev?: number;
+  /** 第二好的走法值多少（走棋方视角，tools/find-won-puzzles 算的）：也赢定了的题不出，见 wonAnyway */
+  ev2?: number;
   /** 中局组合的主题：连将杀、杀、弃子、抽将、捉双、将军抽子、组合（tools/gen-combos.ts 按主变标的） */
   themes?: string[];
   /** 中局组合要连走几步才把便宜拿到手 */
@@ -151,6 +154,15 @@ export function defenseless(fen: string): boolean {
   return true;
 }
 
+/**
+ * 本来就赢定了的题：第二好的走法也是大优（ev2 是 tools/find-won-puzzles 让皮卡鱼算的第二名）。
+ * 随便走一手像样的都赢，题目还要你找出最好的那一手——练的是"赢棋里多赢一点"，不出。
+ * 杀法题不算：找杀本身就是要练的。用户原话："还是存在必胜残局在找最佳步数"。
+ */
+export function wonAnyway(p: Pick<Puzzle, 'goal' | 'ev2'>): boolean {
+  return p.goal !== 'mate' && p.ev2 !== undefined && p.ev2 >= WON_KEEP;
+}
+
 /** 中局组合里主题是"杀""连将杀"的，算杀法题——实战局面里的杀棋，对方子力齐全、自己也在进攻，比摆出来的光将杀有用 */
 const MATE_THEMES = new Set(['杀', '连将杀']);
 
@@ -161,7 +173,7 @@ export function loadPuzzles(): Promise<Puzzle[]> {
   loading = import('./puzzles.json')
     .then((m) => {
       cache = ((m.default ?? m) as Puzzle[])
-        .filter((p) => !defenseless(p.fen))
+        .filter((p) => !defenseless(p.fen) && !wonAnyway(p))
         .map((p) => (p.kind !== 'mate' && p.goal === 'mate' && p.themes?.some((t) => MATE_THEMES.has(t)) ? { ...p, kind: 'mate' as PuzzleKind } : p));
       return cache;
     })

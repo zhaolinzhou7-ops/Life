@@ -19,6 +19,9 @@ import { Board2D, type Arrow, type Mark } from './board2d';
 import type { Puzzle } from './puzzles';
 import type { MatePattern } from './library';
 import type { Dim } from './save';
+import { engineAnalyse, engineCapable, engineReady, engineScoreMove, loadEngine } from './pikafish';
+import { whatItDoes, wrongTalk } from './coachexplain';
+import { planHtml, planOf } from './plan';
 
 export type QuizType = 'tap' | 'choice' | 'judge' | 'name';
 
@@ -38,6 +41,8 @@ export interface QuizQ {
   /** 判断题：给出的那一步、它是不是好棋 */
   move?: Move;
   good?: boolean;
+  /** 判断题：这里真正该走的那一手（讲解"该走什么、好在哪"用） */
+  answer?: Move;
   /** 认杀法：盘上标出最后那一手 */
   last?: Move;
   explain: string;
@@ -200,6 +205,7 @@ export function judgeQuestion(p: Puzzle, dim: Dim, rnd = Math.random): QuizQ | n
     prompt: `${side(me)}走 ${text}——这一步好不好？`,
     move,
     good,
+    answer: ans,
     explain: good
       ? `好棋：${text} 就是这里最好的一手${p.mateIn ? `，${p.mateIn} 步杀` : ''}。${lineTail(p)}`
       : `这一步不好${fromGame ? '（实战里真有人这么走错过）' : ''}。这里该走 ${p.answer}。${lineTail(p)}`,
@@ -321,6 +327,39 @@ export function runQuiz(host: HTMLElement, q: QuizQ, opts: QuizOpts): () => void
     (elBar.querySelector('#xq-quiz-next') as HTMLButtonElement).onclick = () => opts.onDone(correct);
   }
 
+  /**
+   * 教练讲解（用户原话："教练讲解再细致一些"）：答错之后让皮卡鱼算一下，讲你选的那一手对方怎么接、
+   * 该走的那手在干什么、两边差多少；判断题把好棋判成坏棋的，讲这一手好在哪、后面的计划。
+   * 引擎起不来就只留题目自带的那句解释。
+   */
+  let alive = true;
+  function coachTalk(mine: Move, best: Move | undefined, kind: 'wrong' | 'good') {
+    if (!engineCapable()) return;
+    const box = document.createElement('div');
+    box.className = 'r xq-talk-wait';
+    box.textContent = '🧑‍🏫 教练在算：这一手对方会怎么接……';
+    elFb.appendChild(box);
+    const same = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
+    void (async () => {
+      if (!engineReady()) await loadEngine();
+      if (!alive) return;
+      if (!engineReady()) return box.remove();
+      const list = await engineAnalyse(board, q.me, { movetime: 1000, multipv: 1, include: mine });
+      if (!alive) return;
+      const m = list?.find((s) => !s.bound && same(s.move, mine));
+      if (!m) return box.remove();
+      if (kind === 'good') {
+        const plan = planOf(board, q.me, m, 7);
+        box.outerHTML = `<div class="xq-talk" data-talk><div class="xq-talk-row good"><span class="k">这一手</span><b>${moveToText(board, mine)}</b>：${whatItDoes(board, mine, q.me)}。</div>${planHtml(plan)}</div>`;
+        return;
+      }
+      let b = best ? list?.find((s) => !s.bound && same(s.move, best)) : undefined;
+      if (best && !b) b = (await engineScoreMove(board, q.me, best, { movetime: 800 })) ?? undefined;
+      if (!alive) return;
+      box.outerHTML = wrongTalk(board, q.me, m, { best: b, bestText: best ? moveToText(board, best) : undefined });
+    })();
+  }
+
   function onTap(x: number, y: number) {
     if (answered || q.type !== 'tap') return;
     const pc = board[y][x];
@@ -360,7 +399,12 @@ export function runQuiz(host: HTMLElement, q: QuizQ, opts: QuizOpts): () => void
         })),
       );
     }
-    finish(correct, q.options ? `${q.options[q.correct!].label}. ${q.options[q.correct!].text}` : '');
+    const o = q.options;
+    if (!o) return finish(correct);
+    const right = `${o[q.correct!].label}. ${o[q.correct!].text}`;
+    // 答错时写清"你选的是哪一项、正解是哪一项"——原来只写正解那一项（"不对 · A. 车3退2"），读起来像是你选的就是它（用户截图）
+    finish(correct, correct ? right : `你选的 ${o[i].label}. ${o[i].text} · 正解 ${right}`);
+    if (!correct && q.type === 'choice' && o[i].move && o[q.correct!].move) coachTalk(o[i].move!, o[q.correct!].move!, 'wrong');
   }
 
   function renderBar() {
@@ -377,6 +421,8 @@ export function runQuiz(host: HTMLElement, q: QuizQ, opts: QuizOpts): () => void
           if (answered) return;
           const sayGood = b.dataset.judge === 'good';
           finish(sayGood === q.good, q.good ? '这一步是好棋' : '这一步不好');
+          // 判错了：讲清楚这一步到底好在哪 / 坏在哪（对方怎么接、该走什么）
+          if (sayGood !== q.good && q.move) coachTalk(q.move, q.answer, q.good ? 'good' : 'wrong');
         };
       });
     } else {
@@ -413,6 +459,7 @@ export function runQuiz(host: HTMLElement, q: QuizQ, opts: QuizOpts): () => void
   }
 
   return () => {
+    alive = false;
     view.dispose();
     wrap.remove();
   };

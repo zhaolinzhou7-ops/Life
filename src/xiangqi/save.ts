@@ -987,6 +987,20 @@ export function getOwnPuzzles(): Puzzle[] {
 }
 
 /**
+ * 这道自己棋局里的题其实是"赢棋里少赢一点"：从专属课里拿掉（题和复习卡一起删，不留指向空题的卡）。
+ * 用户原话："还是存在必胜残局在找最佳步数"——局面本来就赢定了，第二好的走法也大优，练它没意义。
+ */
+export function retireOwnPuzzle(id: string): boolean {
+  const d = load();
+  const n = d.own.length;
+  d.own = d.own.filter((p) => p.id !== id);
+  if (d.own.length === n) return false;
+  d.srs = d.srs.filter((c) => c.id !== id);
+  store(d);
+  return true;
+}
+
+/**
  * 复盘出来的毛病里，现在最贵的那一种：还没过关的那几手加起来亏分最多的。
  * 下一盘开局时教练提醒的"这盘盯住一件事"就是它——复盘的结论带进下一盘棋里。
  */

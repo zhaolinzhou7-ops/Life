@@ -15,6 +15,14 @@ export const PIECE_VALUE: Record<PType, number> = { K: 60000, A: 220, E: 220, H:
 
 export type Grade = 'best' | 'good' | 'ok' | 'dubious' | 'mistake' | 'blunder';
 
+/**
+ * 已经赢定了：走棋方大优（约多一个马以上）或者有杀。
+ * 用户原话："还是存在必胜残局在找最佳步数"——赢定了的局面里，保持住胜势的着法都算对，
+ * 不再要求"最快赢"的那一手；复盘存错着、出题时也不收这种"赢棋里少赢一点"的局面。
+ */
+export const WON_KEEP = 600;
+export const isWon = (s: { score: number; mateIn?: number }) => (s.mateIn !== undefined ? s.mateIn > 0 : s.score >= WON_KEEP);
+
 /** 失误分级阈值，单位「兵=100」。一个马/炮 ≈ 450~500，一个车 = 1000 */
 const GRADE_CUTS: [number, Grade][] = [
   [30, 'best'],

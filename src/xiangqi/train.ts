@@ -21,8 +21,12 @@ import { movesFromTexts, openLineLab } from './linelab';
 import { Board2D, type Mark } from './board2d';
 import { requestMove } from './aiclient';
 import { promptOf, type Puzzle } from './puzzles';
-import { engineBestMove, engineCapable, engineReady, engineScoreMove, linesToMoveScores, loadEngine, search } from './pikafish';
+import { engineAnalyse, engineBestMove, engineCapable, engineReady, engineScoreMove, loadEngine } from './pikafish';
+import type { MoveScore } from './ai';
 import { runPlayout } from './playout';
+import { isWon, whatItDoes, wrongTalk } from './coachexplain';
+import { evalWords } from './analysis';
+import { retireOwnPuzzle } from './save';
 
 export interface PuzzleResult {
   correct: boolean;
@@ -73,6 +77,15 @@ export interface PuzzleOpts {
 
 /** 非杀法题：走出主变之外的一手，比引擎首选差不到这么多就算一样好（车≈1000） */
 const ALT_TOLERANCE = 80;
+/** 皮卡鱼核对主变之外的一手：对不对、为什么，以及同一次搜索里你这手和最好那手的分数和主变（讲解要用） */
+interface AltJudge {
+  ok: boolean;
+  why: string;
+  best?: MoveScore;
+  mine?: MoveScore;
+}
+const sameMove = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
+
 /** 等皮卡鱼加载最多等这么久 */
 const ENGINE_WAIT = 15000;
 
@@ -136,6 +149,8 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
   const limit = opts.timeLimit ?? 0;
   let timer = 0;
   let disposePlayout: (() => void) | null = null;
+  /** 最近一次皮卡鱼核对（判错之后讲解直接用这一份，不再另算——另算的"该走什么"会和判分对不上） */
+  let lastJudge: AltJudge | null = null;
 
   wrap.innerHTML = `
     <div class="xq-tr-top">
@@ -221,34 +236,45 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
   /**
    * 主变之外的一手，让皮卡鱼判：
    *   杀法题——走完还能在剩下的步数里杀死；
-   *   其它题——比引擎首选差不到 ALT_TOLERANCE。
+   *   其它题——比引擎首选差不到 ALT_TOLERANCE，或者局面已经赢定了、这一手保住了胜势。
    * 引擎起不来返回 null（只能认主变）。
    */
-  async function judgeAlt(before: Board, mv: Move): Promise<{ ok: boolean; why: string } | null> {
+  async function judgeAlt(before: Board, mv: Move): Promise<AltJudge | null> {
     if (!(await engineUp) || !engineReady()) return null;
     const h = history();
-    const mine = await engineScoreMove(before, me, mv, { movetime: 1500, history: h });
-    if (!mine) return null;
     const left = totalMine - myStep;
     if (isMate) {
+      const mine = await engineScoreMove(before, me, mv, { movetime: 1500, history: h });
+      if (!mine) return null;
       if (mine.mateIn !== undefined && mine.mateIn > 0) {
         return mine.mateIn <= left
-          ? { ok: true, why: `这一手也杀得了（${mine.mateIn} 步之内将死）` }
-          : { ok: false, why: `这一手也能杀，但要 ${mine.mateIn} 步，这题要在 ${left} 步之内杀死` };
+          ? { ok: true, why: `这一手也杀得了（${mine.mateIn} 步之内将死）`, mine }
+          : { ok: false, why: `这一手也能杀，但要 ${mine.mateIn} 步，这题要在 ${left} 步之内杀死`, mine };
       }
-      return { ok: false, why: '走了这一手，就杀不成了' };
+      return { ok: false, why: '走了这一手，就杀不成了', mine };
     }
-    const r = await search({ board: before, color: me, history: h, movetime: 1200 }).promise;
-    const best = linesToMoveScores(r.lines, before, me)[0];
-    if (!best) return null;
-    if (mine.mateIn !== undefined && mine.mateIn < 0) return { ok: false, why: `走了这一手，对方有 ${-mine.mateIn} 步杀` };
+    /*
+     * 你这一手和最好的那一手要在**同一次搜索**里比。原来是三次各算各的：一次算你这手、一次算最好的、
+     * 判错之后再算一次"该走什么"——搜索时间不同分数就差出一个兵上下，于是出现了
+     * "你走的是 帅五退一……这一步该走 帅五退一"（用户截图）：你走的就是首选，却被判差了 0.9 个兵。
+     */
+    const list = await engineAnalyse(before, me, { movetime: 1500, multipv: 3, include: mv, history: h });
+    const best = list?.find((s) => !s.bound);
+    const mine = list?.find((s) => !s.bound && sameMove(s.move, mv));
+    if (!best || !mine) return null;
+    if (sameMove(best.move, mv)) return { ok: true, why: '皮卡鱼核对过：这就是它的首选', best, mine };
+    if (mine.mateIn !== undefined && mine.mateIn < 0) return { ok: false, why: `走了这一手，对方有 ${-mine.mateIn} 步杀`, best, mine };
+    // 已经赢定了的局面：保住胜势就行，不苛求最快赢的那一手（用户原话："还是存在必胜残局在找最佳步数"）
+    if (isWon(best) && isWon(mine)) {
+      return { ok: true, why: `已经赢定了：这一手保住了胜势（${evalWords(me === 'r' ? mine.score : -mine.score, mine.mateIn === undefined ? undefined : me === 'r' ? mine.mateIn : -mine.mateIn)}），不必非走最快的那一手`, best, mine };
+    }
     if (best.mateIn !== undefined && best.mateIn > 0 && !(mine.mateIn !== undefined && mine.mateIn > 0)) {
-      return { ok: false, why: `这里有 ${best.mateIn} 步杀，这一手放过了` };
+      return { ok: false, why: `这里有 ${best.mateIn} 步杀，这一手放过了`, best, mine };
     }
     const loss = best.score - mine.score;
     return loss <= ALT_TOLERANCE
-      ? { ok: true, why: '皮卡鱼核对过：这一手和原谱一样好' }
-      : { ok: false, why: `皮卡鱼核对过：这一手比最好的差了约 ${(loss / 100).toFixed(1)} 个兵` };
+      ? { ok: true, why: '皮卡鱼核对过：这一手和最好的差不多', best, mine }
+      : { ok: false, why: `皮卡鱼核对过：这一手比最好的差了约 ${(loss / 100).toFixed(1)} 个兵`, best, mine };
   }
 
   /** 这一步该走什么：在主变上就是主变，离开了就问皮卡鱼。b / moves 是轮到你时的局面和着法 */
@@ -268,6 +294,7 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     const text = moveToText(before, mv);
     let ok = false;
     let note = '';
+    lastJudge = null;
     if (onLine && text === line[ply]) ok = true;
     else if (onLine && ply === 0 && puzzle.also?.includes(text)) {
       // 一样好的着法一律算对：杀法题里同样步数的杀棋常常不止一手
@@ -279,6 +306,7 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       elFb.innerHTML = `<div class="l">你走的是 ${text}，不是原谱那一手——正在让皮卡鱼核对…</div>`;
       const j = await judgeAlt(before, mv);
       if (my !== token) return;
+      lastJudge = j;
       if (j?.ok) {
         ok = true;
         note = j.why;
@@ -448,12 +476,17 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     answered = true;
     const right = onLine ? line[ply] : null;
     const rest = onLine ? line.slice(ply + 1).join(' ') : '';
+    const mv = played[played.length - 1];
+    const j = lastJudge;
+    // 该走的那一手：在主变上就是原谱那一手；离开了用**同一次核对**里皮卡鱼的首选——不再另算一次（另算会和判分对不上）
+    const engineBest = j?.best && !sameMove(j.best.move, mv) ? j.best : null;
+    const bestText = right ?? (engineBest ? moveToText(before, engineBest.move) : null);
     elFb.className = 'xq-tr-fb no';
     elFb.innerHTML = `
       <div class="h">❌ ${myStep ? `第 ${myStep + 1} 步` : ''}不对 · 你走的是 ${text}</div>
       <div class="l">${why ? why + '。' : ''}${
-        right
-          ? `这一步该走 <b>${right}</b>${ply === 0 && puzzle.also?.length ? `（走 ${puzzle.also.join('、')} 也一样）` : ''}${rest ? `　之后：${rest}` : ''}`
+        bestText
+          ? `这一步该走 <b>${bestText}</b>${right && ply === 0 && puzzle.also?.length ? `（走 ${puzzle.also.join('、')} 也一样）` : ''}${rest ? `　之后：${rest}` : ''}`
           : ''
       }</div>
       ${
@@ -468,25 +501,62 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
             : `<div class="r">别灰心——这个局面是从真实对局里抓的，当时那盘棋也走错了（走的是 ${puzzle.blunder}）。</div>`
           : ''
       }
-      <div class="r pun">正在算对方怎么惩罚这一手…</div>`;
+      <div class="r pun">🧑‍🏫 教练在算：对方会怎么接、该走的那一手好在哪……</div>`;
     settle(false);
-    if (!right) {
-      const best = await expected(before, played.slice(0, -1)).catch(() => null);
-      if (my !== token) return;
-      const el = elFb.querySelector('.l');
-      if (best && el) el.innerHTML += `这一步该走 <b>${moveToText(before, best)}</b>。`;
+    const el = () => elFb.querySelector('.pun') as HTMLElement | null;
+    /*
+     * 教练讲解（用户原话："教练讲解再细致一些"）：你这手在干什么、对方会怎么一手手接（最后算账）、
+     * 该走的那手在干什么和这一路的计划、两边差多少。核对时已经算过的直接用。
+     */
+    const histBefore = { startFen: toFen(start, me), moves: played.slice(0, -1) };
+    let mine = j?.mine && (j.mine.pv?.length ?? 0) >= 2 ? j.mine : null;
+    let best: MoveScore | null = engineBest;
+    const rightMove = right ? textToMove(before, me, right, legalMoves(before, me)) : null;
+    if ((await engineUp) && engineReady()) {
+      if (!mine || (!best && !rightMove)) {
+        const list = await engineAnalyse(before, me, { movetime: 1200, multipv: 2, include: mv, history: histBefore });
+        if (my !== token) return;
+        mine ??= list?.find((s) => !s.bound && sameMove(s.move, mv)) ?? null;
+        if (!rightMove) best ??= list?.find((s) => !s.bound && !sameMove(s.move, mv)) ?? null;
+      }
+      if (rightMove) {
+        // 原谱那一手的分和后续：讲"该走的好在哪"要用它，不能拿引擎别的首选来讲
+        best = (j?.best && sameMove(j.best.move, rightMove) ? j.best : null) ?? (await engineScoreMove(before, me, rightMove, { movetime: 900, history: histBefore }));
+        if (my !== token) return;
+      }
     }
-    // 走错之后对方的最强应手——让你看见代价，而不是只被告知"错了"
-    const snapshot = board;
-    const reply = ((await engineUp) ? await engineBestMove(snapshot, foe, 1000, history()) : null) ?? (await requestMove(snapshot, foe, { maxDepth: 6, jitter: 0, timeMs: 1200 }));
-    if (my !== token) return;
-    const el = elFb.querySelector('.pun');
-    if (!el) return;
-    if (!reply) {
-      el.remove();
+    const box = el();
+    if (!box) return;
+    if (mine) {
+      box.outerHTML = `${wrongTalk(before, me, mine, { best, bestText: bestText ?? undefined })}
+        ${(mine.pv?.length ?? 0) >= 3 ? '<button class="xq-talk-lab" data-talk-lab>▶ 在棋盘上一步步看对方怎么接</button>' : ''}`;
+      const btn = elFb.querySelector('[data-talk-lab]') as HTMLButtonElement | null;
+      if (btn)
+        btn.onclick = () =>
+          openLineLab({
+            board: before,
+            turn: me,
+            line: mine!.pv,
+            me,
+            flip: me === 'b',
+            title: `你走 ${text} · 对方怎么接`,
+            intro: `你走的是 ${text}——点「下一步」看对方怎么接，每一步都能点「🔀 几种走法」换一条路`,
+          });
+      const reply = mine.pv[1];
+      if (reply) view.setArrows([{ fx: reply.fx, fy: reply.fy, tx: reply.tx, ty: reply.ty, color: 'rgba(214,64,52,0.92)' }]);
       return;
     }
-    el.innerHTML = `对方接下来会走 <b>${moveToText(snapshot, reply)}</b>。`;
+    // 皮卡鱼起不来：退回自带引擎，至少说出对方下一手
+    const snapshot = board;
+    const reply = await requestMove(snapshot, foe, { maxDepth: 6, jitter: 0, timeMs: 1200 });
+    if (my !== token) return;
+    const b2 = el();
+    if (!b2) return;
+    if (!reply) {
+      b2.remove();
+      return;
+    }
+    b2.innerHTML = `对方接下来会走 <b>${moveToText(snapshot, reply)}</b>：${whatItDoes(snapshot, reply, foe, me)}。`;
     view.setArrows([{ fx: reply.fx, fy: reply.fy, tx: reply.tx, ty: reply.ty, color: 'rgba(214,64,52,0.92)' }]);
   }
 
@@ -609,6 +679,28 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     elFb.innerHTML = `<div class="l">${opts.lead}</div>`;
   }
 
+  /*
+   * 自己棋局里的题：先看一眼这个局面是不是本来就赢定了（第二好的走法也大优）。
+   * 是的话这不是错着，是"赢棋里少赢一点"——从专属课拿掉，这一题保住胜势的走法都算对（judgeAlt 本来就这么判）。
+   * 早先存进来的题没有这个检查，这里顺手清掉；新的复盘在存的时候就不收这种局面了。
+   */
+  let wonAnyway = false;
+  if (puzzle.id.startsWith('own-') && !isMate) {
+    void (async () => {
+      if (!(await engineUp) || !engineReady()) return;
+      const list = await engineAnalyse(start, me, { movetime: 900, multipv: 2, history: { startFen: toFen(start, me), moves: [] } });
+      const top = (list ?? []).filter((x) => !x.bound);
+      if (top.length < 2 || !isWon(top[0]) || !isWon(top[1])) return;
+      wonAnyway = true;
+      retireOwnPuzzle(puzzle.id);
+      const note = document.createElement('div');
+      note.className = 'r xq-tr-won';
+      note.textContent = '🏁 这个局面本来就赢定了（第二好的走法也是大优）——不是错着，已经从「我的专属课」里拿掉。这一题保住胜势的走法都算对。';
+      if (!elFb.textContent?.trim()) elFb.className = 'xq-tr-fb tip';
+      elFb.appendChild(note);
+    })();
+  }
+
   // 开发期测试钩子：做题界面靠点棋盘操作，自动化测试算不出格子的屏幕坐标，
   // 这里把内部动作直接暴露出来。生产构建里整块会被摇掉（同 index.ts 的 __xq）。
   if (import.meta.env.DEV) {
@@ -637,7 +729,7 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
         if (m) void submit(m);
         return !!m;
       },
-      state: () => ({ ply, onLine, myStep, totalMine, answered, busy, practice, verdict }),
+      state: () => ({ ply, onLine, myStep, totalMine, answered, busy, practice, verdict, wonAnyway }),
       hint: () => void hint(),
     };
   }
