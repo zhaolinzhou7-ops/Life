@@ -19,7 +19,7 @@ interface P {
   ev2?: number;
 }
 
-const [, , a0 = '0', a1 = '1', a2 = '700'] = process.argv;
+const [, , a0 = '0', a1 = '1', a2 = '700', a3 = ''] = process.argv;
 const FILE = 'src/xiangqi/puzzles.json';
 
 if (a0 === 'apply') {
@@ -48,7 +48,8 @@ if (a0 === 'apply') {
 const shard = Number(a0);
 const n = Number(a1);
 const MS = Number(a2);
-const all = (JSON.parse(fs.readFileSync(FILE, 'utf8')) as P[]).filter((p) => p.goal !== 'mate');
+// 第 4 个参数 mate：只算杀法题（残局里的杀法题，你本来就赢定了、慢一点杀也赢——看要不要出）
+const all = (JSON.parse(fs.readFileSync(FILE, 'utf8')) as P[]).filter((p) => (a3 === 'mate' ? p.goal === 'mate' : p.goal !== 'mate'));
 const mine = all.filter((_, i) => i % n === shard);
 const e = await startPikafish(64);
 // 一次性同步写：流式写完紧接着 process.exit 会丢掉还没落盘的数据
@@ -75,6 +76,6 @@ for (const p of mine) {
   out.push(JSON.stringify({ id: p.id, s1, s2, depth }));
   if (++done % 50 === 0) console.log(`shard ${shard}: ${done}/${mine.length}`);
 }
-fs.writeFileSync(`node_modules/.cache/won-${shard}.jsonl`, out.join('\n') + '\n');
+fs.writeFileSync(`node_modules/.cache/won-${a3 === 'mate' ? 'm' : ''}${shard}.jsonl`, out.join('\n') + '\n');
 console.log(`shard ${shard} done ${done}`);
 process.exit(0);

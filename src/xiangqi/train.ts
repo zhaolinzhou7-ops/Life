@@ -120,7 +120,9 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
   const isMate = puzzle.kind === 'mate' || puzzle.goal === 'mate';
   const line = puzzle.line?.length ? puzzle.line : [puzzle.answer];
   /** 你一共要走几步 */
-  const totalMine = Math.ceil(line.length / 2);
+  const baseMine = Math.ceil(line.length / 2);
+  /** 你一共要走几步：杀法题走了一手慢一点的杀，步数跟着放宽（见 judgeAlt） */
+  let totalMine = baseMine;
   const target = opts.playToEnd === false ? null : endgameTarget(puzzle);
   const engineUp = engineCapable() ? within(loadEngine(), ENGINE_WAIT) : Promise.resolve(false);
 
@@ -247,11 +249,22 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       const mine = await engineScoreMove(before, me, mv, { movetime: 1500, history: h });
       if (!mine) return null;
       if (mine.mateIn !== undefined && mine.mateIn > 0) {
-        return mine.mateIn <= left
-          ? { ok: true, why: `这一手也杀得了（${mine.mateIn} 步之内将死）`, mine }
-          : { ok: false, why: `这一手也能杀，但要 ${mine.mateIn} 步，这题要在 ${left} 步之内杀死`, mine };
+        if (mine.mateIn <= left) return { ok: true, why: `这一手也杀得了（${mine.mateIn} 步之内将死）`, mine };
+        /*
+         * 慢一点的杀也是杀。用户原话："还是存在必胜残局在找最佳步数"——能杀死就算对，不苛求最快的那条；
+         * 步数放宽到这条杀要的步数（20 步以内），接着下到将死为止。告诉你最快是几步，下次能看得更快。
+         */
+        if (mine.mateIn <= 20) {
+          totalMine = myStep + mine.mateIn;
+          return { ok: true, why: `这一手也能杀，要 ${mine.mateIn} 步——最快是 ${left} 步，接着把它杀死`, mine };
+        }
+        return { ok: false, why: `这一手要 ${mine.mateIn} 步才杀得了，绕得太远了——这里 ${left} 步就能杀`, mine };
       }
-      return { ok: false, why: '走了这一手，就杀不成了', mine };
+      return {
+        ok: false,
+        why: isWon(mine) ? '走了这一手就杀不成了（局面还是大优，但这题练的是找杀）' : '走了这一手，就杀不成了',
+        mine,
+      };
     }
     /*
      * 你这一手和最好的那一手要在**同一次搜索**里比。原来是三次各算各的：一次算你这手、一次算最好的、
@@ -362,7 +375,8 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       busy = false;
       view.setArrows([{ fx: reply!.fx, fy: reply!.fy, tx: reply!.tx, ty: reply!.ty, color: 'rgba(214,64,52,0.7)' }]);
       elFb.className = 'xq-tr-fb ok';
-      elFb.innerHTML = `<div class="h">✅ ${text}　对方应 ${rt}</div><div class="l">接着走${isMate ? '，直到将死' : ''}。</div>`;
+      // 皮卡鱼核对时说的那句（"这一手也能杀，要 3 步——最快是 2 步""已经赢定了……"）对方应完也留着
+      elFb.innerHTML = `<div class="h">✅ ${text}　对方应 ${rt}</div>${note ? `<div class="l">${note}</div>` : ''}<div class="l">接着走${isMate ? '，直到将死' : ''}。</div>`;
       hintLevel = 0;
       stepAt = Date.now();
       renderSteps();
@@ -577,6 +591,7 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     ply = 0;
     onLine = true;
     myStep = 0;
+    totalMine = baseMine;
     hintLevel = 0;
     answered = false;
     busy = false;
