@@ -14,7 +14,7 @@ import type { Board, Color, Move } from './rules';
 import { applyMove } from './rules';
 import { requestReview } from './aiclient';
 import { REVIEW_BUDGET, engineReady, engineReview, loadEngine } from './pikafish';
-import { headlineOf, reviewMove, summarize, tagCounts, type GameReview, type Judged, type ReviewedMove } from './analysis';
+import { headlineOf, isWon, reviewMove, summarize, tagCounts, type GameReview, type Judged, type ReviewedMove } from './analysis';
 import { setGameReview } from './archive';
 import { toFen } from './notation';
 import { addOwnPuzzle, recordGame } from './save';
@@ -162,6 +162,9 @@ export class GameAnalysis {
       if (m.color !== playerColor) return;
       if (m.grade !== 'blunder' && m.grade !== 'mistake' && !(m.grade === 'dubious' && m.loss >= 150)) return;
       if (!m.bestMove || !m.bestText) return;
+      // 走完这一手还是赢定了（大优或者有杀）：这是"赢棋里少赢一点"，不是错着——不收进专属课
+      // （用户原话："还是存在必胜残局在找最佳步数"）
+      if (isWon({ score: m.playedScore, mateIn: m.playedMate })) return;
       const ok = addOwnPuzzle({
         // 用复盘归因出来的维度：开局吃亏和残局走软是两回事
         kind: m.dim,

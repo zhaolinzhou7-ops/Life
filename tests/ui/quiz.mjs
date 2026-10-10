@@ -28,6 +28,7 @@ async function coachPick() {
 }
 
 /** 做完一组 10 道：花样题直接答对，走子题照正解走；记下每一道的题型 */
+let choiceMissed = null;
 async function runSet(label) {
   const seen = [];
   let scored = 0;
@@ -38,7 +39,17 @@ async function runSet(label) {
       const type = await page.evaluate(() => document.querySelector('.xq-quiz')?.dataset.quiz);
       seen.push(type);
       if (seen.filter((x) => x === type).length === 1) await page.screenshot({ path: `${OUT}/quiz-${label}-${type}.png` });
-      await page.evaluate(() => window.__xqQuiz.solve());
+      // 第一次碰到选择题故意选错：标题要写清"你选的"和"正解"是哪两项（原来只写正解那项，读起来像你选的就是它），
+      // 教练还要讲你选的那一手对方怎么接、正解好在哪
+      if (type === 'choice' && !choiceMissed) {
+        await page.evaluate(() => window.__xqQuiz.miss());
+        await page.waitForTimeout(200);
+        const head = (await page.locator('.xq-tr-fb .h').innerText()).replace(/\s+/g, ' ');
+        const m = head.match(/你选的 ([A-D])\. (\S+) · 正解 ([A-D])\. (\S+)/);
+        const talked = await until(page, () => !!document.querySelector('.xq-tr-fb [data-talk]'), null, 30000);
+        choiceMissed = { head, ok: !!m && m[1] !== m[3] && m[2] !== m[4], talked, talk: talked ? (await page.locator('[data-talk]').innerText()).replace(/\s+/g, ' ').slice(0, 160) : '' };
+        await page.screenshot({ path: `${OUT}/quiz-choice-miss.png` });
+      } else await page.evaluate(() => window.__xqQuiz.solve());
       await page.waitForTimeout(200);
       const fb = await page.locator('.xq-tr-fb').innerText();
       if (/分 \d+ → \d+（[+-]?\d+）|不计分/.test(fb)) scored++;
@@ -69,6 +80,12 @@ let r = await runSet('tactic');
 console.log('   战术这一组：' + r.seen.join(' '));
 ok('战术练习不再只有一种问法：出了选择题或判断题', r.seen.some((t) => t === 'choice' || t === 'judge'));
 ok('走子题照样有（那是根本）', r.seen.includes('move'));
+if (choiceMissed) {
+  console.log('   选错：' + choiceMissed.head);
+  console.log('   讲解：' + choiceMissed.talk);
+  ok('选择题选错：写清你选的是哪项、正解是哪项（两项不同）', choiceMissed.ok);
+  ok('选择题选错：教练讲你选的那一手对方怎么接、正解好在哪', choiceMissed.talked && /对方会|该走/.test(choiceMissed.talk));
+}
 ok('花样题答完当场显示分数加减', r.scored === r.seen.filter((t) => t !== 'move').length);
 await until(page, () => !!document.querySelector('[data-score]'), null, 10000);
 const score = await page.locator('[data-score]').innerText();

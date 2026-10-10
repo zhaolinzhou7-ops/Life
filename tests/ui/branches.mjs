@@ -127,6 +127,25 @@ await page.locator('[data-act="lab"]').click(); await page.waitForTimeout(400);
 ok('推演板从这一手走之前开始，先摆最佳那一路', (await page.locator('.xq-lab-layer').count()) === 1 && (await page.evaluate(() => window.__xqLab.len())) >= 2);
 await until(page, () => !!window.__xqLab.alts(), null, 60000);
 ok('推演板一打开就列出这一步的几种走法', (await page.locator('.xq-lab-alt').count()) >= 2);
+// 推演板里按自己的想法走一手：皮卡鱼替对方接，讲这一手和首选比怎么样、对方会怎么接
+{
+  const fen = await page.evaluate(() => window.__xqReview.shown().fen);
+  const own = await page.evaluate(async (f) => {
+    const R = await import('/Life/src/xiangqi/rules.ts');
+    const N = await import('/Life/src/xiangqi/notation.ts');
+    const p = N.fromFen(f);
+    const ms = R.legalMoves(p.board, p.toMove).filter((m) => !R.isInCheck(R.applyMove(p.board, m), p.toMove) && !p.board[m.ty][m.tx]);
+    return ms[ms.length - 1];
+  }, fen);
+  await page.evaluate((m) => window.__xqLab.own(m), own);
+  const talked = await until(page, () => /对方会|皮卡鱼的首选/.test(window.__xqLab.talk()), null, 40000);
+  if (!talked) note('推演板没出讲解：k=' + (await page.evaluate(() => window.__xqLab.k())) + ' len=' + (await page.evaluate(() => window.__xqLab.len())) + ' 着法=' + JSON.stringify(own) + ' 讲解=' + (await page.evaluate(() => window.__xqLab.talk())));
+  const t = (await page.evaluate(() => window.__xqLab.talk())).replace(/\s+/g, ' ');
+  note('推演板·按自己的想法走：' + t.slice(0, 160));
+  ok('推演板里直接走自己的一手：皮卡鱼接着应，讲这手和首选比、对方会怎么接', talked && (await page.evaluate(() => window.__xqLab.k())) === 1 && (await page.evaluate(() => window.__xqLab.len())) >= 2);
+  await page.locator('[data-lab="next"]').click(); await page.waitForTimeout(300);
+  ok('点「下一步」走对方的应着，讲解还留着', (await page.evaluate(() => window.__xqLab.k())) === 2 && /对方会|皮卡鱼的首选/.test(await page.evaluate(() => window.__xqLab.talk())));
+}
 await page.locator('[data-lab-close]').click(); await page.waitForTimeout(300);
 ok('关掉推演板回到复盘', (await page.locator('.xq-lab-layer').count()) === 0 && (await page.locator('[data-best]').count()) === 1);
 // 计划底下"在棋盘上一步步看"

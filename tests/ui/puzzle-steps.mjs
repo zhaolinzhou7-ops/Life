@@ -65,7 +65,16 @@ ok('第二步走错：这题算错', await until(() => window.__xqTrain.state().
 const fb2 = await page.locator('.xq-tr-fb').innerText();
 console.log('   ' + fb2.replace(/\s+/g, ' ').slice(0, 160));
 ok('说清楚是第 2 步错了、该走哪一手', fb2.includes('第 2 步') && fb2.includes(QL_STEP2));
-ok('演出对方怎么惩罚', await until(() => (document.querySelector('.xq-tr-fb')?.textContent ?? '').includes('对方接下来会走'), null, 20000));
+ok('演出对方怎么惩罚：教练讲对方会怎么一手手接', await until(() => /对方会这样接|对方会接|对方接下来会走/.test(document.querySelector('.xq-tr-fb')?.textContent ?? ''), null, 30000));
+// 用户截图：「你走的是 帅五退一……这一步该走 帅五退一」——你走的和该走的绝不能是同一手
+const sameSaid = async () => {
+  const t = (await page.locator('.xq-tr-fb').innerText()).replace(/\s+/g, ' ');
+  const you = t.match(/你走的是 (\S+)/)?.[1];
+  const should = t.match(/该走 (\S+?)[。（\s]/)?.[1];
+  return { you, should, same: !!you && you === should };
+};
+const ss = await sameSaid();
+ok(`你走的（${ss.you}）和该走的（${ss.should}）不是同一手`, !ss.same);
 await page.locator('#xq-tr-again').click();
 s = await st();
 ok('从头再走一遍：局面复原、标着不计分', s.practice && s.myStep === 0 && !s.answered && (await page.locator('.xq-tr-steps').innerText()).includes('不计分'));
@@ -92,6 +101,17 @@ await page.evaluate(() => {
 ok('不是原谱的一手：先说"正在让皮卡鱼核对"', await until(() => (document.querySelector('.xq-tr-fb')?.textContent ?? '').includes('皮卡鱼'), null, 5000));
 ok('皮卡鱼核对完给出结论', await until(() => { const s = window.__xqTrain.state(); return s.answered || (!s.busy && s.myStep === 2); }, null, 30000));
 console.log('   核对：' + (await page.locator('.xq-tr-fb').innerText()).replace(/\s+/g, ' ').slice(0, 120));
+if ((await st()).answered && !(await st()).verdict?.correct) {
+  const s3 = await sameSaid();
+  ok(`判错时你走的（${s3.you}）和该走的（${s3.should}）不是同一手`, !s3.same);
+  ok('判错时教练讲：你这手在干什么、对方会这样接、该走的好在哪', await until(() => !!document.querySelector('.xq-tr-fb [data-talk]'), null, 30000) && /你这手[\s\S]*该走/.test(await page.locator('[data-talk]').innerText()));
+} else {
+  // 皮卡鱼认可了这一手：接着走皮卡鱼的首选，它必须被判对（原来三次搜索各算各的，首选也会被判"差 0.9 个兵"）
+  await page.evaluate(() => window.__xqTrain.playRight());
+  await until(() => { const s = window.__xqTrain.state(); return s.answered || (!s.busy && s.myStep >= 3); }, null, 40000);
+  const s3 = await sameSaid();
+  ok(`离开原谱后照皮卡鱼首选走：不被判错（或者判错时你走的 ${s3.you} ≠ 该走的 ${s3.should}）`, !s3.same);
+}
 
 // ───────── 4. 残局题：主变走完，接着和皮卡鱼下到底 ─────────
 await page.evaluate(() => window.__xqCoach.puzzle('egp-c-aa-vs-r-1'));

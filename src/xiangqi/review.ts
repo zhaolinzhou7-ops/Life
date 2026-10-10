@@ -48,7 +48,9 @@ import type { Puzzle } from './puzzles';
 import { ERR_INFO, inPieces, type ErrTag } from './teach';
 import { lineSteps, punishLine, type Punish, type PunishStep } from './punish';
 import { openLineLab } from './linelab';
-import { engineAnalyse, engineReady, loadEngine } from './pikafish';
+import { lineTalk, whatItDoes } from './coachexplain';
+import type { MoveScore } from './ai';
+import { engineAnalyse, engineReady, engineScoreMove, loadEngine } from './pikafish';
 
 const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
@@ -415,8 +417,9 @@ export function runReview(opts: ReviewOpts): () => void {
       isBad(m) && punishOf(m, cursor)
         ? `<button class="xq-rv-act bad xq-rv-pun" data-act="punish-demo">⚠ ${mine ? '对手怎么罚你' : '怎么罚他'}</button>`
         : '';
-    if (m.isBest) return `<div class="xq-rv-best ok" data-best>✅ ${mine ? '这就是最佳走法' : '对手这一手就是最佳走法'}。${pun ? `<div class="acts">${pun}</div>` : ''}</div>`;
-    if (!m.bestMove || !m.bestText) return pun ? `<div class="xq-rv-best"><div class="acts">${pun}</div></div>` : '';
+    const tryBtn = `<button class="xq-rv-act try" data-act="try-here" title="从这一手走之前开始，按你的想法走一手，看对方怎么接">🧪 换一手试试</button>`;
+    if (m.isBest) return `<div class="xq-rv-best ok" data-best>✅ ${mine ? '这就是最佳走法' : '对手这一手就是最佳走法'}。<div class="acts">${pun}${tryBtn}</div></div>`;
+    if (!m.bestMove || !m.bestText) return `<div class="xq-rv-best"><div class="acts">${pun}${tryBtn}</div></div>`;
     const pawns = (m.loss / 100).toFixed(1);
     const who = mine ? '你这手' : '他这手';
     const hint = compare
@@ -427,7 +430,7 @@ export function runReview(opts: ReviewOpts): () => void {
     return `<div class="xq-rv-best" data-best>
       <div class="rec">★ ${mine ? '最佳走法' : '他该走'} <b>${m.bestText}</b>：比${who}多得约 <b>${m.loss} 分</b><em>（约 ${pawns} 个兵）</em></div>
       ${hint}
-      <div class="acts"><button class="xq-rv-act" data-act="best-demo">▶ 看最佳的后续</button>${pun}<button class="xq-rv-act" data-act="lab">🔀 推演</button></div>
+      <div class="acts"><button class="xq-rv-act" data-act="best-demo">▶ 看最佳的后续</button>${pun}${tryBtn}<button class="xq-rv-act" data-act="lab">🔀 推演</button></div>
     </div>`;
   }
 
@@ -892,6 +895,13 @@ export function runReview(opts: ReviewOpts): () => void {
     if (act === 'try') return trial ? endTrial() : startTrial();
     if (act === 'trial-undo') return trialUndo();
     if (act === 'trial-lab') return trialLab();
+    if (act === 'trial-follow') return trialFollow();
+    if (act === 'try-here') {
+      // 卡片上的「🧪 换一手试试」：从这一手走之前开始，按你的想法换一手
+      const m = reviewed()[cursor];
+      if (m) startTrial(undefined, { board: boards[cursor], turn: m.color, ref: cursor });
+      return;
+    }
     if (act === 'trial-end') return endTrial();
     if (act === 'train-own' && opts.onTrainOwn) {
       close();
@@ -1060,9 +1070,20 @@ export function runReview(opts: ReviewOpts): () => void {
   // ───────── 试下：在复盘的棋盘上自己走走看 ─────────
   /**
    * 天天象棋复盘里最常用的一样：看到一手不满意，直接在棋盘上换一种走法，看对手怎么应。
-   * 点轮到走的那一方的子就进来（或者点工具条上的 🧪 试下）；你走一步，引擎替对方应一步；
-   * 第一手和这个局面的最佳走法比，告诉你比最佳差多少、比实战那一手好还是差。棋谱一手不动。
+   * 用户原话："增加一个复盘时，我如果按照我的想法走棋对方会怎么接，教练讲解再细致一些。"
+   * 点轮到走的那一方的子就进来（或者卡片上「🧪 换一手试试」、工具条上的 🧪 试下）；你走一步，引擎替对方应一步。
+   * 每一步都讲：你这手在干什么、评级、对方接的那手在干什么、引擎预计接下来怎么走；
+   * 走差了说对方怎么罚、这里最好走什么；第一手还和实战那一手比。棋谱一手不动。
    */
+  interface TrialStep {
+    text: string;
+    label?: MoveLabel;
+    replyText?: string;
+    /** 这一步的教练讲解（HTML） */
+    talk?: string;
+    /** 对方应完之后，引擎预计的后续（从哪个局面、谁先走、哪几手）：「▶ 看后续」打开推演板 */
+    follow?: { board: Board; turn: Color; line: Move[] };
+  }
   interface Trial {
     start: Board;
     /** 试下从哪一方开始走（你替这一方走，引擎替另一方应） */
@@ -1079,6 +1100,8 @@ export function runReview(opts: ReviewOpts): () => void {
     verdict: string;
     evalText: string;
     say: string;
+    /** 你走的每一步（引擎应的那手记在同一条里） */
+    steps: TrialStep[];
   }
   let trial: Trial | null = null;
   let lastSwipe = 0;
@@ -1095,14 +1118,16 @@ export function runReview(opts: ReviewOpts): () => void {
   const trialTurn = (t: Trial): Color => (t.moves.length % 2 === 0 ? t.first : other(t.first));
   const legalOf = (b: Board, c: Color) => legalMoves(b, c).filter((m) => !isInCheck(applyMove(b, m), c));
 
-  function startTrial(tap?: { x: number; y: number }) {
+  /** at：从哪个局面开始（卡片上的「🧪 换一手试试」从这一手走之前开始）；不给就是棋盘上现在摆的 */
+  function startTrial(tap?: { x: number; y: number }, at?: { board: Board; turn: Color; ref: number }) {
     stopDemo();
-    const p = shownPosition();
-    trial = { start: p.board, first: p.turn, moves: [], log: [], ref: p.ref, sel: null, busy: false, token: 0, auto: true, verdict: '', evalText: '', say: '' };
+    const p = at ?? shownPosition();
+    trial = { start: p.board, first: p.turn, moves: [], log: [], ref: p.ref, sel: null, busy: false, token: 0, auto: true, verdict: '', evalText: '', say: '', steps: [] };
     if (sheet !== 'none') setSheet('none');
     panel.classList.add('trial');
     navEl.innerHTML =
       tb('data-act="trial-undo" title="退回你上一步之前"', '↶', '悔一步') +
+      tb('data-act="trial-follow" title="对方应完之后引擎预计怎么走：在推演板上一步步看"', '▶', '看后续') +
       tb('data-act="trial-lab" title="引擎列出这一步的几种走法"', '🔀', '几种走法') +
       tb('data-act="trial-end" title="回到棋谱"', '✕', '结束试下', 'wide');
     scene.setArrows([]);
@@ -1162,8 +1187,11 @@ export function runReview(opts: ReviewOpts): () => void {
     if (!t) return;
     const b = trialBoard(t);
     const c = trialTurn(t);
-    t.log.push({ text: textOf(b, mv), color: c });
+    const text = textOf(b, mv);
+    t.log.push({ text, color: c });
     t.moves.push(mv);
+    const step: TrialStep = { text };
+    if (c === t.first) t.steps.push(step);
     const nb = applyMove(b, mv);
     scene.setBadge(null);
     scene.syncBoard(nb);
@@ -1186,22 +1214,75 @@ export function runReview(opts: ReviewOpts): () => void {
       t.say = '引擎没起来：对方这一步也由你来走。';
       return renderTrial();
     }
-    const res = await engineAnalyse(nb, other(c), { movetime: 900, multipv: 1 });
+    /*
+     * 一次搜索拿全：这个局面最好的一手、你这一手（include）的分和主变。
+     * 你这手的主变第二手就是对方的应着，再往后是引擎预计的后续——评级、应着、后续、讲解都出自同一次计算，不会互相打架。
+     */
+    const list = await engineAnalyse(b, c, { movetime: 1100, multipv: 2, include: mv });
     if (trial !== t || my !== t.token) return;
+    const best = list?.find((s) => !s.bound);
+    // 你这手不在前几名里、补算也没回来（引擎忙、搜索被打断）：再单独算一次，讲解不能空着
+    const mine = list?.find((s) => !s.bound && same(s.move, mv)) ?? (await engineScoreMove(b, c, mv, { movetime: 1000 })) ?? undefined;
+    if (trial !== t || my !== t.token) return;
+    let reply: Move | undefined = mine?.pv[1];
+    if (reply && !legalOf(nb, other(c)).some((m) => same(m, reply!))) reply = undefined;
+    if (!reply) {
+      const r2 = await engineAnalyse(nb, other(c), { movetime: 800, multipv: 1 });
+      if (trial !== t || my !== t.token) return;
+      reply = r2?.find((s) => !s.bound)?.move;
+    }
     t.busy = false;
-    const top = res?.find((s) => !s.bound) ?? res?.[0];
-    if (!top) return renderTrial();
-    // 对方应的那一手之前的局面分（对方视角）就是你这一手的分，换成你的视角来评
-    if (t.moves.length === 1) t.verdict = rateTry(t, mv, -top.score, top.mateIn === undefined ? undefined : -top.mateIn);
-    const red = other(c) === 'r' ? top.score : -top.score;
-    const redMate = top.mateIn === undefined ? undefined : other(c) === 'r' ? top.mateIn : -top.mateIn;
-    t.evalText = evalWords(red, redMate);
-    const reply = top.move;
-    t.log.push({ text: textOf(nb, reply), color: other(c) });
+    if (!reply) return renderTrial();
+    if (mine && best) {
+      const loss = same(best.move, mv) ? 0 : mine.mateIn !== undefined && mine.mateIn > 0 ? 0 : Math.max(0, best.score - mine.score);
+      step.label = loss < 10 || same(best.move, mv) ? 'top' : gradeOf(loss);
+      step.talk = trialTalk(b, c, t.first, mv, mine, best, loss, reply);
+      // 第一手还和实战那一手比
+      if (t.steps.length === 1 && step === t.steps[0]) t.verdict = rateTry(t, mv, mine.score, mine.mateIn);
+      const red = c === 'r' ? mine.score : -mine.score;
+      const redMate = mine.mateIn === undefined ? undefined : c === 'r' ? mine.mateIn : -mine.mateIn;
+      t.evalText = evalWords(red, redMate);
+    }
+    const nb2 = applyMove(nb, reply);
+    step.replyText = textOf(nb, reply);
+    const rest = mine && mine.pv.length > 2 && same(mine.pv[1], reply) ? mine.pv.slice(2, 10) : [];
+    step.follow = rest.length ? { board: nb2, turn: c, line: rest } : undefined;
+    t.log.push({ text: step.replyText, color: other(c) });
     t.moves.push(reply);
-    scene.syncBoard(applyMove(nb, reply));
+    scene.syncBoard(nb2);
     scene.setLastMove(reply, false);
+    if (step.label) scene.setBadge(null);
     renderTrial();
+  }
+
+  /**
+   * 试下这一步的教练讲解：你这手在干什么、评级；对方接的那手在干什么；引擎预计接下来怎么走；
+   * 走差了说对方怎么罚、这里最好走什么。全是皮卡鱼这一次算出来的着法，讲解只是翻译。
+   */
+  function trialTalk(b: Board, c: Color, me: Color, mv: Move, mine: MoveScore, best: MoveScore, loss: number, reply: Move): string {
+    const lb: MoveLabel = loss < 10 || same(best.move, mv) ? 'top' : gradeOf(loss);
+    const L = MOVE_LABEL[lb];
+    const nb = applyMove(b, mv);
+    const nb2 = applyMove(nb, reply);
+    const you = c === playerColor ? '你' : '你（替对手走）';
+    const rows: string[] = [];
+    rows.push(
+      `<div class="xq-talk-row"><span class="k">${you}走</span><b>${textOf(b, mv)}</b> <span class="lv" style="--g:${L.badge}">${L.short}</span>：${whatItDoes(b, mv, c, me)}。</div>`,
+    );
+    rows.push(`<div class="xq-talk-row"><span class="k">对方接</span><b>${textOf(nb, reply)}</b>：${whatItDoes(nb, reply, other(c), me)}。</div>`);
+    const rest = mine.pv.length > 2 && same(mine.pv[1], reply) ? mine.pv.slice(2) : [];
+    if (rest.length) rows.push(`<div class="xq-talk-row"><span class="k">接下来大概</span>（皮卡鱼预计，点 ▶ 看后续 在棋盘上一步步走）</div>${lineTalk(nb2, rest, c, me, 4)}`);
+    if (loss >= 150) {
+      const p = punishLine(b, mine.pv, c, 7, { me: '你', foe: '对方' });
+      if (p) rows.push(`<div class="xq-talk-sum">⚠️ ${p.summary}</div>`);
+    }
+    if (lb === 'top') rows.push(`<div class="xq-talk-row good">👍 ${same(best.move, mv) ? '这就是皮卡鱼的首选' : '和最好的一手一样好'}。</div>`);
+    else if (loss < 30) rows.push(`<div class="xq-talk-row good">👍 和最好的一手（${textOf(b, best.move)}）差不多。</div>`);
+    else
+      rows.push(
+        `<div class="xq-talk-row good"><span class="k">这里最好</span><b>${textOf(b, best.move)}</b>：${whatItDoes(b, best.move, c, me)}——比你这手多约 ${loss} 分（${inPieces(loss)}）。</div>`,
+      );
+    return `<div class="xq-talk" data-talk>${rows.join('')}</div>`;
   }
 
   /** 你试的第一手和这个局面的最佳比：评级（★ 优 良 中 差 错 漏）、比最佳少多少、比实战那一手好还是差 */
@@ -1236,20 +1317,30 @@ export function runReview(opts: ReviewOpts): () => void {
     const who = (c: Color) => (c === playerColor ? '你' : '对手');
     const side = (c: Color) => (c === 'r' ? '红' : '黑');
     const at = t.ref >= 0 ? `第 ${roundOf(reviewed()[t.ref].ply)} 回合` : cursor >= 0 ? `第 ${roundOf(reviewed()[cursor].ply)} 回合之后` : '开局';
-    const log = t.log
-      .map((l, i) => `<span class="${l.color === t.first ? 'me' : 'foe'}"><i>${i % 2 === 0 ? `${Math.floor(i / 2) + 1}.` : ''}${who(l.color)}</i>${l.text}</span>`)
-      .join('');
+    // 引擎替对方应的时候一步一行："1. 你 车九进一〔差〕→ 对方 炮2进7"；两边都由你走的时候按原来那样排
+    const log = t.auto
+      ? t.steps
+          .map((st, i) => {
+            const L = st.label ? MOVE_LABEL[st.label] : null;
+            return `<span class="me"><i>${i + 1}.${who(t.first)}</i>${st.text}${L ? ` <em class="lv" style="--g:${L.badge}">${L.short}</em>` : ''}${
+              st.replyText ? ` <span class="foe">→ <i>${who(other(t.first))}</i>${st.replyText}</span>` : ''
+            }</span>`;
+          })
+          .join('')
+      : t.log.map((l, i) => `<span class="${l.color === t.first ? 'me' : 'foe'}"><i>${i % 2 === 0 ? `${Math.floor(i / 2) + 1}.` : ''}${who(l.color)}</i>${l.text}</span>`).join('');
+    const last = t.steps[t.steps.length - 1];
     const c = trialTurn(t);
     const tip = t.busy
       ? `${who(c)}在想怎么应……`
       : t.say ||
         (t.moves.length
-          ? `接着点${side(c)}子再走一步，或者「↶ 悔一步」换一种走法。`
+          ? `接着点${side(c)}子再走一步，或者「↶ 悔一步」换一种走法${last?.follow ? '，「▶ 看后续」在棋盘上看引擎预计的后续' : ''}。`
           : `点一个${side(c)}子，再点它要去的地方。${t.auto ? `${who(other(c))}由引擎来应。` : ''}`);
     elDetail.innerHTML = `<div class="xq-rv-trial" data-trial>
       <div class="hd">🧪 试下 · 从${at}${side(t.first)}方走之前 · 不影响棋谱</div>
       ${log ? `<div class="log">${log}</div>` : ''}
       ${t.verdict ? `<div class="vd">${t.verdict}</div>` : ''}
+      ${last?.talk && !t.busy ? last.talk : ''}
       ${t.evalText && !t.busy ? `<div class="ev">现在的局面：${t.evalText}</div>` : ''}
       <div class="tip">${tip}</div>
     </div>`;
@@ -1265,6 +1356,7 @@ export function runReview(opts: ReviewOpts): () => void {
     const n = t.auto ? (t.moves.length % 2 === 0 ? 2 : 1) : 1;
     t.moves.splice(-n);
     t.log.splice(-n);
+    t.steps.pop();
     t.sel = null;
     t.say = '';
     t.evalText = '';
@@ -1273,6 +1365,28 @@ export function runReview(opts: ReviewOpts): () => void {
     scene.syncBoard(trialBoard(t));
     scene.setLastMove(t.moves.length ? t.moves[t.moves.length - 1] : null, false);
     renderTrial();
+  }
+
+  /** 对方应完之后引擎预计怎么走：在推演板上一步步看（每一步还能点 🔀 换一条路） */
+  function trialFollow() {
+    const t = trial;
+    const f = t?.steps[t.steps.length - 1]?.follow;
+    if (!t || !f) {
+      if (t) {
+        t.say = t.steps.length ? '这一步之后皮卡鱼没给出更长的后续，接着自己走走看。' : '先在棋盘上走一步，再看后续。';
+        renderTrial();
+      }
+      return;
+    }
+    openLineLab({
+      board: f.board,
+      turn: f.turn,
+      line: f.line,
+      title: '试下 · 接下来大概怎么走',
+      intro: '对方应完之后，皮卡鱼预计的后续',
+      me: t.first,
+      flip: playerColor === 'b',
+    });
   }
 
   /** 试到这里想看"这一步还有哪几种走法"：推演板接着这个局面，引擎列前三 */
@@ -1454,7 +1568,17 @@ export function runReview(opts: ReviewOpts): () => void {
         const p = shownPosition();
         return { turn: p.turn, ref: p.ref, fen: toFen(p.board, p.turn) };
       },
-      trial: () => (trial ? { moves: trial.moves.length, busy: trial.busy, auto: trial.auto, verdict: trial.verdict, log: trial.log.map((l) => l.text) } : null),
+      trial: () =>
+        trial
+          ? {
+              moves: trial.moves.length,
+              busy: trial.busy,
+              auto: trial.auto,
+              verdict: trial.verdict,
+              log: trial.log.map((l) => l.text),
+              steps: trial.steps.map((st) => ({ text: st.text, label: st.label, reply: st.replyText, talk: !!st.talk, follow: st.follow?.line.length ?? 0 })),
+            }
+          : null,
     };
   }
 

@@ -10,11 +10,13 @@
  * 在棋盘上走给你看；走到哪一步想看"如果他不这么走呢"，点 🔀 就分出几条路。
  * 着法和讲解都不编：着法是谱上的或者引擎算的，讲解是 movenote 按盘面说的"这一手干了什么"。
  */
-import { applyMove, legalMoves, type Board, type Color, type Move } from './rules';
-import { Board2D, type Arrow } from './board2d';
+import { applyMove, isInCheck, legalMoves, type Board, type Color, type Move } from './rules';
+import { Board2D, type Arrow, type Mark } from './board2d';
+import { lineTalk, wrongTalk } from './coachexplain';
+import { inPieces } from './teach';
 import type { MoveScore } from './ai';
 import { lineSteps, type PunishStep } from './punish';
-import { engineAnalyse, engineReady, loadEngine } from './pikafish';
+import { engineAnalyse, engineReady, engineScoreMove, loadEngine } from './pikafish';
 import { evalWords } from './analysis';
 import { moveToText, textToMove, toFen } from './notation';
 import { planLine } from './plan';
@@ -85,6 +87,7 @@ export function runLineLab(host: HTMLElement, opts: LabOpts): () => void {
 
   const view = new Board2D(wrap.querySelector('.xq-lab-board') as HTMLElement, {
     flip: opts.flip ?? me === 'b',
+    onTap: (x, y) => onTap(x, y),
     onArrowTap: (id) => {
       const i = Number(id.replace('alt-', ''));
       if (alts && alts[i]) choose(i);
@@ -113,7 +116,9 @@ export function runLineLab(host: HTMLElement, opts: LabOpts): () => void {
         <div class="n">${st.note}${st.tags.length ? `（${st.tags.join('、')}）` : ''}</div>`;
     } else {
       view.setLastMove(null);
-      elSay.innerHTML = `<div class="h">${opts.intro ?? '起始局面'}</div><div class="n">轮到${side(opts.turn)}。点「下一步」一步步走${seq.length ? '' : '，或者点「🔀 几种走法」看引擎给的前三种走法'}。</div>`;
+      elSay.innerHTML = `<div class="h">${opts.intro ?? '起始局面'}</div><div class="n">轮到${side(opts.turn)}。点「下一步」一步步走${
+        seq.length ? '' : '，或者点「🔀 几种走法」看引擎给的前三种走法'
+      }；也可以直接点棋盘上的子，按你自己的想法走一步，皮卡鱼替对方接。</div>`;
     }
     btnPrev.disabled = k === 0;
     btnNext.textContent = k < seq.length ? '下一步 ▶' : '🔀 后面还能怎么走';
@@ -134,7 +139,8 @@ export function runLineLab(host: HTMLElement, opts: LabOpts): () => void {
   /** 在棋盘上摆出这个局面的几种走法：箭头 ①②③ + 下面一排按钮（每条写着走完谁好） */
   function renderAlts() {
     if (!alts) {
-      elAlts.innerHTML = '';
+      // 按自己想法走的那一手的讲解：往后翻着看对方怎么接时一直留着，退回到这手之前才收起
+      elAlts.innerHTML = ownTalk && k > ownTalk.at ? ownTalk.html : '';
       view.setArrows(k < seq.length ? [{ ...seq[k], color: 'rgba(46,170,90,0.55)' }] : []);
       return;
     }
@@ -194,6 +200,89 @@ export function runLineLab(host: HTMLElement, opts: LabOpts): () => void {
     renderAlts();
   }
 
+  /**
+   * 按你自己的想法走一步。用户原话："我如果按照我的想法走棋对方会怎么接"。
+   * 点子、点落点：这一步起换成你走的这手，皮卡鱼算出对方怎么接、后面大概怎么走，接在这一路后面（点「下一步」在棋盘上走）；
+   * 下面讲：这手和首选比怎么样、对方会这样接；差得多就说清楚该走什么、差多少。
+   */
+  let sel: { x: number; y: number } | null = null;
+  let ownTalk: { at: number; html: string } | null = null;
+  const legalAt = (b: Board, c: Color) => legalMoves(b, c).filter((m) => !isInCheck(applyMove(b, m), c));
+  function onTap(x: number, y: number) {
+    const b = boardAt(k);
+    const c = colorAt(k);
+    const legal = legalAt(b, c);
+    if (sel) {
+      const mv = legal.find((m) => m.fx === sel!.x && m.fy === sel!.y && m.tx === x && m.ty === y);
+      if (mv) {
+        sel = null;
+        view.setMarks([]);
+        void playOwn(mv);
+        return;
+      }
+    }
+    const p = b[y][x];
+    if (p && p.c === c) {
+      sel = { x, y };
+      const marks: Mark[] = [{ x, y, kind: 'ring' }];
+      for (const m of legal) if (m.fx === x && m.fy === y) marks.push({ x: m.tx, y: m.ty, kind: b[m.ty][m.tx] ? 'bad' : 'dot' });
+      view.setMarks(marks);
+    } else {
+      sel = null;
+      view.setMarks([]);
+    }
+  }
+  async function playOwn(mv: Move) {
+    const b = boardAt(k);
+    const c = colorAt(k);
+    // 和这一路下一手一样：往下走一步，照样讲对方会怎么接（这一路后面的着法就是）
+    if (k < seq.length && same(seq[k], mv)) {
+      const at = k;
+      ownTalk = {
+        at,
+        html: `<div class="hd">👍 ${moveToText(b, mv)} 就是这一路的下一手。对方会这样接（点「下一步」在棋盘上走）：</div>${lineTalk(applyMove(b, mv), seq.slice(at + 1), other(c), me, 4)}`,
+      };
+      return go(at + 1);
+    }
+    const my = ++token;
+    const at = k;
+    ownTalk = null;
+    seq = [...seq.slice(0, at), mv];
+    if (!forks.includes(at)) forks.push(at);
+    recompute();
+    alts = null;
+    k = at + 1;
+    show();
+    elAlts.innerHTML = '<div class="hd">🧑‍🏫 皮卡鱼在算对方会怎么接……</div>';
+    if (!engineReady()) await loadEngine();
+    if (my !== token) return;
+    if (!engineReady()) {
+      elAlts.innerHTML = '<div class="hd">引擎还没加载好：对方这一步也由你来走（点对方的子）。</div>';
+      return;
+    }
+    const list = await engineAnalyse(b, c, { movetime: 1200, multipv: 2, include: mv });
+    if (my !== token) return;
+    const best = list?.find((x) => !x.bound);
+    // 你这手不在前几名里、单独补算也没回来（引擎忙、搜索被打断）：再单独算一次，不能让讲解空着
+    const mine = list?.find((x) => !x.bound && same(x.move, mv)) ?? (await engineScoreMove(b, c, mv, { movetime: 1200 }));
+    if (my !== token) return;
+    if (!best || !mine) {
+      elAlts.innerHTML = '<div class="hd">皮卡鱼这一次没算出来，点「🔀 几种走法」再问一次。</div>';
+      return;
+    }
+    const rest = mine.pv.length > 1 && same(mine.pv[0], mv) ? mine.pv.slice(1, 10) : [];
+    seq = [...seq.slice(0, at), mv, ...rest];
+    recompute();
+    show();
+    const loss = same(best.move, mv) ? 0 : Math.max(0, best.score - mine.score);
+    const html =
+      loss >= 30
+        ? `<div class="hd">🧑‍🏫 你走的 ${moveToText(b, mv)} 比皮卡鱼的首选差约 ${loss} 分（${inPieces(loss)}）——点「下一步」在棋盘上看对方怎么接：</div>${wrongTalk(b, c, mine, { best, me })}`
+        : `<div class="hd">👍 ${moveToText(b, mv)}${same(best.move, mv) ? '就是皮卡鱼的首选' : '和皮卡鱼的首选差不多'}。对方会这样接（点「下一步」在棋盘上走）：</div>${lineTalk(applyMove(b, mv), rest, other(c), me, 4)}`;
+    ownTalk = { at, html };
+    elAlts.innerHTML = html;
+  }
+
   /** 选第 i 条路：从这一步起换成它（后续是引擎这一路的主变） */
   function choose(i: number) {
     const s = alts?.[i];
@@ -206,6 +295,7 @@ export function runLineLab(host: HTMLElement, opts: LabOpts): () => void {
     }
     alts = null;
     token++;
+    if (ownTalk && ownTalk.at >= k) ownTalk = null;
     k = Math.min(seq.length, k + 1);
     show();
   }
@@ -232,6 +322,8 @@ export function runLineLab(host: HTMLElement, opts: LabOpts): () => void {
       len: () => seq.length,
       alts: () => alts?.map((s) => s.move) ?? null,
       choose: (i: number) => choose(i),
+      own: (m: Move) => playOwn(m),
+      talk: () => elAlts.textContent ?? '',
       ask: () => askAlts(),
       next: () => btnNext.click(),
     };
