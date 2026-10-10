@@ -83,6 +83,38 @@ await stepRight();
 s = await st();
 ok('再走一遍走对了，结果还是第一次的（算错）', s.answered && s.verdict?.correct === false);
 
+// ───────── 2b. 杀法题：走了一手慢一点的杀，也算对（不苛求最快的那条），步数跟着放宽 ─────────
+// 用户原话："还是存在必胜残局在找最佳步数"
+await page.evaluate(() => window.__xqCoach.puzzle('mate2-qi'));
+await page.waitForTimeout(500);
+const slow = await page.evaluate(async () => {
+  const P = await import('/Life/src/xiangqi/pikafish.ts');
+  const N = await import('/Life/src/xiangqi/notation.ts');
+  const R = await import('/Life/src/xiangqi/rules.ts');
+  await P.loadEngine();
+  if (!P.engineReady()) return null;
+  const all = (await import('/Life/src/xiangqi/puzzles.ts')).allPuzzles();
+  const pz = all.find((p) => p.id === 'mate2-qi');
+  const pos = N.fromFen(pz.fen);
+  const ms = R.legalMoves(pos.board, pos.toMove).filter((m) => !R.isInCheck(R.applyMove(pos.board, m), pos.toMove));
+  for (const m of ms) {
+    const t = N.moveToText(pos.board, m);
+    if (t === pz.answer || (pz.also ?? []).includes(t)) continue;
+    const s = await P.engineScoreMove(pos.board, pos.toMove, m, { movetime: 250 });
+    if (s?.mateIn !== undefined && s.mateIn > 2 && s.mateIn <= 12) return { t, mateIn: s.mateIn };
+  }
+  return null;
+});
+if (slow) {
+  await page.evaluate((t) => window.__xqTrain.play(t), slow.t);
+  await until(() => { const s = window.__xqTrain.state(); return !s.busy || s.answered; }, null, 30000);
+  await until(() => !window.__xqTrain.state().busy, null, 30000);
+  const s2 = await st();
+  const fb2b = (await page.locator('.xq-tr-fb').innerText()).replace(/\s+/g, ' ');
+  console.log(`   慢一点的杀 ${slow.t}（${slow.mateIn} 步）：${fb2b.slice(0, 100)}`);
+  ok(`杀法题走了一手慢一点的杀（${slow.t}，${slow.mateIn} 步杀）：不判错，步数放宽到 ${s2.totalMine}`, !(s2.answered && s2.verdict?.correct === false) && s2.totalMine > 2 && fb2b.includes('也能杀'));
+} else console.log('   这道题找不到慢一点的杀（或引擎没起来），跳过');
+
 // ───────── 3. 战术题：走出原谱之外的着法，皮卡鱼来核对 ─────────
 await page.evaluate(() => window.__xqCoach.puzzle('tactic-1'));
 await page.waitForTimeout(500);
