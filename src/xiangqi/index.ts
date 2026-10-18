@@ -121,8 +121,8 @@ const LEVELS = [
   { id: 9, name: '特级大师 · 三段', desc: '只在前三名里挑，几乎不送机会', depth: 64, jitter: 0, timeMs: 5500 },
   { id: 10, name: '国手', desc: '前两名里挑，偶尔放你一马', depth: 64, jitter: 0, timeMs: 6000 },
   { id: 11, name: '国手 · 二段', desc: '不再挑着走：每步都走引擎第一名，算 15 万个局面', depth: 64, jitter: 0, timeMs: 6500 },
-  { id: 12, name: '棋王', desc: '皮卡鱼全力，每步算 45 万个局面，不看设备快慢', depth: 64, jitter: 0, timeMs: 7000 },
-  { id: 13, name: '棋圣', desc: '全力再加码：每步算 120 万个局面，电脑上要想好几秒', depth: 64, jitter: 0, timeMs: 8000 },
+  { id: 12, name: '棋王', desc: '皮卡鱼全力：每步算 45 万个局面，换哪台设备都一样强', depth: 64, jitter: 0, timeMs: 7000 },
+  { id: 13, name: '棋圣', desc: '全力再加码：每步算 120 万个局面，要多想几秒（慢手机最多 25 秒）', depth: 64, jitter: 0, timeMs: 8000 },
 ];
 
 /** 存下来的档位编号：老版本是七档、十一档，换成十四档的编号；什么都没存过就从大师开始 */

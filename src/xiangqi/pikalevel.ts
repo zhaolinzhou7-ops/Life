@@ -76,8 +76,9 @@ export const PIKA_LEVELS: LevelCfg[] = [
   { nodes: 6000, multipv: 6, temp: 72, maxLoss: 250, slip: 0.045, slipLoss: 550 },
   // 大师 · 二段
   { nodes: 8000, multipv: 6, temp: 62, maxLoss: 220, slip: 0.04, slipLoss: 480 },
-  // 大师 · 三段（新）：补大师 · 二段和特级大师之间一百六十分的空
-  { nodes: 10000, multipv: 5, temp: 56, maxLoss: 200, slip: 0.035, slipLoss: 440 },
+  // 大师 · 三段（新）：补大师 · 二段和特级大师之间一百六十分的空。
+  // 先试的 1 万节点对特级大师 40 盘 +15 =5 -20，几乎一样强，退到 9000 节点、挑得松一点，正好落在中间
+  { nodes: 9000, multipv: 5, temp: 58, maxLoss: 210, slip: 0.038, slipLoss: 460 },
   // 特级大师
   { nodes: 12000, multipv: 5, temp: 50, maxLoss: 180, slip: 0.03, slipLoss: 400 },
   // 特级大师 · 二段、三段、国手：节点越来越多，挑着法越来越认真，看走眼越来越少。
@@ -87,7 +88,7 @@ export const PIKA_LEVELS: LevelCfg[] = [
   { nodes: 50000, multipv: 2, temp: 16, maxLoss: 60, slip: 0.008, slipLoss: 160 },
   // 下面三档不再削弱：每步都走引擎认定的第一名，只差算多深。
   // 用户原话："最高水平的应该没有漏招才对，每一步都必须精准。"
-  // 原来棋王是"每步想 3 秒"：电脑上算 45 万个局面，慢手机上只有一二十万——同一档换台设备就弱一截。
+  // 原来棋王是"每步想 3 秒"：电脑上算 45 万个局面，手机慢两三倍，估计只有一二十万——同一档换台设备就弱一截。
   // 现在按节点数给，到哪台设备上都算这么多（movetime 只是封顶，免得特别慢的手机一步想太久）。
   // tools/top-level-check.ts 实测（36 个中局局面，拿 400 万节点复核）：20 万节点以上没有一手亏到一个兵，
   // 100 万节点最多亏 0.4 个兵。

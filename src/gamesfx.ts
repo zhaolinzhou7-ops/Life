@@ -921,8 +921,16 @@ export function startSong(song: Song) {
   // 音频时钟 lookahead 调度：不受主线程卡顿影响，节奏严丝合缝
   schedTimer = window.setInterval(() => {
     if (!curSong || !ctx) return;
+    // 切到后台时定时器被限流（一秒一次，手机上干脆停掉），回来时 nextTime 远远落在后面。
+    // 落下的拍子不补——补的话全挤在同一刻一起响，像一把乱弹——直接跳到现在，拍子的网格不变
+    if (nextTime < ctx.currentTime) {
+      const behind = Math.ceil((ctx.currentTime - nextTime) / curSong.stepDur);
+      nextTime += behind * curSong.stepDur;
+      songStep += behind;
+    }
     while (nextTime < ctx.currentTime + 0.3) {
-      if (!muted) curSong.play(songStep % curSong.steps, nextTime);
+      // 后台不出声：定时器一秒才来一次而只往前排 0.3 秒，放出来是断断续续的
+      if (!muted && !document.hidden) curSong.play(songStep % curSong.steps, nextTime);
       nextTime += curSong.stepDur;
       songStep++;
     }
