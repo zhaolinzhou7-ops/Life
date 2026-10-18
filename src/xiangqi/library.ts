@@ -100,6 +100,25 @@ export function obviousWin(e: { fen: string; you: Color; target: string }): bool
   return true;
 }
 
+/**
+ * 一眼就是和棋、守和不用技巧的残局：要你守和，可对方只剩一个进攻子（一个马、炮或兵）——比如马对兵、双士对炮双士。
+ * 用户原话："明显和局（比如各自剩一个炮）还要走很多步的情况。这种就没必要再写进去了，直接判定即可。"
+ * 留下的守和题，对方至少还有两个进攻子（车、马兵、炮兵、双兵……）：真要守，不守就输。
+ */
+export function obviousDraw(e: { fen: string; you: Color; target: string }): boolean {
+  if (e.target !== 'draw') return false;
+  const board = e.fen.split(' ')[0];
+  const isRed = (ch: string) => ch === ch.toUpperCase();
+  let foeAttackers = 0;
+  let foeRook = false;
+  for (const ch of board) {
+    if (!/[RNHCP]/i.test(ch) || (e.you === 'r') === isRed(ch)) continue;
+    foeAttackers++;
+    if (/r/i.test(ch)) foeRook = true;
+  }
+  return foeAttackers === 1 && !foeRook;
+}
+
 /** 两个库一起按需加载，不进首屏 */
 export function loadLibrary(): Promise<void> {
   if (mateCache && egCache) return Promise.resolve();
@@ -109,7 +128,7 @@ export function loadLibrary(): Promise<void> {
       mateCache = ((m.default ?? m) as MatePattern[]).slice();
     }),
     import('./endgamelib.json').then((m) => {
-      egCache = ((m.default ?? m) as EndgamePos[]).filter((e) => !obviousWin(e));
+      egCache = ((m.default ?? m) as EndgamePos[]).filter((e) => !obviousWin(e) && !obviousDraw(e));
     }),
   ])
     .then(() => undefined)

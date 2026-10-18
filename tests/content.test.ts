@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { allPuzzles, byKind, combos, defenseless, loadPuzzles } from '../src/xiangqi/puzzles';
-import { allEndgames, loadLibrary, obviousWin } from '../src/xiangqi/library';
+import { allEndgames, loadLibrary, obviousDraw, obviousWin } from '../src/xiangqi/library';
 import raw from '../src/xiangqi/puzzles.json';
 
 describe('一眼必胜的题不出', () => {
@@ -56,7 +56,9 @@ describe('对方没有进攻子的残局不出', () => {
     await loadLibrary();
     const eg = allEndgames();
     expect(eg.filter((e) => obviousWin(e))).toEqual([]);
+    // 一眼就是和棋的守和题（对方只剩一个马 / 炮 / 兵）也不出：拿掉了 9 个，守和题从 103 个剩 94 个
+    expect(eg.filter((e) => obviousDraw(e))).toEqual([]);
     expect(eg.filter((e) => e.target === 'win').length).toBeGreaterThanOrEqual(36);
-    expect(eg.filter((e) => e.target === 'draw').length).toBeGreaterThanOrEqual(100);
+    expect(eg.filter((e) => e.target === 'draw').length).toBeGreaterThanOrEqual(90);
   });
 });

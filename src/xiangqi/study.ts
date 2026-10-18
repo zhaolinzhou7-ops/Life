@@ -28,11 +28,11 @@ export const STUDY_BUDGET: SearchOpts = { maxDepth: 64, timeMs: 8000, jitter: 0,
 
 export type Power = 'save' | 'standard' | 'max';
 
-export const POWERS: { id: Power; name: string; desc: string; ms: number }[] = [
-  { id: 'save', name: '省电', desc: '每步算 5 秒', ms: 5000 },
-  { id: 'standard', name: '标准', desc: '每步算 15 秒', ms: 15000 },
+export const POWERS: { id: Power; name: string; desc: string; ms: number; judgeDepth: number; waitMs: number }[] = [
+  { id: 'save', name: '省电', desc: '每步算 5 秒', ms: 5000, judgeDepth: 10, waitMs: 2500 },
+  { id: 'standard', name: '标准', desc: '每步算 15 秒', ms: 15000, judgeDepth: 12, waitMs: 4000 },
   // 上限只是保险：人走开了、页面还开着，不能无限算下去
-  { id: 'max', name: '全力', desc: '你想多久它算多久，层数一直往上涨', ms: 180000 },
+  { id: 'max', name: '全力', desc: '你想多久它算多久；你秒落子它也先算到 14 层再判', ms: 180000, judgeDepth: 14, waitMs: 6000 },
 ];
 
 const POWER_KEY = 'xq-power';
@@ -65,10 +65,12 @@ const PRO_MAX_DEPTH = 60;
 
 /**
  * 教练放行一手棋之前，至少要看到这么深。
- * 自家引擎 4 层能看清一步杀、两步杀和绝大多数白送子；专业引擎 10 层通常不到半秒。
+ * 自家引擎 4 层能看清一步杀、两步杀和绝大多数白送子。
+ * 专业引擎按算力档定（POWERS.judgeDepth）：tools/depth-check.ts 拿 36 个中局局面、200 万节点复核，
+ * 10 层选的那一手有 3 手亏到一个兵以上，12 层有一手直接走进杀；14 层只剩 1 手，18 层一手都没有。
+ * 原来一律 10 层——用户原话"最强的教练……还是会走漏招、错招"，就是你秒落子时它只看了 10 层。
  */
 export const MIN_JUDGE_DEPTH = 4;
-const PRO_MIN_DEPTH = 10;
 
 /**
  * 算到这么深就当作"有定论"了：可以下"局面已经守不住"这种重话。
@@ -93,6 +95,8 @@ export class Study {
   engine: 'pro' | 'local';
   /** 教练放行至少要看到的层数（两个引擎的"层"不是一回事） */
   minDepth: number;
+  /** 等它算到 minDepth 最多等多久（毫秒）：慢手机上算不到也不能一直卡着 */
+  readonly waitMs: number;
   moves: MoveScore[] = [];
   depth = 0;
   done = false;
@@ -119,9 +123,11 @@ export class Study {
   ) {
     this.fen = toFen(board, color);
     this.engine = engineReady() ? 'pro' : 'local';
-    this.minDepth = this.engine === 'pro' ? PRO_MIN_DEPTH : MIN_JUDGE_DEPTH;
+    const pw = POWERS.find((p) => p.id === power) ?? POWERS[1];
+    this.minDepth = this.engine === 'pro' ? pw.judgeDepth : MIN_JUDGE_DEPTH;
+    this.waitMs = pw.waitMs;
     if (this.engine === 'pro') {
-      const ms = POWERS.find((p) => p.id === power)?.ms ?? 15000;
+      const ms = pw.ms;
       this.deadline = Date.now() + ms;
       this.runPro(ms);
     } else this.runLocal();

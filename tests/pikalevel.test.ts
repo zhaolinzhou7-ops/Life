@@ -58,27 +58,44 @@ describe('按档位挑着', () => {
   });
 });
 
-describe('十一档配置', () => {
-  it('十一档，名字、分数、配置一一对应，分数一档比一档高', () => {
-    expect(PIKA_LEVELS.length).toBe(11);
-    expect(AI_LEVEL_NAMES.length).toBe(11);
-    expect(AI_LEVEL_RATING.length).toBe(11);
-    for (let i = 1; i < 11; i++) expect(AI_LEVEL_RATING[i]).toBeGreaterThan(AI_LEVEL_RATING[i - 1]);
+describe('十四档配置', () => {
+  it('十四档，名字、分数、配置一一对应，分数一档比一档高', () => {
+    expect(PIKA_LEVELS.length).toBe(14);
+    expect(AI_LEVEL_NAMES.length).toBe(14);
+    expect(AI_LEVEL_RATING.length).toBe(14);
+    for (let i = 1; i < 14; i++) expect(AI_LEVEL_RATING[i]).toBeGreaterThan(AI_LEVEL_RATING[i - 1]);
   });
 
-  it('大师往上细分成七档，一档之间差一百多分（用户原话："至少要从大师档位起步"）', () => {
+  it('大师往上细分成十档，一档之间不超过两百分（用户原话："至少要从大师档位起步""如果现在的 7 个等级不够分，需要再增加等级"）', () => {
     const top = AI_LEVEL_RATING.slice(LEVEL_FLOOR);
     expect(AI_LEVEL_NAMES[LEVEL_FLOOR]).toBe('大师');
-    expect(top.length).toBe(7);
-    for (let i = 1; i < top.length; i++) expect(top[i] - top[i - 1]).toBeLessThanOrEqual(220);
+    expect(top.length).toBe(10);
+    for (let i = 1; i < top.length; i++) expect(top[i] - top[i - 1]).toBeLessThanOrEqual(200);
     // 给你排对手不低于大师
     expect(opponentFor(600)).toBe(LEVEL_FLOOR);
     expect(opponentFor(AI_LEVEL_RATING[9])).toBe(9);
   });
 
-  it('老存档的七档编号换成新编号：特级大师、棋王的名字不变', () => {
-    const OLD = ['入门', '初级', '中级', '高级', '大师', '特级大师', '棋王'];
-    OLD.forEach((name, i) => expect(AI_LEVEL_NAMES[migrateLevel(i)]).toBe(name));
+  it('最高三档不削弱：只走引擎第一名，按节点数算（和设备快慢无关），一档比一档算得多', () => {
+    const top = PIKA_LEVELS.slice(-3);
+    expect(AI_LEVEL_NAMES.slice(-3)).toEqual(['国手 · 二段', '棋王', '棋圣']);
+    for (const cfg of top) {
+      expect(cfg.multipv).toBe(1);
+      expect(cfg.slip).toBe(0);
+      expect(cfg.nodes).toBeGreaterThanOrEqual(150000);
+      // 时间只是封顶：快的设备节点数先到
+      expect(cfg.movetime).toBeGreaterThan(cfg.nodes! / 100);
+    }
+    // 棋王不比原来"电脑上想 3 秒"（约 45 万节点）弱
+    expect(PIKA_LEVELS[AI_LEVEL_NAMES.indexOf('棋王')].nodes).toBeGreaterThanOrEqual(450000);
+  });
+
+  it('老存档的档位编号换成新编号：名字不变', () => {
+    const V1 = ['入门', '初级', '中级', '高级', '大师', '特级大师', '棋王'];
+    V1.forEach((name, i) => expect(AI_LEVEL_NAMES[migrateLevel(i)]).toBe(name));
+    V1.forEach((name, i) => expect(AI_LEVEL_NAMES[migrateLevel(i, 1)]).toBe(name));
+    const V2 = ['入门', '初级', '中级', '高级', '大师', '大师 · 二段', '特级大师', '特级大师 · 二段', '特级大师 · 三段', '国手', '棋王'];
+    V2.forEach((name, i) => expect(AI_LEVEL_NAMES[migrateLevel(i, 2)]).toBe(name));
   });
 
   it('越往上算得越多、挑得越认真', () => {

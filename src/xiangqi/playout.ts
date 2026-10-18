@@ -19,6 +19,7 @@
  * 要赢的局面必须下到将死；给了 winAt（邪门布局的"破解到底"）的，引擎连续几步确认胜势已定也算过，
  * 可以选择接着下到将死。
  */
+import { END_TEXT, bareMinors, noAttackers } from './endings';
 import { applyMove, isInCheck, legalMoves, statusAfter, type Board, type Color, type Move } from './rules';
 import type { MoveScore } from './ai';
 import { fromFen, moveToText, toFen } from './notation';
@@ -26,6 +27,7 @@ import { Board2D, type Mark } from './board2d';
 import { openLineLab } from './linelab';
 import { requestMove } from './aiclient';
 import { Study } from './study';
+import { minorsDead } from './minors';
 import { engineBestMove, engineCapable, engineReady, loadEngine } from './pikafish';
 
 /** 等一个 Promise，最多等 ms；超时当它失败 */
@@ -523,11 +525,31 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
       return finish(turn === me ? 'loss' : 'win');
     }
     if (sinceCapture >= NO_CAPTURE_LIMIT) return finish('draw', '60 回合无吃子');
+    // 子力不够谁都赢不了：双方都没有进攻子力——直接作和，不用走满 60 回合
+    if (noAttackers(board)) return finish('draw', END_TEXT['no-attackers']);
     const key = toFen(board, turn);
     const n = (seen.get(key) ?? 0) + 1;
     seen.set(key, n);
     if (n >= 3) return finish('draw', '三次重复局面');
+    // 各只剩一个马或炮：引擎看过没杀也直接作和（有的摆法有杀，光看子力会把赢棋判没了，见 minors.ts）
+    if (bareMinors(board, turn)) {
+      const my = ++seq;
+      const b0 = board;
+      busy = true;
+      renderCoach();
+      void minorsDead(board, turn, { startFen, moves: moves.slice() }).then((dead) => {
+        if (over || my !== seq || board !== b0) return;
+        busy = false;
+        if (dead) return finish('draw', END_TEXT['bare-minors']);
+        nextTurn();
+      });
+      return;
+    }
+    nextTurn();
+  }
 
+  /** 棋没结束：轮到谁就让谁走 */
+  function nextTurn() {
     if (turn === foe) {
       const my = ++seq;
       busy = true;

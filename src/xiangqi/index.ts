@@ -53,6 +53,7 @@ import { trickAt, trickMoveFor, trickStageAt } from './tricks';
 import {
   END_TEXT,
   MOVE_LIMIT,
+  bareMinors,
   drawOrForfeit,
   pliesSinceCapture,
   repetitionState,
@@ -60,6 +61,7 @@ import {
   type PlyRecord,
 } from './endings';
 import { mateInOne } from './teach';
+import { minorsDead } from './minors';
 import { BoardView } from './boardview';
 import { ERR_INFO, PIECE_VALUE, inPieces } from './teach';
 import { moveToText, pieceName, toFen } from './notation';
@@ -73,10 +75,10 @@ import {
   sfxTap,
   sfxWinBig,
   speak,
-  startBgm,
   stopBgm,
   unlockAudio,
 } from '../gamesfx';
+import { nextXqMusic, startXqMusic } from '../xqmusic';
 import { CHARACTERS, avatarCanvas, pickLine, type Character } from '../characters';
 
 /**
@@ -95,36 +97,42 @@ const TEMPOS = [
 /**
  * 难度档。
  *
- * **七档都用皮卡鱼走棋。** 原来前五档是自带引擎加扰动，和顶两档（皮卡鱼）之间断了一大截，
+ * **每一档都用皮卡鱼走棋。** 原来前五档是自带引擎加扰动，和顶两档（皮卡鱼）之间断了一大截，
  * 用户原话："只有最后两档有难度"。现在每一档都是皮卡鱼，按档位削弱：
  * 算多少个节点（和设备快慢无关）+ 从前几名里挑的认真程度，见 pikalevel.ts。
+ * 国手 · 二段往上不削弱，每步都走引擎第一名，只差算多少个局面。
  *
  * 描述只说"它下起来是什么样"，不拿层数当卖点——层数和棋力不是一回事。
  * 每一档值多少分是对下实测的（save.ts 的 AI_LEVEL_RATING）。
  */
 const LEVELS = [
-  // 十一档都是皮卡鱼（按档位削弱，见 pikalevel.ts）。depth / jitter / timeMs 只在皮卡鱼起不来时给自带引擎替补用。
-  // 大师往上细分了四档：用户原话"对手档位建议多分几个细分级别……我至少要从'大师'档位起步"
+  // 十四档都是皮卡鱼（按档位削弱，见 pikalevel.ts）。depth / jitter / timeMs 只在皮卡鱼起不来时给自带引擎替补用。
+  // 大师往上细分：用户原话"对手档位建议多分几个细分级别……我至少要从'大师'档位起步"；
+  // 后来又说"如果现在的 7 个等级不够分，需要再增加等级"，补了大师 · 三段、国手 · 二段、棋圣
   { id: 0, name: '入门', desc: '算得很浅，常走次好的棋，隔几步就看走眼', depth: 64, jitter: 200, timeMs: 200 },
   { id: 1, name: '初级', desc: '看得见一两步的吃子，松着不少', depth: 64, jitter: 90, timeMs: 400 },
   { id: 2, name: '中级', desc: '明显的战术不漏，局面上常走软', depth: 64, jitter: 25, timeMs: 900 },
   { id: 3, name: '高级', desc: '不太送子，会抓你的漏着', depth: 64, jitter: 0, timeMs: 1800 },
   { id: 4, name: '大师', desc: '很少犯错，抓杀抓子', depth: 64, jitter: 0, timeMs: 2800 },
   { id: 5, name: '大师 · 二段', desc: '算得更深一点，松着更少', depth: 64, jitter: 0, timeMs: 3300 },
-  { id: 6, name: '特级大师', desc: '几乎只走最好的几步', depth: 64, jitter: 0, timeMs: 4500 },
-  { id: 7, name: '特级大师 · 二段', desc: '只在前四名里挑，很少看走眼', depth: 64, jitter: 0, timeMs: 5000 },
-  { id: 8, name: '特级大师 · 三段', desc: '只在前三名里挑，几乎不送机会', depth: 64, jitter: 0, timeMs: 5500 },
-  { id: 9, name: '国手', desc: '前两名里挑，差一点就是全力', depth: 64, jitter: 0, timeMs: 6000 },
-  { id: 10, name: '棋王', desc: '皮卡鱼全力，每步想 3 秒，几乎不犯错', depth: 64, jitter: 0, timeMs: 6500 },
+  { id: 6, name: '大师 · 三段', desc: '只在前五名里挑，抓住机会就不放', depth: 64, jitter: 0, timeMs: 3900 },
+  { id: 7, name: '特级大师', desc: '几乎只走最好的几步', depth: 64, jitter: 0, timeMs: 4500 },
+  { id: 8, name: '特级大师 · 二段', desc: '只在前四名里挑，很少看走眼', depth: 64, jitter: 0, timeMs: 5000 },
+  { id: 9, name: '特级大师 · 三段', desc: '只在前三名里挑，几乎不送机会', depth: 64, jitter: 0, timeMs: 5500 },
+  { id: 10, name: '国手', desc: '前两名里挑，偶尔放你一马', depth: 64, jitter: 0, timeMs: 6000 },
+  { id: 11, name: '国手 · 二段', desc: '不再挑着走：每步都走引擎第一名，算 15 万个局面', depth: 64, jitter: 0, timeMs: 6500 },
+  { id: 12, name: '棋王', desc: '皮卡鱼全力：每步算 45 万个局面，换哪台设备都一样强', depth: 64, jitter: 0, timeMs: 7000 },
+  { id: 13, name: '棋圣', desc: '全力再加码：每步算 120 万个局面，要多想几秒（慢手机最多 25 秒）', depth: 64, jitter: 0, timeMs: 8000 },
 ];
 
-/** 存下来的档位编号：老版本是七档，换成十一档的编号；什么都没存过就从大师开始 */
+/** 存下来的档位编号：老版本是七档、十一档，换成十四档的编号；什么都没存过就从大师开始 */
 function storedLevel(): number {
   try {
-    if (localStorage.getItem('xq-level-v') !== '2') {
+    const ver = localStorage.getItem('xq-level-v');
+    if (ver !== '3') {
       const old = localStorage.getItem('xq-level');
-      if (old !== null) localStorage.setItem('xq-level', String(migrateLevel(Number(old) || 0)));
-      localStorage.setItem('xq-level-v', '2');
+      if (old !== null) localStorage.setItem('xq-level', String(migrateLevel(Number(old) || 0, ver === '2' ? 2 : 1)));
+      localStorage.setItem('xq-level-v', '3');
     }
     const v = localStorage.getItem('xq-level');
     return Math.max(0, Math.min(LEVELS.length - 1, v === null ? LEVEL_FLOOR : Number(v) || 0));
@@ -178,14 +186,16 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     practice: boolean;
     /** 存的是十一档的编号（老版本七档的没有这个标记，读出来要换算） */
     lv2?: boolean;
+    /** 存的是十四档的编号 */
+    lv3?: boolean;
   }
   const readOngoing = (): Ongoing | null => {
     try {
       const o = JSON.parse(localStorage.getItem(ONGOING_KEY) || 'null') as Ongoing | null;
       // 两个星期前的残局就别再提了
       if (!o || !o.moves || Date.now() - o.ts > 14 * 864e5) return null;
-      if (!o.lv2) o.level = migrateLevel(o.level);
-      o.lv2 = true;
+      if (!o.lv3) o.level = migrateLevel(o.level, o.lv2 ? 2 : 1);
+      o.lv2 = o.lv3 = true;
       return o;
     } catch {
       return null;
@@ -270,7 +280,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     }, entry, (moves, meColor, level) => {
       disposeCoach?.();
       disposeCoach = null;
-      if (level !== undefined) localStorage.setItem('xq-level', String(level));
+      // 写的是新编号：版本号一起写上，不然 storedLevel 会把它当老编号再换算一遍
+      if (level !== undefined) {
+        localStorage.setItem('xq-level', String(level));
+        localStorage.setItem('xq-level-v', '3');
+      }
       const lv = storedLevel();
       if (!moves.length) {
         // 今日训练里的"实战一局"：正常的一盘，计入实战分
@@ -446,7 +460,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         };
         return card;
       };
-      // 大师往上七档摆出来；入门～高级四档折起来（选着其中一档时展开）
+      // 大师往上十档摆出来；入门～高级四档折起来（选着其中一档时展开）
       LEVELS.filter((L) => L.id >= LEVEL_FLOOR).forEach((L) => lvRow.appendChild(lvCard(L)));
       s.appendChild(lvRow);
       const low = document.createElement('details');
@@ -742,6 +756,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           moves: encodeMoves(moveLog),
           practice,
           lv2: true,
+          lv3: true,
         };
         localStorage.setItem(ONGOING_KEY, JSON.stringify(o));
       } catch {
@@ -880,7 +895,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       if (!s) return;
       const token = moveToken;
       const seq = ++threatSeq;
-      void s.until((x) => x.depth >= x.minDepth, 4000).then(async () => {
+      void s.until((x) => x.depth >= x.minDepth, Math.max(4000, s.waitMs)).then(async () => {
         const live = () => token === moveToken && seq === threatSeq && !over && turn === me && s.is(board, me);
         if (!live() || !s.best || s.best.mateIn !== undefined) return;
         const t = await opponentIdea(board, me, s.best.score);
@@ -908,7 +923,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     // 先把搜索线程热起来，别让第一步的回手慢一大截
     warmupAi(board, foe);
     scene.dealIn();
-    startBgm('guqin');
+    // 配乐：每盘随机一种曲风（山水、草原、江南、竹林、大漠、月夜、江湖），不和上一盘重复，调高、速度、旋律也都现编
+    const music = startXqMusic();
 
     // ---- HUD ----
     const hud = document.createElement('div');
@@ -917,6 +933,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       <button class="moba-back xq-back">← 退出</button>
       <div class="xq-turn"><span id="xq-turn-dot"></span><span id="xq-turn-text">红方走棋</span></div>
       <div class="xq-actions">
+        <button class="xq-btn" id="xq-music" title="换一种配乐">🎵</button>
         <button class="xq-btn" id="xq-mute">${isMuted() ? '🔇' : '🔊'}</button>
         <button class="xq-btn" id="xq-best" title="问最优解：告诉我这一步该走哪">🔍</button>
         <button class="xq-btn" id="xq-hint" title="教练提示档位">🧑‍🏫${HINT_LEVELS[hintLevel].short}</button>
@@ -1027,7 +1044,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       };
       // 对方的想法：研究够深之后问一次引擎"如果轮到他，他想走什么"
       let threatHtml: string | undefined;
-      void s.until((x) => x.depth >= x.minDepth, 4000).then(async () => {
+      void s.until((x) => x.depth >= x.minDepth, Math.max(4000, s.waitMs)).then(async () => {
         if (token !== bestSeq || !s.is(board, me) || !s.best) return;
         const t = await opponentIdea(board, me, s.best.score);
         if (token !== bestSeq || !s.is(board, me)) return;
@@ -1066,6 +1083,17 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       setMuted(!isMuted());
       muteBtn.textContent = isMuted() ? '🔇' : '🔊';
     };
+    // 🎵 换一种曲风：用户原话"每次下棋的感觉都不一样"——不喜欢这一首就点一下换
+    const musicName = (m: ReturnType<typeof startXqMusic>) => (m ? `🎵 ${m.style.name}（${m.key}）· ${m.style.desc}` : '');
+    (hud.querySelector('#xq-music') as HTMLButtonElement).onclick = () => {
+      const m = nextXqMusic();
+      if (isMuted()) {
+        setMuted(false);
+        muteBtn.textContent = '🔊';
+      }
+      showToast(musicName(m), 3200);
+    };
+    if (music && !isMuted()) setTimeout(() => showToast(`本盘配乐：${musicName(music).slice(2)}`, 3000), 900);
 
     // ---- 对手角色框 ----
     const rivalBox = document.createElement('div');
@@ -1484,17 +1512,20 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     /**
      * 对手不许走的着法。
      *
-     * 引擎的搜索看不见对局历史：占优时它会走回老局面（第三次重复就判和了，
-     * 白白放掉一盘赢棋），或者一路将下去（长将判负）。这两种都挑出来不让它走。
+     * 走了按规则直接判负的（长将）一律不走。
+     * 子力不比你少时走回老局面（第三次重复就判和了，白白放掉一盘赢棋）也拦，但只拦削弱过的几档和自带引擎替补。
+     * 不削弱的几档（只走引擎第一名）不拦：皮卡鱼拿到了整盘棋的历史，重复局面它自己算成和棋——
+     * 真占优时它自然不走；子力一样、其实是它落后时，走成重复正是它算出来的最好一手。
+     * 原来对这几档也拦，逼着它离开唯一的守和着法。用户原话"棋王级别的对手……还是会走漏招、错招"，这是来源之一。
      * 它子力落后时，走成重复和棋是合理的求和手段，那就不拦。
      */
-    function aiAvoid(): Move[] {
+    function aiAvoid(allowRepeat: boolean): Move[] {
       const ahead = material(board, foe) >= material(board, me);
       return legalMoves(board, foe).filter((m) => {
         const end = previewEnd(m, foe);
         if (!end) return false;
         if (end.winner === me) return true;
-        return end.winner === null && end.reason === 'repetition' && ahead;
+        return !allowRepeat && end.winner === null && end.reason === 'repetition' && ahead;
       });
     }
 
@@ -1527,7 +1558,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       const s = ensureStudy();
       drawBtn.disabled = true;
       drawBtn.textContent = '🤝 …';
-      await s.until((x) => x.depth >= x.minDepth, 3000);
+      await s.until((x) => x.depth >= x.minDepth, s.waitMs);
       drawBtn.disabled = false;
       drawBtn.textContent = '🤝 求和';
       if (token !== moveToken || over || turn !== me) return;
@@ -1594,12 +1625,12 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         return;
       }
 
-      // 教练要看到足够深才判。你秒落子时研究可能才刚开始，等它一小会儿（通常不到一秒）
+      // 教练要看到足够深才判（多深看算力档）。你秒落子时研究可能才刚开始，等它一会儿（全力档最多几秒）
       const s = ensureStudy();
       if (!s.done && s.depth < s.minDepth) {
         busy = true;
         setCoachLine('教练看一眼这一手…', 'info');
-        await s.until((x) => x.depth >= x.minDepth, 2500);
+        await s.until((x) => x.depth >= x.minDepth, s.waitMs);
         // 还一层都没有（慢手机、引擎刚换过）：再等一会儿。手里什么都没有就判，
         // 只能退回"看子力"的老办法——那正是教练"算着算着就不算了"的样子
         if (!s.moves.length && !s.done && !s.stopped) await s.until((x) => x.moves.length > 0, 6000);
@@ -1750,6 +1781,25 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         endGame(fin);
         return;
       }
+      // 双方各只剩一个马或炮：引擎看过没杀就当场作和，不用走满 60 回合。看的这一两秒先不让走
+      if (bareMinors(board, turn)) {
+        const b0 = board;
+        busy = true;
+        setCoachLine('双方各只剩一个马或炮，看看还有没有杀…', 'info');
+        void minorsDead(board, turn, { startFen: startKey, moves: moveLog.slice() }).then((dead) => {
+          busy = false;
+          setCoachLine(null);
+          if (over || board !== b0) return;
+          if (dead) endGame({ winner: null, reason: 'bare-minors' });
+          else nextTurn();
+        });
+        return;
+      }
+      nextTurn();
+    }
+
+    /** 这一手走完、棋没结束：将军提示，轮到谁就让谁走 */
+    function nextTurn() {
       if (isInCheck(board, turn)) {
         const k = findKing(board, turn);
         if (k) scene.flashCheck(k[0], k[1]);
@@ -1768,14 +1818,16 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         // 再加一点随机，免得每一步都卡在同一个时刻，那样同样很机械。
         const t0 = performance.now();
         const wait = TEMPO.think ? TEMPO.think * (0.75 + Math.random() * 0.5) : 0;
-        const avoid = aiAvoid();
-        // 皮卡鱼起不来时的替补：自带引擎，按原来各档的参数
+        const cfg = PIKA_LEVELS[Math.max(0, Math.min(PIKA_LEVELS.length - 1, handicap?.lv ?? level))];
+        // 皮卡鱼起不来时的替补：自带引擎，按原来各档的参数（它看不见棋局历史，重复局面要替它拦）
         const local = () => {
           lastAiEngine = 'local';
+          // 当场说一声：原来要到结算页才知道"这盘对手是替补"，下的时候只觉得最高档怎么也走错招
+          if (!aiFellBack) showToast('皮卡鱼没加载起来，这一步对手用自带引擎替补——棋力比档位低，这盘不算实战分', 4200);
           aiFellBack = true;
-          return requestMove(board, foe, { maxDepth: L.depth, jitter: L.jitter, timeMs: L.timeMs, avoid });
+          return requestMove(board, foe, { maxDepth: L.depth, jitter: L.jitter, timeMs: L.timeMs, avoid: aiAvoid(false) });
         };
-        const cfg = PIKA_LEVELS[Math.max(0, Math.min(PIKA_LEVELS.length - 1, handicap?.lv ?? level))];
+        const avoid = aiAvoid(cfg.multipv <= 1);
         // 邪门布局陪练：局面还在某一条套路上，就按套路走
         const trickNext = tricky ? trickMoveFor(moveLog, foe, trickPick) : null;
         if (trickNext) trickPick = trickNext.trick.id;
