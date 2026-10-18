@@ -612,7 +612,8 @@ export async function engineLevelMove(
     history,
     multipv: cfg.multipv,
     nodes: cfg.nodes,
-    movetime: cfg.nodes ? undefined : cfg.movetime,
+    // 节点数和时间都给时先到哪个算哪个：时间只是给特别慢的手机封顶
+    movetime: cfg.movetime,
     searchmoves: allowed.length && allowed.length < legal.length ? allowed : undefined,
   }).promise;
   if (r.failed && !r.lines.length) return null;
@@ -735,7 +736,31 @@ export function engineReview(
           if (cancelled) return;
           played = linesToMoveScores(p.lines, cur, c).find((x) => !x.bound && sameMv(x.move, moves[i]));
         }
-        if (played) judged = { best, played, depth: r.depth, engine: 'pro', second: table[1]?.score };
+        /*
+         * 判成"亏一个半兵以上"的那几手，再用更长的一次搜索复核：最好的几手和这一手在同一次搜索里比。
+         * 两次各算各的（最好 0.6 秒、这一手 0.5 秒）分数能差出一个兵上下——棋王想了 3 秒的一手，
+         * 被 0.5 秒的搜索看成"失误"，用户就觉得"最高档也走错招"。错着要经得起复核才算。
+         */
+        const lossOf = (b: MoveScore, p: MoveScore) =>
+          b.mateIn !== undefined || p.mateIn !== undefined ? (sameMv(b.move, p.move) ? 0 : 999) : b.score - p.score;
+        if (played && !sameMv(best.move, played.move) && lossOf(best, played) >= 150) {
+          const ms = Math.min(5000, Math.max(1500, per.best * 2));
+          job = search({ board: cur, color: c, history, movetime: ms, multipv: 3 });
+          const rr = await job.promise;
+          if (cancelled) return;
+          const t2 = linesToMoveScores(rr.lines, cur, c).filter((x) => !x.bound);
+          let p2 = t2.find((x) => sameMv(x.move, moves[i]));
+          if (!p2 && t2.length) {
+            job = search({ board: cur, color: c, history, searchmoves: [moves[i]], movetime: Math.round(ms * 0.8) });
+            const pp = await job.promise;
+            if (cancelled) return;
+            p2 = linesToMoveScores(pp.lines, cur, c).find((x) => !x.bound && sameMv(x.move, moves[i]));
+          }
+          if (t2[0] && p2) {
+            judged = { best: t2[0], played: p2, depth: rr.depth, engine: 'pro', second: t2[1]?.score };
+          }
+        }
+        if (played && !judged) judged = { best, played, depth: r.depth, engine: 'pro', second: table[1]?.score };
       }
       onStep(i, c, cur, judged);
       cur = applyMoveLocal(cur, moves[i]);

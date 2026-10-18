@@ -12,9 +12,10 @@
  *   - 同一局面第三次出现：一方每一步都在将军、另一方没有 → 长将方判负；否则作和。
  *   - 连续 60 回合（120 步）没有吃子：作和。
  *   - 双方都没有车马炮兵（只剩将士象）：作和。
+ *   - 双方各只剩一个马或炮（马对马、炮对炮、马对炮），都没有车和兵：书上的和棋，直接作和。
  * 长捉等更细的裁决涉及"捉"的认定，争议大，这里不做。
  */
-import type { Board, Color } from './rules';
+import { applyMove, isInCheck, legalMoves, type Board, type Color } from './rules';
 
 export type EndReason =
   | 'mate'
@@ -24,7 +25,8 @@ export type EndReason =
   | 'repetition'
   | 'perpetual-check'
   | 'move-limit'
-  | 'no-attackers';
+  | 'no-attackers'
+  | 'bare-minors';
 
 export interface GameEnd {
   /** 赢家；和棋为 null */
@@ -56,6 +58,7 @@ export const END_TEXT: Record<EndReason, string> = {
   'perpetual-check': '长将判负',
   'move-limit': '60 回合未吃子，自然限着作和',
   'no-attackers': '双方都没有进攻子力，作和',
+  'bare-minors': '双方各只剩一个马或炮，谁也赢不了，作和',
 };
 
 /**
@@ -102,6 +105,28 @@ export function pliesSinceCapture(plies: PlyRecord[]): number {
 export function noAttackers(b: Board): boolean {
   for (const row of b) for (const p of row) if (p && (p.t === 'R' || p.t === 'H' || p.t === 'C' || p.t === 'P')) return false;
   return true;
+}
+
+/**
+ * 双方各只剩一个马或炮（没有车、没有兵）：马对马、炮对炮、马对炮，书上都是和棋。
+ * 用户原话："明显各自只剩一个马还要走半天，或者明显和局（比如各自剩一个炮）还要走很多步……直接判定即可。"
+ * 这一步就能吃掉对方最后那个子的不算（吃完是单马/单炮对光将或士象，可能还有得赢）。
+ * 这里只看子力；子摆得别扭时会有杀，所以判和之前还要让引擎看一眼（minors.ts），不放进 drawOrForfeit。
+ */
+export function bareMinors(b: Board, toMove: Color): boolean {
+  const minors: Record<Color, { x: number; y: number }[]> = { r: [], b: [] };
+  for (let y = 0; y < 10; y++)
+    for (let x = 0; x < 9; x++) {
+      const p = b[y][x];
+      if (!p) continue;
+      if (p.t === 'R' || p.t === 'P') return false;
+      if (p.t === 'H' || p.t === 'C') minors[p.c].push({ x, y });
+    }
+  if (minors.r.length !== 1 || minors.b.length !== 1) return false;
+  const foe: Color = toMove === 'r' ? 'b' : 'r';
+  const target = minors[foe][0];
+  const canTake = legalMoves(b, toMove).some((m) => m.tx === target.x && m.ty === target.y && !isInCheck(applyMove(b, m), toMove));
+  return !canTake;
 }
 
 /**

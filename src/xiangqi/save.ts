@@ -116,11 +116,27 @@ export function ttNear(r: number) {
  * 同一个引擎自己跟自己下会把差距放大，所以只要能对旧档下的，都按对旧档的结果算。
  * 估得不准也不要紧——你的实战分跟着输赢走，几盘之后自己会落到对的位置。
  */
-export const AI_LEVEL_RATING = [650, 880, 1050, 1300, 1420, 1530, 1690, 1860, 2000, 2130, 2200];
-/** 旧版本各档（前五档是自带引擎）的分：只给补算老存档里的棋用 */
+export const AI_LEVEL_RATING = [650, 880, 1050, 1300, 1420, 1530, 1610, 1690, 1860, 2000, 2130, 2170, 2200, 2240];
+/** 旧版本各档（前五档是自带引擎）的名字和分：只给补算老存档里的棋用 */
+export const LEGACY_LEVEL_NAMES = ['入门', '初级', '中级', '高级', '大师', '特级大师', '棋王'];
 export const LEGACY_LEVEL_RATING = [750, 950, 1150, 1300, 1450, 1900, 2100];
 /** 和对弈设置页的难度名一一对应（单元测试核对） */
-export const AI_LEVEL_NAMES = ['入门', '初级', '中级', '高级', '大师', '大师 · 二段', '特级大师', '特级大师 · 二段', '特级大师 · 三段', '国手', '棋王'];
+export const AI_LEVEL_NAMES = [
+  '入门',
+  '初级',
+  '中级',
+  '高级',
+  '大师',
+  '大师 · 二段',
+  '大师 · 三段',
+  '特级大师',
+  '特级大师 · 二段',
+  '特级大师 · 三段',
+  '国手',
+  '国手 · 二段',
+  '棋王',
+  '棋圣',
+];
 
 /**
  * 对弈设置默认展开、推荐对手的最低一档：大师。
@@ -130,11 +146,13 @@ export const AI_LEVEL_NAMES = ['入门', '初级', '中级', '高级', '大师',
 export const LEVEL_FLOOR = 4;
 
 /**
- * 档位从七档细分成十一档（大师往上多了四档），老存档里记的是旧编号：换成新编号。
- * 旧 0～4 不变，旧 5（特级大师）→ 6，旧 6（棋王）→ 10。
+ * 老存档里记的档位编号换成现在十四档的编号。
+ * 第一版七档（from = 1）：0～4 不变，特级大师 5 → 7，棋王 6 → 12。
+ * 第二版十一档（from = 2）：大师 · 二段往下不变，往上插了大师 · 三段、国手 · 二段：特级大师 6 → 7 …… 国手 9 → 10，棋王 10 → 12。
  */
-export function migrateLevel(old: number): number {
-  return [0, 1, 2, 3, 4, 6, 10][old] ?? old;
+export function migrateLevel(old: number, from: 1 | 2 = 1): number {
+  const map = from === 1 ? [0, 1, 2, 3, 4, 7, 12] : [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 12];
+  return map[old] ?? old;
 }
 
 /**
@@ -142,9 +160,13 @@ export function migrateLevel(old: number): number {
  * 赢一半输一半的对手最涨棋——总是赢说明太弱，总是输学不到东西。
  */
 export function suggestLevel(r: number): number {
-  // 往上看六十分：档位细分以后两档只差一百来分，看一百分就成了"总比你高一档"
+  // 往上看六十分：档位细分以后两档只差一百来分，看一百分就成了"总比你高一档"。
+  // 顶上几档挤在一起（差几十分），往上看的不超过和下一档差距的一半——不然正好是国手的分，推荐的却总是国手 · 二段
   let best = 0;
-  for (let i = 0; i < AI_LEVEL_RATING.length; i++) if (AI_LEVEL_RATING[i] <= r + 60) best = i;
+  for (let i = 0; i < AI_LEVEL_RATING.length; i++) {
+    const gap = i ? AI_LEVEL_RATING[i] - AI_LEVEL_RATING[i - 1] : Infinity;
+    if (AI_LEVEL_RATING[i] <= r + Math.min(60, gap / 2)) best = i;
+  }
   return best;
 }
 
@@ -500,7 +522,7 @@ export const LADDER: { id: string; name: string; desc: string; strip: number; lv
   { id: 'h1', name: '让单马', desc: '对手（高级）少一个马', strip: 1, lv: 3, approx: AI_LEVEL_RATING[3] - 250 },
   { id: 'e0', name: '分先 · 进阶', desc: '子力相同，对手是高级', strip: 0, lv: 3, approx: AI_LEVEL_RATING[3] },
   { id: 'e1', name: '分先 · 高手', desc: '子力相同，对手是大师', strip: 0, lv: 4, approx: AI_LEVEL_RATING[4] },
-  { id: 'e2', name: '分先 · 大师', desc: '子力相同，对手是特级大师', strip: 0, lv: 6, approx: AI_LEVEL_RATING[6] },
+  { id: 'e2', name: '分先 · 大师', desc: '子力相同，对手是特级大师', strip: 0, lv: 7, approx: AI_LEVEL_RATING[7] },
 ];
 
 export interface LadderState {
@@ -703,6 +725,8 @@ export function getStreak(): { streak: number; lastDate: string } {
 /** 做错了就进错题本；已经在本子里的往回退一格，说明还没记住 */
 export function markWrong(id: string) {
   const d = load();
+  // 自己棋局里的题已经拿掉了（做题时皮卡鱼确认那是赢定了的局面）：别再记一张指向空题的复习卡
+  if (id.startsWith('own-') && !d.own.some((p) => p.id === id)) return;
   const c = d.srs.find((x) => x.id === id);
   if (c) {
     c.box = Math.max(0, c.box - 1);
@@ -857,7 +881,9 @@ export function backfillPlay(games: { ts: number; level: string; result: 'win' |
   if (d.play) return;
   const list = games
     .filter((g) => g.moves.length >= 40) // 至少十手：太短的棋不算
-    .map((g) => ({ g, lv: AI_LEVEL_NAMES.indexOf(g.level) }))
+    // 老存档里的档位名按当时的七档去查。原来拿现在的档位表查：特级大师查出来的编号对不上旧分表，
+    // 棋王的编号超出旧分表，补出来的分是 NaN
+    .map((g) => ({ g, lv: LEGACY_LEVEL_NAMES.indexOf(g.level) }))
     .filter((x) => x.lv >= 0) // 练习局（"中级 · 摆局练习"）、让子局不在这里补
     .sort((a, b) => a.g.ts - b.g.ts);
   d.play = { r: seedRating(), n: 0, log: [] };

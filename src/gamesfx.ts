@@ -715,10 +715,46 @@ const vel = () => 0.85 + Math.random() * 0.3;
 /** 落点抖动：±8ms，人手不可能踩得死准 */
 const swing = () => (Math.random() - 0.5) * 0.016;
 
-interface Song {
+export interface Song {
   stepDur: number; // 八分音符时长（秒）
   steps: number; // 循环步数
   play: (step: number, when: number) => void;
+}
+
+/**
+ * 给别的配乐模块（象棋的生成式配乐 xqmusic.ts）用的音频出口：上下文 + 带声位的总线入口。
+ * 起不来（没有 Web Audio）返回 null。
+ */
+export function musicCore(): { c: AudioContext; outAt: (pan?: number) => AudioNode } | null {
+  const c = ac();
+  return c ? { c, outAt } : null;
+}
+
+/**
+ * 输出电平（测试用）：压缩之后、主音量之前的峰值和 RMS。
+ * 界面测试靠它确认配乐真的出了声、而且没有削波——测试机听不见。
+ */
+let meterNode: AnalyserNode | null = null;
+export function outputLevel(): { peak: number; rms: number } | null {
+  const c = ac();
+  if (!c || !master) return null;
+  if (!meterNode) {
+    meterNode = c.createAnalyser();
+    meterNode.fftSize = 2048;
+    master.connect(meterNode);
+    const sink = c.createGain();
+    sink.gain.value = 0;
+    meterNode.connect(sink).connect(c.destination);
+  }
+  const d = new Float32Array(meterNode.fftSize);
+  meterNode.getFloatTimeDomainData(d);
+  let peak = 0;
+  let sum = 0;
+  for (const x of d) {
+    peak = Math.max(peak, Math.abs(x));
+    sum += x * x;
+  }
+  return { peak, rms: Math.sqrt(sum / d.length) };
 }
 
 /** 象棋《溪山对弈》：66bpm，箫主旋律 + 古筝分解 + 低音持续 */
@@ -871,10 +907,15 @@ let nextTime = 0;
 let curSong: Song | null = null;
 
 export function startBgm(style: BgmStyle) {
+  startSong(style === 'guqin' ? songXiqi() : songJinguan());
+}
+
+/** 放一首曲子（音频时钟 lookahead 调度）；象棋的生成式配乐也走这里 */
+export function startSong(song: Song) {
   stopBgm();
   const c = ac();
   if (!c) return;
-  curSong = style === 'guqin' ? songXiqi() : songJinguan();
+  curSong = song;
   songStep = 0;
   nextTime = c.currentTime + 0.1;
   // 音频时钟 lookahead 调度：不受主线程卡顿影响，节奏严丝合缝

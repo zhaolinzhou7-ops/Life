@@ -188,16 +188,23 @@ for (const [w, h] of [[390, 664], [375, 548]]) {
   await page.locator('[data-home="play"]').click(); await page.waitForTimeout(400);
   const shown = await page.locator('[data-level]:visible .title').allInnerTexts();
   note('看得见的档位：' + shown.map((t) => t.replace(/推荐/, '').trim()).join(' / '));
-  ok('设置页一眼看到的是大师往上七档', shown.length === 7 && shown[0].includes('大师') && shown[6].includes('棋王'));
+  ok('设置页一眼看到的是大师往上十档，最高是棋圣', shown.length === 10 && shown[0].includes('大师') && shown[8].includes('棋王') && shown[9].includes('棋圣'));
   ok('入门～高级折在"更低的档位"里', (await page.locator('.xq-lowlv:not([open])').count()) === 1);
   ok('默认选中大师', ((await page.locator('.diff-row .card.selected .title').first().innerText()) ?? '').startsWith('大师'));
-  // 老存档：旧编号 5（特级大师）换成新编号
+  // 老存档：第一版七档的编号 5（特级大师）换成新编号
   await page.evaluate(() => { localStorage.setItem('xq-level', '5'); localStorage.removeItem('xq-level-v'); });
   await page.reload({ waitUntil: 'networkidle' });
   await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
   await page.locator('[data-home="play"]').click(); await page.waitForTimeout(400);
   const sel = (await page.locator('.diff-row .card.selected .title').first().innerText()).trim();
-  ok(`老存档里选的特级大师还是特级大师（现在选中：${sel}）`, sel === '特级大师');
+  ok(`老存档（七档）里选的特级大师还是特级大师（现在选中：${sel}）`, sel === '特级大师');
+  // 第二版十一档的编号 10（棋王）换成新编号
+  await page.evaluate(() => { localStorage.setItem('xq-level', '10'); localStorage.setItem('xq-level-v', '2'); });
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
+  await page.locator('[data-home="play"]').click(); await page.waitForTimeout(400);
+  const sel2 = (await page.locator('.diff-row .card.selected .title').first().innerText()).trim();
+  ok(`老存档（十一档）里选的棋王还是棋王（现在选中：${sel2}）`, sel2 === '棋王');
   await page.close();
 }
 

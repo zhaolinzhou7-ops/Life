@@ -151,6 +151,19 @@ describe('老存档补算实战分', async () => {
     backfillPlay([{ ts: 9, level: '棋王', result: 'win', moves: long }]);
     expect(getPlay()!.n).toBe(3);
   });
+
+  it('老存档里赢过特级大师、棋王：按当时七档的分补算，分数是个正常的数', () => {
+    // 原来拿现在的档位表查名字：棋王的编号超出旧分表，补出来是 NaN，实战分从此坏掉
+    const long = 'x'.repeat(80);
+    backfillPlay([
+      { ts: 1, level: '特级大师', result: 'win', moves: long },
+      { ts: 2, level: '棋王', result: 'draw', moves: long },
+    ]);
+    const p = getPlay()!;
+    expect(p.n).toBe(2);
+    expect(Number.isFinite(p.r)).toBe(true);
+    expect(p.r).toBeGreaterThan(1100); // 起点 1100，赢一盘和一盘只会涨
+  });
 });
 
 describe('每日训练轮换：布局体系、中局组合、绝地反杀都排得进来', () => {
