@@ -19,6 +19,13 @@
  *   - **自然声**（演奏层合成）：溪水、鸟鸣、松风、细雨，安静的段落才有；
  *   - **点缀**：将军——战鼓"咚、哒哒"带一声锣；吃掉车马炮——琵琶扫一下；终局赢、输、和各有一句收尾。
  * 每种情绪有自己的主题（A A' B A''），这盘棋第二次回到这种情绪时主题再现——一盘棋听下来有几个记得住的旋律。
+ *
+ * 第四版（用户原话："已经好很多了，把整体层次再丰富一些。音乐混搭。"）：**中西混搭、层层叠上去**——
+ *   - 民乐领奏，底下加西洋 / 现代的几层（fusionBar）：弦乐群或合成器铺底、钢琴或竖琴分解和弦、大提琴或拨弦低音的低音线、
+ *     有的乐队再加一点轻律动（底鼓、边击、沙锤）；攻杀里弦乐跳弓、定音鼓和琵琶扫弦、战鼓叠在一起；
+ *   - 主旋律轮换里混进钢琴、大提琴：古琴一句、箫一句、钢琴一句；
+ *   - B 句加一条**对位旋律**（多是大提琴，比主旋律低一个八度、节奏更宽，自己有起伏）；
+ *   - 按段落递进叠层：A 句疏、A' 加分解和弦、B 句最满（对位 + 全部混搭声部）、A'' 回来也满；B 句末尾一阵镲的渐强过门。
  * 调式用中国五声的五种（宫商角徵羽）：同一个主音上换调式，开局羽调清幽、占优宫调明亮、劣势羽调低沉。
  */
 
@@ -43,7 +50,20 @@ export type InstId =
   | 'bo' // 钹：轻轻一下
   | 'saofu' // 琵琶扫弦：一把和弦（run 里是这几个音）
   | 'trem' // 古筝摇指：一个音上快速反复
-  | 'gliss'; // 古筝刮奏（一串上行）
+  | 'gliss' // 古筝刮奏（一串上行）
+  // ── 混搭进来的西洋 / 现代乐器 ──
+  | 'piano' // 钢琴
+  | 'harp' // 竖琴
+  | 'strings' // 弦乐群（长音铺底）
+  | 'spicc' // 弦乐跳弓（短促的八分音符）
+  | 'cello' // 大提琴
+  | 'bass' // 低音（拨弦）
+  | 'pad' // 合成器长音（禅院用，像远处的空气）
+  | 'timp' // 定音鼓（时值两步以上是滚奏）
+  | 'kick' // 轻律动：底鼓
+  | 'rim' // 轻律动：边击
+  | 'shaker' // 轻律动：沙锤
+  | 'swell'; // 镲的渐强（段落之间的过门）
 
 export interface NoteEv {
   /** 这一句里第几步（一步 = 一个八分音符）；点缀（stinger）里可以是小数 */
@@ -67,6 +87,10 @@ export interface NoteEv {
   echo?: boolean;
   /** 支声：跟着主旋律骨干音的第二件乐器 */
   second?: boolean;
+  /** 对位旋律：主旋律之外另一条自己的旋律（多是大提琴） */
+  counter?: boolean;
+  /** 混搭进来的那几层（铺底、分解和弦、低音线、律动） */
+  layer?: boolean;
 }
 
 export type Mood = 'serene' | 'flow' | 'tense' | 'battle' | 'triumph' | 'peril' | 'endgame';
@@ -187,9 +211,9 @@ export const MOODS: Record<Mood, MoodDef> = {
     echo: true,
     accomp: ({ bar, idx, root, fifth, cadence, steps, intensity, scaleFrom }) => {
       const out: NoteEv[] = [at(0, 'qin', 4, 0.05, -0.15, root)];
-      // 古筝流水分解：强度低时半小节，高时或 B 段整小节
+      // 古筝流水分解（A、A' 两句）：强度低时半小节，高时整小节；B 和 A'' 换成钢琴 / 竖琴分解（混搭那几层）
       const arp = [root + 12, fifth + 12, root + 24, fifth + 12, root + 24, fifth + 24, root + 24, fifth + 12];
-      const upto = intensity > 0.55 || idx === 2 ? steps : 4;
+      const upto = idx >= 2 ? 0 : intensity > 0.55 ? steps : 4;
       for (let s = 0; s < upto; s += 1) if (s % 2 === 0 || intensity > 0.75) out.push(at(s, 'zheng', 2, s === 0 ? 0.05 : 0.028, s % 4 === 0 ? -0.3 : 0.25, arp[s]));
       if (intensity > 0.4) out.push(at(0, 'sheng', 8, 0.011, 0.3, root + 12), at(0, 'sheng', 8, 0.009, -0.3, fifth + 12));
       if (intensity > 0.6 && bar % 2 === 0) out.push(at(0, 'tanggu', 1, 0.03, 0.1));
@@ -366,8 +390,27 @@ export interface Palette {
   second: Record<Mood, InstId>;
   /** 自然声：溪水、松风、细雨、鸟鸣（0～1） */
   amb: { stream: number; wind: number; rain: number; birds: number };
+  /** 混搭：这一队配哪些西洋 / 现代声部 */
+  fusion: Fusion;
   /** 整体音量（各乐队响度拉齐用） */
   gain: number;
+}
+
+/**
+ * 混搭的几层。用户原话："已经好很多了，把整体层次再丰富一些。音乐混搭。"
+ * 民乐领奏，底下是西洋的弦乐、钢琴、大提琴，有的再加一点现代的轻律动——"新民乐"那种中西混搭。
+ */
+export interface Fusion {
+  /** 铺底：弦乐群，还是合成器长音（禅院） */
+  pad: 'strings' | 'pad';
+  /** 分解和弦：钢琴还是竖琴 */
+  arp: 'piano' | 'harp';
+  /** 低音线：大提琴还是拨弦低音 */
+  bass: 'cello' | 'bass';
+  /** 对位旋律用什么 */
+  counter: InstId;
+  /** 中局、攻杀、占优里有没有轻律动（底鼓、边击、沙锤） */
+  groove: boolean;
 }
 
 const { gong, shang, jue, zhi, yu } = MODES;
@@ -382,16 +425,17 @@ export const PALETTES: Palette[] = [
     bpm: [58, 66],
     modes: { serene: yu, flow: zhi, tense: shang, battle: yu, triumph: gong, peril: yu, endgame: shang },
     leads: {
-      serene: ['qin', 'xiao'],
-      flow: ['xiao', 'zheng'],
-      tense: ['qin', 'xiao'],
+      serene: ['qin', 'xiao', 'piano'],
+      flow: ['xiao', 'piano', 'zheng'],
+      tense: ['qin', 'cello'],
       battle: ['pipa', 'dizi'],
-      triumph: ['dizi', 'zheng'],
-      peril: ['xiao', 'qin'],
-      endgame: ['qin', 'xiao'],
+      triumph: ['dizi', 'zheng', 'piano'],
+      peril: ['xiao', 'cello'],
+      endgame: ['qin', 'piano'],
     },
     second: { serene: 'zheng', flow: 'sheng', tense: 'sheng', battle: 'dizi', triumph: 'sheng', peril: 'qin', endgame: 'zheng' },
     amb: { stream: 1, wind: 0.15, rain: 0, birds: 0.7 },
+    fusion: { pad: 'strings', arp: 'piano', bass: 'cello', counter: 'cello', groove: false },
     gain: 1,
   },
   {
@@ -403,16 +447,17 @@ export const PALETTES: Palette[] = [
     bpm: [62, 70],
     modes: { serene: zhi, flow: gong, tense: yu, battle: yu, triumph: gong, peril: yu, endgame: zhi },
     leads: {
-      serene: ['dizi', 'zheng'],
-      flow: ['dizi', 'erhu'],
+      serene: ['dizi', 'piano', 'zheng'],
+      flow: ['dizi', 'erhu', 'piano'],
       tense: ['erhu', 'pipa'],
       battle: ['pipa', 'dizi'],
       triumph: ['dizi', 'pipa'],
-      peril: ['erhu'],
-      endgame: ['erhu', 'zheng'],
+      peril: ['erhu', 'cello'],
+      endgame: ['erhu', 'piano'],
     },
     second: { serene: 'sheng', flow: 'zheng', tense: 'sheng', battle: 'erhu', triumph: 'sheng', peril: 'zheng', endgame: 'sheng' },
     amb: { stream: 0.45, wind: 0, rain: 0.8, birds: 0.3 },
+    fusion: { pad: 'strings', arp: 'harp', bass: 'bass', counter: 'erhu', groove: true },
     gain: 1,
   },
   {
@@ -424,16 +469,17 @@ export const PALETTES: Palette[] = [
     bpm: [52, 60],
     modes: { serene: shang, flow: yu, tense: shang, battle: yu, triumph: gong, peril: jue, endgame: shang },
     leads: {
-      serene: ['qin', 'xiao'],
-      flow: ['xiao', 'qin'],
-      tense: ['qin'],
+      serene: ['qin', 'xiao', 'piano'],
+      flow: ['xiao', 'piano', 'qin'],
+      tense: ['qin', 'cello'],
       battle: ['pipa', 'dizi'],
       triumph: ['zheng', 'dizi'],
-      peril: ['xiao'],
-      endgame: ['qin'],
+      peril: ['xiao', 'cello'],
+      endgame: ['qin', 'piano'],
     },
     second: { serene: 'bell', flow: 'sheng', tense: 'sheng', battle: 'dizi', triumph: 'sheng', peril: 'qin', endgame: 'bell' },
     amb: { stream: 0.2, wind: 1, rain: 0, birds: 0.5 },
+    fusion: { pad: 'pad', arp: 'piano', bass: 'cello', counter: 'cello', groove: false },
     gain: 1,
   },
   {
@@ -445,22 +491,23 @@ export const PALETTES: Palette[] = [
     bpm: [60, 68],
     modes: { serene: yu, flow: gong, tense: yu, battle: gong, triumph: gong, peril: yu, endgame: yu },
     leads: {
-      serene: ['xiao', 'morin'],
-      flow: ['erhu', 'dizi'],
-      tense: ['morin', 'pipa'],
+      serene: ['xiao', 'morin', 'cello'],
+      flow: ['erhu', 'dizi', 'piano'],
+      tense: ['morin', 'pipa', 'cello'],
       battle: ['pipa', 'dizi'],
       triumph: ['dizi', 'erhu'],
-      peril: ['morin', 'xiao'],
-      endgame: ['xiao', 'erhu'],
+      peril: ['morin', 'cello'],
+      endgame: ['xiao', 'erhu', 'piano'],
     },
     second: { serene: 'sheng', flow: 'zheng', tense: 'sheng', battle: 'erhu', triumph: 'sheng', peril: 'qin', endgame: 'zheng' },
     amb: { stream: 0, wind: 0.9, rain: 0, birds: 0.2 },
+    fusion: { pad: 'strings', arp: 'harp', bass: 'cello', counter: 'cello', groove: true },
     gain: 1,
   },
 ];
 
-/** 各乐器吹旋律时比"旋律中心"高低几个八度：古琴、马头琴低一个八度，编钟高一个 */
-const LEAD_OCT: Partial<Record<InstId, number>> = { qin: -1, morin: -1, bell: 1 };
+/** 各乐器吹旋律时比"旋律中心"高低几个八度：古琴、马头琴、大提琴低一个八度，编钟高一个 */
+const LEAD_OCT: Partial<Record<InstId, number>> = { qin: -1, morin: -1, cello: -1, bell: 1 };
 
 /** 可复现的随机数（同一个种子作出同一首，测试用；实际每盘种子随机） */
 export function rngOf(seed: number): () => number {
@@ -852,9 +899,19 @@ export function composePhrase(sc: Score, mood: Mood, intensity: number): Phrase 
     ev.push(e);
   });
 
+  // 段落递进：A 疏，A' 加一点，B 最满（对位旋律、全部混搭声部），A'' 回来也满
+  const lift = Math.min(1, intensity + [0, 0.08, 0.22, 0.14][idx]);
+  // 对位旋律：B 句（强度高时 A'' 也有）主旋律底下另一条自己的旋律；有它就不要支声，免得太挤
+  const counterAt = COUNTER_AT[mood];
+  const withCounter = counterAt !== undefined && lift >= counterAt && (idx === 2 || (idx === 3 && lift >= 0.65));
+  if (withCounter) {
+    const ci: InstId = pal.fusion.counter === lead ? 'cello' : pal.fusion.counter;
+    for (const x of counterLine(mode, roots, rng)) ev.push({ step: x.step, inst: ci, midi: degMidi(mode, sc.tonic, x.deg), len: x.len, vol: ci === 'cello' ? 0.05 : 0.04, pan: -0.4, counter: true });
+  }
+
   // 支声：第二件乐器跟着旋律的骨干音（小节头、半小节）走，低一个八度（编钟高一个）
   const sec = pal.second[mood];
-  if (intensity >= def.secondAt && sec !== lead) {
+  if (intensity >= def.secondAt && sec !== lead && !withCounter) {
     const anchors = mel.filter((x) => strength(x.step) >= 2);
     anchors.forEach((x, i) => {
       const next = anchors[i + 1]?.step ?? BARS * SPB;
@@ -899,8 +956,127 @@ export function composePhrase(sc: Score, mood: Mood, intensity: number): Phrase 
       },
     });
     for (const a of acc) ev.push({ ...a, step: bar * SPB + a.step });
+    for (const a of fusionBar(mood, pal.fusion, bar, root, fifthAbove(mode, sc.tonic, root), degMidi(mode, sc.tonic, roots[bar] + 2), idx, lift, first && bar === 0))
+      ev.push({ ...a, step: bar * SPB + a.step, layer: true });
   }
   return { mood, bpm: sc.bpm * def.tempo, steps: BARS * SPB, notes: ev.sort((x, y) => x.step - y.step), lead };
+}
+
+/** 对位旋律在这种情绪里强度到多少才进来（攻杀太满、残局太疏，都不加） */
+const COUNTER_AT: Partial<Record<Mood, number>> = { serene: 0.45, flow: 0.4, tense: 0.6, triumph: 0.4, peril: 0.5 };
+
+/**
+ * 对位旋律：比主旋律低一个八度、节奏更宽（主旋律走八分音符时它拉长音），自己有起伏、句尾落在根音上。
+ * 和主旋律一样的写法（拱形、强拍稳定音、级进收住），用同一套和声。
+ */
+function counterLine(mode: number[], roots: number[], rng: () => number): MelNote[] {
+  const rh = [pick(COUNTER_R, rng), pick(COUNTER_R, rng), pick(COUNTER_R, rng), pick(COUNTER_C, rng)];
+  const slots = slotsOf(rh, 0);
+  const n = mode.length;
+  const start = pickStable(mode, 0, roots[0], rng);
+  return pitchLine(slots, {
+    mode,
+    leap: 0.2,
+    rng,
+    start,
+    peak: start + reach(2 + Math.floor(rng() * 2), slots.length),
+    end: roots[BARS - 1] === 0 ? 0 : fifthIdx(mode),
+    lo: -3,
+    hi: n + 1,
+    rootAt: (st) => roots[Math.floor(st / SPB) % BARS],
+  });
+}
+const COUNTER_R = [
+  [4, 4],
+  [2, 2, 4],
+  [6, 2],
+  [3, 1, 4],
+  [8],
+  [4, 2, 2],
+];
+const COUNTER_C = [[8], [4, 4], [6, -2]];
+
+/**
+ * 混搭的那几层（每小节）：弦乐 / 合成器铺底、钢琴 / 竖琴分解和弦、大提琴 / 低音线、轻律动、定音鼓、镲的渐强。
+ * lift 是加上段落递进之后的强度；root 是低音区的根音，fifth 它上面的五度（或四度），color 是根音往上两个调式音。
+ */
+function fusionBar(mood: Mood, fz: Fusion, bar: number, root: number, fifth: number, color: number, idx: number, lift: number, first: boolean): NoteEv[] {
+  const out: NoteEv[] = [];
+  const pad = fz.pad;
+  const arp = fz.arp;
+  const av = arp === 'piano' ? 0.02 : 0.026;
+  const bass: InstId = fz.bass;
+  const bv = bass === 'cello' ? 0.026 : 0.04;
+  const groove = (kicks: number[], rims: number[], shaker: boolean) => {
+    for (const s of kicks) out.push(at(s, 'kick', 1, s === 0 ? 0.05 : 0.032, 0));
+    for (const s of rims) out.push(at(s, 'rim', 1, 0.018, 0.15));
+    if (shaker) for (let s = 0; s < SPB; s++) out.push(at(s, 'shaker', 1, s % 2 ? 0.008 : 0.005, -0.25));
+  };
+  switch (mood) {
+    case 'serene':
+      // 弦乐两小节一个长和弦，很轻；A'、A'' 钢琴 / 竖琴四分音符慢慢分解；强度上来大提琴托一个低音
+      if (lift > 0.3 && bar % 2 === 0) out.push(at(0, pad, 16, 0.01, -0.4, root + 12), at(0, pad, 16, 0.008, 0.4, fifth + 12));
+      if (lift > 0.6 && bar % 2 === 0) out.push(at(0, pad, 16, 0.006, 0, color + 12));
+      if (idx === 1 || idx === 3) [root + 12, fifth + 12, root + 24, color + 12].forEach((m, k) => out.push(at(k * 2, arp, 2, k ? av * 0.8 : av, 0.35, m)));
+      if (lift > 0.55 && bar % 2 === 0) out.push(at(0, bass, bass === 'cello' ? 16 : 6, bv * 0.8, -0.1, root));
+      break;
+    case 'flow': {
+      // 弦乐每小节一个和弦；B、A'' 钢琴 / 竖琴八分分解（接古筝的班）；低音一、三拍；有律动的乐队加底鼓、边击、沙锤
+      if (lift > 0.25) out.push(at(0, pad, 8, 0.009, -0.4, root + 12), at(0, pad, 8, 0.008, 0.4, fifth + 12), at(0, pad, 8, 0.006, 0, root + 24));
+      if (idx >= 2) {
+        const pat = [root + 12, fifth + 12, root + 24, fifth + 12, color + 12, fifth + 12, root + 24, fifth + 12];
+        pat.forEach((m, s) => {
+          if (s % 2 === 0 || lift > 0.5) out.push(at(s, arp, 2, s === 0 ? av : av * 0.75, 0.3, m));
+        });
+      }
+      if (lift > 0.3) {
+        out.push(at(0, bass, 3, bv, -0.05, root), at(4, bass, 3, bv * 0.8, -0.05, fifth));
+        if (lift > 0.6) out.push(at(6, bass, 2, bv * 0.6, -0.05, root + 12));
+      }
+      if (fz.groove && lift > 0.45) groove([0, 5], [2, 6], true);
+      break;
+    }
+    case 'tense':
+      // 低音区的弦乐 / 合成器压着，强度上来钢琴在低音区敲八分的固定音型（电影里那种悬着的感觉），大提琴长音
+      if (bar % 2 === 0) out.push(at(0, pad, 16, 0.011, -0.3, root + 12), at(0, pad, 16, 0.009, 0.3, fifth + 12));
+      if (lift > 0.5) [root + 12, fifth + 12, root + 24, fifth + 12, root + 12, fifth + 12, root + 24, fifth + 12].forEach((m, s) => out.push(at(s, arp, 1, s % 4 === 0 ? 0.016 : 0.011, 0.25, m)));
+      if (lift > 0.3 && bar % 2 === 0) out.push(at(0, 'cello', 16, 0.022, -0.1, root));
+      if (idx === 2 && bar === BARS - 1 && lift > 0.55) out.push(at(4, 'swell', 4, 0.014, 0));
+      break;
+    case 'battle': {
+      // 弦乐跳弓八分音符（3+3+2 重音）、低音一路八分往前推、定音鼓每小节一下；杀进来的第一句先来一阵滚奏
+      if (lift > 0.35)
+        [root + 12, root + 12, fifth + 12, root + 12, root + 24, root + 12, fifth + 12, root + 12].forEach((m, s) => out.push(at(s, 'spicc', 1, s === 0 || s === 3 || s === 6 ? 0.024 : 0.016, -0.3, m)));
+      for (let s = 0; s < SPB; s++) out.push(at(s, bass === 'bass' ? 'bass' : 'spicc', 1, s % 2 ? bv * 0.55 : bv * 0.8, 0, root));
+      out.push(first ? at(0, 'timp', 2, 0.06, 0, root) : at(0, 'timp', 1, 0.05, 0, root));
+      if (lift > 0.7) out.push(at(0, 'strings', 8, 0.007, 0.35, root + 24), at(0, 'strings', 8, 0.006, -0.35, fifth + 24));
+      if (fz.groove && lift > 0.6) groove([0, 4], [2, 6], false);
+      break;
+    }
+    case 'triumph':
+      // 弦乐铺满（根、五、八、加一个色彩音），钢琴 / 竖琴一、三拍敲和弦，低音跳着走，句首定音鼓；有律动的乐队加鼓点
+      out.push(at(0, pad, 8, 0.01, -0.4, root + 12), at(0, pad, 8, 0.009, 0.4, fifth + 12), at(0, pad, 8, 0.007, 0, root + 24), at(0, pad, 8, 0.006, 0.2, color + 12));
+      for (const s of [0, 4]) for (const m of [root + 12, fifth + 12, root + 24]) out.push(at(s, arp, 3, av * 0.85, 0.25, m));
+      out.push(at(0, bass, 2, bv, 0, root), at(3, bass, 1, bv * 0.7, 0, root), at(4, bass, 2, bv * 0.85, 0, fifth), at(6, bass, 2, bv * 0.7, 0, root + 12));
+      if (bar === 0) out.push(at(0, 'timp', 1, 0.05, 0, root));
+      if (fz.groove) groove([0, 4], [2, 6], lift > 0.55);
+      if (idx === 2 && bar === BARS - 1 && lift > 0.55) out.push(at(4, 'swell', 4, 0.016, 0));
+      break;
+    case 'peril':
+      // 低音区弦乐压着，高处一根细细的弦（强度高时），大提琴每小节一个长音，钢琴偶尔一个低音
+      if (bar % 2 === 0) out.push(at(0, pad, 16, 0.012, -0.3, root + 12), at(0, pad, 16, 0.01, 0.3, fifth + 12));
+      if (lift > 0.6 && bar % 2 === 0) out.push(at(0, pad, 16, 0.004, 0.1, root + 36));
+      out.push(at(0, 'cello', 8, 0.022, -0.1, root));
+      if (lift > 0.5) out.push(at(0, arp, 3, 0.018, 0.3, root + 12), at(5, arp, 3, 0.014, 0.3, fifth + 12));
+      break;
+    case 'endgame':
+      // 合成器 / 弦乐很轻地铺一下，钢琴像水滴，一两个高音
+      if (lift > 0.4 && bar % 2 === 0) out.push(at(0, pad, 16, 0.008, -0.3, root + 12), at(0, pad, 16, 0.007, 0.3, fifth + 12));
+      if (bar % 2 === 0) out.push(at(0, arp, 4, 0.016, 0.35, root + 24));
+      if (lift > 0.5) out.push(at(4, arp, 4, 0.012, 0.35, fifth + 24));
+      break;
+  }
+  return out;
 }
 
 export type StingerKind = 'check' | 'capture' | 'win' | 'loss' | 'draw';

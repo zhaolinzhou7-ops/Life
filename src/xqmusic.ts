@@ -7,6 +7,9 @@
  * 古筝、琵琶、古琴是拨弦（Karplus-Strong；扫弦是几根弦错开一点拨，摇指是一个音上快速反复），
  * 二胡、马头琴是弓弦（二胡鼻音重、揉弦深、滑音多），笙和低音长鸣是簧片铺底，
  * 编钟、磬、木鱼、锣、钹是模态敲击（几个不成谐波的衰减正弦），堂鼓、大鼓是低频冲击 + 鼓皮的噪声。
+ * 混搭进来的西洋 / 现代乐器：钢琴（略不成谐波的分音 + 击弦噪声，音色先亮后暗）、竖琴（拨弦）、弦乐群（四把微失谐的弦慢起慢收，
+ * 跳弓是短的）、大提琴（弓弦，低处的琴箱共鸣）、拨弦低音、合成器长音（滤波器慢慢开合）、定音鼓（调在根音上，能滚奏）、
+ * 轻律动的底鼓 / 边击 / 沙锤、镲的渐强。
  *
  * 自然声（安静的段落才有，越紧张越淡出去）：溪水（两层带通噪声慢慢起伏 + 一个个"咕嘟"的小气泡）、
  * 松风（带通噪声，中心频率和音量慢慢漂）、细雨（高通噪声 + 稀疏的雨滴）、鸟鸣（几声啾啾、几声颤音）。
@@ -579,17 +582,20 @@ function windAt(core: Core, freq: number, when: number, dur: number, vol: number
 }
 
 /**
- * 弓弦：二胡（鼻音重——两个共鸣峰、揉弦深、起弓快）或马头琴（柔一点、低一点）。
+ * 弓弦：二胡（鼻音重——两个共鸣峰、揉弦深、起弓快）、马头琴（柔一点、低一点）、大提琴（胸腔共鸣、揉弦浅一点、更圆）。
  * 两把微失谐的弦，颤音晚一点才出来，可以从下方滑上来。
  */
-function bowAt(core: Core, freq: number, when: number, dur: number, vol: number, pan: number, erhu: boolean, slideFrom?: number, kind?: 'lead' | 'acc') {
+function bowAt(core: Core, freq: number, when: number, dur: number, vol: number, pan: number, voice: 'erhu' | 'morin' | 'cello', slideFrom?: number, kind?: 'lead' | 'acc') {
   const c = core.c;
   const end = when + dur;
-  const harm = Array.from({ length: 14 }, (_, i) => 1 / (i + 1) ** (erhu ? 1.15 : 1.35));
-  const lp = biquad(c, 'lowpass', Math.min(erhu ? 4500 : 2600, freq * (erhu ? 7 : 5)), 0.5);
-  const body = biquad(c, 'peaking', erhu ? 950 : 1100, 1.1, erhu ? 4 : 2);
-  const body2 = biquad(c, 'peaking', 2600, 2, erhu ? 3 : 0);
-  const atk = erhu ? 0.09 : 0.16;
+  const erhu = voice === 'erhu';
+  const cello = voice === 'cello';
+  const harm = Array.from({ length: 14 }, (_, i) => 1 / (i + 1) ** (erhu ? 1.15 : cello ? 1.25 : 1.35));
+  const lp = biquad(c, 'lowpass', Math.min(erhu ? 4500 : cello ? 3000 : 2600, freq * (erhu ? 7 : cello ? 6 : 5)), 0.5);
+  // 共鸣峰：二胡鼻音在 950、2600；马头琴 1100；大提琴是低处的琴箱（300）加一点明亮（1500）
+  const body = biquad(c, 'peaking', erhu ? 950 : cello ? 300 : 1100, cello ? 0.8 : 1.1, erhu ? 4 : cello ? 3 : 2);
+  const body2 = biquad(c, 'peaking', cello ? 1500 : 2600, 2, erhu ? 3 : cello ? 1.5 : 0);
+  const atk = erhu ? 0.09 : cello ? 0.12 : 0.16;
   const g = c.createGain();
   g.gain.setValueAtTime(0, when);
   g.gain.linearRampToValueAtTime(vol, when + atk);
@@ -597,11 +603,11 @@ function bowAt(core: Core, freq: number, when: number, dur: number, vol: number,
   g.gain.linearRampToValueAtTime(vol * 0.9, Math.max(when + atk + 0.01, end - 0.18));
   g.gain.linearRampToValueAtTime(0, end);
   const vib = c.createOscillator();
-  vib.frequency.value = erhu ? 6 : 5.3;
+  vib.frequency.value = erhu ? 6 : cello ? 5.2 : 5.3;
   const vibG = c.createGain();
   vibG.gain.setValueAtTime(0, when);
   vibG.gain.setValueAtTime(0, when + Math.min(0.25, dur * 0.35));
-  vibG.gain.linearRampToValueAtTime(freq * (erhu ? 0.012 : 0.009), when + Math.min(0.8, dur * 0.8));
+  vibG.gain.linearRampToValueAtTime(freq * (erhu ? 0.012 : cello ? 0.006 : 0.009), when + Math.min(0.8, dur * 0.8));
   vib.connect(vibG);
   for (const det of [-5, 5]) {
     const o = c.createOscillator();
@@ -621,6 +627,167 @@ function bowAt(core: Core, freq: number, when: number, dur: number, vol: number,
   vib.start(when);
   vib.stop(end + 0.05);
   lp.connect(body).connect(body2).connect(g).connect(core.outAt(pan, kind));
+}
+
+/**
+ * 钢琴：八个分音（略不成谐波——钢琴弦的刚性让高分音偏高一点），高分音衰减得快；
+ * 低音两根弦微失谐（拍出温暖的起伏）；音头一点击弦的噪声；音色一开始亮、之后慢慢变暗。
+ */
+function pianoAt(core: Core, freq: number, when: number, dur: number, vol: number, pan: number, kind?: 'lead' | 'acc') {
+  const c = core.c;
+  const dst = core.outAt(pan, kind);
+  // 低音延音长、高音短；松开琴键（时值到了）再过一会儿制音器落下
+  const ring = Math.max(1.2, Math.min(6, 5 * Math.sqrt(220 / freq)));
+  const off = when + Math.min(ring, Math.max(dur + 0.35, 0.6));
+  const lp = biquad(c, 'lowpass', Math.min(9000, freq * 14), 0.5);
+  lp.frequency.setValueAtTime(Math.min(9000, freq * 14), when);
+  lp.frequency.exponentialRampToValueAtTime(Math.min(4000, freq * 5), when + 0.6);
+  const out = c.createGain();
+  out.gain.setValueAtTime(1, when);
+  out.gain.setValueAtTime(1, off);
+  out.gain.linearRampToValueAtTime(0, off + 0.25);
+  lp.connect(out).connect(dst);
+  const B = 0.0004;
+  for (let n = 1; n <= 8; n++) {
+    const fn = freq * n * Math.sqrt(1 + B * n * n);
+    if (fn > 15000) break;
+    const amp = (vol / n ** 1.15) * (n === 1 ? 1 : n === 2 ? 0.75 : 0.6);
+    const dec = ring / (1 + 0.45 * (n - 1));
+    for (const det of n <= 2 ? [-0.6, 0.6] : [0]) {
+      const o = c.createOscillator();
+      o.frequency.value = fn;
+      o.detune.value = det;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(amp * (n <= 2 ? 0.6 : 1), when + 0.003);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + dec);
+      o.connect(g).connect(lp);
+      o.start(when);
+      o.stop(Math.min(when + dec, off + 0.3) + 0.02);
+    }
+  }
+  // 击弦：一下很短的带通噪声
+  const h = c.createBufferSource();
+  h.buffer = noiseBuf(c);
+  const hb = biquad(c, 'bandpass', Math.min(5000, freq * 6), 1.2);
+  const hg = c.createGain();
+  hg.gain.setValueAtTime(vol * 0.25, when);
+  hg.gain.exponentialRampToValueAtTime(0.0001, when + 0.02);
+  h.connect(hb).connect(hg).connect(dst);
+  h.start(when, Math.random() * 1.5);
+  h.stop(when + 0.03);
+}
+
+/** 弦乐群：四把微失谐的弦一起拉（锯齿谐波），慢起慢收；短的（跳弓）起音快、一下就收 */
+function stringsAt(core: Core, freq: number, when: number, dur: number, vol: number, pan: number, short: boolean) {
+  const c = core.c;
+  const atk = short ? 0.012 : Math.min(0.45, dur * 0.3);
+  const len = short ? 0.2 : dur;
+  const end = when + len;
+  const lp = biquad(c, 'lowpass', Math.min(short ? 3500 : 2600, freq * 8), 0.5);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(vol, when + atk);
+  if (short) g.gain.exponentialRampToValueAtTime(0.0001, end);
+  else {
+    g.gain.setValueAtTime(vol, Math.max(when + atk, end - 0.5));
+    g.gain.linearRampToValueAtTime(0, end + 0.2);
+  }
+  const vib = c.createOscillator();
+  vib.frequency.value = 5;
+  const vibG = c.createGain();
+  vibG.gain.value = short ? 0 : freq * 0.003;
+  vib.connect(vibG);
+  const harm = Array.from({ length: 16 }, (_, i) => 1 / (i + 1));
+  for (const det of short ? [-6, 6] : [-12, -4, 4, 12]) {
+    const o = c.createOscillator();
+    o.setPeriodicWave(wave(c, harm));
+    o.frequency.value = freq;
+    o.detune.value = det;
+    vibG.connect(o.frequency);
+    o.connect(lp);
+    o.start(when);
+    o.stop(end + 0.25);
+  }
+  vib.start(when);
+  vib.stop(end + 0.25);
+  lp.connect(g).connect(core.outAt(pan));
+}
+
+/** 拨弦低音：圆的低音，一下拨响慢慢没 */
+function bassAt(core: Core, freq: number, when: number, dur: number, vol: number, pan: number) {
+  const c = core.c;
+  const o = c.createOscillator();
+  o.setPeriodicWave(wave(c, [1, 0.35, 0.12, 0.05]));
+  o.frequency.value = freq;
+  const lp = biquad(c, 'lowpass', 900, 0.6);
+  const g = c.createGain();
+  const end = when + Math.min(1.6, Math.max(0.3, dur * 1.1));
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(vol, when + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, end);
+  o.connect(lp).connect(g).connect(core.outAt(pan));
+  o.start(when);
+  o.stop(end + 0.02);
+}
+
+/** 合成器长音（禅院）：几路微失谐的柔和波形，滤波器慢慢开合，像远处的空气 */
+function synthPadAt(core: Core, freq: number, when: number, dur: number, vol: number, pan: number) {
+  const c = core.c;
+  const end = when + dur;
+  const lp = biquad(c, 'lowpass', 900, 0.7);
+  const lfo = c.createOscillator();
+  lfo.frequency.value = 0.12;
+  const lg = c.createGain();
+  lg.gain.value = 450;
+  lfo.connect(lg).connect(lp.frequency);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(vol, when + Math.min(1.6, dur * 0.4));
+  g.gain.setValueAtTime(vol, Math.max(when + 0.1, end - 1));
+  g.gain.linearRampToValueAtTime(0, end + 0.4);
+  for (const det of [-7, 0, 7]) {
+    const o = c.createOscillator();
+    o.setPeriodicWave(wave(c, [1, 0.3, 0.1, 0.04]));
+    o.frequency.value = freq;
+    o.detune.value = det;
+    o.connect(lp);
+    o.start(when);
+    o.stop(end + 0.5);
+  }
+  lfo.start(when);
+  lfo.stop(end + 0.5);
+  lp.connect(g).connect(core.outAt(pan));
+}
+
+/** 定音鼓：调在根音上；时值两步以上是滚奏（一阵越来越响的连击） */
+function timpAt(core: Core, freq: number, when: number, dur: number, vol: number, pan: number) {
+  const f = Math.max(55, Math.min(130, freq));
+  const hit = (t: number, v: number) => {
+    strikeAt(core, t, [[f, 1, 1.4], [f * 1.5, 0.45, 0.9], [f * 1.98, 0.25, 0.6]], v, pan, undefined, 0.006);
+    noiseAt(core, t, 0.08, v * 0.3, 400, 0.8, pan);
+  };
+  if (dur >= 0.5) {
+    const n = Math.max(4, Math.round(dur / 0.065));
+    for (let i = 0; i < n; i++) hit(when + i * 0.065, vol * (0.25 + (0.75 * i) / n));
+    hit(when + n * 0.065, vol);
+  } else hit(when, vol);
+}
+
+/** 镲的渐强：一片噪声从无到有涨上来，到下一句的头上一下收住 */
+function swellAt(core: Core, when: number, dur: number, vol: number, pan: number) {
+  const c = core.c;
+  const src = c.createBufferSource();
+  src.buffer = noiseBuf(c);
+  src.loop = true;
+  const f = biquad(c, 'bandpass', 4500, 0.6);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, when);
+  g.gain.exponentialRampToValueAtTime(vol, when + dur);
+  g.gain.linearRampToValueAtTime(0, when + dur + 0.06);
+  src.connect(f).connect(g).connect(core.outAt(pan));
+  src.start(when, Math.random() * 1.5);
+  src.stop(when + dur + 0.1);
 }
 
 /** 持续音（低音长鸣 / 笙）：几路微失谐的簧片音色，慢进慢出 */
@@ -694,7 +861,7 @@ function thumpAt(core: Core, when: number, f0: number, f1: number, dec: number, 
 }
 
 const jitter = () => (Math.random() - 0.5) * 0.016;
-const DRUMS = new Set(['tanggu', 'dagu', 'gong', 'bo', 'wood']);
+const DRUMS = new Set(['tanggu', 'dagu', 'gong', 'bo', 'wood', 'kick', 'rim', 'shaker', 'timp', 'swell']);
 
 /** 一个音符：按乐器出声 */
 function render(core: Core, e: NoteEv, when0: number, stepDur: number) {
@@ -748,7 +915,7 @@ function render(core: Core, e: NoteEv, when0: number, stepDur: number) {
       break;
     case 'erhu':
     case 'morin':
-      bowAt(core, f, when, Math.max(0.25, dur * 1.0), v * 0.85, p, e.inst === 'erhu', slide, kind);
+      bowAt(core, f, when, Math.max(0.25, dur * 1.0), v * 0.85, p, e.inst, slide, kind);
       break;
     case 'drone':
       padAt(core, f, when, dur, v, p, 500, false);
@@ -790,6 +957,44 @@ function render(core: Core, e: NoteEv, when0: number, stepDur: number) {
       break;
     case 'gliss':
       (e.run ?? []).forEach((m, i) => pluckAt(core, mtof(m), when + i * 0.05, 1.0, v * (0.7 + i * 0.06), p, 0.996, 0.7));
+      break;
+    // ── 混搭进来的 ──
+    case 'piano':
+      pianoAt(core, f, when, dur, v * (e.lead ? 1.5 : 1), p, kind);
+      break;
+    case 'harp':
+      pluckAt(core, f, when, Math.max(2, dur * 2), v * (e.lead ? 1.5 : 1.1), p, 0.9982, 0.45, undefined, kind);
+      break;
+    case 'strings':
+      stringsAt(core, f, when, dur, v, p, false);
+      break;
+    case 'spicc':
+      stringsAt(core, f, when, dur, v, p, true);
+      break;
+    case 'cello':
+      bowAt(core, f, when, Math.max(0.3, dur), v * 0.85, p, 'cello', slide, kind);
+      break;
+    case 'bass':
+      bassAt(core, f, when, dur, v, p);
+      break;
+    case 'pad':
+      synthPadAt(core, f, when, dur, v, p);
+      break;
+    case 'timp':
+      timpAt(core, f, when, dur, v, p);
+      break;
+    case 'kick':
+      thumpAt(core, when, 85, 45, 0.22, v, p);
+      break;
+    case 'rim':
+      noiseAt(core, when, 0.035, v, 1700, 4, p);
+      strikeAt(core, when, [[820, 0.6, 0.03]], v, p);
+      break;
+    case 'shaker':
+      noiseAt(core, when, 0.05, v, 7000, 1, p);
+      break;
+    case 'swell':
+      swellAt(core, when, dur, v, p);
       break;
   }
 }

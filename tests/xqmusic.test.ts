@@ -4,6 +4,7 @@
  *   "音乐不够好听。"
  *   "有点太单调了，而且没有那种琴棋书画的意境……有杀伐果断的音乐，也有横扫千军的……刚开始、胶着、或者快结束的时候，
  *    分别都是不一样的。层次得丰富一些。另外，人的声音也很傻。"
+ *   "已经好很多了，把整体层次再丰富一些。音乐混搭。"
  */
 import { describe, expect, it } from 'vitest';
 import { MOODS, PALETTES, composePhrase, moodFor, newScore, pickPalette, rngOf, stinger, type Mood, type MusicCtx, type NoteEv } from '../src/xqcompose';
@@ -66,19 +67,41 @@ describe('四种乐队，乐器丰富、轮流对答', () => {
     expect(seen.size).toBe(PALETTES.length);
   });
 
-  it('一盘棋里用到的乐器至少八种（不是"只有一种乐器"）', () => {
+  it('一盘棋里用到的乐器十五种以上，民乐和西洋乐器都有（用户原话："音乐混搭"）', () => {
+    const WEST = ['piano', 'harp', 'strings', 'pad', 'cello', 'bass', 'spicc', 'timp'];
+    const CN = ['qin', 'xiao', 'dizi', 'zheng', 'pipa', 'erhu', 'morin', 'sheng'];
     for (const p of PALETTES) {
       const sc = newScore(p, 9);
       const used = new Set<string>();
       for (const m of MOOD_IDS) for (let k = 0; k < 4; k++) for (const e of composePhrase(sc, m, 0.8).notes) used.add(e.inst);
-      expect(used.size, p.name).toBeGreaterThanOrEqual(8);
+      expect(used.size, p.name).toBeGreaterThanOrEqual(15);
+      expect(WEST.filter((x) => used.has(x)).length, `${p.name} 西洋`).toBeGreaterThanOrEqual(4);
+      expect(CN.filter((x) => used.has(x)).length, `${p.name} 民乐`).toBeGreaterThanOrEqual(4);
     }
+  });
+
+  it('混搭的几层按段落递进：A 句最疏，B 句最满、还有一条对位旋律', () => {
+    for (const p of PALETTES)
+      for (const m of ['serene', 'flow', 'triumph'] as Mood[]) {
+        const sc = newScore(p, 6);
+        const phs = Array.from({ length: 4 }, () => composePhrase(sc, m, 0.6));
+        const layers = phs.map((ph) => ph.notes.filter((e) => !e.lead).length);
+        expect(layers[2], `${p.name} ${m}`).toBeGreaterThan(layers[0]);
+        expect(phs[2].notes.some((e) => e.counter), `${p.name} ${m} 对位`).toBe(true);
+        expect(phs[0].notes.some((e) => e.counter), `${p.name} ${m} A 句不要对位`).toBe(false);
+      }
+  });
+
+  it('主旋律轮换里混进了西洋乐器（古琴一句、箫一句、钢琴一句）', () => {
+    const sc = newScore(PALETTES[0], 5);
+    const leads = Array.from({ length: 6 }, () => composePhrase(sc, 'serene', 0.4).lead);
+    expect(new Set(leads)).toEqual(new Set(['qin', 'xiao', 'piano']));
   });
 
   it('主旋律一句一换乐器（古琴一句、箫接一句）', () => {
     const sc = newScore(PALETTES[0], 5);
     const leads = Array.from({ length: 4 }, () => composePhrase(sc, 'serene', 0.4).lead);
-    expect(new Set(leads).size).toBe(2);
+    expect(new Set(leads).size).toBeGreaterThanOrEqual(2);
     expect(leads[0]).not.toBe(leads[1]);
   });
 
@@ -97,7 +120,10 @@ describe('四种乐队，乐器丰富、轮流对答', () => {
     expect(insts('triumph').has('dagu')).toBe(true);
     expect(insts('tense').has('trem')).toBe(true);
     expect(insts('tense').has('tanggu')).toBe(true);
-    for (const m of ['serene', 'endgame'] as Mood[]) for (const d of ['dagu', 'tanggu', 'bo']) expect(insts(m).has(d as never), `${m} ${d}`).toBe(false);
+    for (const m of ['serene', 'endgame'] as Mood[]) for (const d of ['dagu', 'tanggu', 'bo', 'kick', 'rim', 'shaker', 'timp']) expect(insts(m).has(d as never), `${m} ${d}`).toBe(false);
+    // 攻杀还有弦乐跳弓、定音鼓（中西两套"杀伐"叠在一起）
+    expect(insts('battle').has('spicc')).toBe(true);
+    expect(insts('battle').has('timp')).toBe(true);
   });
 
   it('每种情绪有自己的主题：A\' 原样重复 A 的动机；离开再回来，主题再现', () => {
@@ -150,7 +176,7 @@ describe('配乐：好不好听的几条硬规矩', () => {
             for (const e of lead) {
               if (e.step % 8) continue;
               const bar = Math.floor(e.step / 8);
-              const bass = ph.notes.filter((x) => !x.lead && !x.echo && !x.second && x.midi !== undefined && Math.floor(x.step / 8) === bar).sort((a, b) => a.midi! - b.midi!)[0];
+              const bass = ph.notes.filter((x) => !x.lead && !x.echo && !x.second && !x.counter && x.midi !== undefined && Math.floor(x.step / 8) === bar).sort((a, b) => a.midi! - b.midi!)[0];
               if (!bass) continue;
               strong++;
               if ([0, 3, 4, 5, 7, 8, 9].includes((((e.midi! - bass.midi!) % 12) + 12) % 12)) ok++;
