@@ -1,6 +1,6 @@
 /**
  * 私教：学棋首页有入口；没有任何数据时上见面课；有复盘过的实战就按证据排课、讲三条要点；
- * 上了一步打勾；下节课先检查作业（之后的实战里毛病少了没有）。
+ * 上了一步打勾；下节课先检查作业（之后的实战里毛病少了没有）；同一课第二次上换角度，残局实战一步真的开一盘残局。
  * 用法：npm run dev，然后 node tests/ui/tutor.mjs
  */
 import { chromium } from 'playwright';
@@ -88,6 +88,23 @@ ok('下节课先检查作业：之后 2 盘每盘 0 次，过关', chk.includes(
 const les2 = (await page.locator('[data-tutor-lesson]').innerText()).replace(/\s+/g, ' ');
 ok('过关了就换下一课（不再是贪吃）', !les2.includes('吃子先算账'));
 await page.screenshot({ path: OUT + '/tutor-check.png', fullPage: true });
+
+// ───────── 4. 同一课第二次上换角度；残局实战这一步真的开一盘残局 ─────────
+await page.evaluate(() => {
+  const now = Date.now();
+  localStorage.setItem('xq-tutor', JSON.stringify([{ ts: now - 60000, d: '2026-10-22', theme: 'endgame', round: 2, done: [], steps: 3, before: null }]));
+});
+await openCoach();
+await page.locator('.home-card', { hasText: '私教' }).first().click(); await page.waitForTimeout(400);
+const les3 = (await page.locator('[data-tutor-lesson]').innerText()).replace(/\s+/g, ' ');
+console.log('   第二次上残局课：' + les3.slice(0, 80));
+ok('第二次上残局课换了角度（少子守和），标题写着"换个角度"', les3.includes('少子守和') && les3.includes('换个角度'));
+const play = page.locator('[data-tutor-step]', { hasText: '残局实战' }).first();
+ok('这一课有"残局实战"一步', (await play.count()) === 1);
+await play.click(); await page.waitForTimeout(1500);
+ok('点进去开了一盘残局（实用残局库里你是守方的那种）', (await page.locator('.xq-po').count()) === 1 && (await page.locator('.xq-po').innerText()).includes('守'));
+await page.locator('#xq-po-back').click(); await page.waitForTimeout(500);
+ok('退出来回到私教，这一步打了勾', (await page.locator('[data-tutor-step]', { hasText: '残局实战' }).first().innerText()).includes('✅'));
 
 await browser.close();
 console.log('\n===== 失败项 =====\n' + (errs.length ? errs.join('\n') : '无'));

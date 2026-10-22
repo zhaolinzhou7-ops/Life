@@ -6,6 +6,7 @@
  * 杀法题不算：找杀本身就是要练的。
  * 用法：node tools/run.mjs find-won-puzzles <分片号> <分片数> [每题毫秒]
  *       然后 node tools/run.mjs find-won-puzzles apply
+ *       只补新题：MISSING=1 node tools/run.mjs find-won-puzzles 0 1
  */
 import fs from 'fs';
 import { startPikafish } from './pikafish-node';
@@ -49,7 +50,10 @@ const shard = Number(a0);
 const n = Number(a1);
 const MS = Number(a2);
 // 第 4 个参数 mate：只算杀法题（残局里的杀法题，你本来就赢定了、慢一点杀也赢——看要不要出）
-const all = (JSON.parse(fs.readFileSync(FILE, 'utf8')) as P[]).filter((p) => (a3 === 'mate' ? p.goal === 'mate' : p.goal !== 'mate'));
+// MISSING=1：只算还没有 ev2 的（新并进来的题）
+const all = (JSON.parse(fs.readFileSync(FILE, 'utf8')) as P[])
+  .filter((p) => (a3 === 'mate' ? p.goal === 'mate' : p.goal !== 'mate'))
+  .filter((p) => !process.env.MISSING || p.ev2 === undefined);
 const mine = all.filter((_, i) => i % n === shard);
 const e = await startPikafish(64);
 // 一次性同步写：流式写完紧接着 process.exit 会丢掉还没落盘的数据

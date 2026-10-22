@@ -27,6 +27,7 @@ type Rec = {
   rating?: number;
   goal: string;
   ev: number;
+  ev2?: number;
   mateIn?: number;
   themes: string[];
   steps: number;
@@ -53,14 +54,15 @@ function newlyHanging(before: Board, m: Move, me: Color): { check: boolean; n: n
 }
 
 const puzzles = JSON.parse(readFileSync(PUZ, 'utf8')) as Rec[];
-// 重新合并时先把上一次并进去的组合题拿掉，免得新旧两份并存
-const kept = puzzles.filter((p) => !p.id.startsWith('cb-'));
-const fens = new Set(kept.map((p) => p.fen));
-
 const recs: Rec[] = [];
 for (const f of readdirSync(CACHE).filter((n) => /^combo-\d+\.jsonl$/.test(n)).sort()) {
   for (const l of readFileSync(`${CACHE}/${f}`, 'utf8').split('\n')) if (l.trim()) recs.push(JSON.parse(l));
 }
+// 重新合并时先把这一批上次并进去的拿掉（同一个题号），免得新旧两份并存；
+// 以前几批的组合题（缓存早就清了）原样留着——原来这里把所有 cb- 开头的都拿掉，缓存一清就把老题全丢了
+const newIds = new Set(recs.map((r) => r.id));
+const kept = puzzles.filter((p) => !newIds.has(p.id));
+const fens = new Set(kept.map((p) => p.fen));
 
 const out: Rec[] = [];
 const why: Record<string, number> = {};
@@ -82,6 +84,44 @@ for (const r of recs) {
   // 步数太长的不收：引擎主变走到七八步以后，后面那几手已经不是"组合"，是引擎在接着下棋
   if (r.steps > 7) {
     drop('超过 7 步');
+    continue;
+  }
+  // 残局"只有这一手"、中局"只有这一手守得住"（gen-combos 顺手收的）：主变合法、第一手是答案就收；
+  // 难度看是不是守和、是不是安静着法。中局守题太容易的（不到 900）不收：用户原话"低级题目太多"
+  if (r.kind === 'endgame' || r.kind === 'safety') {
+    let eb = pos.board;
+    let ec: Color = pos.toMove;
+    let eok = true;
+    for (const t of r.line) {
+      const m = textToMove(eb, ec, t, legalMoves(eb, ec));
+      if (!m) {
+        eok = false;
+        break;
+      }
+      eb = applyMove(eb, m);
+      ec = ec === 'r' ? 'b' : 'r';
+    }
+    if (!eok || r.line[0] !== r.answer) {
+      drop('残局主变走不通');
+      continue;
+    }
+    const base = rateDifficulty(pos.board, pos.toMove, r.answer, r.goal === 'mate' ? r.mateIn : undefined);
+    // 守和比取胜难（只有一手不输，其余看着都差不多）；第一手不是吃子、不是将军的更难看见
+    const quiet = (() => {
+      const m = textToMove(pos.board, pos.toMove, r.answer, legalMoves(pos.board, pos.toMove))!;
+      return !pos.board[m.ty][m.tx] && !isInCheck(applyMove(pos.board, m), pos.toMove === 'r' ? 'b' : 'r');
+    })();
+    if (r.kind === 'safety') {
+      r.rating = Math.min(2200, base + (quiet ? 60 : 0));
+      if (r.rating < 900) {
+        drop('守题太容易');
+        continue;
+      }
+    } else r.rating = Math.min(2200, Math.max(base, 900 + (r.themes.includes('守和') ? 250 : 120) + (quiet ? 150 : 0)));
+    // 这两类不是中局组合：不带主题（带了主题就会混进"中局组合"的题单）
+    const { themes: _t, steps: _s, gap: _g, ...plain } = r;
+    fens.add(r.fen);
+    out.push(plain as Rec);
     continue;
   }
   // 得子题要"只有这一路能赢"：第二好的一手不能也保住两个兵以上的优势——
@@ -144,9 +184,9 @@ writeFileSync(PUZ, JSON.stringify([...kept, ...out]));
 const bySteps: Record<string, number> = {};
 const byTheme: Record<string, number> = {};
 for (const r of out) {
-  const k = r.steps >= 6 ? '6+' : r.steps >= 4 ? '4-5' : '2-3';
+  const k = r.kind !== 'tactic' && r.kind !== 'mate' ? r.kind : r.steps >= 6 ? '6+' : r.steps >= 4 ? '4-5' : '2-3';
   bySteps[k] = (bySteps[k] ?? 0) + 1;
-  for (const t of r.themes) byTheme[t] = (byTheme[t] ?? 0) + 1;
+  for (const t of r.themes ?? [r.kind]) byTheme[t] = (byTheme[t] ?? 0) + 1;
 }
 console.log(`中局组合并入 ${out.length} 道（共 ${recs.length} 条候选）；丢掉：`, why);
 console.log('按步数', bySteps, '按主题', byTheme);

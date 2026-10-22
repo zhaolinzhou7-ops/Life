@@ -75,7 +75,7 @@ import { TRICKS, ledger, lineEvs, lineToTrap, loadTrickExtras, pitfalls, refuteL
 import { outlookOf } from './plan';
 import { listGames } from './archive';
 import { setHintLevel, getHintLevel } from './livecoach';
-import { CHECK_GAMES, checkLesson, closeIntro, getLessonLog, habitCounts, markStep, planLesson, ratePerGame, startLesson, themeName, type Lesson, type Step } from './tutor';
+import { CHECK_GAMES, checkLesson, closeIntro, getLessonLog, habitCounts, isSkill, markStep, pickPlayout, planLesson, ratePerGame, startLesson, themeName, type Lesson, type Step } from './tutor';
 import { roleOf } from './endgame';
 import { ERR_INFO, inPieces, type ErrTag } from './teach';
 import { Board2D } from './board2d';
@@ -2330,7 +2330,10 @@ export function runCoach(
     const order = [...items].sort((a, b) => {
       const fa = a.id in seen ? 1 : 0;
       const fb = b.id in seen ? 1 : 0;
-      return fa - fb || Math.abs(a.rating - r) - Math.abs(b.rating - r);
+      // 比你的分低的题算远一点（同 pickNear）：用户原话"低级题目太多"
+      const da = a.rating < r ? (r - a.rating) * 1.6 : a.rating - r;
+      const db = b.rating < r ? (r - b.rating) * 1.6 : b.rating - r;
+      return fa - fb || da - db;
     });
     const pick = order.slice(0, count);
     let i = 0;
@@ -3075,7 +3078,7 @@ export function runCoach(
       const c = checkLesson(prev, inp.games);
       const name = themeName(prev.theme);
       prevHtml =
-        prev.theme === 'endgame' || prev.theme === 'opening'
+        isSkill(prev.theme)
           ? `<p>上节课（${prev.d}）补的是「${name}」。</p>`
           : c
             ? `<p>上节课（${prev.d}）练「${name}」：上课前每盘 <b>${prev.before ?? 0}</b> 次，之后 ${c.n} 盘每盘 <b>${c.after}</b> 次——${
@@ -3141,7 +3144,15 @@ export function runCoach(
       case 'own':
         return `从错题本里挑你实战中走错的局面（${st.n} 道）：同样的毛病，用你自己的棋来改最记得住。`;
       case 'drill':
-        return `${DIM_INFO[st.dim].name}题 ${st.n} 道，难度按你现在的水平挑。`;
+        return `${DIM_INFO[st.dim].name}题 ${st.n} 道，${st.lift ? `比你现在的水平再难 ${st.lift} 分左右` : '难度按你现在的水平挑'}，没做过的先出。`;
+      case 'combo':
+        return `中局组合题 ${st.n} 道（${st.themes.join('、')}），没做过的先出。`;
+      case 'play':
+        return st.role === 'def'
+          ? '从实用残局库里挑一局你少子的残局，跟引擎下到底：守住就算过。'
+          : '从实用残局库里挑一局你多子的残局，跟引擎下到底：赢下来（将死）才算过。';
+      case 'timed':
+        return '6 道战术题，每步限时 45 秒；错的再不限时做一遍，分清楚是算不出来还是没去算。';
       case 'trick': {
         const t = TRICKS.find((x) => x.id === st.id);
         return t ? `${t.name}：你来破解，走错了当场讲。` : '邪门布局破解。';
@@ -3152,6 +3163,26 @@ export function runCoach(
         return '教练开「教学提示」陪你下一盘（会读出对方每一步的意图；这个设置会留着，想关在对局里点"教"切换）。下完一定看复盘——复盘结论就是下节课的教案。';
       case 'assess':
         return '35 道题、约 20 分钟，题目难度跟着你的表现走，测完给一张五维诊断。';
+    }
+  }
+
+  /** 私教课上出过的实战错题（题号 -> 出的时间），下节课先出没出过的 */
+  const OWN_KEY = 'xq-tutor-own';
+  function tutorOwnShown(): Record<string, number> {
+    try {
+      const v = JSON.parse(localStorage.getItem(OWN_KEY) ?? '{}') as Record<string, number>;
+      return v && typeof v === 'object' ? v : {};
+    } catch {
+      return {};
+    }
+  }
+  function markTutorOwn(id: string) {
+    try {
+      const v = tutorOwnShown();
+      v[id] = Date.now();
+      localStorage.setItem(OWN_KEY, JSON.stringify(v));
+    } catch {
+      /* 存不下就算了 */
     }
   }
 
@@ -3166,14 +3197,19 @@ export function runCoach(
     };
     switch (st.kind) {
       case 'own': {
+        // 上过的课里出过的实战题往后排：原来每次都是最新的那三道，上第二、三节课还是它们
+        const shown = tutorOwnShown();
         const own = getOwnPuzzles()
-          .filter((p) => st.dims.includes(p.kind as Dim))
-          .slice(-st.n)
-          .reverse();
+          .map((p, k) => ({ p, k }))
+          .filter(({ p }) => st.dims.includes(p.kind as Dim))
+          .sort((a, b) => (shown[a.p.id] ?? 0) - (shown[b.p.id] ?? 0) || b.k - a.k)
+          .slice(0, st.n)
+          .map((x) => x.p);
         let k = 0;
         const next = () => {
           if (k >= own.length) return back();
           const p = own[k++];
+          markTutorOwn(p.id);
           runOne(p, null, `你的实战错题 ${k}/${own.length}`, () => next());
         };
         if (own.length) next();
@@ -3181,7 +3217,26 @@ export function runCoach(
         return;
       }
       case 'drill':
-        void startPractice(st.dim, st.n, back);
+        void startPractice(st.dim, st.n, back, 40 + (st.lift ?? 0));
+        return;
+      case 'combo':
+        void loadPuzzles().then(() => {
+          if (!wrap.isConnected) return;
+          const items = combos().filter((p) => p.themes?.some((t) => st.themes.includes(t)));
+          if (!items.length) return back();
+          runComboSession(items, st.label, st.n, back, () => showTutor());
+        });
+        return;
+      case 'play':
+        void loadLibrary().then(() => {
+          if (!wrap.isConnected) return;
+          const pick = pickPlayout(endgamesByName(), st, new Set(getCleared().endgames), getRatings().endgame.r);
+          if (!pick) return back();
+          runEndgame(pick.g, pick.i, back);
+        });
+        return;
+      case 'timed':
+        void startTimed(back);
         return;
       case 'trick': {
         const t = TRICKS.find((x) => x.id === st.id);
