@@ -12,7 +12,9 @@ import { attackLabel, attackTips, classifyEndgame, defendTips, fullLabel, sideMa
 import type { EndgamePos } from '../src/xiangqi/library';
 
 const lib = JSON.parse(fs.readFileSync('src/xiangqi/endgamelib.json', 'utf8')) as EndgamePos[];
-const recheck = JSON.parse(fs.readFileSync('node_modules/.cache/endgame-recheck.json', 'utf8')) as {
+// 复核结果（gen-endgames recheck）可以没有：只并新局面
+const RECHECK = 'node_modules/.cache/endgame-recheck.json';
+const recheck = (fs.existsSync(RECHECK) ? JSON.parse(fs.readFileSync(RECHECK, 'utf8')) : []) as {
   id: string;
   now: 'win' | 'draw' | null;
   reason?: string;

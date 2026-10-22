@@ -79,6 +79,34 @@ export const GROUPS: GroupSpec[] = [
   { name: '炮兵对单马', category: '组合', att: 'CP', attGuard: 'AA', def: 'HAA', you: 'both' },
 ];
 
+/**
+ * 第二批：两边都还有进攻子的实用残局（用户原话："残棋和练习的题目更新多一点参考其他象棋软件……低级题目太多"）。
+ * 第一批大多是"多子对士象"，对方没有能动手的子——那种练习里一个不出（一眼就赢）。实用残局的书上更多的是这一类：
+ * 车兵对车士象全（例和，守方要会守）、车马 / 车炮对车士象全、马炮兵对马士象全、炮双兵对炮士象全、双兵对单马……
+ * 跑法：NEW=1 node tools/run.mjs gen-endgames 0 1 6
+ */
+export const GROUPS_2: GroupSpec[] = [
+  { name: '车兵对车士', category: '车类', att: 'RP', def: 'RA', you: 'both' },
+  { name: '车兵对车士象全', category: '车类', att: 'RP', attGuard: 'AA', def: 'RAAEE', you: 'def' },
+  { name: '车双兵对车士象全', category: '车类', att: 'RPP', attGuard: 'AA', def: 'RAAEE', you: 'both' },
+  { name: '车马对车士象全', category: '车类', att: 'RH', attGuard: 'AA', def: 'RAAEE', you: 'both' },
+  { name: '车炮对车士象全', category: '车类', att: 'RC', attGuard: 'AAEE', def: 'RAAEE', you: 'both' },
+  { name: '车马兵对车士象全', category: '车类', att: 'RHP', attGuard: 'AA', def: 'RAAEE', you: 'both' },
+  { name: '车对马炮双士', category: '车类', att: 'R', attGuard: 'AAEE', def: 'HCAA', you: 'both' },
+  { name: '车兵对马炮士象全', category: '车类', att: 'RP', attGuard: 'AA', def: 'HCAAEE', you: 'both' },
+  { name: '车对双马双士', category: '车类', att: 'R', attGuard: 'AA', def: 'HHAA', you: 'both' },
+  { name: '马炮兵对马士象全', category: '组合', att: 'HCP', attGuard: 'AA', def: 'HAAEE', you: 'both' },
+  { name: '马兵对马士象', category: '马类', att: 'HP', attGuard: 'A', def: 'HAE', you: 'both' },
+  { name: '马兵对炮双士', category: '马类', att: 'HP', def: 'CAA', you: 'both' },
+  { name: '炮兵对马士象全', category: '炮类', att: 'CP', attGuard: 'AA', def: 'HAAEE', you: 'both' },
+  { name: '炮双兵对炮士象全', category: '炮类', att: 'CPP', attGuard: 'AA', def: 'CAAEE', you: 'both' },
+  { name: '马炮对马双士', category: '组合', att: 'HC', attGuard: 'AA', def: 'HAA', you: 'both' },
+  { name: '双马对马士象全', category: '组合', att: 'HH', attGuard: 'AA', def: 'HAAEE', you: 'both' },
+  { name: '双兵对单马', category: '兵类', att: 'PP', def: 'H', you: 'both' },
+  { name: '三兵对马双士', category: '兵类', att: 'PPP', def: 'HAA', you: 'both' },
+  { name: '双兵对单炮', category: '兵类', att: 'PP', def: 'C', you: 'both' },
+];
+
 // ───────────────────────── 引擎：先算，再下到底 ─────────────────────────
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
@@ -214,9 +242,18 @@ if (mode === 'recheck') {
   const shard = Number(mode);
   const n = Number(process.argv[3] ?? 1);
   const want = Number(process.argv[4] ?? 6);
-  const groups = GROUPS.filter((_, i) => i % n === shard);
-  const outF = fs.createWriteStream(`node_modules/.cache/endgames-${shard}.jsonl`);
+  const groups = (process.env.NEW ? GROUPS_2 : GROUPS).filter((_, i) => i % n === shard);
+  // 逐条同步追加：引擎调用是同步阻塞的，写流要到最后才落盘——中途停下来就一条都没有
+  const outPath = `node_modules/.cache/endgames-${shard}.jsonl`;
+  // 续跑：已经收够的组跳过（容器重启后接着跑，不从头来）
+  const doneBy = new Map<string, number>();
+  if (fs.existsSync(outPath)) for (const l of fs.readFileSync(outPath, 'utf8').split('\n')) if (l.trim()) doneBy.set(JSON.parse(l).name, (doneBy.get(JSON.parse(l).name) ?? 0) + 1);
+  const outF = { write: (x: string) => fs.appendFileSync(outPath, x), end: () => {} };
   for (const g of groups) {
+    if ((doneBy.get(g.name) ?? 0) >= (g.you === 'def' ? want : want)) {
+      console.log(`${g.name}：上次已经收了 ${doneBy.get(g.name)} 个，跳过`);
+      continue;
+    }
     const got: Found[] = [];
     const fens = new Set<string>();
     let tries = 0;

@@ -210,21 +210,42 @@ export function pickNear(kind: PuzzleKind, rating: number, exclude: Set<string>,
   if (!all.length) return null;
   // 按**自校准后**的难度挑题：你做过的题，难度已经按你的实际表现修正过，
   // 比引擎标称的准。没做过的题就用标称值。
-  const dist = (p: Puzzle) => Math.abs(effectiveRating(p.id, p.rating) - rating);
+  const gap = (p: Puzzle) => effectiveRating(p.id, p.rating) - rating;
+  // 比你的分低的题算"更远"：用户原话"低级题目太多"。同样差两百分，难一点的题还能学到东西，
+  // 简单的只是走过场
+  const dist = (p: Puzzle) => (gap(p) < 0 ? -gap(p) * EASY_WEIGHT : gap(p));
+  const near = (list: Puzzle[]) => {
+    list.sort((a, b) => dist(a) - dist(b));
+    const n = Math.min(pool, list.length);
+    return list[(Math.random() * n) | 0];
+  };
   // **先出没做过的题。** 原来只按难度挑、不管做没做过：同一个分数段每次都是那几道，
   // 做到后面全凭记忆（用户原话）。做错的题有错题本按间隔回来，不靠这里重复出
   const seen = attemptedMap();
-  const fresh = all.filter((p) => !(p.id in seen)).sort((a, b) => dist(a) - dist(b));
-  if (fresh.length && dist(fresh[0]) <= 300) {
-    const n = Math.min(pool, fresh.length);
-    return fresh[(Math.random() * n) | 0];
+  const fresh = all.filter((p) => !(p.id in seen));
+  // 1. 没做过、难度在你上下（往下两百、往上三百）
+  const band = fresh.filter((p) => gap(p) >= -BAND_BELOW && gap(p) <= BAND_ABOVE);
+  if (band.length) return near(band);
+  // 2. 这一段做完了：宁可往上够一够（再难三百分以内），也不回头做简单的、不重复
+  const harder = fresh.filter((p) => gap(p) > BAND_ABOVE && gap(p) <= STRETCH_ABOVE);
+  if (harder.length) return near(harder);
+  // 3. 上下都没新题了：挑做得最早的那几道（隔得越久越不像背答案）
+  const old = all.filter((p) => p.id in seen && gap(p) >= -BAND_BELOW && gap(p) <= STRETCH_ABOVE);
+  if (old.length) {
+    old.sort((a, b) => (seen[a.id] ?? 0) - (seen[b.id] ?? 0));
+    return old[(Math.random() * Math.min(pool, old.length)) | 0];
   }
-  // 这个难度附近的新题做完了：挑做得最早的那几道（隔得越久越不像背答案）
-  const old = all.sort((a, b) => dist(a) - dist(b)).slice(0, pool * 3);
-  old.sort((a, b) => (seen[a.id] ?? 0) - (seen[b.id] ?? 0));
-  const n = Math.min(pool, old.length);
-  return old[(Math.random() * n) | 0];
+  // 4. 实在没有：离你最近的新题（多半是简单的），再没有就最近的旧题
+  return near(fresh.length ? fresh : all);
 }
+
+/** 比你的分低的题，距离按这个倍数算 */
+const EASY_WEIGHT = 1.6;
+/** 正常出题的难度段：你的分往下 200、往上 300 */
+const BAND_BELOW = 200;
+const BAND_ABOVE = 300;
+/** 这一段的新题做完了，最多往上够到这里 */
+const STRETCH_ABOVE = 600;
 
 /** 某一类题还有多少道没做过 */
 export function freshCount(kind: PuzzleKind): { fresh: number; total: number } {
