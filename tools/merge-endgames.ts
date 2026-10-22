@@ -36,7 +36,8 @@ let dropped = 0;
 let changed = 0;
 for (const e of lib) {
   const r = byId.get(e.id);
-  const role: 'att' | 'def' = r ? (r.attacker === e.you ? 'att' : 'def') : 'att';
+  // 没复核过的局面保留原来的攻守（原来这里一律写成 att：没有复核文件时，守方练习全被改成了进攻方）
+  const role: 'att' | 'def' = r ? (r.attacker === e.you ? 'att' : 'def') : (e.role ?? 'att');
   if (r && r.now && r.now !== e.target) {
     if (role === 'def' && r.now === 'win') {
       dropped++;
@@ -59,7 +60,12 @@ for (let k = 0; k < 3; k++) {
   for (const line of fs.readFileSync(f, 'utf8').split('\n')) if (line.trim()) found.push(JSON.parse(line));
 }
 const have = new Set(out.map((e) => e.fen));
+// 编号接着库里已有的往下排：再合并一次时，同一组的新局面不能和上次并进来的撞号
 const seq = new Map<string, number>();
+for (const e of out) {
+  const m = /^gen-(.+)-(\d+)$/.exec(e.id);
+  if (m) seq.set(m[1], Math.max(seq.get(m[1]) ?? 0, Number(m[2])));
+}
 let added = 0;
 for (const g of found) {
   if (have.has(g.fen)) continue;

@@ -193,7 +193,44 @@ for (let g = 0; g < GAMES; g++) {
       const q = search(moves, 2, 'nodes 60000');
       if (process.env.DEBUG && q.length >= 2 && val(q[0]) - val(q[1]) >= 150) console.log(`  快看 ply ${ply}：最好 ${val(q[0])} 第二 ${val(q[1])}`);
       // 快看只筛"最好的比第二好的强出一截"；"第二好的保不住优势"留给深算判（浅算的第二名分数不准，在这里卡掉的多半是好题）
-      if (q.length >= 2 && val(q[0]) >= 250 && val(q[0]) - val(q[1]) >= 250) {
+      // 中局"只有这一手守得住"（眼力题）：最好的一手大体均势，其余都要亏三个兵以上。
+      // 和组合题用同一次快看，不多花搜索；难度由合并时按尺子算，太容易的不收
+      const hold = q.length >= 2 && Math.abs(val(q[0])) <= 100 && val(q[1]) <= -300;
+      if (hold) {
+        const d = search(moves, 2, 'movetime 3000');
+        if (d.length >= 2 && Math.abs(val(d[0])) <= 100 && val(d[1]) <= -300) {
+          const line: string[] = [];
+          let bb = b;
+          let cc: Color = c;
+          for (const u of d[0].pv.slice(0, 3)) {
+            const m = uciToMove(u);
+            if (!m || !legalMoves(bb, cc).some((x) => same(x, m))) break;
+            line.push(moveToText(bb, m));
+            bb = applyMove(bb, m);
+            cc = other(cc);
+          }
+          if (line.length % 2 === 0) line.pop();
+          if (line.length) {
+            lastHit = ply;
+            found++;
+            const rec = {
+              id: `${RUN}-${SHARD}-${found}`,
+              kind: 'safety',
+              fen: toFen(b, c),
+              answer: line[0],
+              line,
+              goal: 'only',
+              ev: d[0].score,
+              ev2: Math.max(-3000, val(d[1])),
+              themes: ['守'],
+              steps: Math.ceil(line.length / 2),
+              gap: val(d[0]) - val(d[1]),
+            };
+            out.write(JSON.stringify(rec) + '\n');
+            console.log(`  第 ${g + 1} 盘第 ${ply + 1} 手：只有这一手守得住（最好 ${val(d[0])}，第二 ${val(d[1])}）${line.join(' ')}`);
+          }
+        }
+      } else if (q.length >= 2 && val(q[0]) >= 250 && val(q[0]) - val(q[1]) >= 250) {
         // 深算复核
         const d = search(moves, 2, 'movetime 3000');
         if (

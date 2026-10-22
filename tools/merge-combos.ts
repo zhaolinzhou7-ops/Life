@@ -27,6 +27,7 @@ type Rec = {
   rating?: number;
   goal: string;
   ev: number;
+  ev2?: number;
   mateIn?: number;
   themes: string[];
   steps: number;
@@ -85,8 +86,9 @@ for (const r of recs) {
     drop('超过 7 步');
     continue;
   }
-  // 残局"只有这一手"（gen-combos 在残局阶段收的）：主变合法、第一手是答案就收；难度看进攻子多少和是不是守和
-  if (r.kind === 'endgame') {
+  // 残局"只有这一手"、中局"只有这一手守得住"（gen-combos 顺手收的）：主变合法、第一手是答案就收；
+  // 难度看是不是守和、是不是安静着法。中局守题太容易的（不到 900）不收：用户原话"低级题目太多"
+  if (r.kind === 'endgame' || r.kind === 'safety') {
     let eb = pos.board;
     let ec: Color = pos.toMove;
     let eok = true;
@@ -109,9 +111,17 @@ for (const r of recs) {
       const m = textToMove(pos.board, pos.toMove, r.answer, legalMoves(pos.board, pos.toMove))!;
       return !pos.board[m.ty][m.tx] && !isInCheck(applyMove(pos.board, m), pos.toMove === 'r' ? 'b' : 'r');
     })();
-    r.rating = Math.min(2200, Math.max(base, 900 + (r.themes.includes('守和') ? 250 : 120) + (quiet ? 150 : 0)));
+    if (r.kind === 'safety') {
+      r.rating = Math.min(2200, base + (quiet ? 60 : 0));
+      if (r.rating < 900) {
+        drop('守题太容易');
+        continue;
+      }
+    } else r.rating = Math.min(2200, Math.max(base, 900 + (r.themes.includes('守和') ? 250 : 120) + (quiet ? 150 : 0)));
+    // 这两类不是中局组合：不带主题（带了主题就会混进"中局组合"的题单）
+    const { themes: _t, steps: _s, gap: _g, ...plain } = r;
     fens.add(r.fen);
-    out.push(r);
+    out.push(plain as Rec);
     continue;
   }
   // 得子题要"只有这一路能赢"：第二好的一手不能也保住两个兵以上的优势——
@@ -174,9 +184,9 @@ writeFileSync(PUZ, JSON.stringify([...kept, ...out]));
 const bySteps: Record<string, number> = {};
 const byTheme: Record<string, number> = {};
 for (const r of out) {
-  const k = r.steps >= 6 ? '6+' : r.steps >= 4 ? '4-5' : '2-3';
+  const k = r.kind !== 'tactic' && r.kind !== 'mate' ? r.kind : r.steps >= 6 ? '6+' : r.steps >= 4 ? '4-5' : '2-3';
   bySteps[k] = (bySteps[k] ?? 0) + 1;
-  for (const t of r.themes) byTheme[t] = (byTheme[t] ?? 0) + 1;
+  for (const t of r.themes ?? [r.kind]) byTheme[t] = (byTheme[t] ?? 0) + 1;
 }
 console.log(`中局组合并入 ${out.length} 道（共 ${recs.length} 条候选）；丢掉：`, why);
 console.log('按步数', bySteps, '按主题', byTheme);
