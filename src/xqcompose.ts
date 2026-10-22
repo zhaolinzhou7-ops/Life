@@ -1,22 +1,25 @@
 /**
  * 象棋对局配乐的"作曲"部分：纯计算，不碰音频（单元测试能直接测）。
  *
- * 用户原话："对局音乐希望能丰富一点，不要每次都是那几种。可以多加一些不同调的和弦，比如山水的感觉、草原的感觉等，
- * 不一定要完全照搬，主要是能让人耳目一新，每次下棋的感觉都不一样。"
- * 后来又说："音乐不够好听。"
+ * 用户三次的原话：
+ *   1. "对局音乐希望能丰富一点，不要每次都是那几种……比如山水的感觉、草原的感觉等……每次下棋的感觉都不一样。"
+ *   2. "音乐不够好听。"
+ *   3. "有点太单调了，而且没有那种琴棋书画的意境……类似于禅意的那种音乐。它不单单是只有一种音调或一种乐器，得丰富一些……
+ *      有杀伐果断的音乐，也有横扫千军的，类似于在棋局走向不同的时候都会有音调的变化：刚开始、胶着、或者快结束的时候，
+ *      分别都是不一样的。层次得丰富一些。"
  *
- * 第一版的旋律是在音阶上随机游走、每小节随便挑一个节奏型——一句一句听着都对，连起来没有方向，记不住。
- * 这一版按"写一首小曲"的办法来：
- *   - **节奏有动机**：一句四小节用同一个节奏型打底（第一、三小节一样），句尾一个长音收住、留一口气；
- *   - **旋律有走向**：每句先往上走到一个高点、再落下来（拱形），小步为主；跳进之后反方向级进回来；
- *     强拍落在这一小节和声的稳定音上（根音、五度、三度），弱拍才走经过音；不连续三次同一个音；
- *   - **曲式能记住**：一轮 16 小节是 A A' B A''——A' 的前两小节原样重复 A 的动机，A'' 把动机和 A' 的落音原样再来一遍。
- *     上句停在属音悬着（问），下句落回主音（答）；B 段换高一点的音区、换节奏；
- *   - **有呼应**：主旋律在句尾拉长音的时候，伴奏乐器把这一句的尾巴轻轻应一遍；
- *   - **慢下来、疏一点**：下棋要想，背景音乐不能催人；鼓和镲少用、轻用。
- * 七种曲风：山水、草原、江南、竹林、大漠、月夜、江湖——调式、乐器、节拍、速度、伴奏织体各不相同；
- * 每盘随机挑一种（不和上一盘重复），随机移调、速度上下浮动；主题两轮一换，B 段每轮重写。
- * 调式用的是中国五声的五种调式（宫商角徵羽），大漠用带增二度的西域调式。
+ * 第三版是**跟着棋局走的配乐**（游戏配乐里叫"动态配乐"：分层增减 + 按段落切换）：
+ *   - **七种情绪**，按局势挑（moodFor）：开局 · 静（琴箫和鸣，溪水鸟鸣）、中局 · 行云流水、胶着 · 暗流（古筝摇指、
+ *     堂鼓心跳）、攻杀 · 十面埋伏（琵琶扫弦、战鼓）、占优 · 横扫千军（笛子高亢、古筝跑动、大鼓）、劣势 · 风萧萧、
+ *     残局 · 落子无声（古琴泛音、磬）。只在一句（四小节）唱完时换，听着是曲子往下走，不是硬切；
+ *     将军了、吃大子了，攻杀的那一段最多一小节就进来；
+ *   - **同一种情绪里也分层**：强度（intensity）越高，加进来的声部越多（支声、心跳鼓、扫弦加花）；
+ *   - **四种乐队**，每盘随机一种：高山流水、江南丝竹、禅院松风、塞上曲。乐器**轮流对答**——这一句古琴，
+ *     下一句箫接过去吹同一个主题；骨干音上还有第二件乐器跟着（中国音乐的"支声"）；
+ *   - **自然声**（演奏层合成）：溪水、鸟鸣、松风、细雨，安静的段落才有；
+ *   - **点缀**：将军——战鼓"咚、哒哒"带一声锣；吃掉车马炮——琵琶扫一下；终局赢、输、和各有一句收尾。
+ * 每种情绪有自己的主题（A A' B A''），这盘棋第二次回到这种情绪时主题再现——一盘棋听下来有几个记得住的旋律。
+ * 调式用中国五声的五种（宫商角徵羽）：同一个主音上换调式，开局羽调清幽、占优宫调明亮、劣势羽调低沉。
  */
 
 /** 乐器（演奏层按这个名字合成音色） */
@@ -24,24 +27,26 @@ export type InstId =
   | 'xiao' // 箫：柔、气声
   | 'dizi' // 笛：亮、带倚音
   | 'zheng' // 古筝：拨弦
-  | 'pipa' // 琵琶：拨弦 + 轮指
+  | 'pipa' // 琵琶：拨弦，长音轮指
   | 'qin' // 古琴：低沉拨弦，余音长
   | 'harm' // 古琴泛音：清亮的高音
-  | 'morin' // 马头琴：弓弦，滑音
-  | 'drone' // 低音持续（呼麦 / 低音弦的感觉）
-  | 'bell' // 编钟 / 铃
+  | 'erhu' // 二胡：弓弦，揉弦、滑音
+  | 'morin' // 马头琴：低一点的弓弦
+  | 'drone' // 低音持续
   | 'sheng' // 笙：和声铺底
-  | 'oud' // 西域拨弦（热瓦普的感觉）
-  | 'hoof' // 马蹄
-  | 'wood' // 木鱼 / 梆子
-  | 'drumLo' // 手鼓低音
-  | 'drumHi' // 手鼓高音
-  | 'taiko' // 大鼓
-  | 'camel' // 驼铃
+  | 'bell' // 编钟
+  | 'qing' // 磬：寺院里的钵磬
+  | 'wood' // 木鱼
+  | 'tanggu' // 堂鼓：紧一点的中鼓
+  | 'dagu' // 大鼓：战鼓
+  | 'gong' // 锣
+  | 'bo' // 钹：轻轻一下
+  | 'saofu' // 琵琶扫弦：一把和弦（run 里是这几个音）
+  | 'trem' // 古筝摇指：一个音上快速反复
   | 'gliss'; // 古筝刮奏（一串上行）
 
 export interface NoteEv {
-  /** 这一轮里第几步（一步 = 一个八分音符 / 六八拍的一个八分） */
+  /** 这一句里第几步（一步 = 一个八分音符）；点缀（stinger）里可以是小数 */
   step: number;
   inst: InstId;
   /** MIDI 音高（打击乐没有） */
@@ -52,64 +57,25 @@ export interface NoteEv {
   pan: number;
   /** 倚音：先快速带一下这个音再到正音 */
   grace?: number;
-  /** 从这个音滑上来（马头琴、古琴的吟猱） */
+  /** 从这个音滑上来（马头琴、二胡、古琴的吟猱） */
   slideFrom?: number;
-  /** 古筝刮奏：要走的那一串音 */
+  /** 刮奏、扫弦：要走的那几个音 */
   run?: number[];
-  /** 主旋律（伴奏里也可能用同一件乐器，比如大漠的西域拨弦） */
+  /** 主旋律 */
   lead?: boolean;
   /** 呼应：伴奏把主旋律句尾应一遍 */
   echo?: boolean;
+  /** 支声：跟着主旋律骨干音的第二件乐器 */
+  second?: boolean;
 }
 
-export interface StyleDef {
-  id: string;
-  name: string;
-  /** 一句话：这首是什么感觉、用了什么乐器 */
-  desc: string;
-  /** 调式：相对主音的半音 */
-  mode: number[];
-  /** 调式名（显示用）："羽调" */
-  modeName: string;
-  /** 主音（MIDI）和随机移调的范围 */
-  tonic: number;
-  keyShift: [number, number];
-  bpm: [number, number];
-  /** 一小节几步：8 = 四四拍的八分音符，6 = 六八拍 */
-  stepsPerBar: number;
-  /** 句中小节的节奏型（一小节里每个音几步，负数是休止）：一句里第一、三小节用同一个 */
-  rhythms: number[][];
-  /** 句尾小节的节奏型：最后一个音是长音（或者长音后面留一口气） */
-  cadences: number[][];
-  /** 跳进的倾向（0～1），草原的长调跳得多 */
-  leap: number;
-  /** 旋律乐器、比主音高几个八度 */
-  lead: InstId;
-  leadOct: number;
-  /** 句中可以用的和声根音（调式里的第几个音）：每句第二、三小节从这里挑 */
-  colors: number[];
-  /** 每小节的伴奏 */
-  accomp: (a: AccArgs) => NoteEv[];
-  /** 句尾拉长音时，哪件乐器把这一句的尾巴应一遍；比旋律低（-1）还是高（+1）一个八度 */
-  echo?: { inst: InstId; oct: number; vol: number };
-  /** 旋律的点缀：倚音 / 滑音的几率 */
-  ornament: number;
-  /** 混响多湿（0～1）、主旋律的回声多少（0～1） */
-  wet: number;
-  delay: number;
-  /**
-   * 这一曲风整体的音量：按离线渲染量出来的短时响度（400 毫秒窗的 90 分位）拉齐到同一个电平。
-   * 不按平均响度拉：竹林、月夜音少，平均下来很轻，按平均拉齐每个音就比别的曲风响一大截。
-   */
-  gain: number;
-}
+export type Mood = 'serene' | 'flow' | 'tense' | 'battle' | 'triumph' | 'peril' | 'endgame';
 
 export interface AccArgs {
+  /** 这一句里第几小节（0～3） */
   bar: number;
-  /** 句子里第几小节（0～3） */
-  inPhrase: number;
-  /** A 段（安静一点）还是 B 段（满一点） */
-  section: 'A' | 'B';
+  /** 这一种情绪的主题里第几句（0 A，1 A'，2 B，3 A''） */
+  idx: number;
   /** 这一小节的根音（MIDI，低音区） */
   root: number;
   /** 主音（MIDI，低音区） */
@@ -117,26 +83,50 @@ export interface AccArgs {
   /** 根音上方的纯五度（调式里没有就用纯四度） */
   fifth: number;
   steps: number;
-  /** 乐句的最后一小节 */
+  /** 句子的最后一小节 */
   cadence: boolean;
+  /** 刚换到这种情绪的第一句（攻杀的第一句开头来一声锣） */
+  first: boolean;
+  /** 强度 0～1：越高加进来的声部越多 */
+  intensity: number;
   rng: () => number;
-  /** 调式里从根音往上的音（刮奏、分解用） */
-  scaleFrom: (midi: number, n: number) => number[];
+  /** 调式里从 midi 往上的 k 个音（刮奏、跑动用） */
+  scaleFrom: (midi: number, k: number) => number[];
+}
+
+export interface MoodDef {
+  /** 显示用 */
+  name: string;
+  /** 速度：这盘基准速度的几倍 */
+  tempo: number;
+  rhythms: number[][];
+  cadences: number[][];
+  leap: number;
+  /** 句中可以用的和声根音（调式里第几个音） */
+  colors: number[];
+  ornament: number;
+  /** 混响、回声、自然声的多少（0～1） */
+  wet: number;
+  delay: number;
+  amb: number;
+  /** 强度到这么高，支声（第二件乐器跟骨干音）才进来 */
+  secondAt: number;
+  /** 句尾长音时伴奏应一遍（安静的段落才有） */
+  echo: boolean;
+  accomp: (a: AccArgs) => NoteEv[];
 }
 
 const at = (step: number, inst: InstId, len: number, vol: number, pan = 0, midi?: number): NoteEv => ({ step, inst, len, vol, pan, midi });
 
-/** 宫商角徵羽五种调式 + 西域 */
+/** 宫商角徵羽五种调式 */
 export const MODES = {
   gong: [0, 2, 4, 7, 9],
   shang: [0, 2, 5, 7, 10],
   jue: [0, 3, 5, 8, 10],
   zhi: [0, 2, 5, 7, 9],
   yu: [0, 3, 5, 7, 10],
-  xiyu: [0, 1, 4, 5, 7, 8, 10],
 };
 
-/** 四四拍，句中：四分音符为主，带一点附点和八分 */
 const R44 = [
   [2, 2, 2, 2],
   [3, 1, 2, 2],
@@ -147,254 +137,330 @@ const R44 = [
   [2, 1, 1, 4],
   [1, 1, 2, 4],
 ];
-/** 四四拍，句尾：长音收住 */
 const C44 = [[8], [6, -2], [2, 6], [3, 1, 4], [2, 2, 4], [4, 4]];
-/** 慢曲（竹林、月夜）：音少、长 */
 const R44_SLOW = [
   [4, 4],
   [6, 2],
   [2, 6],
   [3, 1, 4],
   [4, 2, 2],
+  [2, 2, 4],
 ];
 const C44_SLOW = [[8], [6, -2], [4, -4]];
-/** 六八拍 */
-const R68 = [
-  [3, 3],
-  [2, 1, 3],
-  [3, 2, 1],
-  [2, 1, 2, 1],
-  [1, 1, 1, 3],
-];
-const C68 = [[6], [3, 3], [2, 1, 3]];
 
-export const STYLES: StyleDef[] = [
+/** 七种情绪：段落的速度、节奏、伴奏织体、效果。伴奏按强度加声部 */
+export const MOODS: Record<Mood, MoodDef> = {
+  serene: {
+    name: '开局 · 静',
+    tempo: 0.92,
+    rhythms: R44_SLOW,
+    cadences: C44_SLOW,
+    leap: 0.25,
+    colors: [2, 3, 4],
+    ornament: 0.25,
+    wet: 0.48,
+    delay: 0.2,
+    amb: 1,
+    secondAt: 0.55,
+    echo: true,
+    accomp: ({ bar, root, fifth, cadence, intensity, scaleFrom }) => {
+      // 古筝疏疏地拨根音、五度；古琴两小节一个低音；强度上来笙轻轻铺上
+      const out = [at(0, 'zheng', 6, 0.055, -0.3, root + 12), at(3, 'zheng', 3, 0.035, 0.3, fifth + 12)];
+      if (bar % 2 === 0) out.push(at(0, 'qin', 8, 0.05, -0.15, root));
+      if (intensity > 0.35) out.push(at(0, 'sheng', 8, 0.011, 0.25, root + 12), at(0, 'sheng', 8, 0.009, -0.25, fifth + 12));
+      if (cadence) out.push({ ...at(6, 'gliss', 2, 0.032, 0.1), run: scaleFrom(root + 12, 6) });
+      return out;
+    },
+  },
+  flow: {
+    name: '中局 · 行云流水',
+    tempo: 1,
+    rhythms: R44,
+    cadences: C44,
+    leap: 0.2,
+    colors: [1, 3, 4],
+    ornament: 0.35,
+    wet: 0.4,
+    delay: 0.18,
+    amb: 0.45,
+    secondAt: 0.4,
+    echo: true,
+    accomp: ({ bar, idx, root, fifth, cadence, steps, intensity, scaleFrom }) => {
+      const out: NoteEv[] = [at(0, 'qin', 4, 0.05, -0.15, root)];
+      // 古筝流水分解：强度低时半小节，高时或 B 段整小节
+      const arp = [root + 12, fifth + 12, root + 24, fifth + 12, root + 24, fifth + 24, root + 24, fifth + 12];
+      const upto = intensity > 0.55 || idx === 2 ? steps : 4;
+      for (let s = 0; s < upto; s += 1) if (s % 2 === 0 || intensity > 0.75) out.push(at(s, 'zheng', 2, s === 0 ? 0.05 : 0.028, s % 4 === 0 ? -0.3 : 0.25, arp[s]));
+      if (intensity > 0.4) out.push(at(0, 'sheng', 8, 0.011, 0.3, root + 12), at(0, 'sheng', 8, 0.009, -0.3, fifth + 12));
+      if (intensity > 0.6 && bar % 2 === 0) out.push(at(0, 'tanggu', 1, 0.03, 0.1));
+      if (cadence) out.push({ ...at(5, 'gliss', 3, 0.03, 0.1), run: scaleFrom(root + 12, 7) });
+      return out;
+    },
+  },
+  tense: {
+    name: '胶着 · 暗流',
+    tempo: 0.96,
+    rhythms: [
+      [4, 4],
+      [3, 1, 4],
+      [2, 2, 4],
+      [6, 2],
+      [2, 2, 2, 2],
+    ],
+    cadences: [[8], [6, -2], [4, 4]],
+    leap: 0.15,
+    // 底下是主音的持续音（摇指 + 长鸣），旋律的和声也压在主音上，句尾才到属音
+    colors: [0],
+    ornament: 0.2,
+    wet: 0.36,
+    delay: 0.26,
+    amb: 0.25,
+    secondAt: 0.5,
+    echo: false,
+    accomp: ({ bar, tonic, root, fifth, steps, intensity }) => {
+      // 古筝摇指压着主音和五度，像水底下的暗流；堂鼓"咚—咚"心跳，越胶着越响
+      const out: NoteEv[] = [at(0, 'trem', steps, 0.018 + 0.022 * intensity, -0.25, tonic + 12), at(0, 'trem', steps, 0.012 + 0.016 * intensity, 0.25, fifth + 12)];
+      if (bar % 2 === 0) out.push(at(0, 'drone', steps * 2, 0.012, 0, tonic + 12));
+      if (intensity > 0.25) out.push(at(0, 'tanggu', 1, 0.03 + 0.04 * intensity, 0), at(1, 'tanggu', 1, 0.02 + 0.025 * intensity, 0));
+      if (intensity > 0.6) out.push(at(6, 'pipa', 1, 0.035, 0.3, root + 12));
+      return out;
+    },
+  },
+  battle: {
+    name: '攻杀 · 十面埋伏',
+    tempo: 1.3,
+    rhythms: [
+      [1, 1, 2, 2, 2],
+      [2, 1, 1, 2, 2],
+      [2, 2, 1, 1, 2],
+      [1, 1, 1, 1, 2, 2],
+      [3, 1, 2, 2],
+      [2, 2, 2, 2],
+    ],
+    cadences: [
+      [2, 2, 4],
+      [3, 1, 4],
+      [4, 4],
+      [1, 1, 2, 4],
+    ],
+    leap: 0.3,
+    colors: [3, 4, 1],
+    ornament: 0.15,
+    wet: 0.24,
+    delay: 0.08,
+    amb: 0,
+    secondAt: 0.4,
+    echo: false,
+    accomp: ({ bar, root, fifth, first, intensity }) => {
+      // 琵琶扫弦（3+3+2 的重音），战鼓一、三拍，堂鼓密打，句首一声钹；刚杀进来那一句先来一声锣
+      const chord = [root + 12, fifth + 12, root + 24];
+      const out: NoteEv[] = [
+        { ...at(0, 'saofu', 2, 0.06, -0.2), run: chord },
+        { ...at(3, 'saofu', 2, 0.045, -0.2), run: chord },
+        { ...at(6, 'saofu', 2, 0.045, -0.2), run: chord },
+        at(0, 'dagu', 1, 0.08 + 0.05 * intensity, 0),
+        at(4, 'dagu', 1, 0.06 + 0.04 * intensity, 0),
+        at(0, 'qin', 4, 0.045, -0.1, root),
+      ];
+      if (intensity > 0.5) for (const s of [1, 3, 5, 7]) out.push(at(s, 'tanggu', 1, 0.022 + 0.02 * intensity, 0.15));
+      if (intensity > 0.7) out.push({ ...at(5, 'saofu', 1, 0.03, -0.2), run: chord });
+      if (bar === 0 && (first || intensity > 0.8)) out.push(at(0, 'bo', 4, 0.022, 0.2));
+      if (bar === 0 && first) out.push(at(0, 'gong', 8, 0.05, -0.1));
+      return out;
+    },
+  },
+  triumph: {
+    name: '占优 · 横扫千军',
+    tempo: 1.15,
+    rhythms: [
+      [2, 2, 2, 2],
+      [3, 1, 2, 2],
+      [2, 1, 1, 2, 2],
+      [1, 1, 2, 2, 2],
+      [4, 2, 2],
+      [2, 2, 4],
+    ],
+    cadences: C44,
+    leap: 0.3,
+    colors: [1, 3, 4],
+    ornament: 0.3,
+    wet: 0.34,
+    delay: 0.15,
+    amb: 0.15,
+    secondAt: 0.3,
+    echo: false,
+    accomp: ({ bar, root, fifth, steps, cadence, intensity, scaleFrom }) => {
+      // 古筝一路往上跑，笙铺满和声，大鼓开拍、堂鼓第三拍，句首一声钹
+      const run = scaleFrom(root + 12, steps);
+      const out: NoteEv[] = run.map((m, s) => at(s, 'zheng', 1, s === 0 ? 0.04 : 0.024, s % 2 ? 0.3 : -0.3, m));
+      out.push(at(0, 'sheng', 8, 0.012, 0.3, root + 12), at(0, 'sheng', 8, 0.01, -0.3, fifth + 12), at(0, 'sheng', 8, 0.008, 0, root + 24));
+      out.push(at(0, 'dagu', 1, 0.07, 0), at(4, 'tanggu', 1, 0.045, 0.1), at(0, 'qin', 4, 0.045, -0.1, root));
+      if (bar === 0 && intensity > 0.5) out.push(at(0, 'bo', 4, 0.02, 0.2));
+      if (cadence) out.push({ ...at(5, 'gliss', 3, 0.035, 0.1), run: scaleFrom(root + 24, 7) });
+      return out;
+    },
+  },
+  peril: {
+    name: '劣势 · 风萧萧',
+    tempo: 0.86,
+    rhythms: [
+      [4, 4],
+      [6, 2],
+      [3, 1, 4],
+      [2, 6],
+      [4, 2, 2],
+    ],
+    cadences: [[8], [6, -2]],
+    leap: 0.2,
+    colors: [3, 2, 4],
+    ornament: 0.3,
+    wet: 0.46,
+    delay: 0.2,
+    amb: 0.7,
+    secondAt: 0.7,
+    echo: true,
+    accomp: ({ bar, tonic, root, steps, intensity }) => {
+      // 低音长鸣压着，古琴低音一下一下，远处一声堂鼓
+      const out: NoteEv[] = [at(0, 'qin', 6, 0.05, -0.15, root)];
+      if (bar % 2 === 0) out.push(at(0, 'drone', steps * 2, 0.016, 0, tonic + 12), at(0, 'tanggu', 1, 0.028, 0.2));
+      if (intensity > 0.6) out.push(at(0, 'trem', steps, 0.016, 0.3, tonic + 12));
+      return out;
+    },
+  },
+  endgame: {
+    name: '残局 · 落子无声',
+    tempo: 0.9,
+    rhythms: R44_SLOW,
+    cadences: C44_SLOW,
+    leap: 0.25,
+    colors: [2, 3, 4],
+    ornament: 0.25,
+    wet: 0.5,
+    delay: 0.22,
+    amb: 0.6,
+    secondAt: 0.8,
+    echo: true,
+    accomp: ({ bar, root, fifth, cadence, intensity }) => {
+      // 子少了，声音也少：古琴两小节一个低音，句首一声磬，句尾一个泛音
+      const out: NoteEv[] = [];
+      if (bar % 2 === 0) out.push(at(0, 'qin', 8, 0.05, -0.15, root));
+      if (bar === 0) out.push(at(0, 'qing', 8, 0.028, 0.3, root + 36));
+      if (intensity > 0.5) out.push(at(0, 'sheng', 8, 0.01, 0.25, fifth + 12));
+      if (cadence) out.push(at(6, 'harm', 4, 0.035, 0.2, root + 36));
+      return out;
+    },
+  },
+};
+
+/** 一盘棋的乐队：每种情绪用哪种调式、谁吹主旋律（轮流）、谁跟骨干音；自然声 */
+export interface Palette {
+  id: string;
+  name: string;
+  /** 一句话：用了什么、什么意境 */
+  desc: string;
+  tonic: number;
+  keyShift: [number, number];
+  bpm: [number, number];
+  modes: Record<Mood, number[]>;
+  leads: Record<Mood, InstId[]>;
+  second: Record<Mood, InstId>;
+  /** 自然声：溪水、松风、细雨、鸟鸣（0～1） */
+  amb: { stream: number; wind: number; rain: number; birds: number };
+  /** 整体音量（各乐队响度拉齐用） */
+  gain: number;
+}
+
+const { gong, shang, jue, zhi, yu } = MODES;
+
+export const PALETTES: Palette[] = [
   {
-    id: 'shanshui',
-    name: '山水 · 溪山',
-    desc: '箫和古筝，羽调，慢——山间溪水边下棋',
-    mode: MODES.yu,
-    modeName: '羽调',
+    id: 'gaoshan',
+    name: '高山流水',
+    desc: '古琴与箫一问一答，古筝如流水，溪声鸟鸣',
     tonic: 57,
     keyShift: [-2, 3],
     bpm: [58, 66],
-    stepsPerBar: 8,
-    rhythms: R44,
-    cadences: C44,
-    leap: 0.2,
-    lead: 'xiao',
-    leadOct: 1,
-    colors: [2, 3, 4],
-    ornament: 0.25,
-    echo: { inst: 'zheng', oct: 0, vol: 0.05 },
-    wet: 0.42,
-    delay: 0.22,
+    modes: { serene: yu, flow: zhi, tense: shang, battle: yu, triumph: gong, peril: yu, endgame: shang },
+    leads: {
+      serene: ['qin', 'xiao'],
+      flow: ['xiao', 'zheng'],
+      tense: ['qin', 'xiao'],
+      battle: ['pipa', 'dizi'],
+      triumph: ['dizi', 'zheng'],
+      peril: ['xiao', 'qin'],
+      endgame: ['qin', 'xiao'],
+    },
+    second: { serene: 'zheng', flow: 'sheng', tense: 'sheng', battle: 'dizi', triumph: 'sheng', peril: 'qin', endgame: 'zheng' },
+    amb: { stream: 1, wind: 0.15, rain: 0, birds: 0.7 },
     gain: 1,
-    accomp: ({ root, fifth, steps, cadence, section, scaleFrom }) => {
-      // 古筝：根音—五度—八度的分解，B 段多拨两下
-      const out = [at(0, 'zheng', 6, 0.075, -0.3, root), at(3, 'zheng', 3, 0.045, 0.3, fifth + 12)];
-      if (section === 'B') out.push(at(5, 'zheng', 3, 0.04, -0.15, root + 12), at(6, 'zheng', 2, 0.035, 0.2, fifth + 12));
-      if (cadence) out.push({ ...at(steps - 2, 'gliss', 2, 0.04, 0), run: scaleFrom(root + 12, 6) });
-      return out;
-    },
-  },
-  {
-    id: 'caoyuan',
-    name: '草原 · 牧歌',
-    desc: '马头琴、低音长鸣和马蹄声，宫调，大跳——天苍苍野茫茫',
-    mode: MODES.gong,
-    modeName: '宫调',
-    tonic: 50,
-    keyShift: [-2, 4],
-    bpm: [78, 88],
-    stepsPerBar: 6,
-    rhythms: R68,
-    cadences: C68,
-    leap: 0.45,
-    lead: 'morin',
-    leadOct: 1,
-    colors: [1, 3, 4],
-    ornament: 0.35,
-    echo: { inst: 'pipa', oct: -1, vol: 0.035 },
-    wet: 0.45,
-    delay: 0.12,
-    gain: 1.43,
-    accomp: ({ bar, tonic, root, fifth, steps, section, cadence }) => {
-      const out: NoteEv[] = [];
-      // 低音长鸣：主音 + 五度，两小节一换，像草原上的风（轻，不能糊住旋律）
-      if (bar % 2 === 0) out.push(at(0, 'drone', steps * 2, 0.022, -0.2, tonic + 12), at(0, 'drone', steps * 2, 0.016, 0.2, tonic + 19));
-      // 马蹄：B 段才跑起来（哒—哒哒），句尾勒马
-      if (section === 'B' && !cadence) for (const s of [0, 2, 3, 5]) out.push(at(s, 'hoof', 1, s === 0 || s === 3 ? 0.06 : 0.04, s < 3 ? -0.35 : 0.35));
-      out.push(at(0, 'pipa', 3, 0.045, -0.25, root + 12), at(3, 'pipa', 3, 0.032, 0.25, fifth + 12));
-      return out;
-    },
   },
   {
     id: 'jiangnan',
-    name: '江南 · 水乡',
-    desc: '笛子、琵琶、古筝分解和弦，徵调——小桥流水',
-    mode: MODES.zhi,
-    modeName: '徵调',
+    name: '江南丝竹',
+    desc: '笛子、二胡、琵琶、古筝，细雨小桥',
     tonic: 55,
     keyShift: [-3, 3],
-    bpm: [68, 76],
-    stepsPerBar: 8,
-    rhythms: R44,
-    cadences: C44,
-    leap: 0.15,
-    lead: 'dizi',
-    leadOct: 1,
-    colors: [1, 3, 4],
-    ornament: 0.4,
-    echo: { inst: 'pipa', oct: -1, vol: 0.04 },
-    wet: 0.36,
-    delay: 0.18,
-    gain: 1.19,
-    accomp: ({ root, fifth, cadence, steps, section, scaleFrom }) => {
-      const out: NoteEv[] = [];
-      // 古筝分解：根、五、八、五，流水一样；A 段每小节前半，B 段整小节
-      const arp = [root, fifth, root + 12, fifth + 12, root + 24, fifth + 12, root + 12, fifth];
-      const upto = section === 'B' ? steps : 4;
-      for (let s = 0; s < upto; s += 2) out.push(at(s, 'zheng', 2, s === 0 ? 0.06 : 0.035, s % 4 === 0 ? -0.3 : 0.25, arp[s]));
-      if (cadence) out.push({ ...at(steps - 3, 'gliss', 3, 0.035, 0.1), run: scaleFrom(root + 12, 7) });
-      return out;
+    bpm: [62, 70],
+    modes: { serene: zhi, flow: gong, tense: yu, battle: yu, triumph: gong, peril: yu, endgame: zhi },
+    leads: {
+      serene: ['dizi', 'zheng'],
+      flow: ['dizi', 'erhu'],
+      tense: ['erhu', 'pipa'],
+      battle: ['pipa', 'dizi'],
+      triumph: ['dizi', 'pipa'],
+      peril: ['erhu'],
+      endgame: ['erhu', 'zheng'],
     },
+    second: { serene: 'sheng', flow: 'zheng', tense: 'sheng', battle: 'erhu', triumph: 'sheng', peril: 'zheng', endgame: 'sheng' },
+    amb: { stream: 0.45, wind: 0, rain: 0.8, birds: 0.3 },
+    gain: 1,
   },
   {
-    id: 'zhulin',
-    name: '竹林 · 禅',
-    desc: '古琴、泛音和木鱼，商调，很慢很疏——竹林里一盏茶',
-    mode: MODES.shang,
-    modeName: '商调',
+    id: 'chanyuan',
+    name: '禅院松风',
+    desc: '古琴、箫、编钟和磬，松风入耳',
     tonic: 50,
     keyShift: [-2, 3],
-    bpm: [50, 56],
-    stepsPerBar: 8,
-    rhythms: R44_SLOW,
-    cadences: C44_SLOW,
-    leap: 0.25,
-    lead: 'qin',
-    leadOct: 1,
-    colors: [2, 3, 4],
-    ornament: 0.3,
-    echo: { inst: 'harm', oct: 1, vol: 0.04 },
-    wet: 0.5,
-    delay: 0.1,
-    gain: 3.2,
-    accomp: ({ bar, root, fifth, steps }) => {
-      const out: NoteEv[] = [];
-      // 木鱼：两小节敲一下，很轻
-      if (bar % 2 === 0) out.push(at(0, 'wood', 1, 0.035, 0.3));
-      // 笙：根音和五度轻轻铺着
-      if (bar % 2 === 0) out.push(at(0, 'sheng', steps * 2, 0.014, -0.3, root + 12), at(0, 'sheng', steps * 2, 0.011, 0.3, fifth + 12));
-      return out;
+    bpm: [52, 60],
+    modes: { serene: shang, flow: yu, tense: shang, battle: yu, triumph: gong, peril: jue, endgame: shang },
+    leads: {
+      serene: ['qin', 'xiao'],
+      flow: ['xiao', 'qin'],
+      tense: ['qin'],
+      battle: ['pipa', 'dizi'],
+      triumph: ['zheng', 'dizi'],
+      peril: ['xiao'],
+      endgame: ['qin'],
     },
+    second: { serene: 'bell', flow: 'sheng', tense: 'sheng', battle: 'dizi', triumph: 'sheng', peril: 'qin', endgame: 'bell' },
+    amb: { stream: 0.2, wind: 1, rain: 0, birds: 0.5 },
+    gain: 1,
   },
   {
-    id: 'damo',
-    name: '大漠 · 驼铃',
-    desc: '西域拨弦、手鼓和驼铃，带增二度的西域调式——丝路上的商队',
-    mode: MODES.xiyu,
-    modeName: '西域调式',
-    tonic: 50,
+    id: 'saishang',
+    name: '塞上曲',
+    desc: '马头琴、二胡、笛子，长风万里',
+    tonic: 52,
     keyShift: [-2, 3],
-    bpm: [80, 88],
-    stepsPerBar: 8,
-    rhythms: R44,
-    cadences: C44,
-    leap: 0.2,
-    lead: 'oud',
-    leadOct: 1,
-    // 西域调式半音多，和声只在主音、四度、五度上走，免得撞
-    colors: [3, 4],
-    ornament: 0.3,
-    echo: { inst: 'zheng', oct: 0, vol: 0.035 },
-    wet: 0.4,
-    delay: 0.2,
-    gain: 2.76,
-    accomp: ({ bar, tonic, root, steps, section }) => {
-      // 手鼓：咚 哒 . 哒 咚 . 哒 .（中东的马克苏姆节奏），轻
-      const out: NoteEv[] = [];
-      const pat: [number, InstId][] =
-        section === 'B'
-          ? [
-              [0, 'drumLo'],
-              [2, 'drumHi'],
-              [3, 'drumHi'],
-              [4, 'drumLo'],
-              [6, 'drumHi'],
-            ]
-          : [
-              [0, 'drumLo'],
-              [3, 'drumHi'],
-              [4, 'drumLo'],
-            ];
-      for (const [s, k] of pat) if (s < steps) out.push(at(s, k, 1, k === 'drumLo' ? 0.028 : 0.026, k === 'drumLo' ? 0 : 0.3));
-      if (bar % 4 === 0) out.push(at(0, 'camel', 4, 0.03, -0.4));
-      if (bar % 2 === 0) out.push(at(0, 'drone', steps * 2, 0.012, -0.15, tonic + 12));
-      out.push(at(0, 'oud', 2, 0.04, -0.3, root + 12));
-      return out;
+    bpm: [60, 68],
+    modes: { serene: yu, flow: gong, tense: yu, battle: gong, triumph: gong, peril: yu, endgame: yu },
+    leads: {
+      serene: ['xiao', 'morin'],
+      flow: ['erhu', 'dizi'],
+      tense: ['morin', 'pipa'],
+      battle: ['pipa', 'dizi'],
+      triumph: ['dizi', 'erhu'],
+      peril: ['morin', 'xiao'],
+      endgame: ['xiao', 'erhu'],
     },
-  },
-  {
-    id: 'yueye',
-    name: '月夜 · 编钟',
-    desc: '编钟、笙的和声，角调，很静——月下对弈',
-    mode: MODES.jue,
-    modeName: '角调',
-    tonic: 47,
-    keyShift: [-3, 2],
-    bpm: [54, 60],
-    stepsPerBar: 8,
-    rhythms: R44_SLOW,
-    cadences: C44_SLOW,
-    leap: 0.3,
-    lead: 'bell',
-    leadOct: 2,
-    colors: [1, 2, 3],
-    ornament: 0.1,
-    echo: { inst: 'qin', oct: -1, vol: 0.05 },
-    wet: 0.5,
-    delay: 0.15,
-    gain: 1.55,
-    accomp: ({ root, fifth, steps, cadence, scaleFrom }) => {
-      const out = [at(0, 'sheng', steps, 0.016, -0.35, root + 12), at(0, 'sheng', steps, 0.012, 0.35, fifth + 12), at(0, 'qin', 6, 0.05, -0.2, root)];
-      if (cadence) out.push({ ...at(steps - 2, 'gliss', 2, 0.03, 0.2), run: scaleFrom(root + 24, 5) });
-      return out;
-    },
-  },
-  {
-    id: 'jianghu',
-    name: '江湖 · 侠客',
-    desc: '笛子、琵琶和大鼓，宫调——刀光剑影的一盘',
-    mode: MODES.gong,
-    modeName: '宫调',
-    tonic: 50,
-    keyShift: [-2, 4],
-    bpm: [86, 94],
-    stepsPerBar: 8,
-    rhythms: R44,
-    cadences: C44,
-    leap: 0.25,
-    lead: 'dizi',
-    leadOct: 1,
-    colors: [1, 3, 4],
-    ornament: 0.3,
-    echo: { inst: 'pipa', oct: -1, vol: 0.04 },
-    wet: 0.32,
-    delay: 0.14,
-    gain: 1.24,
-    accomp: ({ root, fifth, steps, cadence, section, inPhrase, scaleFrom }) => {
-      const out: NoteEv[] = [];
-      // 大鼓只在句首敲，B 段第三拍补一下
-      if (inPhrase === 0) out.push(at(0, 'taiko', 1, 0.1, 0));
-      if (section === 'B') out.push(at(4, 'drumLo', 1, 0.05, 0));
-      out.push(at(0, 'pipa', 2, 0.05, -0.3, root + 12), at(3, 'pipa', 2, 0.035, -0.3, root + 12), at(6, 'pipa', 2, 0.035, -0.3, fifth + 12));
-      if (cadence) out.push({ ...at(steps - 3, 'gliss', 3, 0.035, 0.1), run: scaleFrom(root + 12, 7) });
-      return out;
-    },
+    second: { serene: 'sheng', flow: 'zheng', tense: 'sheng', battle: 'erhu', triumph: 'sheng', peril: 'qin', endgame: 'zheng' },
+    amb: { stream: 0, wind: 0.9, rain: 0, birds: 0.2 },
+    gain: 1,
   },
 ];
+
+/** 各乐器吹旋律时比"旋律中心"高低几个八度：古琴、马头琴低一个八度，编钟高一个 */
+const LEAD_OCT: Partial<Record<InstId, number>> = { qin: -1, morin: -1, bell: 1 };
 
 /** 可复现的随机数（同一个种子作出同一首，测试用；实际每盘种子随机） */
 export function rngOf(seed: number): () => number {
@@ -415,34 +481,53 @@ export interface MelNote {
   deg: number;
 }
 
-/** 这一盘的曲子：曲风 + 调高 + 速度 + 当前这一轮的音符 */
-export interface Piece {
-  style: StyleDef;
-  /** 移调之后的主音（MIDI） */
-  tonic: number;
-  bpm: number;
-  /** 调名，如"D 宫调" */
-  key: string;
-  /** 一轮多少步 */
-  steps: number;
-  rng: () => number;
-  /** A 段的材料（动机、两种落音、和声），两轮一换 */
-  theme: Theme | null;
-  cycle: number;
-}
-
 interface Theme {
   /** 第一句（4 小节，停在属音）；前两小节就是动机 */
   a: MelNote[];
-  /** 答句的后两小节（落回主音） */
+  /** 答句的后两小节（落回主音），步数从第 2 小节算起 */
   answer: MelNote[];
-  /** 两句的和声根音（调式第几个音），每小节一个 */
   progA: number[];
   progAns: number[];
 }
 
+interface MoodState {
+  theme: Theme | null;
+  /** 主题里下一句是第几句（0～3） */
+  idx: number;
+  /** 唱完了几轮（两轮换一个主题） */
+  cycle: number;
+  /** 主旋律轮到哪件乐器 */
+  turn: number;
+}
+
+/** 这一盘的配乐：乐队、调高、速度、每种情绪的主题 */
+export interface Score {
+  palette: Palette;
+  /** 移调之后的主音（MIDI） */
+  tonic: number;
+  /** 基准速度（每种情绪再乘自己的倍数） */
+  bpm: number;
+  /** 调名，如"D 调" */
+  key: string;
+  rng: () => number;
+  moods: Partial<Record<Mood, MoodState>>;
+  /** 上一句是什么情绪（换情绪时第一句要知道） */
+  last: Mood | null;
+}
+
+/** 一句：四小节的音符（步从 0 算起）和这一句的速度 */
+export interface Phrase {
+  mood: Mood;
+  bpm: number;
+  steps: number;
+  notes: NoteEv[];
+  /** 这一句主旋律是哪件乐器 */
+  lead: InstId;
+}
+
 const NAMES = ['C', '#C', 'D', 'bE', 'E', 'F', '#F', 'G', 'bA', 'A', 'bB', 'B'];
-const BARS = 16;
+export const SPB = 8;
+const BARS = 4;
 
 /** 调式里第 k 个音（可以跨八度、可以是负数）→ MIDI */
 export function degMidi(mode: number[], tonic: number, k: number): number {
@@ -451,21 +536,21 @@ export function degMidi(mode: number[], tonic: number, k: number): number {
   return tonic + 12 * oct + mode[((k % n) + n) % n];
 }
 
-/** 挑一种曲风：不和上一盘重复 */
-export function pickStyle(lastId: string | null, rng: () => number): StyleDef {
-  const pool = STYLES.filter((s) => s.id !== lastId);
+/** 挑一种乐队：不和上一盘重复 */
+export function pickPalette(lastId: string | null, rng: () => number): Palette {
+  const pool = PALETTES.filter((s) => s.id !== lastId);
   return pool[Math.floor(rng() * pool.length)];
 }
 
-export function newPiece(style: StyleDef, seed = Math.floor(Math.random() * 2 ** 31)): Piece {
+export function newScore(palette: Palette, seed = Math.floor(Math.random() * 2 ** 31)): Score {
   const rng = rngOf(seed);
-  const shift = style.keyShift[0] + Math.floor(rng() * (style.keyShift[1] - style.keyShift[0] + 1));
-  const tonic = style.tonic + shift;
-  const bpm = Math.round(style.bpm[0] + rng() * (style.bpm[1] - style.bpm[0]));
-  return { style, tonic, bpm, key: `${NAMES[tonic % 12]} ${style.modeName}`, steps: BARS * style.stepsPerBar, rng, theme: null, cycle: 0 };
+  const shift = palette.keyShift[0] + Math.floor(rng() * (palette.keyShift[1] - palette.keyShift[0] + 1));
+  const tonic = palette.tonic + shift;
+  const bpm = Math.round(palette.bpm[0] + rng() * (palette.bpm[1] - palette.bpm[0]));
+  return { palette, tonic, bpm, key: `${NAMES[tonic % 12]} 调`, rng, moods: {}, last: null };
 }
 
-/** 属音在调式里是第几个音（有纯五度用纯五度；角调没有，用小六度那个；都没有就用中间那个） */
+/** 属音在调式里是第几个音（有纯五度用纯五度；角调没有，用小六度那个） */
 export function fifthIdx(mode: number[]): number {
   const i = mode.indexOf(7);
   return i >= 0 ? i : mode.indexOf(8) >= 0 ? mode.indexOf(8) : Math.floor(mode.length / 2);
@@ -496,18 +581,17 @@ export function stablePcs(mode: number[], rootDeg: number): Set<number> {
 }
 
 /** 一步在小节里有多"重"：小节头 3，半小节 2，拍上 1，拍后 0 */
-function strength(step: number, spb: number): number {
-  const s = step % spb;
+function strength(step: number): number {
+  const s = step % SPB;
   if (s === 0) return 3;
-  if (spb === 8) return s === 4 ? 2 : s % 2 === 0 ? 1 : 0;
-  return s === 3 ? 2 : 0;
+  return s === 4 ? 2 : s % 2 === 0 ? 1 : 0;
 }
 
 /** 按节奏型把几个小节铺成音符的位置（还没有音高） */
-function slotsOf(rhythms: number[][], startStep: number, spb: number): { step: number; len: number }[] {
+function slotsOf(rhythms: number[][], startStep: number): { step: number; len: number }[] {
   const out: { step: number; len: number }[] = [];
   rhythms.forEach((rh, b) => {
-    let s = startStep + b * spb;
+    let s = startStep + b * SPB;
     for (const d of rh) {
       if (d > 0) out.push({ step: s, len: d });
       s += Math.abs(d);
@@ -518,12 +602,13 @@ function slotsOf(rhythms: number[][], startStep: number, spb: number): { step: n
 
 /**
  * 给一串位置配音高：拱形（从 start 往上走到 peak，再落到 end），小步为主、跳进之后反向级进，
- * 强拍落稳定音，不连着三次同一个音。end 是最后一个音的音阶位置（落音）。
+ * 强拍落稳定音，不连着三次同一个音，最后一步步收进落音 end。
  */
 function pitchLine(
   slots: { step: number; len: number }[],
   o: {
-    style: StyleDef;
+    mode: number[];
+    leap: number;
     rng: () => number;
     start: number;
     peak: number;
@@ -536,9 +621,8 @@ function pitchLine(
     prev?: number[];
   },
 ): MelNote[] {
-  const { style, rng } = o;
-  const n = style.mode.length;
-  const spb = style.stepsPerBar;
+  const { mode, rng } = o;
+  const n = mode.length;
   const N = slots.length;
   const hist = [...(o.prev ?? [])];
   const out: MelNote[] = [];
@@ -559,35 +643,29 @@ function pitchLine(
     const prev2 = hist.length >= 2 ? hist[hist.length - 2] : undefined;
     const lastMove = prev2 === undefined ? 0 : prev - prev2;
     const target = contour(N > 1 ? i / (N - 1) : 0);
-    const stable = stablePcs(style.mode, o.rootAt(sl.step));
-    const st = strength(sl.step, spb);
+    const stable = stablePcs(mode, o.rootAt(sl.step));
+    const st = strength(sl.step);
     let best = prev;
     let bestCost = Infinity;
     for (let cand = prev - 4; cand <= prev + 4; cand++) {
       if (cand < o.lo || cand > o.hi) continue;
       const move = cand - prev;
       const mag = Math.abs(move);
-      let cost = Math.abs(cand - target);
-      // 级进最好；隔一个音（五声里是三度、四度）也顺；再大是跳进，草原的长调才多跳
-      cost += mag === 0 ? 0.9 : mag === 1 ? 0 : mag === 2 ? 0.45 : mag === 3 ? 1.6 - style.leap * 1.2 : 2.6 - style.leap * 1.4;
-      // 连着三次同一个音不要（最后一个音是定死的落音：前一个已经是落音，这里就不能再是）；来回晃（5 6 5 6）也少一点
+      // 连着三次同一个音不要（最后一个音是定死的落音：前一个已经是落音，这里就不能再是）
       if (mag === 0 && prev2 === prev) continue;
       if (i === N - 2 && cand === o.end && prev === o.end) continue;
+      let cost = Math.abs(cand - target);
+      // 级进最好；隔一个音（五声里是三度、四度）也顺；再大是跳进
+      cost += mag === 0 ? 0.9 : mag === 1 ? 0 : mag === 2 ? 0.45 : mag === 3 ? 1.6 - o.leap * 1.2 : 2.6 - o.leap * 1.4;
+      // 来回晃（5 6 5 6）少一点
       if (mag > 0 && cand === prev2) cost += 0.35;
       // 剩下几个音要能一步步走到落音：离落音太远就得往回收，免得最后两三个大跳硬落下去
-      const remain = N - 1 - i;
-      cost += Math.max(0, Math.abs(cand - o.end) - remain * 1.4) * 1.3;
+      cost += Math.max(0, Math.abs(cand - o.end) - (N - 1 - i) * 1.4) * 1.3;
       // 跳进之后往回走
       if (Math.abs(lastMove) >= 2 && move !== 0 && Math.sign(move) === Math.sign(lastMove)) cost += 1.6;
       // 强拍落稳定音
-      const pc = ((style.mode[((cand % n) + n) % n] % 12) + 12) % 12;
+      const pc = mode[((cand % n) + n) % n];
       if (!stable.has(pc)) cost += st === 3 ? 2.4 : st === 2 ? 1.2 : st === 1 ? 0.3 : 0;
-      // 和根音、和主音（低音长鸣）差半音、三全音的音（西域调式里才有）：一带而过是西域味，拉长了刺耳
-      const rootPc = style.mode[((o.rootAt(sl.step) % n) + n) % n];
-      for (const ref of [rootPc, 0]) {
-        const iv = (((pc - ref) % 12) + 12) % 12;
-        if (iv === 1 || iv === 11 || iv === 6) cost += sl.len >= 2 ? 1.6 : 0.4;
-      }
       // 倒数第二个音：离落音一两步，级进收进去
       if (i === N - 2) {
         const d = Math.abs(cand - o.end);
@@ -607,151 +685,257 @@ function pitchLine(
 
 const pick = <T,>(arr: T[], rng: () => number): T => arr[Math.floor(rng() * arr.length)];
 
-/** 一句往上走多高：音少的句子（竹林、月夜一句才四五个音）走不了太高，不然只能大跳上去 */
+/** 一句往上走多高：音少的句子（慢段落一句才四五个音）走不了太高，不然只能大跳上去 */
 const reach = (want: number, notes: number) => Math.max(0, Math.min(want, Math.ceil(notes / 2)));
 
-/** 节奏动机一样的那种句子：[r1, r2, r1, 句尾]（六八拍、慢曲同理） */
-function phraseRhythm(style: StyleDef, rng: () => number): number[][] {
-  const ok = (r: number[]) => r.reduce((a, x) => a + Math.abs(x), 0) === style.stepsPerBar;
-  const rs = style.rhythms.filter(ok);
-  const cs = style.cadences.filter(ok);
-  const r1 = pick(rs, rng);
-  let r2 = pick(rs, rng);
-  if (r2 === r1 && rs.length > 1) r2 = pick(rs, rng);
-  return [r1, r2, r1, pick(cs, rng)];
+/** 节奏动机一样的那种句子：[r1, r2, r1, 句尾] */
+function phraseRhythm(def: MoodDef, rng: () => number): number[][] {
+  const r1 = pick(def.rhythms, rng);
+  let r2 = pick(def.rhythms, rng);
+  if (r2 === r1 && def.rhythms.length > 1) r2 = pick(def.rhythms, rng);
+  return [r1, r2, r1, pick(def.cadences, rng)];
 }
 
 /**
- * 作一轮（16 小节）：A（问句，停在属音）A'（动机重复 + 答句，落回主音）B（换音区、换节奏，停在属音）
- * A''（动机 + 答句原样再来）。主题两轮一换；B 段每轮重写。返回这一轮的全部音符（旋律 + 呼应 + 伴奏）。
+ * 局势 → 情绪和强度。下棋的人自己的视角：evalMe 正是你占优（车≈1000）。
  */
-export function composeCycle(p: Piece): NoteEv[] {
-  const { style, rng } = p;
-  const spb = style.stepsPerBar;
-  const n = style.mode.length;
-  const base = n * style.leadOct; // 旋律中心：主音高 leadOct 个八度
-  const fi = fifthIdx(style.mode);
+export interface MusicCtx {
+  /** 走了几步（半回合） */
+  plies: number;
+  /** 盘面上还剩多少子力（开局 = 1） */
+  material: number;
+  /** 引擎对你这一方的评分；还不知道就是 null */
+  evalMe: number | null;
+  /** 最近四步里将了几次军 */
+  checks: number;
+  /** 最近四步里吃掉了几个车马炮 */
+  bigCaptures: number;
+  /** 你正被将军，或者对方有杀 */
+  danger: boolean;
+  /** 多少步没吃子了 */
+  quiet: number;
+  /** 棋下完了 */
+  over?: boolean;
+}
+
+export function moodFor(c: MusicCtx): { mood: Mood; intensity: number } {
+  const clamp = (x: number) => Math.max(0, Math.min(1, x));
+  if (c.over) return { mood: 'serene', intensity: 0.1 };
+  const ev = c.evalMe ?? 0;
+  const fight = c.checks >= 1 || c.danger || c.bigCaptures >= 2;
+  // 你大优还在将军、吃子：横扫千军，越杀越响
+  if (fight && !c.danger && c.evalMe !== null && ev >= 450) return { mood: 'triumph', intensity: clamp(0.6 + 0.1 * c.checks + 0.1 * c.bigCaptures) };
+  // 将军、被杀、兑子（四步里吃掉两个车马炮）：杀伐果断。只吃一个子不算——中局里换子是常事，不能一吃子就打鼓
+  if (fight) return { mood: 'battle', intensity: clamp(0.45 + 0.15 * c.checks + 0.1 * c.bigCaptures + (c.danger ? 0.25 : 0)) };
+  // 大优 / 大劣：横扫千军 / 风萧萧
+  if (c.evalMe !== null && ev >= 450) return { mood: 'triumph', intensity: clamp(0.4 + (ev - 450) / 1500) };
+  if (c.evalMe !== null && ev <= -450) return { mood: 'peril', intensity: clamp(0.4 + (-ev - 450) / 1500) };
+  // 子少了：残局
+  if (c.material <= 0.38) return { mood: 'endgame', intensity: clamp(0.3 + Math.abs(ev) / 1200) };
+  // 开局：子都在，走了没几步
+  if (c.plies < 16 && c.material >= 0.9) return { mood: 'serene', intensity: clamp(0.15 + c.plies / 30) };
+  // 胶着：下了好一阵、分差不大、好久没吃子
+  if (c.plies >= 24 && Math.abs(ev) < 200 && c.quiet >= 8) return { mood: 'tense', intensity: clamp(0.3 + (c.quiet - 8) / 24) };
+  return { mood: 'flow', intensity: clamp(0.3 + c.plies / 120) };
+}
+
+/** 这一种情绪的主题：A 句（停在属音）+ 答句（接在动机后面落回主音） */
+function makeTheme(sc: Score, mood: Mood): Theme {
+  const def = MOODS[mood];
+  const mode = sc.palette.modes[mood];
+  const rng = sc.rng;
+  const n = mode.length;
+  const base = n; // 旋律中心：主音高一个八度
+  const fi = fifthIdx(mode);
   const lo = base - 3;
   const hi = base + n + 2;
-  const prog = (half: boolean, first?: number) => [first ?? 0, pick(style.colors, rng), pick(style.colors, rng), half ? fi : 0];
-  /** from 往上三个音里，挑一个是这个根音上稳定音的 */
-  const pickStable = (from: number, rootDeg: number, r: () => number) => {
-    const stable = stablePcs(style.mode, rootDeg);
-    const ok = [from, from + 1, from + 2].filter((d) => stable.has(style.mode[((d % n) + n) % n]));
-    return ok.length ? pick(ok, r) : from;
-  };
-
-  if (!p.theme || p.cycle % 2 === 0) {
-    const progA = prog(true);
-    const progAns = [0, progA[1], pick(style.colors, rng), 0];
-    const rootA = (s: number) => progA[Math.floor(s / spb) % 4];
-    // 起音落在第一小节和声的稳定音上
-    const start = pickStable(base, progA[0], rng);
-    const aSlots = slotsOf(phraseRhythm(style, rng), 0, spb);
-    const a = pitchLine(aSlots, { style, rng, start, peak: start + reach(base + 2 + Math.floor(rng() * 3) - start, aSlots.length), end: base + fi, lo, hi, rootAt: rootA });
-    // 答句：接在动机（前两小节）后面，落回主音
-    const motif = a.filter((x) => x.step < 2 * spb);
-    const ansRh = [pick(style.rhythms.filter((r) => r.reduce((s, x) => s + Math.abs(x), 0) === spb), rng), pick(style.cadences.filter((r) => r.reduce((s, x) => s + Math.abs(x), 0) === spb), rng)];
-    const rootAns = (s: number) => progAns[Math.floor(s / spb) % 4];
-    const from = motif[motif.length - 1].deg;
-    const answer = pitchLine(slotsOf(ansRh, 2 * spb, spb), {
-      style,
-      rng,
-      start: from,
-      // 答句是往下落的：起点已经比主音高就不再往上走，低的话先抬一点
-      peak: from > base + 1 ? from : base + 2,
-      end: base,
-      lo,
-      hi,
-      rootAt: rootAns,
-      prev: motif.map((x) => x.deg),
-    });
-    p.theme = { a, answer, progA, progAns };
-  }
-  const th = p.theme;
-  // B 段：高一点的音区，自己的节奏和和声，停在属音（或高八度的主音）
-  const progB = prog(true, pick(style.colors, rng));
-  const rootB = (s: number) => progB[Math.floor(s / spb) % 4];
-  const bStart = pickStable(base + 2, progB[0], rng);
-  const bSlots = slotsOf(phraseRhythm(style, rng), 8 * spb, spb);
-  const b = pitchLine(bSlots, {
-    style,
+  const progA = [0, pick(def.colors, rng), pick(def.colors, rng), fi];
+  const progAns = [0, progA[1], pick(def.colors, rng), 0];
+  const rootA = (s: number) => progA[Math.floor(s / SPB) % BARS];
+  const start = pickStable(mode, base, progA[0], rng);
+  const aSlots = slotsOf(phraseRhythm(def, rng), 0);
+  const a = pitchLine(aSlots, { mode, leap: def.leap, rng, start, peak: start + reach(base + 2 + Math.floor(rng() * 3) - start, aSlots.length), end: base + fi, lo, hi, rootAt: rootA });
+  const motif = a.filter((x) => x.step < 2 * SPB);
+  const from = motif[motif.length - 1].deg;
+  const answer = pitchLine(slotsOf([pick(def.rhythms, rng), pick(def.cadences, rng)], 2 * SPB), {
+    mode,
+    leap: def.leap,
     rng,
-    start: bStart,
-    peak: bStart + reach(base + n + Math.floor(rng() * 2) - bStart, bSlots.length),
-    end: base + fi,
-    lo: base,
-    hi: base + n + 3,
-    rootAt: rootB,
+    start: from,
+    // 答句是往下落的：起点已经比主音高就不再往上走，低的话先抬一点
+    peak: from > base + 1 ? from : base + 2,
+    end: base,
+    lo,
+    hi,
+    rootAt: (s) => progAns[Math.floor(s / SPB) % BARS],
+    prev: motif.map((x) => x.deg),
   });
+  return { a, answer, progA, progAns };
+}
 
-  const motif = th.a.filter((x) => x.step < 2 * spb);
-  const shift = (xs: MelNote[], d: number) => xs.map((x) => ({ ...x, step: x.step + d }));
-  const mel: MelNote[] = [...th.a, ...shift(motif, 4 * spb), ...shift(th.answer, 4 * spb), ...b, ...shift(motif, 12 * spb), ...shift(th.answer, 12 * spb)];
-  // 每小节的和声根音
-  const roots = [...th.progA, ...th.progAns, ...progB, ...th.progAns];
+/** from 往上三个音里，挑一个是这个根音上稳定音的 */
+function pickStable(mode: number[], from: number, rootDeg: number, rng: () => number): number {
+  const n = mode.length;
+  const stable = stablePcs(mode, rootDeg);
+  const ok = [from, from + 1, from + 2].filter((d) => stable.has(mode[((d % n) + n) % n]));
+  return ok.length ? pick(ok, rng) : from;
+}
+
+/**
+ * 作下一句（四小节）。同一种情绪里按 A、A'、B、A'' 往下走（主题两轮一换，B 每次新写）；
+ * 刚换到这种情绪时从 A 起，主题再现。主旋律乐器一句一换（古琴一句、箫接一句）。
+ */
+export function composePhrase(sc: Score, mood: Mood, intensity: number): Phrase {
+  const def = MOODS[mood];
+  const pal = sc.palette;
+  const mode = pal.modes[mood];
+  const rng = sc.rng;
+  const n = mode.length;
+  const base = n;
+  const fi = fifthIdx(mode);
+  const first = sc.last !== mood;
+  const ms = (sc.moods[mood] ??= { theme: null, idx: 0, cycle: 0, turn: 0 });
+  if (first) ms.idx = 0;
+  if (!ms.theme || (ms.idx === 0 && ms.cycle % 2 === 0 && !first)) ms.theme = makeTheme(sc, mood);
+  const th = ms.theme;
+  const motif = th.a.filter((x) => x.step < 2 * SPB);
+  let mel: MelNote[];
+  let roots: number[];
+  if (ms.idx === 0) {
+    mel = th.a;
+    roots = th.progA;
+  } else if (ms.idx === 2) {
+    // B：高一点的音区，自己的节奏和和声，停在属音
+    roots = [pick(def.colors, rng), pick(def.colors, rng), pick(def.colors, rng), fi];
+    const bStart = pickStable(mode, base + 2, roots[0], rng);
+    const slots = slotsOf(phraseRhythm(def, rng), 0);
+    mel = pitchLine(slots, {
+      mode,
+      leap: def.leap,
+      rng,
+      start: bStart,
+      peak: bStart + reach(base + n + Math.floor(rng() * 2) - bStart, slots.length),
+      end: base + fi,
+      lo: base,
+      hi: base + n + 3,
+      rootAt: (s) => roots[Math.floor(s / SPB) % BARS],
+    });
+  } else {
+    // A' / A''：动机原样，再接答句落回主音
+    mel = [...motif, ...th.answer];
+    roots = th.progAns;
+  }
+  const idx = ms.idx;
+  ms.idx = (ms.idx + 1) % 4;
+  if (ms.idx === 0) ms.cycle++;
+  const leads = pal.leads[mood];
+  const lead = leads[ms.turn % leads.length];
+  ms.turn++;
+  sc.last = mood;
 
   const ev: NoteEv[] = [];
+  const oct = 12 * (LEAD_OCT[lead] ?? 0);
   const last = mel.length - 1;
   mel.forEach((x, i) => {
-    const midi = degMidi(style.mode, p.tonic, x.deg);
-    const bar = Math.floor(x.step / spb);
-    const inPhrase = bar % 4;
-    // 力度：句子中间（高点附近）略强，小节头略重，句尾长音收一点
-    const accent = x.step % spb === 0 ? 1.08 : 1;
-    const arch = 0.9 + 0.12 * Math.sin((Math.PI * (inPhrase + (x.step % spb) / spb)) / 4);
-    const e: NoteEv = { step: x.step, inst: style.lead, midi, len: x.len, vol: 0.1 * accent * arch * (0.94 + rng() * 0.12), pan: 0.12, lead: true };
-    // 点缀：倚音（从上方邻音带一下）、滑音（从下方滑上来）——只给不在句尾的长一点的音
-    const nextIsCadence = i === last || Math.floor(mel[i + 1].step / spb) % 4 === 3;
-    if (x.len >= 2 && !nextIsCadence && rng() < style.ornament) {
-      if (style.lead === 'morin' || style.lead === 'qin') e.slideFrom = degMidi(style.mode, p.tonic, x.deg - 1);
-      else if (style.lead !== 'bell') e.grace = degMidi(style.mode, p.tonic, x.deg + 1);
+    const midi = degMidi(mode, sc.tonic, x.deg) + oct;
+    const bar = Math.floor(x.step / SPB);
+    // 力度：句子中间（高点附近）略强，小节头略重；强度高一点整体也响一点
+    const accent = x.step % SPB === 0 ? 1.08 : 1;
+    const arch = 0.9 + 0.12 * Math.sin((Math.PI * (bar + (x.step % SPB) / SPB)) / 4);
+    const e: NoteEv = { step: x.step, inst: lead, midi, len: x.len, vol: 0.1 * accent * arch * (0.94 + rng() * 0.12) * (0.92 + 0.16 * intensity), pan: 0.12, lead: true };
+    // 点缀：倚音（从上方邻音带一下）、滑音（从下方滑上来）——不给句尾那几个音
+    const nearEnd = i === last || Math.floor(mel[i + 1].step / SPB) === BARS - 1;
+    if (x.len >= 2 && !nearEnd && rng() < def.ornament) {
+      if (lead === 'qin' || lead === 'erhu' || lead === 'morin') e.slideFrom = degMidi(mode, sc.tonic, x.deg - 1) + oct;
+      else if (lead !== 'bell' && lead !== 'zheng') e.grace = degMidi(mode, sc.tonic, x.deg + 1) + oct;
     }
     ev.push(e);
   });
 
-  // 呼应：每句最后一个长音拉着的时候，伴奏把这句的最后三个音轻轻应一遍
-  if (style.echo) {
-    const echo = style.echo;
-    for (let ph = 0; ph < 4; ph++) {
-      const inPh = mel.filter((x) => Math.floor(x.step / spb / 4) === ph);
-      const tail = inPh[inPh.length - 1];
-      if (!tail || tail.len < 3) continue;
-      const src = inPh.slice(-4, -1);
-      let s = tail.step + Math.min(2, tail.len - 2);
-      for (const x of src) {
-        const len = Math.max(1, Math.min(2, x.len));
-        if (s + len > (ph + 1) * 4 * spb) break;
-        ev.push({ step: s, inst: echo.inst, midi: degMidi(style.mode, p.tonic, x.deg) + 12 * echo.oct, len, vol: echo.vol, pan: -0.35, echo: true });
-        s += len;
-      }
+  // 支声：第二件乐器跟着旋律的骨干音（小节头、半小节）走，低一个八度（编钟高一个）
+  const sec = pal.second[mood];
+  if (intensity >= def.secondAt && sec !== lead) {
+    const anchors = mel.filter((x) => strength(x.step) >= 2);
+    anchors.forEach((x, i) => {
+      const next = anchors[i + 1]?.step ?? BARS * SPB;
+      const len = Math.max(1, Math.min(4, next - x.step));
+      const so = sec === 'bell' ? 12 : sec === 'dizi' ? 0 : -12;
+      ev.push({ step: x.step, inst: sec, midi: degMidi(mode, sc.tonic, x.deg) + so, len, vol: sec === 'sheng' ? 0.016 : 0.034, pan: -0.35, second: true });
+    });
+  }
+
+  // 呼应：句尾长音拉着的时候，伴奏把这句的最后三个音轻轻应一遍
+  const tail = mel[last];
+  if (def.echo && tail.len >= 3) {
+    const echoInst: InstId = sec !== lead && sec !== 'sheng' ? sec : lead === 'zheng' ? 'qin' : 'zheng';
+    let s = tail.step + Math.min(2, tail.len - 2);
+    for (const x of mel.slice(-4, -1)) {
+      const len = Math.max(1, Math.min(2, x.len));
+      if (s + len > BARS * SPB) break;
+      ev.push({ step: s, inst: echoInst, midi: degMidi(mode, sc.tonic, x.deg) - (echoInst === 'qin' ? 12 : 0), len, vol: 0.04, pan: -0.35, echo: true });
+      s += len;
     }
   }
 
-  // 伴奏：每小节按这一曲风的织体
+  // 伴奏：每小节按这种情绪的织体
   for (let bar = 0; bar < BARS; bar++) {
-    const rootDeg = roots[bar];
-    const root = degMidi(style.mode, p.tonic - 12, rootDeg);
-    const acc = style.accomp({
+    const root = degMidi(mode, sc.tonic - 12, roots[bar]);
+    const acc = def.accomp({
       bar,
-      inPhrase: bar % 4,
-      section: bar >= 8 && bar < 12 ? 'B' : 'A',
+      idx,
       root,
-      tonic: p.tonic - 12,
-      fifth: fifthAbove(style.mode, p.tonic, root),
-      steps: spb,
-      cadence: bar % 4 === 3,
+      tonic: sc.tonic - 12,
+      fifth: fifthAbove(mode, sc.tonic, root),
+      steps: SPB,
+      cadence: bar === BARS - 1,
+      first: first && bar === 0,
+      intensity,
       rng,
       scaleFrom: (m, k) => {
         // 从 m 附近的调式音往上 k 个
-        const rel = m - p.tonic;
-        let d = Math.floor((rel / 12) * n);
-        while (degMidi(style.mode, p.tonic, d) < m) d++;
-        return Array.from({ length: k }, (_, i) => degMidi(style.mode, p.tonic, d + i));
+        let d = Math.floor(((m - sc.tonic) / 12) * n);
+        while (degMidi(mode, sc.tonic, d) < m) d++;
+        return Array.from({ length: k }, (_, i) => degMidi(mode, sc.tonic, d + i));
       },
     });
-    for (const a of acc) ev.push({ ...a, step: bar * spb + a.step });
+    for (const a of acc) ev.push({ ...a, step: bar * SPB + a.step });
   }
-  p.cycle++;
-  return ev.sort((x, y) => x.step - y.step);
+  return { mood, bpm: sc.bpm * def.tempo, steps: BARS * SPB, notes: ev.sort((x, y) => x.step - y.step), lead };
+}
+
+export type StingerKind = 'check' | 'capture' | 'win' | 'loss' | 'draw';
+
+/**
+ * 点缀：将军、吃掉车马炮、终局。步可以是小数（马上响，不等下一句）。
+ * 用的是当前情绪的调式，和正在放的曲子在一个调上。
+ */
+export function stinger(sc: Score, kind: StingerKind): NoteEv[] {
+  const mood = sc.last ?? 'serene';
+  const mode = sc.palette.modes[mood];
+  const t = sc.tonic;
+  const lo = t - 12;
+  const fifth = fifthAbove(mode, t, lo);
+  const run = (from: number, k: number) => {
+    const n = mode.length;
+    let d = Math.floor(((from - t) / 12) * n);
+    while (degMidi(mode, t, d) < from) d++;
+    return Array.from({ length: k }, (_, i) => degMidi(mode, t, d + i));
+  };
+  switch (kind) {
+    case 'check':
+      // 战鼓"咚、哒哒"，一声锣
+      return [at(0, 'dagu', 1, 0.11, 0), at(0.5, 'tanggu', 1, 0.06, 0.15), at(1, 'tanggu', 1, 0.07, -0.15), at(0, 'gong', 6, 0.05, 0)];
+    case 'capture':
+      // 琵琶扫一下
+      return [{ ...at(0, 'saofu', 2, 0.07, -0.2), run: [lo + 12, fifth + 12, lo + 24] }, at(0, 'tanggu', 1, 0.05, 0.1)];
+    case 'win':
+      // 古筝刮上去，一声锣，笛子吹一个长长的主音
+      return [{ ...at(0, 'gliss', 2, 0.05, 0.1), run: run(t, 9) }, at(1.5, 'gong', 8, 0.06, 0), at(1.5, 'dagu', 1, 0.09, 0), at(2, 'dizi', 8, 0.09, 0.1, t + 24), at(2, 'sheng', 10, 0.016, -0.2, t + 12)];
+    case 'loss':
+      // 古琴三个音慢慢落下来，远处一声锣
+      return [at(0, 'qin', 3, 0.07, -0.1, degMidi(mode, t, 2)), at(2, 'qin', 3, 0.065, -0.1, degMidi(mode, t, 1)), at(4, 'qin', 8, 0.07, -0.1, t), at(4, 'gong', 8, 0.035, 0)];
+    case 'draw':
+      // 编钟两声：主音、五度
+      return [at(0, 'bell', 6, 0.08, 0.1, t + 24), at(2, 'bell', 6, 0.06, -0.1, fifth + 24)];
+  }
 }

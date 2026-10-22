@@ -74,11 +74,9 @@ import {
   sfxSlash,
   sfxTap,
   sfxWinBig,
-  speak,
-  stopBgm,
   unlockAudio,
 } from '../gamesfx';
-import { nextXqMusic, startXqMusic } from '../xqmusic';
+import { nextXqMusic, setXqMusicState, startXqMusic, stopXqMusic, xqMusicEnd, xqStinger } from '../xqmusic';
 import { CHARACTERS, avatarCanvas, pickLine, type Character } from '../characters';
 
 /**
@@ -819,8 +817,18 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     function onStudy(s: Study) {
       if (s !== study || over || turn !== me) return;
       renderCoachLine();
+      // 配乐要知道谁占优：研究够深了才算数
+      if (s.best && s.depth >= s.minDepth) {
+        const b = s.best;
+        const ev = b.mateIn !== undefined ? (b.mateIn > 0 ? 3000 : -3000) : b.score;
+        if (ev !== musicEval) {
+          musicEval = ev;
+          updateMusic();
+        }
+      }
       // 算到有定论（够深）就可以说——全力档可能要算几分钟才"算完"，不能等到那时候
-      if (s.settled && !lostSaid && hintLevel > 0) {
+      // 教练的提示条开着（正在拦你这一手）就先不说：两张条叠在一起，下面那张的按钮被盖住点不到
+      if (s.settled && !lostSaid && hintLevel > 0 && !closeCoachPrompt) {
         // 前几档的对手会看走眼（从前几名里随机挑、算得浅），大师以上基本不会
         const t = lostNotice(board, s.moves, (handicap?.lv ?? level) >= 4);
         if (t) {
@@ -923,7 +931,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     // 先把搜索线程热起来，别让第一步的回手慢一大截
     warmupAi(board, foe);
     scene.dealIn();
-    // 配乐：每盘随机一种曲风（山水、草原、江南、竹林、大漠、月夜、江湖），不和上一盘重复，调高、速度、旋律也都现编
+    // 配乐：每盘随机一种乐队（高山流水、江南丝竹、禅院松风、塞上曲），不和上一盘重复；
+    // 跟着棋局走——开局静、中局行云流水、胶着、攻杀、占优、劣势、残局各是一种情绪（updateMusic）
     const music = startXqMusic();
 
     // ---- HUD ----
@@ -1083,8 +1092,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       setMuted(!isMuted());
       muteBtn.textContent = isMuted() ? '🔇' : '🔊';
     };
-    // 🎵 换一种曲风：用户原话"每次下棋的感觉都不一样"——不喜欢这一首就点一下换
-    const musicName = (m: ReturnType<typeof startXqMusic>) => (m ? `🎵 ${m.style.name}（${m.key}）· ${m.style.desc}` : '');
+    // 🎵 换一种乐队：用户原话"每次下棋的感觉都不一样"——不喜欢就点一下换（局势不变，还是这会儿的情绪）
+    const musicName = (m: ReturnType<typeof startXqMusic>) => (m ? `🎵 ${m.palette.name}（${m.key}）· ${m.palette.desc}` : '');
     (hud.querySelector('#xq-music') as HTMLButtonElement).onclick = () => {
       const m = nextXqMusic();
       if (isMuted()) {
@@ -1288,7 +1297,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       bubble.classList.remove('pop');
       void bubble.offsetWidth;
       bubble.classList.add('pop');
-      speak(text, rival.voice);
+      // 不念出来：浏览器自带的语音念台词机械感很重——用户原话"人的声音也很傻"。只出气泡
       rivalBox.classList.add('talking');
       clearTimeout(bubbleTimer);
       bubbleTimer = window.setTimeout(() => {
@@ -1339,7 +1348,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       thinkTimer = window.setInterval(tick, 500);
     };
 
-    setTimeout(() => say(pickLine(rival.lines.greet)), 700);
+    setTimeout(() => say(pickLine(rival.xq.greet)), 700);
 
     // ---- 流程 ----
     /**
@@ -1495,6 +1504,26 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     }
 
     /** 子力（不算将帅），用来判断对手占不占优 */
+    /** 配乐知道的局势：引擎对你的评分（研究算出来的）、最近吃掉车马炮的那几步 */
+    let musicEval: number | null = null;
+    const bigCapAt: number[] = [];
+    /** 局势告诉配乐：开局、中局、胶着、攻杀、占优、劣势、残局（xqcompose.ts 的 moodFor） */
+    function updateMusic() {
+      const n = plies.length;
+      const full = 2 * material(initialBoard(), 'r');
+      const mate = study?.best?.mateIn;
+      setXqMusicState({
+        plies: moveLog.length,
+        material: (material(board, 'r') + material(board, 'b')) / full,
+        evalMe: musicEval,
+        checks: plies.slice(-4).filter((p) => p.check).length,
+        bigCaptures: bigCapAt.filter((i) => i > n - 4).length,
+        danger: isInCheck(board, me) || (mate !== undefined && mate < 0),
+        quiet: pliesSinceCapture(plies),
+        over,
+      });
+    }
+
     const material = (b: Board, c: Color) => {
       let v = 0;
       for (const row of b) for (const p of row) if (p && p.c === c && p.t !== 'K') v += PIECE_VALUE[p.t];
@@ -1738,8 +1767,12 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       // 局面变了，这一份研究就没用了。掐掉它，把算力还给对手的搜索
       dropStudy();
       closeLost?.();
-      const captured = !!board[m.ty][m.tx];
+      const victim = board[m.ty][m.tx];
+      const captured = !!victim;
       const mover = board[m.fy][m.fx]!;
+      // 吃掉车马炮：配乐里算"杀进来了"，琵琶扫一下
+      const bigCapture = !!victim && victim.t !== 'P' && victim.t !== 'A' && victim.t !== 'E';
+      if (bigCapture) bigCapAt.push(plies.length + 1);
       history.push(board);
       moveLog.push(m);
       board = applyMove(board, m);
@@ -1750,8 +1783,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       scene.animateMove(m, () => {
         if (captured) {
           sfxSlash();
+          if (bigCapture) xqStinger('capture');
           // 对手吃了你的子才轮到它得意；原来写死成黑方，执黑时变成你吃子它在笑
-          if (mover.c === foe) say(pickLine(rival.lines.capture ?? rival.lines.peng));
+          if (mover.c === foe) say(pickLine(rival.xq.capture));
         } else sfxKnock();
         busy = false;
         afterMove();
@@ -1804,10 +1838,11 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         const k = findKing(board, turn);
         if (k) scene.flashCheck(k[0], k[1]);
         showToast('将军！');
-        sfxAlert();
-        if (turn === me) say(pickLine(rival.lines.check ?? ['将军']));
-        else speak('将军');
+        // 战鼓"咚、哒哒"一声锣，代替原来机器念的"将军"
+        xqStinger('check');
+        if (turn === me) say(pickLine(rival.xq.check));
       }
+      updateMusic();
       if (turn === foe) {
         setTurnUI(true);
         // 搜索在 Worker 里跑，主线程继续放动画；思考期间对手头像有呼吸光效
@@ -1857,7 +1892,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       } else {
         setTurnUI();
         prepareTurn(); // 轮到你了，趁你想棋先把这个局面算好
-        if (Math.random() < 0.14) say(pickLine(rival.lines.taunt));
+        if (Math.random() < 0.14) say(pickLine(rival.xq.taunt));
       }
     }
 
@@ -1945,7 +1980,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       setTurnUI(turn !== me);
       setCoachLine(null);
       prepareTurn();
-      setTimeout(() => say(pickLine(rival.lines.greet)), 500);
+      setTimeout(() => say(pickLine(rival.xq.greet)), 500);
       // 执黑重开：红方先走，得由对手走第一步，不然两边都干等着
       if (turn !== me) setTimeout(() => afterMove(), 400);
     }
@@ -2017,13 +2052,14 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         });
       }
       startAnalysis(playerWon);
+      xqMusicEnd(result);
       const playNote = notePlay(result, end);
       if (result === 'win') {
         sfxWinBig();
-        setTimeout(() => say(pickLine(rival.lines.lose)), 500);
+        setTimeout(() => say(pickLine(rival.xq.lose)), 500);
       } else if (result === 'loss') {
         sfxLose();
-        setTimeout(() => say(pickLine(rival.lines.win)), 400);
+        setTimeout(() => say(pickLine(rival.xq.win)), 400);
       } else {
         sfxKnock();
       }
@@ -2313,7 +2349,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       clearInterval(thinkTimer);
       clearTimeout(toastTimer);
       clearTimeout(bubbleTimer);
-      stopBgm();
+      stopXqMusic();
       scene.dispose();
       disposeAi();
       hud.remove();
@@ -2331,7 +2367,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     window.removeEventListener('pointerdown', unlock);
     cleanupGame?.();
     disposeCoach?.();
-    stopBgm();
+    stopXqMusic();
     wrap.remove();
   };
 }

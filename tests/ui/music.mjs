@@ -1,6 +1,7 @@
 /**
- * 对局配乐：七种曲风挨个放几秒，量输出电平——真的出声、不削波、不报错；🎵 换一种。
- * 用户原话："对局音乐希望能丰富一点，不要每次都是那几种……每次下棋的感觉都不一样。"
+ * 对局配乐：四种乐队、开局和攻杀两种情绪挨个放几秒，量输出电平——真的出声、不削波、不报错；🎵 换一种；
+ * 对手说话只出气泡、不念出来。
+ * 用户原话："对局音乐希望能丰富一点……""有点太单调了……刚开始、胶着、或者快结束的时候，分别都是不一样的……人的声音也很傻"
  * 用法：npm run dev，然后 node tests/ui/music.mjs
  */
 import { chromium } from 'playwright';
@@ -13,34 +14,47 @@ page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => { localStorage.clear(); localStorage.setItem('life-mute', '0'); });
 await page.reload({ waitUntil: 'networkidle' });
+// 盯着浏览器的语音：象棋里一句都不该念
+await page.evaluate(() => { window.__spoke = 0; try { speechSynthesis.speak = () => { window.__spoke++; }; } catch { /* 没有语音 */ } });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
 await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
 await page.getByText('执红先行').first().click();
 await page.getByText('开始对弈').first().click();
 await page.waitForTimeout(1500);
 const toast = await page.evaluate(() => document.body.innerText);
-const first = await page.evaluate(() => window.__xqMusic.current());
-ok(`开局随机挑了一种配乐（${first}），提示"本盘配乐"`, !!first && toast.includes('本盘配乐'));
+const first = (await page.evaluate(() => window.__xqMusic.current()))?.palette.id;
+ok(`开局随机挑了一种乐队（${first}），提示"本盘配乐"`, !!first && toast.includes('本盘配乐'));
+const bubble = await page.evaluate(() => document.querySelector('.xq-bubble')?.textContent ?? '');
+ok(`对手打招呼只出气泡、不念出来（"${bubble}"，念了 ${await page.evaluate(() => window.__spoke)} 句）`, !!bubble && (await page.evaluate(() => window.__spoke)) === 0);
+ok('打招呼是下棋的话，不是麻将的', !/[碰杠胡牌张钱]/.test(bubble));
 
-const ids = await page.evaluate(() => window.__xqMusic.styles());
+const ids = await page.evaluate(() => window.__xqMusic.palettes());
 for (const id of ids) {
   await page.evaluate((x) => window.__xqMusic.start(x), id);
-  let peak = 0;
-  let rms = 0;
-  for (let i = 0; i < 40; i++) {
-    await page.waitForTimeout(100);
-    const l = await page.evaluate(() => window.__xqMusic.level());
-    if (l) { peak = Math.max(peak, l.peak); rms = Math.max(rms, l.rms); }
+  for (const mood of ['serene', 'battle']) {
+    await page.evaluate((m) => window.__xqMusic.mood(m, 0.8), mood);
+    await page.waitForTimeout(1500);
+    let peak = 0;
+    let rms = 0;
+    for (let i = 0; i < 35; i++) {
+      await page.waitForTimeout(100);
+      const l = await page.evaluate(() => window.__xqMusic.level());
+      if (l) { peak = Math.max(peak, l.peak); rms = Math.max(rms, l.rms); }
+    }
+    const now = (await page.evaluate(() => window.__xqMusic.current()))?.mood;
+    console.log(`   ${id} · ${mood}: 峰值 ${peak.toFixed(3)}，RMS ${rms.toFixed(4)}`);
+    ok(`${id} · ${mood}：换到了这种情绪（${now}），真的出声（RMS ${rms.toFixed(4)}），不削波（峰值 ${peak.toFixed(2)} < 0.98）`, now === mood && rms > 0.003 && peak < 0.98);
   }
-  console.log(`   ${id}: 峰值 ${peak.toFixed(3)}，RMS ${rms.toFixed(4)}`);
-  ok(`${id}：真的出声（RMS ${rms.toFixed(4)}），不削波（峰值 ${peak.toFixed(2)} < 0.98）`, rms > 0.003 && peak < 0.98);
 }
+for (const k of ['check', 'capture', 'win']) await page.evaluate((x) => window.__xqMusic.stinger(x), k);
+await page.waitForTimeout(1500);
+ok('将军、吃子、终局的点缀放得出来、不报错', !errs.length);
 
 // 🎵：换下一种
-const before = await page.evaluate(() => window.__xqMusic.current());
+const before = (await page.evaluate(() => window.__xqMusic.current()))?.palette.id;
 await page.locator('#xq-music').click(); await page.waitForTimeout(300);
-const after = await page.evaluate(() => window.__xqMusic.current());
-ok(`点 🎵 换一种配乐（${before} → ${after}）`, !!after && after !== before);
+const after = (await page.evaluate(() => window.__xqMusic.current()))?.palette.id;
+ok(`点 🎵 换一种乐队（${before} → ${after}）`, !!after && after !== before);
 
 // 再开一盘：不和上一盘同一种
 const last = await page.evaluate(() => localStorage.getItem('xq-bgm-last'));
@@ -49,8 +63,8 @@ if (await page.locator('.xq-confirm [data-act="yes"]').count()) { await page.loc
 await page.locator('[data-home="play"]').click().catch(() => {}); await page.waitForTimeout(300);
 await page.getByText('开始对弈').first().click().catch(() => {});
 await page.waitForTimeout(800);
-const next = await page.evaluate(() => window.__xqMusic.current());
-ok(`再开一盘，换了一种曲风（上一盘 ${last} → 这一盘 ${next}）`, !!next && next !== last);
+const next = (await page.evaluate(() => window.__xqMusic.current()))?.palette.id;
+ok(`再开一盘，换了一种乐队（上一盘 ${last} → 这一盘 ${next}）`, !!next && next !== last);
 
 await browser.close();
 console.log('\n===== 失败项 / 报错 =====');

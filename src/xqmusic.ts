@@ -1,26 +1,35 @@
 /**
- * 象棋对局配乐的"演奏"部分：把 xqcompose.ts 作出来的音符用 Web Audio 现场合成（不用一个音频文件）。
+ * 象棋对局配乐的"演奏"部分：把 xqcompose.ts 作出来的句子用 Web Audio 现场合成（不用一个音频文件），
+ * 并且**跟着棋局走**：对局每走一步把局势告诉这里（setXqMusicState），一句唱完挑下一句的情绪；
+ * 将军、吃大子、终局当场来一下点缀（xqStinger / xqMusicEnd）。
  *
- * 每种乐器一个音色：箫和笛是吹管（几个谐波 + 起音时音高略低再到位 + 晚一点出来的颤音 + 气声，笛子多一层笛膜的沙），
- * 古筝、琵琶、古琴、西域拨弦是拨弦（Karplus-Strong），马头琴是弓弦（柔一点的锯齿谐波、两把弦微失谐、慢起音），
- * 编钟、驼铃、木鱼是模态敲击（几个不成谐波的衰减正弦），鼓和马蹄是噪声 + 低频冲击。
+ * 乐器：箫和笛是吹管（几个谐波 + 起音时音高略低再到位 + 晚一点出来的颤音 + 气声，笛子多一层笛膜的沙），
+ * 古筝、琵琶、古琴是拨弦（Karplus-Strong；扫弦是几根弦错开一点拨，摇指是一个音上快速反复），
+ * 二胡、马头琴是弓弦（二胡鼻音重、揉弦深、滑音多），笙和低音长鸣是簧片铺底，
+ * 编钟、磬、木鱼、锣、钹是模态敲击（几个不成谐波的衰减正弦），堂鼓、大鼓是低频冲击 + 鼓皮的噪声。
  *
- * 用户原话"音乐不够好听"之后加了一条**配乐总线**（第一版所有音直接进效果器总线，只有一点点小房间混响）：
- *   - 大厅混响（两秒多的尾巴，越往后越暗），每种曲风湿度不同——竹林、月夜最湿；
- *   - 主旋律送一路回声（附点四分，往后越来越暗），句尾长音底下有余韵；
- *   - 低切 + 压一点低频：第一版低音长鸣、手鼓的低频占了大漠 87%、竹林 64% 的能量，糊住了旋律；
- *   - 高频轻轻压一点，拨弦的"沙"不扎耳朵；
- *   - 每种曲风按实测响度拉齐（第一版最响和最轻差 13 dB）。
- * 实时和离线渲染（生成试听、测试量音色）走的是同一套音色和总线。
+ * 自然声（安静的段落才有，越紧张越淡出去）：溪水（两层带通噪声慢慢起伏 + 一个个"咕嘟"的小气泡）、
+ * 松风（带通噪声，中心频率和音量慢慢漂）、细雨（高通噪声 + 稀疏的雨滴）、鸟鸣（几声啾啾、几声颤音）。
+ *
+ * 配乐总线：大厅混响（两秒半的尾巴，越往后越暗）+ 主旋律附点四分的回声 + 低切、低频压一点、高频略压；
+ * 混响和回声的多少跟着情绪变（攻杀干一点、利一点，开局和残局湿一点、远一点）。
+ * 实时和离线渲染（生成试听、测试量音色）走的是同一套音色、自然声和总线。
  */
-import { musicCore, outputLevel, startSong, stopBgm } from './gamesfx';
-import { STYLES, composeCycle, newPiece, pickStyle, type NoteEv, type Piece, type StyleDef } from './xqcompose';
+import { isMuted, musicCore, outputLevel, startSong, stopBgm, type Song } from './gamesfx';
+import { MOODS, PALETTES, SPB, composePhrase, moodFor, newScore, pickPalette, stinger, type Mood, type MusicCtx, type NoteEv, type Palette, type Phrase, type Score, type StingerKind } from './xqcompose';
 
 const mtof = (m: number) => 440 * 2 ** ((m - 69) / 12);
 const LAST_KEY = 'xq-bgm-last';
 
-/** 配乐整体电平（各曲风的 gain 在这上面乘） */
+/** 配乐整体电平（各乐队的 gain 在这上面乘） */
 const MUSIC_LEVEL = 0.9;
+/**
+ * 各情绪的电平：按离线渲染量出来的短时响度（400 毫秒窗的 90 分位）定。
+ * 开局、中局、胶着、劣势、残局拉到差不多一样响（约 −21 dB），攻杀、占优比它们响三个分贝上下——杀伐、横扫千军本来就该满一点。
+ */
+const MOOD_GAIN: Record<Mood, number> = { serene: 1.15, flow: 1.12, tense: 1.35, battle: 1.65, triumph: 1.55, peril: 1.25, endgame: 1.2 };
+/** 自然声各层的电平（乘乐队的自然声配比和情绪的自然声多少） */
+const AMB_LEVEL = { stream: 0.03, wind: 0.045, rain: 0.018 };
 
 /** 出声的地方：实时（对局里）或离线渲染（生成试听、测试） */
 interface Core {
@@ -32,10 +41,10 @@ interface Core {
 // ───────────────────────── 配乐总线 ─────────────────────────
 
 interface Bus {
-  /** 干声入口 */
   dry: AudioNode;
-  /** 回声入口（只给主旋律） */
-  dly: AudioNode;
+  dly: GainNode;
+  delay: DelayNode;
+  rev: GainNode;
   out: GainNode;
 }
 
@@ -85,36 +94,45 @@ function biquad(c: BaseAudioContext, type: BiquadFilterType, f: number, q = 0.7,
   return b;
 }
 
-/** 一首曲子的总线：EQ → 输出；EQ 之后送混响；主旋律另送回声（回声再进混响） */
-function makeBus(c: BaseAudioContext, dest: AudioNode, style: StyleDef, stepDur: number): Bus {
+/** 总线：EQ → 输出；EQ 之后送混响；主旋律另送回声（回声再进混响） */
+function makeBus(c: BaseAudioContext, dest: AudioNode, palette: Palette): Bus {
   const dry = c.createGain();
   const hp = biquad(c, 'highpass', 75, 0.6);
   const lowShelf = biquad(c, 'lowshelf', 220, 0.7, -3);
   const highShelf = biquad(c, 'highshelf', 8000, 0.7, -1.5);
   const out = c.createGain();
-  out.gain.value = MUSIC_LEVEL * style.gain;
+  out.gain.value = MUSIC_LEVEL * palette.gain;
   dry.connect(hp).connect(lowShelf).connect(highShelf).connect(out);
   out.connect(dest);
 
   const conv = c.createConvolver();
   conv.buffer = hallIR(c);
-  const revSend = c.createGain();
-  revSend.gain.value = style.wet;
+  const rev = c.createGain();
+  rev.gain.value = 0.4;
   const revHp = biquad(c, 'highpass', 260, 0.6);
-  highShelf.connect(revSend).connect(conv).connect(revHp).connect(out);
+  highShelf.connect(rev).connect(conv).connect(revHp).connect(out);
 
   // 回声：附点四分（三个八分），反馈 0.28，每过一遍更暗
   const dly = c.createGain();
-  dly.gain.value = style.delay;
-  const d = c.createDelay(3);
-  d.delayTime.value = Math.min(2.5, stepDur * 3);
+  dly.gain.value = 0.15;
+  const delay = c.createDelay(3);
+  delay.delayTime.value = 1.2;
   const fb = c.createGain();
   fb.gain.value = 0.28;
   const dLp = biquad(c, 'lowpass', 2600, 0.5);
-  dly.connect(d).connect(dLp).connect(fb).connect(d);
+  dly.connect(delay).connect(dLp).connect(fb).connect(delay);
   dLp.connect(out);
-  dLp.connect(revSend);
-  return { dry, dly, out };
+  dLp.connect(rev);
+  return { dry, dly, delay, rev, out };
+}
+
+/** 换情绪：混响、回声、电平慢慢过去（一两秒），不要一下子变 */
+function busMood(bus: Bus, mood: Mood, palette: Palette, stepDur: number, when: number) {
+  const def = MOODS[mood];
+  bus.rev.gain.setTargetAtTime(def.wet, when, 1.2);
+  bus.dly.gain.setTargetAtTime(def.delay, when, 1.2);
+  bus.delay.delayTime.setTargetAtTime(Math.min(2.5, stepDur * 3), when, 0.5);
+  bus.out.gain.setTargetAtTime(MUSIC_LEVEL * palette.gain * MOOD_GAIN[mood], when, 1.5);
 }
 
 function coreOf(c: BaseAudioContext, bus: Bus): Core {
@@ -130,89 +148,296 @@ function coreOf(c: BaseAudioContext, bus: Bus): Core {
   };
 }
 
-// ───────────────────────── 实时播放 ─────────────────────────
+// ───────────────────────── 自然声 ─────────────────────────
 
-let piece: Piece | null = null;
-let byStep = new Map<number, NoteEv[]>();
-let stepDur = 0.4;
-let looped = false;
-let live: { c: BaseAudioContext; bus: Bus; core: Core } | null = null;
+/** 溪水、松风、细雨三层底子（循环噪声过滤波器，音量慢慢起伏），加上随机的气泡、雨滴、鸟鸣 */
+class Ambience {
+  private srcs: AudioBufferSourceNode[] = [];
+  private lfos: OscillatorNode[] = [];
+  readonly stream: GainNode;
+  readonly wind: GainNode;
+  readonly rain: GainNode;
+  private windBp: BiquadFilterNode;
+  /** 现在各层多响（给气泡、雨滴、鸟鸣定多密） */
+  lv = { stream: 0, wind: 0, rain: 0, birds: 0 };
 
-function index(ev: NoteEv[]) {
-  const m = new Map<number, NoteEv[]>();
-  for (const e of ev) {
-    const arr = m.get(e.step);
-    if (arr) arr.push(e);
-    else m.set(e.step, [e]);
+  constructor(
+    private c: BaseAudioContext,
+    private dest: AudioNode,
+  ) {
+    const noise = () => {
+      const s = c.createBufferSource();
+      s.buffer = noiseBuf(c);
+      s.loop = true;
+      s.start(c.currentTime, Math.random() * 1.5);
+      this.srcs.push(s);
+      return s;
+    };
+    const lfo = (f: number, depth: number, param: AudioParam) => {
+      const o = c.createOscillator();
+      o.frequency.value = f;
+      const g = c.createGain();
+      g.gain.value = depth;
+      o.connect(g).connect(param);
+      o.start();
+      this.lfos.push(o);
+    };
+    // 溪水：两层带通，各自慢慢起伏
+    this.stream = c.createGain();
+    this.stream.gain.value = 0;
+    for (const [f, q, rate] of [
+      [520, 0.9, 0.17],
+      [1500, 1.3, 0.23],
+    ]) {
+      const bp = biquad(c, 'bandpass', f, q);
+      const g = c.createGain();
+      g.gain.value = 0.6;
+      lfo(rate, 0.3, g.gain);
+      noise().connect(bp).connect(g).connect(this.stream);
+    }
+    // 松风：带通的中心频率和音量都慢慢漂，像一阵一阵的风过松林
+    this.wind = c.createGain();
+    this.wind.gain.value = 0;
+    this.windBp = biquad(c, 'bandpass', 480, 0.8);
+    lfo(0.05, 180, this.windBp.frequency);
+    const wg = c.createGain();
+    wg.gain.value = 0.7;
+    lfo(0.09, 0.3, wg.gain);
+    noise().connect(this.windBp).connect(wg).connect(this.wind);
+    // 细雨：高通噪声，很轻
+    this.rain = c.createGain();
+    this.rain.gain.value = 0;
+    noise().connect(biquad(c, 'highpass', 2500, 0.6)).connect(biquad(c, 'lowpass', 8000, 0.6)).connect(this.rain);
+    for (const g of [this.stream, this.wind, this.rain]) g.connect(dest);
   }
-  byStep = m;
+
+  /** 换情绪：各层慢慢到新的音量（两三秒） */
+  set(palette: Palette, mood: Mood, when: number) {
+    const k = MOODS[mood].amb;
+    this.lv = { stream: palette.amb.stream * k, wind: palette.amb.wind * k, rain: palette.amb.rain * k, birds: palette.amb.birds * k };
+    this.stream.gain.setTargetAtTime(AMB_LEVEL.stream * this.lv.stream, when, 2.5);
+    this.wind.gain.setTargetAtTime(AMB_LEVEL.wind * this.lv.wind, when, 2.5);
+    this.rain.gain.setTargetAtTime(AMB_LEVEL.rain * this.lv.rain, when, 2.5);
+  }
+
+  /** 每一步调一次：按各层的多少，随机冒几个气泡、落几滴雨、偶尔一只鸟 */
+  tick(when: number, stepDur: number) {
+    const c = this.c;
+    const poisson = (lambda: number) => {
+      let n = 0;
+      let p = Math.exp(-lambda);
+      let s = p;
+      const u = Math.random();
+      while (u > s && n < 8) {
+        n++;
+        p *= lambda / n;
+        s += p;
+      }
+      return n;
+    };
+    // 溪水里的小气泡："咕嘟"——一个往上滑的短正弦
+    for (let i = poisson(1.8 * this.lv.stream); i > 0; i--) {
+      const t = when + Math.random() * stepDur;
+      const f0 = 650 + Math.random() * 1200;
+      const o = c.createOscillator();
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.exponentialRampToValueAtTime(f0 * (1.3 + Math.random() * 0.5), t + 0.04);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.006 * this.lv.stream, t + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+      const p = c.createStereoPanner();
+      p.pan.value = Math.random() * 1.2 - 0.6;
+      o.connect(g).connect(p).connect(this.dest);
+      o.start(t);
+      o.stop(t + 0.08);
+    }
+    // 雨滴：一下短短的"嗒"
+    for (let i = poisson(1.5 * this.lv.rain); i > 0; i--) {
+      const t = when + Math.random() * stepDur;
+      const o = c.createOscillator();
+      o.frequency.value = 1700 + Math.random() * 1600;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.004 * this.lv.rain, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+      const p = c.createStereoPanner();
+      p.pan.value = Math.random() * 1.6 - 0.8;
+      o.connect(g).connect(p).connect(this.dest);
+      o.start(t);
+      o.stop(t + 0.04);
+    }
+    // 鸟鸣：平均十几秒一只
+    if (Math.random() < 0.03 * this.lv.birds) this.bird(when + Math.random() * stepDur);
+  }
+
+  /** 一只鸟：要么几声往下滑的"啾"，要么一串很快的颤音 */
+  private bird(t0: number) {
+    const c = this.c;
+    const p = c.createStereoPanner();
+    p.pan.value = Math.random() * 1.4 - 0.7;
+    const lp = biquad(c, 'lowpass', 6500, 0.5);
+    lp.connect(p).connect(this.dest);
+    const trill = Math.random() < 0.4;
+    const n = trill ? 6 + Math.floor(Math.random() * 5) : 2 + Math.floor(Math.random() * 3);
+    const f = (trill ? 3800 : 2600) + Math.random() * 900;
+    let t = t0;
+    for (let i = 0; i < n; i++) {
+      const d = trill ? 0.035 : 0.09 + Math.random() * 0.05;
+      const o = c.createOscillator();
+      o.frequency.setValueAtTime(trill ? f : f * 1.12, t);
+      o.frequency.exponentialRampToValueAtTime(trill ? f * 1.08 : f * 0.82, t + d);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.007, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(g).connect(lp);
+      o.start(t);
+      o.stop(t + d + 0.01);
+      t += d + (trill ? 0.025 : 0.06 + Math.random() * 0.05);
+    }
+  }
+
+  stop(when: number) {
+    for (const g of [this.stream, this.wind, this.rain]) g.gain.setTargetAtTime(0, when, 0.3);
+    for (const s of this.srcs) s.stop(when + 1.5);
+    for (const o of this.lfos) o.stop(when + 1.5);
+  }
 }
 
-/** 换曲子：旧总线淡出再断开（还在响的余音不要一刀切断） */
+// ───────────────────────── 实时播放 ─────────────────────────
+
+interface Live {
+  c: BaseAudioContext;
+  bus: Bus;
+  core: Core;
+  amb: Ambience;
+}
+
+let score: Score | null = null;
+let live: Live | null = null;
+let song: Song | null = null;
+/** 正在放的这一句 */
+let cur: { start: number; len: number; byStep: Map<number, NoteEv[]>; phrase: Phrase; stepDur: number } | null = null;
+let lastStep = 0;
+/** 局势要的情绪（一句唱完才换） */
+let target: { mood: Mood; intensity: number } = { mood: 'serene', intensity: 0.2 };
+
+/** 换曲子 / 停：旧总线淡出再断开（还在响的余音不要一刀切断） */
 function retireLive() {
   if (!live) return;
-  const { c, bus } = live;
+  const { c, bus, amb } = live;
   bus.out.gain.setTargetAtTime(0, c.currentTime, 0.15);
+  amb.stop(c.currentTime);
   setTimeout(() => bus.out.disconnect(), 1500);
   live = null;
 }
 
+function beginPhrase(step: number, when: number) {
+  if (!score || !live) return;
+  const ph = composePhrase(score, target.mood, target.intensity);
+  const stepDur = 60 / ph.bpm / 2;
+  const byStep = new Map<number, NoteEv[]>();
+  for (const e of ph.notes) {
+    const arr = byStep.get(e.step);
+    if (arr) arr.push(e);
+    else byStep.set(e.step, [e]);
+  }
+  cur = { start: step, len: ph.steps, byStep, phrase: ph, stepDur };
+  // 下一步起按这一句的速度走（调度器每走一步读一次 stepDur）
+  if (song) song.stepDur = stepDur;
+  busMood(live.bus, ph.mood, score.palette, stepDur, when);
+  live.amb.set(score.palette, ph.mood, when);
+}
+
+export interface MusicInfo {
+  palette: Palette;
+  key: string;
+  bpm: number;
+}
+
 /**
- * 开一首：id 不给就随机挑一种（不和上一盘重复）。返回这一首是什么（显示"本盘配乐：草原 · 牧歌，D 宫调"用）。
+ * 开一盘的配乐：id 不给就随机挑一种乐队（不和上一盘重复）。从"开局 · 静"起。
  */
-export function startXqMusic(id?: string): { style: StyleDef; key: string; bpm: number } | null {
+export function startXqMusic(id?: string): MusicInfo | null {
   let last: string | null = null;
   try {
     last = localStorage.getItem(LAST_KEY);
   } catch {
     // 隐私模式读不到也没关系
   }
-  const style = (id && STYLES.find((s) => s.id === id)) || pickStyle(last, Math.random);
+  const palette = (id && PALETTES.find((s) => s.id === id)) || pickPalette(last, Math.random);
   try {
-    localStorage.setItem(LAST_KEY, style.id);
+    localStorage.setItem(LAST_KEY, palette.id);
   } catch {
     // 同上
   }
-  piece = newPiece(style);
-  index(composeCycle(piece));
-  stepDur = 60 / piece.bpm / 2;
-  looped = false;
-  const p = piece;
+  // 换乐队时局势不变（中局点 🎵 换一种，还是中局的情绪）；新开一盘才从开局起
+  if (!id || !score) target = { mood: 'serene', intensity: 0.2 };
+  score = newScore(palette);
   retireLive();
+  cur = null;
   const mc = musicCore();
   if (mc) {
-    const bus = makeBus(mc.c, mc.outAt(0), style, stepDur);
-    live = { c: mc.c, bus, core: coreOf(mc.c, bus) };
+    const bus = makeBus(mc.c, mc.outAt(0), palette);
+    live = { c: mc.c, bus, core: coreOf(mc.c, bus), amb: new Ambience(mc.c, bus.dry) };
   }
-  startSong({
-    stepDur,
-    steps: p.steps,
+  song = {
+    stepDur: 60 / score.bpm / 2,
+    steps: 1e9,
     play(step, when) {
-      // 一轮放完：重写一轮（B 段每轮换，主题两轮一换）
-      if (step === 0) {
-        if (looped && piece === p) index(composeCycle(p));
-        looped = true;
-      }
-      if (live) for (const e of byStep.get(step) ?? []) render(live.core, e, when, stepDur);
+      lastStep = step;
+      if (!cur || step >= cur.start + cur.len) beginPhrase(step, when);
+      if (!cur || !live) return;
+      for (const e of cur.byStep.get(step - cur.start) ?? []) render(live.core, e, when, cur.stepDur);
+      live.amb.tick(when, cur.stepDur);
     },
-  });
-  return { style, key: p.key, bpm: p.bpm };
+  };
+  startSong(song);
+  return { palette, key: score.key, bpm: score.bpm };
 }
 
-/** 换下一种曲风（对局里点 🎵） */
-export function nextXqMusic(): { style: StyleDef; key: string; bpm: number } | null {
-  const i = piece ? STYLES.indexOf(piece.style) : -1;
-  return startXqMusic(STYLES[(i + 1) % STYLES.length].id);
+/** 换下一种乐队（对局里点 🎵） */
+export function nextXqMusic(): MusicInfo | null {
+  const i = score ? PALETTES.indexOf(score.palette) : -1;
+  return startXqMusic(PALETTES[(i + 1) % PALETTES.length].id);
 }
 
-export function currentXqMusic(): { style: StyleDef; key: string; bpm: number } | null {
-  return piece ? { style: piece.style, key: piece.key, bpm: piece.bpm } : null;
+export function currentXqMusic(): (MusicInfo & { mood: Mood | null }) | null {
+  return score ? { palette: score.palette, key: score.key, bpm: score.bpm, mood: cur?.phrase.mood ?? null } : null;
+}
+
+/**
+ * 局势变了（每走一步、引擎算出新的评分时调一次）。一句唱完按新的局势挑情绪；
+ * 要杀进来了（将军、吃大子、被杀）就不等这一句唱完——最多再等一小节。
+ */
+export function setXqMusicState(ctx: MusicCtx) {
+  target = moodFor(ctx);
+  if (cur && target.mood === 'battle' && cur.phrase.mood !== 'battle') {
+    const into = lastStep - cur.start + 1;
+    cur.len = Math.min(cur.len, Math.ceil(into / SPB) * SPB);
+  }
+}
+
+/** 点缀：将军、吃掉车马炮。马上响，和正在放的曲子在一个调上 */
+export function xqStinger(kind: StingerKind) {
+  if (!score || !live || isMuted()) return;
+  const sd = cur?.stepDur ?? 60 / score.bpm / 2;
+  const now = live.c.currentTime + 0.03;
+  for (const e of stinger(score, kind)) render(live.core, e, now + e.step * sd, sd);
+}
+
+/** 下完了：收尾的一句，然后回到很静的开局情绪 */
+export function xqMusicEnd(result: 'win' | 'loss' | 'draw') {
+  xqStinger(result);
+  target = { mood: 'serene', intensity: 0.1 };
 }
 
 export function stopXqMusic() {
   stopBgm();
   retireLive();
-  piece = null;
+  score = null;
+  cur = null;
+  song = null;
 }
 
 // ───────────────────────── 音色 ─────────────────────────
@@ -234,7 +459,7 @@ function wave(c: BaseAudioContext, harmonics: number[]): PeriodicWave {
   return w;
 }
 
-/** 一段循环用的白噪声（每个上下文一份；气声、笛膜、鼓皮从这里切） */
+/** 一段循环用的白噪声（每个上下文一份；气声、笛膜、鼓皮、自然声从这里切） */
 const noiseCache = new WeakMap<BaseAudioContext, AudioBuffer>();
 function noiseBuf(c: BaseAudioContext): AudioBuffer {
   let b = noiseCache.get(c);
@@ -353,32 +578,37 @@ function windAt(core: Core, freq: number, when: number, dur: number, vol: number
   n.stop(end + 0.05);
 }
 
-/** 马头琴：两把微失谐的弓弦，谐波比锯齿波柔，慢起音，颤音晚一点才出来，可以从下方滑上来 */
-function bowAt(core: Core, freq: number, when: number, dur: number, vol: number, pan: number, slideFrom?: number, kind?: 'lead' | 'acc') {
+/**
+ * 弓弦：二胡（鼻音重——两个共鸣峰、揉弦深、起弓快）或马头琴（柔一点、低一点）。
+ * 两把微失谐的弦，颤音晚一点才出来，可以从下方滑上来。
+ */
+function bowAt(core: Core, freq: number, when: number, dur: number, vol: number, pan: number, erhu: boolean, slideFrom?: number, kind?: 'lead' | 'acc') {
   const c = core.c;
   const end = when + dur;
-  const harm = Array.from({ length: 14 }, (_, i) => 1 / (i + 1) ** 1.35);
-  const lp = biquad(c, 'lowpass', Math.min(2600, freq * 5), 0.5);
-  const body = biquad(c, 'peaking', 1100, 1, 2);
+  const harm = Array.from({ length: 14 }, (_, i) => 1 / (i + 1) ** (erhu ? 1.15 : 1.35));
+  const lp = biquad(c, 'lowpass', Math.min(erhu ? 4500 : 2600, freq * (erhu ? 7 : 5)), 0.5);
+  const body = biquad(c, 'peaking', erhu ? 950 : 1100, 1.1, erhu ? 4 : 2);
+  const body2 = biquad(c, 'peaking', 2600, 2, erhu ? 3 : 0);
+  const atk = erhu ? 0.09 : 0.16;
   const g = c.createGain();
   g.gain.setValueAtTime(0, when);
-  g.gain.linearRampToValueAtTime(vol, when + 0.16);
+  g.gain.linearRampToValueAtTime(vol, when + atk);
   if (dur > 0.8) g.gain.linearRampToValueAtTime(vol * 1.08, when + dur * 0.5);
-  g.gain.linearRampToValueAtTime(vol * 0.9, Math.max(when + 0.17, end - 0.2));
+  g.gain.linearRampToValueAtTime(vol * 0.9, Math.max(when + atk + 0.01, end - 0.18));
   g.gain.linearRampToValueAtTime(0, end);
   const vib = c.createOscillator();
-  vib.frequency.value = 5.3;
+  vib.frequency.value = erhu ? 6 : 5.3;
   const vibG = c.createGain();
   vibG.gain.setValueAtTime(0, when);
-  vibG.gain.setValueAtTime(0, when + Math.min(0.35, dur * 0.4));
-  vibG.gain.linearRampToValueAtTime(freq * 0.009, when + Math.min(0.9, dur * 0.85));
+  vibG.gain.setValueAtTime(0, when + Math.min(0.25, dur * 0.35));
+  vibG.gain.linearRampToValueAtTime(freq * (erhu ? 0.012 : 0.009), when + Math.min(0.8, dur * 0.8));
   vib.connect(vibG);
   for (const det of [-5, 5]) {
     const o = c.createOscillator();
     o.setPeriodicWave(wave(c, harm));
     if (slideFrom) {
       o.frequency.setValueAtTime(slideFrom, when);
-      o.frequency.exponentialRampToValueAtTime(freq, when + 0.18);
+      o.frequency.exponentialRampToValueAtTime(freq, when + (erhu ? 0.12 : 0.18));
     } else o.frequency.setValueAtTime(freq, when);
     o.detune.value = det;
     vibG.connect(o.frequency);
@@ -390,7 +620,7 @@ function bowAt(core: Core, freq: number, when: number, dur: number, vol: number,
   }
   vib.start(when);
   vib.stop(end + 0.05);
-  lp.connect(body).connect(g).connect(core.outAt(pan, kind));
+  lp.connect(body).connect(body2).connect(g).connect(core.outAt(pan, kind));
 }
 
 /** 持续音（低音长鸣 / 笙）：几路微失谐的簧片音色，慢进慢出 */
@@ -416,7 +646,7 @@ function padAt(core: Core, freq: number, when: number, dur: number, vol: number,
 }
 
 /** 模态敲击：[频率, 振幅, 衰减秒] */
-function strikeAt(core: Core, when: number, partials: [number, number, number][], vol: number, pan: number, kind?: 'lead' | 'acc') {
+function strikeAt(core: Core, when: number, partials: [number, number, number][], vol: number, pan: number, kind?: 'lead' | 'acc', attack = 0.004) {
   const c = core.c;
   const dst = core.outAt(pan, kind);
   const j = 1 + (Math.random() - 0.5) * 0.008;
@@ -426,7 +656,7 @@ function strikeAt(core: Core, when: number, partials: [number, number, number][]
     o.frequency.value = f * j;
     const g = c.createGain();
     g.gain.setValueAtTime(0, when);
-    g.gain.linearRampToValueAtTime(a * vol, when + 0.004);
+    g.gain.linearRampToValueAtTime(a * vol, when + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, when + dec);
     o.connect(g).connect(dst);
     o.start(when);
@@ -434,14 +664,15 @@ function strikeAt(core: Core, when: number, partials: [number, number, number][]
   }
 }
 
-/** 一下噪声（马蹄、手鼓的皮声）：从循环噪声里切一段，带通 */
+/** 一下噪声（鼓皮、钹）：从循环噪声里切一段，带通 */
 function noiseAt(core: Core, when: number, dur: number, vol: number, bp: number, q: number, pan: number) {
   const c = core.c;
   const src = c.createBufferSource();
   src.buffer = noiseBuf(c);
   const f = biquad(c, 'bandpass', bp, q);
   const g = c.createGain();
-  g.gain.setValueAtTime(vol, when);
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(vol, when + 0.003);
   g.gain.exponentialRampToValueAtTime(0.001, when + dur);
   src.connect(f).connect(g).connect(core.outAt(pan));
   src.start(when, Math.random() * 1.5);
@@ -463,16 +694,17 @@ function thumpAt(core: Core, when: number, f0: number, f1: number, dec: number, 
 }
 
 const jitter = () => (Math.random() - 0.5) * 0.016;
+const DRUMS = new Set(['tanggu', 'dagu', 'gong', 'bo', 'wood']);
 
 /** 一个音符：按乐器出声 */
 function render(core: Core, e: NoteEv, when0: number, stepDur: number) {
-  const perc = e.inst === 'hoof' || e.inst === 'drumLo' || e.inst === 'drumHi' || e.inst === 'taiko';
-  const when = Math.max(core.c.currentTime, when0 + (perc ? jitter() * 0.4 : jitter()));
+  const when = Math.max(core.c.currentTime, when0 + (DRUMS.has(e.inst) ? jitter() * 0.4 : jitter()));
   const dur = e.len * stepDur;
   const f = e.midi !== undefined ? mtof(e.midi) : 0;
   const v = e.vol;
   const p = e.pan;
   const kind = e.lead ? 'lead' : 'acc';
+  const slide = e.slideFrom ? mtof(e.slideFrom) : undefined;
   switch (e.inst) {
     case 'xiao':
     case 'dizi': {
@@ -487,61 +719,74 @@ function render(core: Core, e: NoteEv, when0: number, stepDur: number) {
       break;
     }
     case 'zheng':
-      pluckAt(core, f, when, Math.max(1.4, dur * 1.8), v, p, 0.9965, 0.7, e.slideFrom ? mtof(e.slideFrom) : undefined, kind);
+      pluckAt(core, f, when, Math.max(1.4, dur * 1.8), v * (e.lead ? 1.4 : 1), p, 0.9965, 0.7, slide, kind);
       break;
     case 'pipa': {
-      // 长音用轮指撑住（轮得轻一点）
-      if (dur >= 0.7 && e.lead) {
-        const n = Math.max(2, Math.round(dur / 0.08));
-        for (let i = 0; i < n; i++) pluckAt(core, f, when + i * 0.08, 0.4, v * (i === 0 ? 1.2 : 0.55), p, 0.993, 0.8, undefined, kind);
-      } else pluckAt(core, f, when, 1.0, v, p, 0.995, 0.8, undefined, kind);
+      // 主旋律的长音用轮指撑住（轮得轻一点）
+      if (dur >= 0.6 && e.lead) {
+        const n = Math.max(2, Math.round(dur / 0.075));
+        for (let i = 0; i < n; i++) pluckAt(core, f, when + i * 0.075, 0.4, v * (i === 0 ? 1.3 : 0.6), p, 0.993, 0.8, undefined, kind);
+      } else pluckAt(core, f, when, 1.0, v * (e.lead ? 1.3 : 1), p, 0.995, 0.8, undefined, kind);
+      break;
+    }
+    case 'saofu':
+      // 扫弦：几根弦错开十几毫秒依次拨响，像一把扫下去
+      (e.run ?? []).forEach((m, i) => pluckAt(core, mtof(m), when + i * 0.016, 0.7, v * (1 - i * 0.12), p, 0.994, 0.85));
+      break;
+    case 'trem': {
+      // 古筝摇指：一个音上快速反复，音量起伏
+      const n = Math.max(2, Math.round(dur / 0.09));
+      for (let i = 0; i < n; i++) pluckAt(core, f, when + i * 0.09, 0.45, v * (0.6 + 0.4 * Math.sin((Math.PI * i) / n)), p, 0.994, 0.6);
       break;
     }
     case 'qin':
-      // 拨弦当主旋律衰减得快，比吹管、弓弦显得轻：主旋律提一点
-      pluckAt(core, f, when, Math.max(2.2, dur * 2), v * (e.lead ? 1.6 : 1.2), p, 0.9988, 0.35, e.slideFrom ? mtof(e.slideFrom) : undefined, kind);
-      break;
-    case 'oud':
-      pluckAt(core, f, when, Math.max(1, dur * 1.4), v * (e.lead ? 1.5 : 1), p, 0.9955, 0.85, e.slideFrom ? mtof(e.slideFrom) : undefined, kind);
+      // 古琴音色暗、衰减得快，当主旋律时比吹管、弓弦轻七八个分贝（离线量的）：主旋律提上来
+      pluckAt(core, f, when, Math.max(2.2, dur * 2), v * (e.lead ? 3 : 1.2), p, 0.9988, 0.35, slide, kind);
       break;
     case 'harm':
       strikeAt(core, when, [[f, 1, 2.8], [f * 2, 0.2, 1.4]], v, p, kind);
       break;
+    case 'erhu':
     case 'morin':
-      bowAt(core, f, when, Math.max(0.25, dur * 1.0), v * 0.85, p, e.slideFrom ? mtof(e.slideFrom) : undefined, kind);
+      bowAt(core, f, when, Math.max(0.25, dur * 1.0), v * 0.85, p, e.inst === 'erhu', slide, kind);
       break;
     case 'drone':
       padAt(core, f, when, dur, v, p, 500, false);
       break;
     case 'sheng':
-      padAt(core, f, when, dur, v, p, 2000, true);
+      padAt(core, f, when, Math.max(dur, 0.4), v, p, 2000, true);
       break;
     case 'bell':
       // 编钟：一组不成谐波的分音，余音长；高分音收着一点，不刺
       strikeAt(core, when, [[f, 1, 3.6], [f * 2.76, 0.3, 2.0], [f * 5.4, 0.1, 0.9], [f * 8.93, 0.035, 0.4]], v * 1.1, p, kind);
       break;
-    case 'camel':
-      // 驼铃：一摇响两三下
-      for (let i = 0; i < 3; i++) strikeAt(core, when + i * 0.22 + Math.random() * 0.03, [[1180, 1, 0.8], [3120, 0.3, 0.45], [4700, 0.1, 0.25]], v * (1 - i * 0.25), p);
+    case 'qing':
+      // 磬（钵）：两个靠得很近的分音相互"拍"着，余音很长
+      strikeAt(core, when, [[f, 1, 5], [f * 1.004, 0.6, 5], [f * 2.71, 0.35, 3], [f * 5.15, 0.12, 1.6]], v, p, kind, 0.008);
       break;
     case 'wood':
       strikeAt(core, when, [[760, 1, 0.12], [1380, 0.35, 0.06]], v, p);
       break;
-    case 'hoof':
-      thumpAt(core, when, 210, 120, 0.08, v, p);
-      noiseAt(core, when, 0.05, v * 0.35, 900, 1.5, p);
+    case 'tanggu':
+      // 堂鼓：紧一点的中鼓，"哒"
+      thumpAt(core, when, 230, 150, 0.2, v, p);
+      noiseAt(core, when, 0.06, v * 0.35, 1200, 1, p);
       break;
-    case 'drumLo':
-      thumpAt(core, when, 150, 90, 0.26, v, p);
-      noiseAt(core, when, 0.04, v * 0.25, 600, 1, p);
+    case 'dagu':
+      // 大鼓：战鼓，"咚"
+      thumpAt(core, when, 115, 55, 0.55, v, p);
+      noiseAt(core, when, 0.09, v * 0.25, 380, 1, p);
       break;
-    case 'drumHi':
-      noiseAt(core, when, 0.07, v, 2200, 2, p);
-      thumpAt(core, when, 380, 300, 0.06, v * 0.4, p);
+    case 'gong': {
+      // 锣：低沉的几个分音，音高略往上走，后面一片铜声慢慢散开
+      strikeAt(core, when, [[150, 1, 3.4], [222, 0.5, 2.6], [305, 0.35, 2.1], [446, 0.18, 1.5], [630, 0.08, 1.1]], v, p, undefined, 0.02);
+      noiseAt(core, when, 1.4, v * 0.12, 900, 0.7, p);
       break;
-    case 'taiko':
-      thumpAt(core, when, 105, 52, 0.6, v, p);
-      noiseAt(core, when, 0.1, v * 0.25, 300, 1, p);
+    }
+    case 'bo':
+      // 钹：一片噪声加几个金属分音，轻轻一下
+      noiseAt(core, when, 1.1, v, 5200, 0.6, p);
+      strikeAt(core, when, [[3150, 0.4, 0.7], [4630, 0.3, 0.5], [6070, 0.2, 0.4]], v * 0.5, p);
       break;
     case 'gliss':
       (e.run ?? []).forEach((m, i) => pluckAt(core, mtof(m), when + i * 0.05, 1.0, v * (0.7 + i * 0.06), p, 0.996, 0.7));
@@ -551,13 +796,43 @@ function render(core: Core, e: NoteEv, when0: number, stepDur: number) {
 
 // ───────────────────────── 离线渲染 ─────────────────────────
 
+/** 演示用的一盘棋：每段一种情绪、几句、段首可以来一下点缀 */
+export interface DemoSeg {
+  mood: Mood;
+  intensity: number;
+  phrases: number;
+  stinger?: StingerKind;
+}
+
+/** 一盘棋大致的走向：开局 → 中局 → 胶着 → 杀进来（将军）→ 占优 → 残局 → 赢了 */
+export const DEMO_PLAN: DemoSeg[] = [
+  { mood: 'serene', intensity: 0.2, phrases: 2 },
+  { mood: 'flow', intensity: 0.45, phrases: 2 },
+  { mood: 'tense', intensity: 0.6, phrases: 2 },
+  { mood: 'battle', intensity: 0.75, phrases: 2, stinger: 'check' },
+  { mood: 'triumph', intensity: 0.6, phrases: 2, stinger: 'capture' },
+  { mood: 'endgame', intensity: 0.4, phrases: 1 },
+  { mood: 'serene', intensity: 0.1, phrases: 1, stinger: 'win' },
+];
+
 /**
- * 离线渲染一段（seconds 秒）：不用实时播放，生成试听文件、量音色用。返回双声道采样。
+ * 离线渲染一段：按 plan 一段段往下走（和实时一样的作曲、音色、自然声、总线），生成试听、量音色用。
+ * marks 是每段从第几秒开始。
  */
-export async function renderXqMusic(id: string, seconds: number, seed?: number): Promise<{ sampleRate: number; l: Float32Array; r: Float32Array; key: string; bpm: number }> {
-  const style = STYLES.find((s) => s.id === id) ?? STYLES[0];
+export async function renderXqMusic(
+  paletteId: string,
+  plan: DemoSeg[],
+  seed?: number,
+): Promise<{ sampleRate: number; l: Float32Array; r: Float32Array; key: string; bpm: number; marks: { t: number; mood: Mood }[] }> {
+  const palette = PALETTES.find((s) => s.id === paletteId) ?? PALETTES[0];
+  const sc = newScore(palette, seed);
+  // 先把每一句作出来，算出总长
+  const segs: { seg: DemoSeg; phs: Phrase[] }[] = plan.map((seg) => ({ seg, phs: Array.from({ length: seg.phrases }, () => composePhrase(sc, seg.mood, seg.intensity)) }));
+  let total = 0.3;
+  for (const s of segs) for (const ph of s.phs) total += ph.steps * (60 / ph.bpm / 2);
+  total += 5;
   const sr = 44100;
-  const c = new OfflineAudioContext(2, Math.ceil(sr * seconds), sr);
+  const c = new OfflineAudioContext(2, Math.ceil(sr * total), sr);
   // 和实时一样过一道总线压缩
   const glue = c.createDynamicsCompressor();
   glue.threshold.value = -20;
@@ -566,52 +841,61 @@ export async function renderXqMusic(id: string, seconds: number, seed?: number):
   glue.attack.value = 0.005;
   glue.release.value = 0.18;
   glue.connect(c.destination);
-  const pc = newPiece(style, seed);
-  const sd = 60 / pc.bpm / 2;
-  const core = coreOf(c, makeBus(c, glue, style, sd));
-  for (let cyc = 0; cyc * pc.steps * sd < seconds; cyc++) {
-    for (const e of composeCycle(pc)) {
-      const t = 0.1 + (cyc * pc.steps + e.step) * sd;
-      if (t < seconds - 0.2) render(core, e, t, sd);
-    }
+  const bus = makeBus(c, glue, palette);
+  const core = coreOf(c, bus);
+  const amb = new Ambience(c, bus.dry);
+  const marks: { t: number; mood: Mood }[] = [];
+  let t = 0.3;
+  for (const { seg, phs } of segs) {
+    marks.push({ t, mood: seg.mood });
+    phs.forEach((ph, k) => {
+      const sd = 60 / ph.bpm / 2;
+      busMood(bus, ph.mood, palette, sd, t);
+      amb.set(palette, ph.mood, t);
+      if (k === 0 && seg.stinger) for (const e of stinger(sc, seg.stinger)) render(core, e, t + e.step * sd, sd);
+      for (const e of ph.notes) render(core, e, t + e.step * sd, sd);
+      for (let s = 0; s < ph.steps; s++) amb.tick(t + s * sd, sd);
+      t += ph.steps * sd;
+    });
   }
+  amb.stop(t + 1);
   const buf = await c.startRendering();
-  return { sampleRate: sr, l: buf.getChannelData(0), r: buf.getChannelData(1), key: pc.key, bpm: pc.bpm };
+  return { sampleRate: sr, l: buf.getChannelData(0), r: buf.getChannelData(1), key: sc.key, bpm: sc.bpm, marks };
 }
 
-// 开发期测试钩子：界面测试挨个放七种曲风，量输出电平（测试机听不见，只能量）
+// 开发期测试钩子：界面测试挨个放、读电平；离线渲染成 16 位 PCM，分块取走做试听
 if (import.meta.env.DEV && typeof window !== 'undefined') {
+  let pcm: Uint8Array | null = null;
   (window as unknown as Record<string, unknown>).__xqMusic = {
-    styles: () => STYLES.map((s) => s.id),
-    start: (id?: string) => startXqMusic(id)?.style.id ?? null,
-    current: () => currentXqMusic()?.style.id ?? null,
+    palettes: () => PALETTES.map((s) => s.id),
+    start: (id?: string) => startXqMusic(id)?.palette.id ?? null,
+    current: () => currentXqMusic(),
     level: () => outputLevel(),
-    /** 离线渲染成 16 位 WAV（base64），生成试听用 */
-    wav: async (id: string, seconds: number, seed?: number) => {
-      const r = await renderXqMusic(id, seconds, seed);
+    /** 强行把局势设成某种情绪（界面测试挨个听） */
+    mood: (m: Mood, intensity = 0.7) => {
+      target = { mood: m, intensity };
+      if (cur) cur.len = Math.min(cur.len, lastStep - cur.start + 1);
+    },
+    stinger: (k: StingerKind) => xqStinger(k),
+    /** 离线渲染一段（默认一盘棋的走向），存成 16 位双声道 PCM；返回长度和每段的起点 */
+    render: async (id: string, seed?: number, plan?: DemoSeg[]) => {
+      const r = await renderXqMusic(id, plan ?? DEMO_PLAN, seed);
       const n = r.l.length;
-      const bytes = new Uint8Array(44 + n * 4);
-      const dv = new DataView(bytes.buffer);
-      const str = (o: number, t: string) => [...t].forEach((ch, i) => dv.setUint8(o + i, ch.charCodeAt(0)));
-      str(0, 'RIFF');
-      dv.setUint32(4, 36 + n * 4, true);
-      str(8, 'WAVEfmt ');
-      dv.setUint32(16, 16, true);
-      dv.setUint16(20, 1, true);
-      dv.setUint16(22, 2, true);
-      dv.setUint32(24, r.sampleRate, true);
-      dv.setUint32(28, r.sampleRate * 4, true);
-      dv.setUint16(32, 4, true);
-      dv.setUint16(34, 16, true);
-      str(36, 'data');
-      dv.setUint32(40, n * 4, true);
+      pcm = new Uint8Array(n * 4);
+      const dv = new DataView(pcm.buffer);
       for (let i = 0; i < n; i++) {
-        dv.setInt16(44 + i * 4, Math.max(-1, Math.min(1, r.l[i])) * 32767, true);
-        dv.setInt16(46 + i * 4, Math.max(-1, Math.min(1, r.r[i])) * 32767, true);
+        dv.setInt16(i * 4, Math.max(-1, Math.min(1, r.l[i])) * 32767, true);
+        dv.setInt16(i * 4 + 2, Math.max(-1, Math.min(1, r.r[i])) * 32767, true);
       }
+      return { bytes: pcm.length, sampleRate: r.sampleRate, key: r.key, bpm: r.bpm, marks: r.marks };
+    },
+    /** 取走 PCM 的第 i 块（base64） */
+    chunk: (i: number, size: number) => {
+      if (!pcm) return '';
+      const part = pcm.subarray(i * size, (i + 1) * size);
       let bin = '';
-      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      return { b64: btoa(bin), key: r.key, bpm: r.bpm };
+      for (let k = 0; k < part.length; k += 0x8000) bin += String.fromCharCode(...part.subarray(k, k + 0x8000));
+      return btoa(bin);
     },
   };
 }
