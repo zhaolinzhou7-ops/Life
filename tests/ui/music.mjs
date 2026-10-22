@@ -1,5 +1,5 @@
 /**
- * 对局配乐：四种乐队、开局和攻杀两种情绪挨个放几秒，量输出电平——真的出声、不削波、不报错；🎵 换一种；
+ * 对局配乐：四种乐队挨个放（第一种七种情绪全放，其余放开局和攻杀），量输出电平——真的出声、不削波、不报错；🎵 换一种；
  * 对手说话只出气泡、不念出来。
  * 用户原话："对局音乐希望能丰富一点……""有点太单调了……刚开始、胶着、或者快结束的时候，分别都是不一样的……人的声音也很傻"
  * 用法：npm run dev，然后 node tests/ui/music.mjs
@@ -31,7 +31,9 @@ ok('打招呼是下棋的话，不是麻将的', !/[碰杠胡牌张钱]/.test(bu
 const ids = await page.evaluate(() => window.__xqMusic.palettes());
 for (const id of ids) {
   await page.evaluate((x) => window.__xqMusic.start(x), id);
-  for (const mood of ['serene', 'battle']) {
+  // 第一种乐队七种情绪全放一遍，其余的放开局和攻杀
+  const moods = id === ids[0] ? ['serene', 'flow', 'tense', 'battle', 'triumph', 'peril', 'endgame'] : ['serene', 'battle'];
+  for (const mood of moods) {
     await page.evaluate((m) => window.__xqMusic.mood(m, 0.8), mood);
     await page.waitForTimeout(1500);
     let peak = 0;
