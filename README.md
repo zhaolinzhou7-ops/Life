@@ -1622,7 +1622,9 @@ node tools/run.mjs merge-combos                  # 核对主变和净得子力�
 node tools/run.mjs gen-mates2 0 400               # 杀法题：对方车马炮都在的 2～6 步杀，第一手是关键（分片号、要几道；追加写）
 node tools/run.mjs merge-mates2                  # 逐题按规则走到将死（不收困毙）后并入 puzzles.json
 node tools/run.mjs gen-defense 0 300              # 解杀题：对方下一步能杀、只有一步守得住（DEBUG=1 把每一关通过多少写到 defense-debug.txt）
-node tools/run.mjs merge-defense                 # 规则引擎走一遍后并入 puzzles.json（眼力题）
+node tools/run.mjs merge-verified defense        # 规则引擎走一遍后并入 puzzles.json（眼力题）
+node tools/run.mjs gen-openings2 0 300            # 布局题：从 20 套布局谱出发、一方走软一手，另一方只有这一手（抓软着 / 守住）
+node tools/run.mjs merge-verified openings2      # 同上，并入布局题
 MISSING=1 node tools/run.mjs find-won-puzzles 0 1 && node tools/run.mjs find-won-puzzles apply   # 新并进来的非杀法题补"第二好的走法"的分（ev2）
 node tests/ui/entries.mjs      # 首页三个入口、私教五个菜单（标题、顶栏路径、菜单项）、一层层返回
 node tests/ui/branches.mjs     # 分支和推演板：布局讲解停在分岔点、真的点画布上的箭头换路、走完回分岔点打勾；江湖布局分岔列出上当那一路；复盘着法条每手评级、最佳走法多得几分、红"你"绿"★"两条箭头点绿的看最佳后续、推演板、计划底下在棋盘上看；题目原谱和残局推演打开推演板、点箭头走那一路
