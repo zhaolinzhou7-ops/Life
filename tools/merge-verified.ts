@@ -1,10 +1,13 @@
 /**
- * 把 gen-defense 的产出（node_modules/.cache/defense-*.jsonl）并进题库，作为眼力题（解杀）。
+ * 把皮卡鱼已经核过"只有这一手"的生成结果并进题库：
+ *   defense    gen-defense 的解杀题（node_modules/.cache/defense-*.jsonl），作为眼力题
+ *   openings2  gen-openings2 的布局题（node_modules/.cache/openings2-*.jsonl）
  *
  * 并入前用规则引擎再走一遍：局面读得出、开局谁都不被将军、主变每一手合法、第一手就是答案；
  * 同一个局面只收一道（也不和题库里已有的重复）。
  *
- *   node tools/run.mjs merge-defense
+ *   node tools/run.mjs merge-verified defense
+ *   node tools/run.mjs merge-verified openings2
  */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { fromFen, textToMove } from '../src/xiangqi/notation';
@@ -13,11 +16,14 @@ import { applyMove, isInCheck, legalMoves, type Color } from '../src/xiangqi/rul
 const PUZ = 'src/xiangqi/puzzles.json';
 const CACHE = 'node_modules/.cache';
 
-type Rec = { id: string; kind: string; fen: string; answer: string; line: string[]; rating: number; goal: string; prompt?: string; threat?: number; ev: number; ev2?: number };
+type Rec = { id: string; kind: string; fen: string; answer: string; line: string[]; rating: number; goal: string; prompt?: string; threat?: number; ply?: number; ev: number; ev2?: number };
+
+const SRC = process.argv[2] ?? 'defense';
+if (!['defense', 'openings2'].includes(SRC)) throw new Error(`不认识的来源 ${SRC}`);
 
 const puzzles = JSON.parse(readFileSync(PUZ, 'utf8')) as Rec[];
 const recs: Rec[] = [];
-for (const f of readdirSync(CACHE).filter((n) => /^defense-\d+\.jsonl$/.test(n)).sort()) {
+for (const f of readdirSync(CACHE).filter((n) => new RegExp(`^${SRC}-\\d+\\.jsonl$`).test(n)).sort()) {
   for (const l of readFileSync(`${CACHE}/${f}`, 'utf8').split('\n')) if (l.trim()) recs.push(JSON.parse(l));
 }
 const newIds = new Set(recs.map((r) => r.id));
@@ -63,9 +69,16 @@ for (const r of recs) {
     continue;
   }
   fens.add(key);
-  out.push({ ...r, kind: 'safety', goal: 'only' });
+  if (r.ev2 === undefined) {
+    drop('没有第二名的分');
+    continue;
+  }
+  out.push(SRC === 'defense' ? { ...r, kind: 'safety', goal: 'only' } : r);
 }
 writeFileSync(PUZ, JSON.stringify([...kept, ...out]));
 const by: Record<string, number> = {};
-for (const r of out) by[`威胁 ${r.threat} 步杀`] = (by[`威胁 ${r.threat} 步杀`] ?? 0) + 1;
-console.log(`解杀题收下 ${out.length} 道`, by, '丢掉：', why);
+for (const r of out) {
+  const k = SRC === 'defense' ? `威胁 ${r.threat} 步杀` : r.goal === 'best' ? '抓软着' : '守住';
+  by[k] = (by[k] ?? 0) + 1;
+}
+console.log(`${SRC === 'defense' ? '解杀题' : '布局题'}收下 ${out.length} 道`, by, '丢掉：', why);
