@@ -12,7 +12,6 @@ import {
   type Board,
   type Color,
   type Move,
-  type PType,
 } from './rules';
 import { disposeAi, requestMove, warmupAi } from './aiclient';
 import { engineCapable, engineLevelMove, engineLost, engineReady, engineStats, loadEngine, onEngineLost } from './pikafish';
@@ -64,11 +63,12 @@ import {
 import { mateInOne } from './teach';
 import { minorsDead } from './minors';
 import { BoardView } from './boardview';
-import { PRESETS, boardStyle, fontOf, getLook, onLook, pieceIcon, pieceStyle, presetOf, setLook } from './boardtheme';
+import { PRESETS, boardStyle, fontOf, getLook, pieceStyle, presetOf, setLook } from './boardtheme';
 import { renderLookPicker } from './lookui';
 import { fxEnabled } from './fx';
+import { xqSfxMove } from '../xqsfx';
 import { ERR_INFO, PIECE_VALUE, attackersOf, inPieces } from './teach';
-import { moveToText, pieceName, toFen } from './notation';
+import { moveToText, toFen } from './notation';
 import {
   isMuted,
   setMuted,
@@ -1208,10 +1208,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
     const tray = document.createElement('div');
     tray.className = 'xq-tray';
-    tray.innerHTML = `
-      <div class="xq-tray-row" data-side="${foe}"><span class="who">对方吃掉</span><span class="pcs"></span></div>
-      <div class="xq-tray-row" data-side="${me}"><span class="who">你吃掉</span><span class="pcs"></span><span class="bal"></span></div>
-      <div class="xq-log"></div>`;
+    // 原来上面还有两行"对方吃掉 / 你吃掉 / 子力均等"。用户原话："界面上'我丢了几个子、对方丢了几个子'的信息可以去掉了，
+    // 一眼就能看出来，直接删掉就行。"——棋盘上看得见，这两行只是占地方。只留棋谱条
+    tray.innerHTML = `<div class="xq-log"></div>`;
     play.appendChild(tray);
     const elLog = tray.querySelector('.xq-log') as HTMLElement;
 
@@ -1245,41 +1244,6 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       if (ok && !over) endGame({ winner: foe, reason: 'resign' });
     };
     drawBtn.onclick = () => void offerDraw();
-
-    // 换了棋盘样式，托盘里的小棋子也跟着换
-    const offLookTray = onLook(() => refreshTray());
-    /** 对比起始局面，数出双方各被吃了哪些子 */
-    function refreshTray() {
-      const count = (b: Board, c: 'r' | 'b') => {
-        const m = new Map<string, number>();
-        for (const row of b) for (const p of row) if (p && p.c === c) m.set(p.t, (m.get(p.t) ?? 0) + 1);
-        return m;
-      };
-      let bal = 0;
-      for (const side of [me, foe] as const) {
-        const was = count(startSnapshot, side);
-        const now = count(board, side);
-        const lost: PType[] = [];
-        let v = 0;
-        for (const [t, n] of was) {
-          const gone = n - (now.get(t) ?? 0);
-          for (let i = 0; i < gone; i++) lost.push(t as PType);
-          v += gone * PIECE_VALUE[t as never];
-        }
-        // side 这一方被吃掉了 v 分：是对方的损失就算我赚
-        bal += side === foe ? v : -v;
-        const row = tray.querySelector(`.xq-tray-row[data-side="${side}"]`) as HTMLElement;
-        const pcs = row.querySelector('.pcs') as HTMLElement;
-        // 小棋子和盘上的同一套样式（象牙、玉、漆器……）
-        pcs.innerHTML = lost.length
-          ? lost.map((t) => `<img class="${side}" src="${pieceIcon(t, side, 20)}" alt="${pieceName(t, side)}" title="${pieceName(t, side)}">`).join('')
-          : '<span class="none">还没吃到子</span>';
-      }
-      const elBal = tray.querySelector('.bal') as HTMLElement;
-      // 正数=你赚，用"多一个马"这种说法，比裸分数好懂
-      elBal.textContent = bal === 0 ? '子力均等' : bal > 0 ? `你多 ${inPieces(bal)}` : `你少 ${inPieces(-bal)}`;
-      elBal.className = `bal ${bal > 0 ? 'up' : bal < 0 ? 'down' : ''}`;
-    }
 
     /** 第 i 手的称号：整盘算完就用复盘的；对局中只给你自己的，来自教练当时的研究 */
     function markOf(i: number, before: Board, color: Color): MoveLabel | null {
@@ -1834,7 +1798,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           if (bigCapture) xqStinger('capture');
           // 对手吃了你的子才轮到它得意；原来写死成黑方，执黑时变成你吃子它在笑
           if (mover.c === foe) say(pickLine(rival.xq.capture));
-        } else sfxKnock();
+        } else xqSfxMove();
         busy = false;
         afterMove();
         // 动画期间攒下的那一下点击，现在补上
@@ -1844,7 +1808,6 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       });
       // 吃子特效：被吃的子碎开、木屑溅开（等走的子落下再炸）
       if (victim) scene.fxCapture(m.tx, m.ty, victim, mover.c);
-      refreshTray();
       refreshLog();
       setTurnUI(turn === foe);
     }
@@ -1987,7 +1950,6 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       selected = null;
       resultEl?.remove();
       resultEl = null;
-      refreshTray();
       refreshLog();
       scene.setLastMove(moveLog.length ? moveLog[moveLog.length - 1] : null);
       scene.setBadge(null);
@@ -2034,7 +1996,6 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       scene.dealIn();
       scene.setLastMove(null);
       scene.setBadge(null);
-      refreshTray();
       refreshLog();
       setTurnUI(turn !== me);
       setCoachLine(null);
@@ -2267,7 +2228,6 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       if (moveLog.length) scene.setLastMove(moveLog[moveLog.length - 1]);
     }
 
-    refreshTray();
     refreshLog();
     setTurnUI(turn !== me);
     renderCoachLine();
@@ -2390,7 +2350,6 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           scene.syncBoard(board);
           scene.setLastMove(null);
           scene.setBadge(null);
-          refreshTray();
           refreshLog();
           setTurnUI();
           prepareTurn();
@@ -2402,7 +2361,6 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     cleanupGame = () => {
       document.removeEventListener('visibilitychange', onVisibility);
       offLost();
-      offLookTray();
       releaseAnalysis();
       closeReview?.();
       closeReview = null;

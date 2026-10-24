@@ -159,14 +159,39 @@ function cymbal(k: Core, t0: number, vol: number, len = 1.3) {
   ]);
 }
 
-/** 木头碎裂（棋子被打碎） */
-function crack(k: Core, t0: number, vol: number, pan = 0) {
-  for (let i = 0; i < 4; i++) {
-    const t = t0 + i * 0.018 + Math.random() * 0.01;
-    noiseHit(k, t, 0.04, vol * (0.6 - i * 0.1), { hp: 2400 + Math.random() * 1500 }, pan);
-    partials(k, t, [[1400 + Math.random() * 900, vol * 0.12, 0.05], [2900 + Math.random() * 1200, vol * 0.07, 0.035]], pan);
-  }
-  noiseHit(k, t0, 0.16, vol * 0.3, { lp: 1800 }, pan);
+/**
+ * 棋子相碰的"嗒"：用户原话"吃子时的碰撞声也调整一下，参考其他象棋软件那种很悦耳、清脆的声音"。
+ * 原来是几下高通噪声叠出来的"裂"，听着毛、刺。实物棋子是一块硬木（或象牙）小圆饼，敲上去响的是它自己的几个固有频率：
+ * 一下极短的接触声 + 两三千赫的几个泛音（很快衰减，所以"脆"）+ 棋盘底下一点木腔（所以"实"），没有毛刺的噪声尾巴。
+ * bright：音高倍数（大子稍低、小子稍高）
+ */
+function clack(k: Core, t0: number, vol: number, bright = 1, pan = 0) {
+  const j = 1 + (Math.random() - 0.5) * 0.04; // 每一下都略有不同
+  const b = bright * j;
+  noiseHit(k, t0, 0.004, vol * 0.5, { hp: 3200 }, pan);
+  partials(
+    k,
+    t0,
+    [
+      [1180 * b, vol * 0.16, 0.07],
+      [2360 * b, vol * 0.34, 0.05],
+      [3610 * b, vol * 0.2, 0.038],
+      [5170 * b, vol * 0.09, 0.024],
+      [7020 * b, vol * 0.04, 0.016],
+    ],
+    pan,
+  );
+  // 棋盘的木腔：一点低频，让声音落得实
+  partials(k, t0, [[255, vol * 0.13, 0.09], [510, vol * 0.06, 0.07]], pan);
+}
+
+/** 吃子的"啪嗒"：走过去的子先撞上被吃的子，紧跟着被吃的子被撞开（第二下轻一点、高一点） */
+function clackPair(k: Core, t0: number, vol: number, bright = 1) {
+  const pan = (Math.random() - 0.5) * 0.3;
+  clack(k, t0, vol, bright, pan);
+  clack(k, t0 + 0.036 + Math.random() * 0.01, vol * 0.55, bright * 1.12, pan + 0.15);
+  // 被撞开的子在盘上滑一下（很轻）
+  noiseHit(k, t0 + 0.05, 0.12, vol * 0.05, { lp: 1400, attack: 0.03 }, pan);
 }
 
 /** 呼啸（横幅飞进来） */
@@ -201,34 +226,42 @@ export function xqSfxLand() {
   noiseHit(k, now, 0.025, 0.05, { hp: 2600 });
 }
 
+/** 走一步棋：落子"嗒"一声（清脆、短，一盘棋要听上百次，不能吵） */
+export function xqSfxMove() {
+  const k = core();
+  if (!k) return;
+  clack(k, k.c.currentTime + 0.005, 0.42, 0.96, (Math.random() - 0.5) * 0.25);
+}
+
 /**
- * 吃子。兵士象：木头一裂；马炮：再加一记堂鼓、一下小镲；
+ * 吃子。先是清脆的"啪嗒"（两子相碰、被吃的子撞开）；马炮再加一记堂鼓、一下小镲；
  * **吃车：响亮的一声"锵——"**：呼啸冲过去，堂鼓压底、大锣、铙钹一起炸开，再补一记回响的鼓。
+ * voiced：紧跟着还要喊"吃车！"——锣镲收一点，别把人声盖住
  */
-export function xqSfxCapture(victim: PType) {
+export function xqSfxCapture(victim: PType, voiced = false) {
   const k = core();
   if (!k) return;
   const t0 = k.c.currentTime + 0.01;
+  const v = voiced ? 0.8 : 1;
   if (victim === 'R') {
     // 音量留了余量：响是响在锣和镲拖得长、几样一起炸，不是把峰值顶到削波
     whoosh(k, t0, 0.16, 0.14);
     const bang = t0 + 0.12;
-    crack(k, bang, 0.36);
+    clackPair(k, bang, 0.6, 0.9);
     taiko(k, bang, 0.62, 0.85);
-    bigGong(k, bang, 0.42, 168, 2.8);
-    cymbal(k, bang, 0.46, 1.6);
+    bigGong(k, bang, 0.42 * v, 168, 2.8);
+    cymbal(k, bang, 0.46 * v, 1.6);
     taiko(k, bang + 0.26, 0.32, 0.8);
-    smallGong(k, bang + 0.26, 0.16, 620);
+    smallGong(k, bang + 0.26, 0.16 * v, 620);
     return;
   }
   if (victim === 'H' || victim === 'C') {
-    crack(k, t0, 0.42);
-    taiko(k, t0 + 0.02, 0.5, 1.05);
-    cymbal(k, t0 + 0.02, 0.22, 0.6);
+    clackPair(k, t0, 0.6, 0.94);
+    taiko(k, t0 + 0.02, 0.42, 1.05);
+    cymbal(k, t0 + 0.02, 0.16 * v, 0.55);
     return;
   }
-  crack(k, t0, 0.34);
-  taiko(k, t0 + 0.02, 0.24, 1.3);
+  clackPair(k, t0, 0.55, 1.02);
 }
 
 /** 将军：呼啸 + 一记堂鼓 + 小锣"当" */

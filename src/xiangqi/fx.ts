@@ -17,6 +17,11 @@ import type { Board2D } from './board2d';
 import { ensureFont, getLook, pieceStyle } from './boardtheme';
 import type { Color, Piece } from './rules';
 import { xqSfxCapture, xqSfxCheck, xqSfxLand, xqSfxMate, xqSfxOpening } from '../xqsfx';
+import { getVoiceKind, preloadShouts, xqShout, type Shout } from '../xqvoice';
+
+/** 吃了哪个子喊哪一句（兵士象不喊，一盘棋吃十几个兵卒，喊多了烦） */
+const CAPTURE_SHOUT: Partial<Record<string, Shout>> = { R: 'chiche', H: 'chima', C: 'chipao' };
+const voiced = () => getVoiceKind() !== 'off';
 
 const KEY = 'xq-fx';
 /** 特效开着没有（默认开；系统要求减少动态效果时默认关） */
@@ -170,10 +175,16 @@ export class BoardFx {
   opening() {
     this.reset();
     this.mark('opening');
-    if (!fxEnabled()) return;
+    preloadShouts();
+    if (!fxEnabled()) {
+      xqShout('kaiju', 300);
+      return;
+    }
     this.cssAnim('xq-fx-tilt', 1000);
     this.board.intro(1500);
     xqSfxOpening();
+    // "开局！"跟着最后那一声"锵"、印章盖下来
+    xqShout('kaiju', 1300);
     this.later(1250, () => {
       const seal = document.createElement('div');
       seal.className = 'xq-fx-seal';
@@ -188,13 +199,19 @@ export class BoardFx {
    * 马炮再震一下棋盘；**吃车**：金光一闪、大字"吃車"砸下来、棋盘大震，配那一声"锵——"。
    */
   capture(x: number, y: number, victim: Piece, by: Color) {
+    const shout = CAPTURE_SHOUT[victim.t];
+    const say = () => {
+      xqSfxCapture(victim.t, !!shout && voiced());
+      // 先听到"锵"（吃车的锣在 0.12 秒），人声紧跟着压上来
+      if (shout) xqShout(shout, victim.t === 'R' ? 190 : 90);
+    };
     if (!fxEnabled()) {
-      xqSfxCapture(victim.t);
+      this.later(this.board.animLeft(), say);
       return;
     }
     this.later(this.board.animLeft(), () => {
       this.mark(`capture:${victim.t}`);
-      xqSfxCapture(victim.t);
+      say();
       const big = victim.t === 'R' || victim.t === 'H' || victim.t === 'C';
       const p = this.board.pointOf(x, y);
       const c = p.cell;
@@ -216,11 +233,14 @@ export class BoardFx {
   check(kx: number, ky: number, from: { x: number; y: number }[], byMe: boolean) {
     if (!fxEnabled()) {
       xqSfxCheck();
+      xqShout('jiangjun', 200);
       return;
     }
     this.later(this.board.animLeft(), () => {
       this.mark('check');
       xqSfxCheck();
+      // 和"将军"两个字砸下来同时喊
+      xqShout('jiangjun', 200);
       const k = this.board.pointOf(kx, ky);
       const now = performance.now();
       for (const f of from) {
@@ -242,13 +262,17 @@ export class BoardFx {
    * 你赢了放烟花，输了是一团墨烟。横幅留着，等结果页出来再收。
    */
   mate(kx: number, ky: number, king: Piece, win: boolean, word = '绝杀') {
+    const shout: Shout = word === '困毙' ? 'kunbi' : 'jiesha';
     if (!fxEnabled()) {
       xqSfxMate(win);
+      xqShout(shout, 880);
       return;
     }
     this.later(this.board.animLeft() + 120, () => {
       this.mark('mate');
       xqSfxMate(win);
+      // "咚——咚——锵"的"锵"上喊
+      xqShout(shout, 880);
       const now = performance.now();
       this.flash = { t0: now, dur: 900, color: '0,0,0', peak: win ? 0.38 : 0.55, hold: true };
       const k = this.board.pointOf(kx, ky);

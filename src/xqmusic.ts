@@ -49,6 +49,8 @@ interface Bus {
   delay: DelayNode;
   rev: GainNode;
   out: GainNode;
+  /** 配音时把配乐压下去一点（xqMusicDuck） */
+  duck: GainNode;
 }
 
 const irCache = new WeakMap<BaseAudioContext, AudioBuffer>();
@@ -106,7 +108,8 @@ function makeBus(c: BaseAudioContext, dest: AudioNode, palette: Palette): Bus {
   const out = c.createGain();
   out.gain.value = MUSIC_LEVEL * palette.gain;
   dry.connect(hp).connect(lowShelf).connect(highShelf).connect(out);
-  out.connect(dest);
+  const duck = c.createGain();
+  out.connect(duck).connect(dest);
 
   const conv = c.createConvolver();
   conv.buffer = hallIR(c);
@@ -126,7 +129,7 @@ function makeBus(c: BaseAudioContext, dest: AudioNode, palette: Palette): Bus {
   dly.connect(delay).connect(dLp).connect(fb).connect(delay);
   dLp.connect(out);
   dLp.connect(rev);
-  return { dry, dly, delay, rev, out };
+  return { dry, dly, delay, rev, out, duck };
 }
 
 /** 换情绪：混响、回声、电平慢慢过去（一两秒），不要一下子变 */
@@ -433,6 +436,16 @@ export function xqStinger(kind: StingerKind) {
 export function xqMusicEnd(result: 'win' | 'loss' | 'draw') {
   xqStinger(result);
   target = { mood: 'serene', intensity: 0.1 };
+}
+
+/** 有人喊话（"将军！"）的时候配乐让一让：压到 depth，hold 秒后慢慢回来 */
+export function xqMusicDuck(depth = 0.45, hold = 1) {
+  if (!live) return;
+  const g = live.bus.duck.gain;
+  const now = live.c.currentTime;
+  g.cancelScheduledValues(now);
+  g.setTargetAtTime(depth, now, 0.04);
+  g.setTargetAtTime(1, now + hold, 0.35);
 }
 
 export function stopXqMusic() {

@@ -228,7 +228,6 @@ export const lookVersion = () => version;
 function bump() {
   version++;
   texCache.clear();
-  iconCache.clear();
   for (const f of [...subs]) f();
 }
 
@@ -1290,22 +1289,3 @@ export function paintPiece(g: CanvasRenderingContext2D, cx: number, cy: number, 
   g.stroke();
 }
 
-const iconCache = new Map<string, string>();
-/** 小棋子图（吃子托盘里用）：和盘上的棋子同一套样式，按样式缓存成图片地址 */
-export function pieceIcon(t: PType, c: Color, px = 20): string {
-  const key = `${t}${c}${px}`;
-  const hit = iconCache.get(key);
-  if (hit) return hit;
-  if (typeof document === 'undefined') return '';
-  const dpr = 2;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = px * dpr;
-  const g = cv.getContext('2d')!;
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const look = getLook();
-  const r = px * 0.42;
-  paintPiece(g, px / 2, px / 2 - r * pieceStyle(look.piece).thick * 0.5, r, t, c, look, dpr);
-  const url = cv.toDataURL();
-  iconCache.set(key, url);
-  return url;
-}
