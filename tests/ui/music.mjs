@@ -10,6 +10,8 @@ const errs = [];
 const ok = (n, c) => { console.log(`${c ? '✓' : '✗'} ${n}`); if (!c) errs.push(n); };
 const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined, args: ['--autoplay-policy=no-user-gesture-required'] });
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+// 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
 page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => { localStorage.clear(); localStorage.setItem('life-mute', '0'); });

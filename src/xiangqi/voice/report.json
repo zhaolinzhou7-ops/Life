@@ -188,5 +188,65 @@
   "score": 3,
   "f0": 164,
   "bytes": 23469
+ },
+ "m-win": {
+  "text": "大获全胜！",
+  "voice": "zm_yunjian",
+  "speed": 1.0,
+  "reverb": 0.2,
+  "heard": "大获全胜",
+  "score": 3,
+  "f0": 110,
+  "bytes": 19821
+ },
+ "m-lose": {
+  "text": "胜败乃兵家常事！",
+  "voice": "zm_yunjian",
+  "speed": 1.0,
+  "reverb": 0.2,
+  "heard": "胜败乃兵家常事",
+  "score": 3,
+  "f0": 117,
+  "bytes": 25005
+ },
+ "m-draw": {
+  "text": "握手言和！",
+  "voice": "zm_yunjian",
+  "speed": 1.0,
+  "reverb": 0.2,
+  "heard": "握手言和",
+  "score": 3,
+  "f0": 103,
+  "bytes": 19629
+ },
+ "f-win": {
+  "text": "大获全胜！",
+  "voice": "zf_xiaoxiao",
+  "speed": 1.0,
+  "reverb": 0.2,
+  "heard": "大获全胜",
+  "score": 3,
+  "f0": 273,
+  "bytes": 19437
+ },
+ "f-lose": {
+  "text": "胜败乃兵家常事！",
+  "voice": "zf_xiaoxiao",
+  "speed": 1.0,
+  "reverb": 0.2,
+  "heard": "胜败乃兵家常事",
+  "score": 3,
+  "f0": 264,
+  "bytes": 23853
+ },
+ "f-draw": {
+  "text": "和棋！",
+  "voice": "zf_xiaoxiao",
+  "speed": 1.0,
+  "reverb": 0.2,
+  "heard": "何其",
+  "score": 2,
+  "f0": 273,
+  "bytes": 16941
  }
 }

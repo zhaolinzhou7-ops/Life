@@ -1,6 +1,8 @@
 /**
  * 象棋配音：开局、吃子、将军、绝杀的喊声，出场人物的开场白。
  *
+ * 终局再说一句（大获全胜、胜败乃兵家常事、握手言和）。
+ *
  * 用户原话："出场、开局，以及吃子、将军、绝杀等关键节点，都要有浑厚的人声配音（男声或女声），比如喊出'将军'这种，
  * 不要只有电子打击音。"
  * 录音是离线生成好的（tools/gen-voice.py：开源语音合成念、处理成浑厚的喊声、再让语音识别把每一句听一遍对过字），
@@ -14,7 +16,7 @@ const FILES = import.meta.glob('./xiangqi/voice/*.mp3', { query: '?url', import:
 const urlOf = (name: string) => FILES[`./xiangqi/voice/${name}.mp3`];
 
 /** 对局里喊的几句 */
-export type Shout = 'kaiju' | 'jiangjun' | 'jiesha' | 'kunbi' | 'chiche' | 'chima' | 'chipao';
+export type Shout = 'kaiju' | 'jiangjun' | 'jiesha' | 'kunbi' | 'chiche' | 'chima' | 'chipao' | 'win' | 'lose' | 'draw';
 /** 配音：男声、女声、不要 */
 export type VoiceKind = 'm' | 'f' | 'off';
 
@@ -61,7 +63,7 @@ export function preloadVoice(names: string[]) {
 export function preloadShouts() {
   const k = getVoiceKind();
   if (k === 'off') return;
-  preloadVoice((['kaiju', 'jiangjun', 'jiesha', 'kunbi', 'chiche', 'chima', 'chipao'] as Shout[]).map((s) => `${k}-${s}`));
+  preloadVoice((['kaiju', 'jiangjun', 'jiesha', 'kunbi', 'chiche', 'chima', 'chipao', 'win', 'lose', 'draw'] as Shout[]).map((s) => `${k}-${s}`));
 }
 
 /** 最近一次喊的是哪一句（测试看） */

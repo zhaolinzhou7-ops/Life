@@ -15,7 +15,7 @@
   模型：github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/{kokoro-v1.0.onnx,voices-v1.0.bin}
   识别：github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2
 运行：
-  ./venv/bin/python tools/gen-voice.py <模型所在目录>
+  ./venv/bin/python tools/gen-voice.py <模型所在目录> [只生成哪几句，逗号分开，如 m-win,f-win]
 """
 import json
 import os
@@ -28,6 +28,7 @@ import soundfile as sf
 from scipy.signal import lfilter, resample_poly
 
 MODEL_DIR = sys.argv[1] if len(sys.argv) > 1 else '.'
+ONLY = set(sys.argv[2].split(',')) if len(sys.argv) > 2 else None
 OUT = os.path.join(os.path.dirname(__file__), '..', 'src', 'xiangqi', 'voice')
 os.makedirs(OUT, exist_ok=True)
 SR = 24000
@@ -43,6 +44,10 @@ SHOUTS = {
     'chiche': [('吃车！', 1.0), ('吃车！', 1.05), ('吃掉车！', 0.95), ('吃掉车！', 1.0)],
     'chima': [('吃马！', 0.95), ('吃马！', 1.0), ('吃马！', 1.05), ('吃掉马！', 0.95), ('吃掉马！', 1.0), ('吃掉马！', 1.05), ('马，吃掉！', 1.0)],
     'chipao': [('吃炮！', 1.0), ('吃炮！', 0.95), ('吃掉炮！', 0.95), ('吃掉炮！', 1.0)],
+    # 终局：赢了、输了、和了，说一句有江湖气的话（输了宽慰一句，"胜败乃兵家常事"）
+    'win': [('大获全胜！', 1.0), ('大获全胜！', 0.95)],
+    'lose': [('胜败乃兵家常事！', 1.0), ('胜败乃兵家常事！', 0.95), ('胜败乃兵家常事。', 1.0)],
+    'draw': [('握手言和！', 1.0), ('握手言和！', 0.95), ('和棋！', 1.0)],
 }
 # 男声：云健（几个男声里最低沉，基频约 105Hz）再降 1.5 个半音；女声：晓晓（试的几个女声里偏低、每句都念得清楚）
 VOICES = {'m': ('zm_yunjian', -1.5), 'f': ('zf_xiaoxiao', 0.0)}
@@ -232,6 +237,11 @@ SHOUT_FX = [(1.3, 0.2, True, True), (1.2, 0.12, True, True), (1.2, 0.14, True, F
 HERO_FX = [(2.0, 0.24, False, True), (1.8, 0.14, False, True), (1.8, 0.16, False, False), (1.4, 0.07, False, False)]
 jobs = [(f'{g}-{k}', VOICES[g][0], cands, VOICES[g][1], SHOUT_FX) for g in VOICES for k, cands in SHOUTS.items()]
 jobs += [(f'hero-{k}', v, cands, semis, HERO_FX) for k, (v, cands, semis) in HEROES.items()]
+if ONLY:
+    # 只补几句：别的录音不动，报告里原来的记录留着
+    jobs = [j for j in jobs if j[0] in ONLY]
+    with open(os.path.join(OUT, 'report.json')) as fh:
+        report = json.load(fh)
 for name, voice, cands, semis, fxs in jobs:
     # 每种念法、每档处理都试一遍，留听得最准的（同样准，留排在前面的：念法靠前、混响足）
     best = None

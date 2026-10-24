@@ -111,6 +111,8 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME || un
 for (const [w, h] of SIZES) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: true });
   const page = await ctx.newPage();
+  // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+  await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
   const dev = `${w}×${h}`;
   page.on('pageerror', (e) => problems.push(`[${dev}] 页面报错：${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|favicon/.test(m.text())) problems.push(`[${dev}] 控制台错误：${m.text().slice(0, 120)}`); });

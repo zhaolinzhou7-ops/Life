@@ -31,6 +31,8 @@ const tipOpen = (page) => page.evaluate(() => !!document.querySelector('.xq-tip:
 // ───────── 1. 同一个裁判 ─────────
 {
   const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+  await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
   await openGame(page);
@@ -119,6 +121,8 @@ const tipOpen = (page) => page.evaluate(() => !!document.querySelector('.xq-tip:
 // ───────── 2. 认输 ─────────
 {
   const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+  await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   await openGame(page);
   // 先随便走两手，让这一局有东西可复盘
@@ -151,6 +155,8 @@ const tipOpen = (page) => page.evaluate(() => !!document.querySelector('.xq-tip:
 // ───────── 3. 求和 ─────────
 {
   const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+  await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   await openGame(page);
   await until(page, () => window.__xq.turn() === 'r', null, 5000);
@@ -192,6 +198,8 @@ const tipOpen = (page) => page.evaluate(() => !!document.querySelector('.xq-tip:
 // ───────── 4. 非法点击要说原因 ─────────
 {
   const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+  await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   await openGame(page);
   // 红马在帅前面挡着黑车：马一动，帅就被车吃
@@ -208,6 +216,8 @@ const tipOpen = (page) => page.evaluate(() => !!document.querySelector('.xq-tip:
 // ───────── 5. 没听劝的那一手，复盘里要标出来，而且和对局里的判断一致 ─────────
 {
   const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+  await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   await openGame(page);
   // 红车走到黑车嘴边：教练会拦；坚持走
@@ -247,6 +257,8 @@ const tipOpen = (page) => page.evaluate(() => !!document.querySelector('.xq-tip:
 // ───────── 6. 秒落子 + 提示条开着时悔棋 + 执黑重开：不能卡死 ─────────
 {
   const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+  await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
   await openGame(page);
@@ -299,6 +311,8 @@ const tipOpen = (page) => page.evaluate(() => !!document.querySelector('.xq-tip:
 // ───────── 7. 小屏布局 ─────────
 for (const [w, h] of [[360, 640], [390, 844], [768, 1024]]) {
   const page = await (await browser.newContext({ viewport: { width: w, height: h } })).newPage();
+  // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+  await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
   await openGame(page);
   const bar = await page.locator('.xq-bar').boundingBox();
   const board = await page.locator('.xq-boardwrap canvas.xq-b2d').boundingBox();

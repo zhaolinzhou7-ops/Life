@@ -1461,11 +1461,66 @@ canvas {
 }
 /* 象棋结算徽章 */
 .xq-result-badge {
+  position: relative;
+  isolation: isolate;
   font-size: 62px;
   font-weight: 900;
   letter-spacing: 6px;
-  margin-bottom: 4px;
-  animation: badge-slam 0.5s cubic-bezier(0.2, 1.6, 0.35, 1) both;
+  margin: 18px 0 14px;
+  padding: 0 28px;
+}
+/* 大字用毛笔写（出场那款字体）；背后泼一团墨，右下角盖一方朱印 */
+.xq-result-badge > span {
+  display: block;
+  font-family: "XQ Hero", "XQ MaShan", "STKaiti", "KaiTi", serif;
+  font-weight: 400;
+  font-size: 76px;
+  line-height: 1.1;
+  animation: badge-slam 0.5s 0.12s cubic-bezier(0.2, 1.6, 0.35, 1) both;
+}
+.xq-result-ink {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 230px;
+  height: 230px;
+  z-index: -1;
+  transform: translate(-50%, -50%);
+  animation: xq-ink-in 0.7s cubic-bezier(0.1, 0.8, 0.2, 1) both;
+}
+.xq-result-ink > svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+@keyframes xq-ink-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.3) rotate(-10deg);
+  }
+  to {
+    opacity: 0.92;
+    transform: translate(-50%, -50%);
+  }
+}
+.xq-result-badge::after {
+  content: attr(data-seal);
+  position: absolute;
+  right: -6px;
+  bottom: 2px;
+  writing-mode: vertical-rl;
+  font-family: "XQ Hero", "XQ MaShan", "STKaiti", serif;
+  font-weight: 400;
+  font-size: 15px;
+  letter-spacing: 0;
+  line-height: 1.05;
+  padding: 4px 3px;
+  border-radius: 3px;
+  color: #f6e8d4;
+  text-shadow: none;
+  background: #b3221a;
+  box-shadow: inset 0 0 0 1.5px #b3221a, inset 0 0 0 2.5px #f3e2cc;
+  animation: xqh-stamp 0.4s 0.55s cubic-bezier(0.3, 1.6, 0.5, 1) both;
 }
 .xq-result-badge.win {
   color: #ffd76e;
@@ -1760,6 +1815,19 @@ canvas {
   inset: 0;
   overflow: hidden;
   background: #1a2530;
+  isolation: isolate;
+}
+/* 对局画面的底：很暗的水墨远山（在所有东西下面） */
+.xq-ink-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+.xq-ink-bg > svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 .xq-hud {
   position: absolute;
@@ -3870,7 +3938,7 @@ canvas {
 .xq-root:has(.xq-rv) .xq-play { bottom: var(--rv-h, calc(var(--app-h, 100vh) * 0.48)); }
 .xq-root:has(.xq-rv) .xq-tray { display: none; }
 
-/* ---------- 吃子托盘 + 棋谱 ---------- */
+/* ---------- 棋谱条（原来上面还有吃子托盘，用户说一眼就看得出来，去掉了） ---------- */
 .xq-tray {
   flex: none;
   padding: 0 10px;
@@ -3879,56 +3947,6 @@ canvas {
   gap: 5px;
   z-index: 12;
 }
-.xq-tray-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 26px;
-}
-.xq-tray-row .who {
-  flex: none;
-  font-size: 11px;
-  color: rgba(240, 230, 210, 0.42);
-  width: 52px;
-}
-.xq-tray-row .pcs {
-  flex: 1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-  min-width: 0;
-}
-.xq-tray-row .pcs i {
-  font-style: normal;
-  font-size: 12px;
-  line-height: 18px;
-  width: 18px;
-  height: 18px;
-  text-align: center;
-  border-radius: 50%;
-  background: #f2e3c4;
-  font-family: "STKaiti", "KaiTi", serif;
-  font-weight: 700;
-}
-.xq-tray-row .pcs i.r { color: #c8201a; }
-.xq-tray-row .pcs i.b { color: #15283a; background: #e8e3d6; }
-/* 托盘里的小棋子：和盘上同一套样式画出来的图 */
-.xq-tray-row .pcs img {
-  width: 20px;
-  height: 20px;
-  display: block;
-}
-.xq-tray-row .pcs .none {
-  font-size: 11px;
-  color: rgba(240, 230, 210, 0.22);
-}
-.xq-tray-row .bal {
-  flex: none;
-  font-size: 11.5px;
-  color: rgba(240, 230, 210, 0.5);
-}
-.xq-tray-row .bal.up { color: #6fe09a; }
-.xq-tray-row .bal.down { color: #ef7a72; }
 .xq-log {
   display: flex;
   gap: 6px;

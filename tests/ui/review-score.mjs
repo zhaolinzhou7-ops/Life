@@ -15,6 +15,8 @@ const until = async (page, fn, arg, ms = 20000) => {
 const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined });
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, permissions: ['clipboard-read', 'clipboard-write'] });
 const page = await ctx.newPage();
+// 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
 page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
 await page.goto(BASE, { waitUntil: 'networkidle' });

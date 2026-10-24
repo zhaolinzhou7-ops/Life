@@ -69,6 +69,8 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME || un
 
 for (const [dev, w, h] of [['手机', 390, 844], ['小屏', 320, 568], ['平板', 820, 1180]]) {
   const page = await (await browser.newContext({ viewport: { width: w, height: h } })).newPage();
+  // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+  await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
   page.on('pageerror', (e) => problems.push(`[${dev}] pageerror: ${e.message}`));
 
   const check = async (name, needExit = true) => {

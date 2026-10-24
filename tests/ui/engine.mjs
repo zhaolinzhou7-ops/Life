@@ -32,6 +32,8 @@ async function openGame(page, levelName) {
 }
 
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+// 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
 page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
 page.on('response', (r) => { if (r.status() >= 400) errs.push(`${r.status()} ${r.url()}`); });
@@ -102,6 +104,8 @@ await page.close();
 
 // ── 顶档对手：真的换成专业引擎在走 ──
 const p2 = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+// 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+await p2.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
 p2.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 await openGame(p2, '棋王');
 await until(p2, () => window.__xq.engine() === 'pro', null, 15000);
@@ -112,6 +116,8 @@ await p2.close();
 
 // ── 最低档也是皮卡鱼（按档位削弱），不再是自带引擎 ──
 const p3 = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+// 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+await p3.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
 p3.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 await openGame(p3, '入门');
 await until(p3, () => window.__xq.engine() === 'pro', null, 15000);

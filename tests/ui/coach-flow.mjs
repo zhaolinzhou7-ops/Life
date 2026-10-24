@@ -20,6 +20,8 @@ const note = (m) => { log.push('   ' + m); console.log('   ' + m); };
 const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined });
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const page = await ctx.newPage();
+// 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
 page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 

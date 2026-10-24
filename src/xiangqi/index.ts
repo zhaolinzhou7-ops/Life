@@ -67,9 +67,16 @@ import { PRESETS, boardStyle, fontOf, getLook, pieceStyle, presetOf, setLook } f
 import { renderLookPicker } from './lookui';
 import { fxEnabled } from './fx';
 import { getHeroPick, heroInfo, nextHero, playHeroIntro, preloadHero } from './intro';
-import { getVoiceKind } from '../xqvoice';
+import { inkBackdrop, splash } from './heroart';
+import { getVoiceKind, xqShout } from '../xqvoice';
 
 const VOICE_NAME = { m: '男声', f: '女声', off: '不要' } as const;
+/** 结果页大字背后的那团墨：赢了是朱红泛金，输了是焦墨，和了是青灰 */
+const RESULT_INK = {
+  win: () => splash('rsw', 77, '#8a1c10', '#3e0a05', '#5e140a'),
+  loss: () => splash('rsl', 78, '#2c3036', '#14171b', '#1e2126'),
+  draw: () => splash('rsd', 79, '#2e3e4e', '#16212c', '#22303c'),
+};
 /** 开局设置页上写的"出场：……" */
 function heroPickName() {
   const p = getHeroPick();
@@ -161,6 +168,13 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   const wrap = document.createElement('div');
   wrap.className = 'xq-root';
   app.appendChild(wrap);
+  // 对局画面的底：一层很暗的水墨远山（heroart.inkBackdrop），首页、设置页这些全屏页面自己有底色，盖在上面
+  const inkBg = document.createElement('div');
+  inkBg.className = 'xq-ink-bg';
+  inkBg.innerHTML = inkBackdrop();
+  wrap.appendChild(inkBg);
+  // 出场、结果页大字用的毛笔字体先拉下来（两个文件二十几 KB）
+  preloadHero();
 
   let cleanupGame: (() => void) | null = null;
   let setupEl: HTMLElement | null = null;
@@ -2109,6 +2123,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       } else {
         sfxKnock();
       }
+      // 终局说一句：赢了"大获全胜！"，输了"胜败乃兵家常事！"，和了"握手言和！"（绝杀那一声已经喊过，隔开一点）
+      xqShout(result === 'win' ? 'win' : result === 'loss' ? 'lose' : 'draw', cadenced ? 500 : 250);
       const mySide = me === 'r' ? '红方' : '黑方';
       const badge = result === 'win' ? (end.reason === 'mate' ? '绝杀' : '胜') : result === 'loss' ? '败' : '和';
       const title = result === 'win' ? `${mySide}胜 · 你赢了` : result === 'loss' ? `${rival.name} 胜` : '和棋';
@@ -2129,7 +2145,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       const s = document.createElement('div');
       s.className = 'screen moba-result xq-result';
       s.innerHTML = `
-        <div class="xq-result-badge ${result === 'win' ? 'win' : result === 'loss' ? 'lose' : 'draw'}">${badge}</div>
+        <div class="xq-result-badge ${result === 'win' ? 'win' : result === 'loss' ? 'lose' : 'draw'}" data-seal="对弈"><div class="xq-result-ink">${RESULT_INK[result]()}</div><span>${badge}</span></div>
         <h1 style="color:${result === 'win' ? '#ffd76e' : result === 'loss' ? '#ef5350' : '#cfd8dc'}">${title}</h1>
         <div class="sub">${sub}</div>
         ${hintsUsed > 0 ? `<div class="xq-usedhint">这一局用了 ${hintsUsed} 次求助——照着引擎走出来的棋不算你的水平，复盘的时候心里有个数。</div>` : ''}

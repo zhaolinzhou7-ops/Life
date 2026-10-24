@@ -20,6 +20,8 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME || un
 
 for (const [w, h] of [[390, 664], [375, 548]]) {
   const page = await (await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: true })).newPage();
+  // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+  await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
   page.on('pageerror', (e) => errors.push(`[${w}×${h}] pageerror: ${e.message}`));
   const dev = `${w}×${h}`;
   await page.goto(BASE, { waitUntil: 'networkidle' });

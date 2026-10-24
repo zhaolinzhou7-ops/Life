@@ -21,6 +21,8 @@ const until = async (page, fn, arg, ms = 30000) => {
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined });
 const page = await (await browser.newContext({ viewport: { width: 390, height: 744 }, hasTouch: true, isMobile: true })).newPage();
+// 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 
 /** 点画布上某条带 id 的箭头（真的点在箭头中点上） */

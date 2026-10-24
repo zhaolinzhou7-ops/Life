@@ -27,6 +27,8 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME || un
 for (const s of SIZES) {
   const ctx = await browser.newContext({ viewport: { width: s.w, height: s.h }, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
+  // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+  await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`[${s.name}] console: ${m.text()}`); });
   page.on('pageerror', (e) => errors.push(`[${s.name}] pageerror: ${e.message}`));
 

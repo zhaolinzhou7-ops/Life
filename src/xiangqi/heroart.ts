@@ -143,8 +143,8 @@ function figure(p: string, defs: string, sil: string, extra = '') {
     `<svg viewBox="0 0 300 420" xmlns="http://www.w3.org/2000/svg" overflow="visible"><defs>${defs}` +
     `<filter id="${p}w"><feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0"/></filter>` +
     `<mask id="${p}m" maskUnits="userSpaceOnUse" x="-40" y="-40" width="380" height="500"><use href="#${p}sil" filter="url(#${p}w)"/></mask>` +
-    `<linearGradient id="${p}sh" gradientUnits="userSpaceOnUse" x1="-170" y1="0" x2="-50" y2="70">` +
-    `<stop offset="0" stop-color="#fff4cf" stop-opacity="0"/><stop offset=".5" stop-color="#fff4cf" stop-opacity=".85"/><stop offset="1" stop-color="#fff4cf" stop-opacity="0"/>` +
+    `<linearGradient id="${p}sh" gradientUnits="userSpaceOnUse" x1="-160" y1="0" x2="-84" y2="44">` +
+    `<stop offset="0" stop-color="#fff4cf" stop-opacity="0"/><stop offset=".5" stop-color="#fff4cf" stop-opacity=".78"/><stop offset="1" stop-color="#fff4cf" stop-opacity="0"/>` +
     `<animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="840 0" begin="1.3s" dur="1.6s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .3 1"/></linearGradient>` +
     `${blur(p + 'sd', 5)}</defs>` +
     `<ellipse cx="150" cy="406" rx="100" ry="9" fill="#000" opacity=".38" filter="url(#${p}sd)"/>` +
@@ -153,8 +153,8 @@ function figure(p: string, defs: string, sil: string, extra = '') {
   );
 }
 
-/** 泼墨：一团被湍流撕开毛边的墨，四周甩出墨点 */
-function splash(p: string, seed: number, inner: string, outer: string, dots: string) {
+/** 泼墨：一团被湍流撕开毛边的墨，四周甩出墨点（结果页"绝杀""胜""败"背后也用这一团） */
+export function splash(p: string, seed: number, inner: string, outer: string, dots: string) {
   const r = rng(seed);
   let drops = '';
   for (let i = 0; i < 26; i++) {
@@ -691,12 +691,38 @@ function dasheng(): HeroArt {
 
 const MAKERS: Record<HeroId, () => HeroArt> = { daoke, guangong, nezha, nvxia, dasheng };
 const cache = new Map<HeroId, HeroArt>();
-/** 某个人物的整套画（第一次用时现画，留着） */
+/**
+ * 某个人物的整套画（第一次用时现画，留着）。
+ * 每一层的 id 再套一层前缀（层名）：几层同时放在一页里，各层自己起的 id 难免撞上
+ * （中景的山叫 ggm，人物的遮罩也叫 ggm，url(#ggm) 就指到山的渐变上去了，人物身上那道流光就漏出了人形）
+ */
 export function heroArt(id: HeroId): HeroArt {
   let a = cache.get(id);
   if (!a) {
-    a = MAKERS[id]();
+    const raw = MAKERS[id]();
+    const scoped = {} as HeroArt;
+    for (const k of Object.keys(raw) as (keyof HeroArt)[]) scoped[k] = raw[k].replace(/(id="|url\(#|href="#)/g, `$1${k}-`);
+    a = scoped;
     cache.set(id, a);
   }
   return a;
+}
+
+/**
+ * 对局画面的底：深青色的夜，远处两列水墨山、一条雾，右上一轮很淡的月亮。
+ * 颜色压得很暗、对比很低——棋盘才是主角，这一层只让四周不再是一块平涂的底色
+ */
+export function inkBackdrop(): string {
+  const p = 'bg';
+  const raw = scene(
+    `<defs>${vgrad(p + 'sk', [[0, '#1f2d3a'], [0.5, '#182430'], [1, '#111a24']])}` +
+      `<radialGradient id="${p}mh" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#dfe8f0" stop-opacity=".16"/><stop offset="1" stop-color="#dfe8f0" stop-opacity="0"/></radialGradient></defs>` +
+      `<rect width="400" height="800" fill="url(#${p}sk)"/>` +
+      `<radialGradient id="${p}mn" cx=".42" cy=".4" r=".6"><stop offset="0" stop-color="#e6eef4" stop-opacity=".1"/><stop offset=".8" stop-color="#e6eef4" stop-opacity=".06"/><stop offset="1" stop-color="#e6eef4" stop-opacity="0"/></radialGradient>` +
+      `<circle cx="318" cy="118" r="110" fill="url(#${p}mh)"/><circle cx="318" cy="118" r="36" fill="url(#${p}mn)"/>` +
+      range(p + 'f', 51, 640, 60, 170, 7, '#0b121a', 0.5, 1.4) +
+      mistBands(p + 'mi', 19, [650], '#9fb4c8', 0.05) +
+      range(p + 'm', 57, 740, 30, 110, 6, '#080d13', 0.7, 1.9),
+  );
+  return raw;
 }

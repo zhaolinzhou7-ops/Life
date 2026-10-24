@@ -11,6 +11,8 @@ const ok = (n, c) => { console.log(`${c ? '✓' : '✗'} ${n}`); if (!c) errs.pu
 
 const b = await chromium.launch({ executablePath: process.env.CHROME || undefined });
 const page = await (await b.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+// 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
 page.on('pageerror', e => errs.push('pageerror: ' + e.message));
 page.on('console', m => { if (m.type()==='error') errs.push('console: ' + m.text()); });
 
