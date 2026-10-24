@@ -12,6 +12,7 @@ import {
   type Board,
   type Color,
   type Move,
+  type PType,
 } from './rules';
 import { disposeAi, requestMove, warmupAi } from './aiclient';
 import { engineCapable, engineLevelMove, engineLost, engineReady, engineStats, loadEngine, onEngineLost } from './pikafish';
@@ -63,6 +64,8 @@ import {
 import { mateInOne } from './teach';
 import { minorsDead } from './minors';
 import { BoardView } from './boardview';
+import { PRESETS, boardStyle, fontOf, getLook, onLook, pieceIcon, pieceStyle, presetOf, setLook } from './boardtheme';
+import { renderLookPicker } from './lookui';
 import { ERR_INFO, PIECE_VALUE, inPieces } from './teach';
 import { moveToText, pieceName, toFen } from './notation';
 import {
@@ -245,6 +248,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       onReview: (id) => showGameList(id),
       onLevel: () => showLevel(),
       onTutor: () => openCoach('home'),
+      onLook: () => showLook(() => showHome()),
       onExit: () => onExit(false),
       resume: (() => {
         const o = readOngoing();
@@ -258,6 +262,13 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         };
       })(),
     });
+    setupEl = { remove: dispose } as unknown as HTMLElement;
+  }
+
+  /** 棋盘、棋子样式：换完回到来的那一屏 */
+  function showLook(back: () => void) {
+    clearAll();
+    const dispose = renderLookPicker(wrap, back);
     setupEl = { remove: dispose } as unknown as HTMLElement;
   }
 
@@ -400,6 +411,15 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     const s = document.createElement('div');
     s.className = 'screen xq-setup';
     setupEl = s;
+    /** 这一屏选好的存下来（开始对弈、去换棋盘样式之前） */
+    const persist = () => {
+      localStorage.setItem('xq-level', String(level));
+      localStorage.setItem('xq-rival', String(rival));
+      localStorage.setItem('xq-tempo', String(tempo));
+      setHintLevel(hint);
+      localStorage.setItem('xq-side', sidePick);
+      localStorage.setItem('xq-tricky', tricky ? '1' : '0');
+    };
 
     const render = () => {
       s.innerHTML = `<h1>楚河汉界</h1><div class="sub">选对手 · 定难度 · 定教练</div>`;
@@ -540,6 +560,27 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       });
       s.appendChild(kRow);
 
+      // 棋盘样式：现在是哪一套，点进去换（换之前把这一屏选好的先存下，回来还是这样）
+      const lookLabel = document.createElement('div');
+      lookLabel.className = 'xq-sec';
+      lookLabel.textContent = '棋盘样式';
+      s.appendChild(lookLabel);
+      const lookRow = document.createElement('div');
+      lookRow.className = 'diff-row';
+      const lk = getLook();
+      const pre = presetOf(lk);
+      const lookCard = document.createElement('div');
+      lookCard.className = 'card';
+      lookCard.dataset.act = 'look';
+      lookCard.innerHTML = `<div class="title" style="justify-content:center">🎨 ${pre ? pre.name : '自己搭配'}</div>
+        <div class="desc" style="text-align:center">${pre ? pre.desc : `${boardStyle(lk.board).name}棋盘 · ${pieceStyle(lk.piece).name}棋子 · ${fontOf(lk).name}`}。点这里换棋盘、棋子、字体</div>`;
+      lookCard.onclick = () => {
+        persist();
+        showLook(() => showSetup());
+      };
+      lookRow.appendChild(lookCard);
+      s.appendChild(lookRow);
+
       // 教练模式：这是本产品和普通对弈软件最大的区别，所以放在"开始"上面
       const hLabel = document.createElement('div');
       hLabel.className = 'xq-sec';
@@ -588,12 +629,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       go.className = 'btn';
       go.textContent = '⚔️ 开始对弈';
       go.onclick = () => {
-        localStorage.setItem('xq-level', String(level));
-        localStorage.setItem('xq-rival', String(rival));
-        localStorage.setItem('xq-tempo', String(tempo));
-        setHintLevel(hint);
-        localStorage.setItem('xq-side', sidePick);
-        localStorage.setItem('xq-tricky', tricky ? '1' : '0');
+        persist();
         s.remove();
         setupEl = null;
         const myColor: Color = sidePick === 'x' ? (Math.random() < 0.5 ? 'r' : 'b') : sidePick;
@@ -943,6 +979,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       <div class="xq-turn"><span id="xq-turn-dot"></span><span id="xq-turn-text">红方走棋</span></div>
       <div class="xq-actions">
         <button class="xq-btn" id="xq-music" title="换一种配乐">🎵</button>
+        <button class="xq-btn" id="xq-look" title="换一套棋盘、棋子">🎨</button>
         <button class="xq-btn" id="xq-mute">${isMuted() ? '🔇' : '🔊'}</button>
         <button class="xq-btn" id="xq-best" title="问最优解：告诉我这一步该走哪">🔍</button>
         <button class="xq-btn" id="xq-hint" title="教练提示档位">🧑‍🏫${HINT_LEVELS[hintLevel].short}</button>
@@ -1094,6 +1131,14 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     };
     // 🎵 换一种乐队：用户原话"每次下棋的感觉都不一样"——不喜欢就点一下换（局势不变，还是这会儿的情绪）
     const musicName = (m: ReturnType<typeof startXqMusic>) => (m ? `🎵 ${m.palette.name}（${m.key}）· ${m.palette.desc}` : '');
+    // 换一套棋盘样式：按现成的搭配轮着换，当场重画（细调到首页"棋盘和棋子样式"里）
+    (hud.querySelector('#xq-look') as HTMLButtonElement).onclick = () => {
+      const k = PRESETS.findIndex((p) => p.id === presetOf()?.id);
+      const next = PRESETS[(k + 1) % PRESETS.length];
+      setLook(next.look);
+      sfxTap();
+      showToast(`棋盘样式：${next.name}`, 1800);
+    };
     (hud.querySelector('#xq-music') as HTMLButtonElement).onclick = () => {
       const m = nextXqMusic();
       if (isMuted()) {
@@ -1201,6 +1246,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     };
     drawBtn.onclick = () => void offerDraw();
 
+    // 换了棋盘样式，托盘里的小棋子也跟着换
+    const offLookTray = onLook(() => refreshTray());
     /** 对比起始局面，数出双方各被吃了哪些子 */
     function refreshTray() {
       const count = (b: Board, c: 'r' | 'b') => {
@@ -1212,19 +1259,20 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       for (const side of [me, foe] as const) {
         const was = count(startSnapshot, side);
         const now = count(board, side);
-        const lost: string[] = [];
+        const lost: PType[] = [];
         let v = 0;
         for (const [t, n] of was) {
           const gone = n - (now.get(t) ?? 0);
-          for (let i = 0; i < gone; i++) lost.push(pieceName(t as never, side));
+          for (let i = 0; i < gone; i++) lost.push(t as PType);
           v += gone * PIECE_VALUE[t as never];
         }
         // side 这一方被吃掉了 v 分：是对方的损失就算我赚
         bal += side === foe ? v : -v;
         const row = tray.querySelector(`.xq-tray-row[data-side="${side}"]`) as HTMLElement;
         const pcs = row.querySelector('.pcs') as HTMLElement;
+        // 小棋子和盘上的同一套样式（象牙、玉、漆器……）
         pcs.innerHTML = lost.length
-          ? lost.map((n) => `<i class="${side}">${n}</i>`).join('')
+          ? lost.map((t) => `<img class="${side}" src="${pieceIcon(t, side, 20)}" alt="${pieceName(t, side)}" title="${pieceName(t, side)}">`).join('')
           : '<span class="none">还没吃到子</span>';
       }
       const elBal = tray.querySelector('.bal') as HTMLElement;
@@ -2339,6 +2387,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     cleanupGame = () => {
       document.removeEventListener('visibilitychange', onVisibility);
       offLost();
+      offLookTray();
       releaseAnalysis();
       closeReview?.();
       closeReview = null;

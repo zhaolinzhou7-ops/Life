@@ -1,0 +1,1311 @@
+/**
+ * 棋盘、棋子的样式：八种棋盘、八种棋子、五种字体，再配成九套现成的搭配。
+ *
+ * 用户原话："最大限度增加棋盘，棋子的美化效果，增加可以选择的样式。"
+ *
+ * 原来只有一种样子：渐变木色底 + 七十条随手画的细线当木纹，棋子是一个渐变圆 + 一圈线 + 系统楷体。
+ * 隔着手机屏幕看像矢量插画，不像实物。实物的质感来自三样东西，这里每样都做：
+ *
+ *   1. **材质纹理**：木纹（年轮 + 顺纹纤维）、竹排（竹节、竹缝）、宣纸（纤维、洇痕）、玉（絮状云纹）、
+ *      大理石（石筋）、青铜（同心车纹 + 铜锈）……都是按像素算出来的（值噪声叠几层），不是贴图——
+ *      不占下载、换尺寸也不会糊；
+ *   2. **统一的光**：全场光从左上来。棋盘有清漆的反光和四角暗角，边框有倒角；棋子有厚度（底下露出一圈侧边）、
+ *      凸起的边沿（左上亮、右下暗）、刻进去的字（阴刻：左上暗、右下亮），漆器、瓷器、玉还有高光；
+ *   3. **字**：五种字体里四种是随包带的（霞鹜文楷、马善政毛笔楷书、志莽行书、站酷小薇，都是 OFL 开源字体，
+ *      只截了棋子和"楚河汉界"那二十几个字，每个几 KB），换到哪台手机上都是同一个样子；
+ *      原来写的是"楷体"，可安卓手机上没有楷体，落回黑体，棋子就没了味道。
+ *
+ * **认得清排在好看前面**（board2d 原来的那条规矩不变）：字外面照样先用棋面色描一圈隔离带；
+ * 红黑两方除了字色，在玉、漆器、青铜这几套里棋面本身也不同色（白玉对墨玉、朱漆对黑漆），一眼分得出敌我；
+ * 深色棋盘上"可走点"换成亮色，不会和盘面混在一起。
+ *
+ * 样式存在 localStorage（xq-look），改了以后所有正开着的棋盘当场重画（onLook）。
+ */
+import type { Color, PType } from './rules';
+import wenkaiUrl from './fonts/xq-wenkai.woff2?url';
+import mashanUrl from './fonts/xq-mashan.woff2?url';
+import xingshuUrl from './fonts/xq-xingshu.woff2?url';
+import xiaoweiUrl from './fonts/xq-xiaowei.woff2?url';
+
+export type BoardId = 'wood' | 'rosewood' | 'bamboo' | 'paper' | 'jade' | 'marble' | 'night' | 'plain';
+export type PieceId = 'ivory' | 'boxwood' | 'jade' | 'bronze' | 'porcelain' | 'lacquer' | 'ink' | 'flat';
+export type FontId = 'wenkai' | 'mashan' | 'xingshu' | 'xiaowei' | 'hei';
+
+export interface Look {
+  board: BoardId;
+  piece: PieceId;
+  font: FontId;
+  /** 繁体字（帥將、馬車）。字体没有繁体字就不管这一项 */
+  trad: boolean;
+}
+
+// ───────────────────────── 字体 ─────────────────────────
+
+export interface FontDef {
+  id: FontId;
+  name: string;
+  desc: string;
+  /** canvas 用的 font-family（随包的字体在最前，后面是落空时的系统字） */
+  family: string;
+  /** 随包带的字体文件 */
+  face?: { family: string; url: string; weight: string };
+  weight: number;
+  /** 不同字体的字面大小不一样：按这个倍数调到看着一样大 */
+  scale: number;
+  /** 竖直方向的微调（字号的几分之几，正数往下） */
+  dy: number;
+  /** 有没有繁体字（帥將馬車漢） */
+  trad: boolean;
+  /** 有没有"砲"字：没有的话黑炮也写"炮" */
+  pao: boolean;
+}
+
+export const FONTS: FontDef[] = [
+  {
+    id: 'wenkai',
+    name: '文楷',
+    desc: '霞鹜文楷：端正清楚的楷书，简体繁体都有',
+    face: { family: 'XQ WenKai', url: wenkaiUrl, weight: '700' },
+    family: '"XQ WenKai","STKaiti","KaiTi","Songti SC",serif',
+    weight: 700,
+    scale: 1,
+    dy: 0.04,
+    trad: true,
+    pao: true,
+  },
+  {
+    id: 'mashan',
+    name: '毛笔',
+    desc: '马善政毛笔楷书：笔锋重，像手写上去的',
+    face: { family: 'XQ MaShan', url: mashanUrl, weight: '400' },
+    family: '"XQ MaShan","XQ WenKai","STKaiti","KaiTi",serif',
+    weight: 400,
+    scale: 1.06,
+    dy: 0.03,
+    trad: false,
+    pao: false,
+  },
+  {
+    id: 'xingshu',
+    name: '行书',
+    desc: '志莽行书：笔意连绵，书法味最浓（字形活，认字稍慢一点）',
+    face: { family: 'XQ XingShu', url: xingshuUrl, weight: '400' },
+    family: '"XQ XingShu","XQ WenKai","STKaiti","KaiTi",serif',
+    weight: 400,
+    scale: 1.1,
+    dy: 0.02,
+    trad: false,
+    pao: false,
+  },
+  {
+    id: 'xiaowei',
+    name: '雅宋',
+    desc: '站酷小薇：清秀的宋体',
+    face: { family: 'XQ XiaoWei', url: xiaoweiUrl, weight: '400' },
+    family: '"XQ XiaoWei","Songti SC","SimSun",serif',
+    weight: 400,
+    scale: 1.04,
+    dy: 0.03,
+    trad: false,
+    pao: false,
+  },
+  {
+    id: 'hei',
+    name: '黑体',
+    desc: '系统黑体加粗：笔画最粗最清楚，看不清的时候用',
+    family: '"PingFang SC","Microsoft YaHei","Noto Sans SC","Noto Sans CJK SC",system-ui,sans-serif',
+    weight: 700,
+    scale: 0.9,
+    dy: 0.04,
+    trad: true,
+    pao: true,
+  },
+];
+
+const fontDef = (id: FontId) => FONTS.find((f) => f.id === id) ?? FONTS[0];
+export const fontOf = (look: Look) => fontDef(look.font);
+
+const fontLoads = new Map<FontId, Promise<void>>();
+/** 用到某个随包字体时才加载（几 KB）；加载完所有棋盘重画一遍 */
+export function ensureFont(id: FontId): Promise<void> {
+  const f = fontDef(id);
+  const had = fontLoads.get(f.id);
+  if (had) return had;
+  let p: Promise<void> = Promise.resolve();
+  if (f.face && typeof FontFace !== 'undefined' && typeof document !== 'undefined') {
+    const face = new FontFace(f.face.family, `url(${f.face.url}) format("woff2")`, { weight: f.face.weight });
+    p = face
+      .load()
+      .then((x) => {
+        document.fonts.add(x);
+        bump();
+      })
+      .catch(() => {
+        /* 字体没加载下来就用后面的系统字，棋照下 */
+      });
+  }
+  fontLoads.set(f.id, p);
+  return p;
+}
+
+const SIMP: Record<PType, [string, string]> = {
+  K: ['帅', '将'],
+  A: ['仕', '士'],
+  E: ['相', '象'],
+  H: ['马', '马'],
+  R: ['车', '车'],
+  C: ['炮', '砲'],
+  P: ['兵', '卒'],
+};
+/** 繁体：实物棋子多是帥將、馬車；红方"俥傌"这两个字随包的字体里没有，用馬車（很多老棋子也是这样刻的） */
+const TRAD: Record<PType, [string, string]> = {
+  K: ['帥', '將'],
+  A: ['仕', '士'],
+  E: ['相', '象'],
+  H: ['馬', '馬'],
+  R: ['車', '車'],
+  C: ['炮', '砲'],
+  P: ['兵', '卒'],
+};
+
+/** 棋子上写什么字 */
+export function glyph(t: PType, c: Color, look: Look = getLook()): string {
+  const f = fontOf(look);
+  const s = (look.trad && f.trad ? TRAD : SIMP)[t][c === 'r' ? 0 : 1];
+  return s === '砲' && !f.pao ? '炮' : s;
+}
+
+/** 河界上的四个字 */
+export function riverText(look: Look = getLook()): [string, string] {
+  return ['楚　河', fontOf(look).trad ? '漢　界' : '汉　界'];
+}
+
+// ───────────────────────── 存档 / 通知 ─────────────────────────
+
+const KEY = 'xq-look';
+export const DEFAULT_LOOK: Look = { board: 'wood', piece: 'ivory', font: 'wenkai', trad: false };
+let cur: Look | null = null;
+const subs = new Set<() => void>();
+let version = 0;
+
+export function getLook(): Look {
+  if (cur) return cur;
+  let v: Partial<Look> = {};
+  try {
+    v = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Look>;
+  } catch {
+    /* 读不出来就用默认 */
+  }
+  cur = {
+    board: BOARDS.some((b) => b.id === v.board) ? v.board! : DEFAULT_LOOK.board,
+    piece: PIECES.some((p) => p.id === v.piece) ? v.piece! : DEFAULT_LOOK.piece,
+    font: FONTS.some((f) => f.id === v.font) ? v.font! : DEFAULT_LOOK.font,
+    trad: v.trad === true,
+  };
+  void ensureFont(cur.font);
+  return cur;
+}
+
+export function setLook(p: Partial<Look>): Look {
+  cur = { ...getLook(), ...p };
+  try {
+    localStorage.setItem(KEY, JSON.stringify(cur));
+  } catch {
+    /* 存不下也照样换，只是下次打开回到默认 */
+  }
+  void ensureFont(cur.font);
+  bump();
+  return cur;
+}
+
+/** 样式变了（换样式、字体加载完）就叫一声；返回取消订阅 */
+export function onLook(fn: () => void): () => void {
+  subs.add(fn);
+  return () => subs.delete(fn);
+}
+export const lookVersion = () => version;
+
+function bump() {
+  version++;
+  texCache.clear();
+  iconCache.clear();
+  for (const f of [...subs]) f();
+}
+
+/** 现成的搭配 */
+export const PRESETS: { id: string; name: string; desc: string; look: Look }[] = [
+  { id: 'classic', name: '经典木盘', desc: '榉木棋盘、象牙棋子、楷书', look: { board: 'wood', piece: 'ivory', font: 'wenkai', trad: false } },
+  { id: 'hongmu', name: '红木象牙', desc: '红木描金棋盘、象牙棋子、繁体字', look: { board: 'rosewood', piece: 'ivory', font: 'wenkai', trad: true } },
+  { id: 'bamboo', name: '竹林清风', desc: '竹排棋盘、黄杨木刻棋子、毛笔字', look: { board: 'bamboo', piece: 'boxwood', font: 'mashan', trad: false } },
+  { id: 'qipu', name: '宣纸棋谱', desc: '宣纸墨线、印章式棋子、毛笔字，像翻一本老棋谱', look: { board: 'paper', piece: 'ink', font: 'mashan', trad: false } },
+  { id: 'jade', name: '翡翠玉局', desc: '碧玉棋盘、白玉对墨玉', look: { board: 'jade', piece: 'jade', font: 'wenkai', trad: true } },
+  { id: 'qinghua', name: '青花汉白玉', desc: '汉白玉棋盘、青花瓷棋子、宋体字', look: { board: 'marble', piece: 'porcelain', font: 'xiaowei', trad: false } },
+  { id: 'lacquer', name: '朱漆夜宴', desc: '玄漆描金棋盘、朱漆对黑漆、金字', look: { board: 'night', piece: 'lacquer', font: 'wenkai', trad: true } },
+  { id: 'bronze', name: '青铜古韵', desc: '红木棋盘、青铜棋子、毛笔字', look: { board: 'rosewood', piece: 'bronze', font: 'mashan', trad: false } },
+  { id: 'clear', name: '清晰护眼', desc: '素色棋盘、扁平棋子、粗黑体：最好认', look: { board: 'plain', piece: 'flat', font: 'hei', trad: false } },
+];
+
+/** 现在的样式正好是哪一套搭配（自己搭的返回 null） */
+export function presetOf(look: Look = getLook()): (typeof PRESETS)[number] | null {
+  return PRESETS.find((p) => p.look.board === look.board && p.look.piece === look.piece && p.look.font === look.font && p.look.trad === look.trad) ?? null;
+}
+
+// ───────────────────────── 噪声 ─────────────────────────
+
+function mulberry32(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** 值噪声：格点上放随机数，中间平滑插值。结果 0～1 */
+function makeNoise(seed: number) {
+  const rnd = mulberry32(seed);
+  const perm = new Uint8Array(512);
+  const base = Array.from({ length: 256 }, (_, i) => i);
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [base[i], base[j]] = [base[j], base[i]];
+  }
+  for (let i = 0; i < 512; i++) perm[i] = base[i & 255];
+  const val = new Float32Array(256);
+  for (let i = 0; i < 256; i++) val[i] = rnd();
+  const at = (x: number, y: number) => val[perm[(perm[x & 255] + (y & 255)) & 511]];
+  return (x: number, y: number) => {
+    const xi = Math.floor(x);
+    const yi = Math.floor(y);
+    const xf = x - xi;
+    const yf = y - yi;
+    const u = xf * xf * (3 - 2 * xf);
+    const v = yf * yf * (3 - 2 * yf);
+    const a = at(xi, yi);
+    const b = at(xi + 1, yi);
+    const c = at(xi, yi + 1);
+    const d = at(xi + 1, yi + 1);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  };
+}
+
+/** 分形噪声：几层叠加，越细的层越淡。结果大致 0～1 */
+function fbm(n: (x: number, y: number) => number, x: number, y: number, oct = 4): number {
+  let s = 0;
+  let amp = 0.5;
+  let norm = 0;
+  // 每一层转一个角度再叠：值噪声的格子是横平竖直的，不转的话看得出一块块方格
+  let px = x;
+  let py = y;
+  for (let i = 0; i < oct; i++) {
+    s += amp * n(px, py);
+    norm += amp;
+    amp *= 0.5;
+    const nx = (px * ROT_C - py * ROT_S) * 2.03 + 17.3;
+    py = (px * ROT_S + py * ROT_C) * 2.03 + 5.1;
+    px = nx;
+  }
+  return s / norm;
+}
+const ROT_C = Math.cos(0.62);
+const ROT_S = Math.sin(0.62);
+
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+const smooth = (a: number, b: number, v: number) => {
+  const t = clamp01((v - a) / (b - a));
+  return t * t * (3 - 2 * t);
+};
+type RGB = [number, number, number];
+const hex = (h: string): RGB => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+
+/** 纹理缓存：换尺寸、换样式时清掉 */
+const texCache = new Map<string, HTMLCanvasElement>();
+function cached(key: string, make: () => HTMLCanvasElement): HTMLCanvasElement {
+  const hit = texCache.get(key);
+  if (hit) return hit;
+  if (texCache.size > 80) texCache.clear();
+  const cv = make();
+  texCache.set(key, cv);
+  return cv;
+}
+
+/**
+ * 按像素算一张图：fn 收到"格"为单位的坐标（u, v，和棋盘格子一样大，尺寸变了纹理跟着缩放），回一个颜色和不透明度。
+ * w、h 是 CSS 像素，res 是每个 CSS 像素算几个点。
+ */
+function paintPixels(w: number, h: number, res: number, cellPx: number, fn: (u: number, v: number) => [number, number, number, number]): HTMLCanvasElement {
+  const cv = document.createElement('canvas');
+  const W = Math.max(1, Math.round(w * res));
+  const H = Math.max(1, Math.round(h * res));
+  cv.width = W;
+  cv.height = H;
+  const g = cv.getContext('2d')!;
+  const img = g.createImageData(W, H);
+  const d = img.data;
+  const k = 1 / (res * cellPx);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const [r, gg, b, a] = fn(x * k, y * k);
+      const i = (y * W + x) * 4;
+      d[i] = r;
+      d[i + 1] = gg;
+      d[i + 2] = b;
+      d[i + 3] = a;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  return cv;
+}
+
+// ───────────────────────── 棋盘 ─────────────────────────
+
+export interface BoardStyle {
+  id: BoardId;
+  name: string;
+  desc: string;
+  /** 材质：u、v 以格为单位，回颜色 */
+  surface: (n1: (x: number, y: number) => number, n2: (x: number, y: number) => number, u: number, v: number) => RGB;
+  /** 投影前先铺的底色（纹理画好之前、四角圆角外缘） */
+  base: string;
+  /** 边框的颜色（外圈那一道木框） */
+  frame: string;
+  /** 格线 */
+  line: string;
+  lineW: number;
+  /** 格线做成刻进去的样子：先画一道亮边 */
+  engrave: number;
+  river: string;
+  label: string;
+  /** 清漆反光有多亮（0～1） */
+  gloss: number;
+  /** 四角暗角 */
+  vignette: number;
+  /** 楚河汉界那一条稍微染一点色 */
+  riverTint?: string;
+  /** 边角回纹 */
+  corners?: boolean;
+  /** 外框再加一道细线（棋谱、红木） */
+  double?: boolean;
+  /** 盘面是深色：可走点、选中圈换亮色 */
+  dark?: boolean;
+  /**
+   * 纹理算多细：每个 CSS 像素算几个点（再乘设备像素比）。木纹、竹纹的细纤维要细一点，
+   * 玉、石、漆这种大块的云纹粗算再放大看不出差别，省下几倍时间（手机上第一次打开棋盘不卡）
+   */
+  res: number;
+  /** 按像素算完以后再用笔画几样细节（宣纸纤维、竹节），画进缓存的纹理里 */
+  decorate?: (g: CanvasRenderingContext2D, w: number, h: number, c: number, n1: (x: number, y: number) => number, rnd: () => number) => void;
+}
+
+const WOOD_L = hex('#ecd2a6');
+const WOOD_M = hex('#dcb784');
+const WOOD_D = hex('#b98a55');
+const ROSE_L = hex('#8a4528');
+const ROSE_M = hex('#6c3019');
+const ROSE_D = hex('#3e170a');
+const BAMBOO_L = hex('#e8dca0');
+const BAMBOO_M = hex('#d6c47e');
+const BAMBOO_D = hex('#a88f4a');
+const PAPER_L = hex('#f6efdc');
+const PAPER_D = hex('#e2d5b6');
+const JADE_L = hex('#7cc0a0');
+const JADE_M = hex('#3f8f6c');
+const JADE_D = hex('#1f5a43');
+const MARBLE_L = hex('#f4f3ee');
+const MARBLE_V = hex('#8c8a84');
+const NIGHT_L = hex('#2a3142');
+const NIGHT_D = hex('#121620');
+const PLAIN = hex('#f1dfb6');
+
+/** 木纹：顺着横向的年轮（被噪声扭弯）+ 细细的顺纹纤维 */
+function woodGrain(n1: (x: number, y: number) => number, n2: (x: number, y: number) => number, u: number, v: number, L: RGB, M: RGB, D: RGB, contrast: number): RGB {
+  const warp = fbm(n1, u * 0.22, v * 0.7, 4) * 1.9;
+  const ring = v * 1.15 + warp;
+  const s = 0.5 + 0.5 * Math.sin(ring * Math.PI * 2);
+  const late = Math.pow(s, 6); // 晚材：细而深的一道
+  const fiber = n2(u * 0.7, v * 26) * 0.55 + n2(u * 2.1, v * 61) * 0.45;
+  const t = clamp01(0.2 + late * 0.34 * contrast + (fiber - 0.5) * 0.2 * contrast + (fbm(n1, u * 0.12 + 9, v * 0.12, 2) - 0.5) * 0.36);
+  return t < 0.5 ? mix(L, M, t * 2) : mix(M, D, (t - 0.5) * 2);
+}
+
+export const BOARDS: BoardStyle[] = [
+  {
+    id: 'wood',
+    res: 0.55,
+    name: '榉木',
+    desc: '浅色榉木，顺纹年轮，清漆罩面',
+    base: '#dcb784',
+    surface: (n1, n2, u, v) => woodGrain(n1, n2, u, v, WOOD_L, WOOD_M, WOOD_D, 1),
+    frame: '#8a5a2e',
+    line: '#6b4524',
+    lineW: 1.15,
+    engrave: 0.35,
+    river: 'rgba(84,52,22,0.78)',
+    label: 'rgba(110,74,40,0.85)',
+    gloss: 0.16,
+    vignette: 0.16,
+  },
+  {
+    id: 'rosewood',
+    res: 0.55,
+    name: '红木',
+    desc: '深色红木，金漆描线，边角回纹',
+    base: '#6c3019',
+    surface: (n1, n2, u, v) => woodGrain(n1, n2, u, v, ROSE_L, ROSE_M, ROSE_D, 1.25),
+    frame: '#2c1008',
+    line: '#e3c37e',
+    lineW: 1.15,
+    engrave: 0,
+    river: 'rgba(236,204,132,0.92)',
+    label: 'rgba(236,204,132,0.8)',
+    gloss: 0.2,
+    vignette: 0.28,
+    corners: true,
+    double: true,
+    dark: true,
+  },
+  {
+    id: 'bamboo',
+    res: 0.5,
+    name: '竹排',
+    desc: '一根根竹片拼成，有竹节、竹缝',
+    base: '#d6c47e',
+    surface: (n1, n2, u, v) => {
+      const sw = 0.92; // 竹片宽（格）
+      const k = Math.floor(u / sw);
+      const lx = u / sw - k;
+      const tint = n1(k * 7.3, 3.1) - 0.5;
+      // 竹节：每片竹子两三格一个节，位置各不相同
+      const period = 2.6 + n1(k * 3.7, 11) * 1.4;
+      const off = n1(k * 5.1, 17) * period;
+      const ph = ((v + off) % period) / period;
+      // 竹节两边颜色稍深一点（节本身的那道棱在 decorate 里用笔画，像素算出来是糊的）
+      const node = Math.exp(-Math.pow((ph - 0.5) * period * 3.2, 2));
+      const fiber = n2(u * 18, v * 0.5) - 0.5;
+      const round = Math.sin(lx * Math.PI); // 竹片中间鼓、两边低
+      let c = mix(BAMBOO_L, BAMBOO_M, clamp01(0.45 - round * 0.35 + tint * 0.6 + fiber * 0.35));
+      c = mix(c, BAMBOO_D, node * 0.28);
+      const gap = smooth(0.06, 0, Math.min(lx, 1 - lx));
+      return mix(c, hex('#6f5a26'), gap * 0.85);
+    },
+    decorate: (g, w, h, c, n1) => {
+      const sw = 0.92;
+      for (let k = 0; k * sw * c < w; k++) {
+        const period = 2.6 + n1(k * 3.7, 11) * 1.4;
+        const off = n1(k * 5.1, 17) * period;
+        const xa = k * sw * c + c * 0.05;
+        const xb = (k + 1) * sw * c - c * 0.05;
+        for (let j = -1; j * period * c < h + period * c; j++) {
+          // 节在 ph = 0.5 的地方：v = (j + 0.5) * period - off
+          const y = ((j + 0.5) * period - off) * c;
+          if (y < -c || y > h + c) continue;
+          const bow = c * 0.04;
+          g.lineCap = 'round';
+          g.strokeStyle = 'rgba(92,70,24,0.62)';
+          g.lineWidth = Math.max(1, c * 0.05);
+          g.beginPath();
+          g.moveTo(xa, y);
+          g.quadraticCurveTo((xa + xb) / 2, y + bow, xb, y);
+          g.stroke();
+          g.strokeStyle = 'rgba(255,252,226,0.5)';
+          g.lineWidth = Math.max(0.8, c * 0.03);
+          g.beginPath();
+          g.moveTo(xa, y + c * 0.05);
+          g.quadraticCurveTo((xa + xb) / 2, y + c * 0.05 + bow, xb, y + c * 0.05);
+          g.stroke();
+        }
+      }
+    },
+    frame: '#7a6430',
+    line: '#4f3f17',
+    lineW: 1.2,
+    engrave: 0.3,
+    river: 'rgba(70,54,18,0.82)',
+    label: 'rgba(80,62,24,0.85)',
+    gloss: 0.08,
+    vignette: 0.14,
+  },
+  {
+    id: 'paper',
+    res: 0.45,
+    name: '宣纸',
+    desc: '米色宣纸、墨线，像翻开一本老棋谱',
+    base: '#efe5cc',
+    surface: (n1, n2, u, v) => {
+      const mottle = fbm(n1, u * 0.35, v * 0.35, 5);
+      const fine = fbm(n2, u * 3, v * 3, 3) - 0.5;
+      const stain = smooth(0.6, 0.76, fbm(n1, u * 0.16 + 30, v * 0.16, 3)) * 0.3;
+      return mix(PAPER_L, PAPER_D, clamp01((mottle - 0.4) * 0.7 + fine * 0.25 + stain));
+    },
+    decorate: (g, w, h, c, _n1, rnd) => {
+      // 宣纸的纤维：方向随便、有弯，短短的一根根
+      const n = Math.round(((w * h) / (c * c)) * 9);
+      g.lineCap = 'round';
+      for (let i = 0; i < n; i++) {
+        const x = rnd() * w;
+        const y = rnd() * h;
+        const a = rnd() * Math.PI;
+        const len = c * (0.15 + rnd() * 0.5);
+        const bend = (rnd() - 0.5) * len * 0.6;
+        g.strokeStyle = `rgba(${rnd() < 0.5 ? '150,128,92' : '255,255,250'},${0.1 + rnd() * 0.14})`;
+        g.lineWidth = 0.4 + rnd() * 0.7;
+        g.beginPath();
+        g.moveTo(x, y);
+        g.quadraticCurveTo(x + Math.cos(a) * len * 0.5 - Math.sin(a) * bend, y + Math.sin(a) * len * 0.5 + Math.cos(a) * bend, x + Math.cos(a) * len, y + Math.sin(a) * len);
+        g.stroke();
+      }
+    },
+    frame: '#2a2622',
+    line: '#2b2724',
+    lineW: 1.25,
+    engrave: 0,
+    river: 'rgba(30,26,23,0.86)',
+    label: 'rgba(60,54,48,0.85)',
+    gloss: 0,
+    vignette: 0.1,
+    double: true,
+  },
+  {
+    id: 'jade',
+    res: 0.36,
+    name: '碧玉',
+    desc: '整块碧玉，絮状云纹，温润透光',
+    base: '#3f8f6c',
+    surface: (n1, n2, u, v) => {
+      const cloud = fbm(n1, u * 0.42, v * 0.42, 5);
+      const ridge = 1 - Math.abs(fbm(n2, u * 0.7 + 5, v * 0.7, 4) * 2 - 1);
+      const vein = Math.pow(ridge, 10);
+      const soft = fbm(n2, u * 1.6 + 11, v * 1.6, 3);
+      let c = cloud < 0.5 ? mix(JADE_D, JADE_M, cloud * 2) : mix(JADE_M, JADE_L, (cloud - 0.5) * 2);
+      c = mix(c, hex('#cfe9db'), vein * 0.22 + smooth(0.55, 0.8, soft) * 0.18);
+      return c;
+    },
+    frame: '#123a2c',
+    line: 'rgba(246,238,206,0.88)',
+    lineW: 1.1,
+    engrave: 0,
+    river: 'rgba(250,243,214,0.9)',
+    label: 'rgba(240,234,206,0.82)',
+    gloss: 0.26,
+    vignette: 0.3,
+    corners: true,
+    dark: true,
+  },
+  {
+    id: 'marble',
+    res: 0.4,
+    name: '汉白玉',
+    desc: '白色大理石，灰色石筋',
+    base: '#ecebe5',
+    surface: (n1, n2, u, v) => {
+      const t = fbm(n1, u * 0.55, v * 0.55, 5);
+      const d = Math.abs(Math.sin((u * 0.42 + v * 0.27 + t * 2.6) * Math.PI));
+      const vein = 1 - smooth(0, 0.09, d);
+      const d2 = Math.abs(Math.sin((u * 0.9 - v * 0.6 + fbm(n2, u * 0.9, v * 0.9, 4) * 3.4) * Math.PI));
+      const vein2 = (1 - smooth(0, 0.05, d2)) * 0.45;
+      const cloud = (fbm(n2, u * 0.25 + 20, v * 0.25, 3) - 0.5) * 0.16;
+      return mix(mix(MARBLE_L, hex('#dcdad2'), clamp01(0.3 + cloud * 3)), MARBLE_V, clamp01(vein * 0.38 + vein2 * 0.3));
+    },
+    frame: '#a7a39a',
+    line: '#4f4e4a',
+    lineW: 1.1,
+    engrave: 0.4,
+    river: 'rgba(62,60,55,0.9)',
+    label: 'rgba(96,94,88,0.85)',
+    gloss: 0.22,
+    vignette: 0.12,
+  },
+  {
+    id: 'night',
+    res: 0.3,
+    name: '玄漆',
+    desc: '黑漆底、金线描边，夜里看不刺眼',
+    base: '#1a1f2b',
+    surface: (n1, n2, u, v) => {
+      const cloud = fbm(n1, u * 0.3, v * 0.3, 4);
+      const fine = n2(u * 12, v * 12) - 0.5;
+      return mix(NIGHT_D, NIGHT_L, clamp01(cloud * 0.7 + fine * 0.06));
+    },
+    frame: '#07080c',
+    line: '#c9a45a',
+    lineW: 1.1,
+    engrave: 0,
+    river: 'rgba(222,186,110,0.92)',
+    label: 'rgba(214,180,106,0.8)',
+    gloss: 0.12,
+    vignette: 0.3,
+    corners: true,
+    double: true,
+    dark: true,
+  },
+  {
+    id: 'plain',
+    res: 0.2,
+    name: '素色',
+    desc: '没有纹理、线条加粗，最清楚',
+    base: '#f1dfb6',
+    surface: () => PLAIN,
+    frame: '#a9824f',
+    line: '#4a3418',
+    lineW: 1.5,
+    engrave: 0,
+    river: 'rgba(74,52,24,0.8)',
+    label: 'rgba(74,52,24,0.9)',
+    gloss: 0,
+    vignette: 0,
+  },
+];
+export const boardStyle = (id: BoardId) => BOARDS.find((b) => b.id === id) ?? BOARDS[0];
+
+/** 盘面上"可走点"、选中圈的颜色：深色盘面用亮色 */
+export function markColors(look: Look = getLook()): { dot: string; ring: string } {
+  return boardStyle(look.board).dark
+    ? { dot: 'rgba(255,232,150,0.85)', ring: 'rgba(255,226,120,0.95)' }
+    : { dot: 'rgba(46,160,90,0.55)', ring: 'rgba(46,160,90,0.95)' };
+}
+
+/** 棋盘木底在最上、最下一条线外面多留几格（带纵线号的要多留，号写在棋子外面） */
+export const boardPadY = (coords: boolean) => (coords ? 0.95 : 0.62);
+
+export interface BoardGeom {
+  /** 左上角交叉点（CSS 像素） */
+  x0: number;
+  y0: number;
+  /** 格宽 */
+  c: number;
+  cols: number;
+  rows: number;
+  flip: boolean;
+  coords: boolean;
+  dpr: number;
+}
+
+function roundRectPath(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+/** 画整块棋盘（静态层：材质、光、边框、格线、九宫、炮兵位、河界、纵线号） */
+export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, look: Look = getLook()): void {
+  const st = boardStyle(look.board);
+  const { x0, y0, c, cols, rows } = geo;
+  const x1 = x0 + (cols - 1) * c;
+  const y1 = y0 + (rows - 1) * c;
+  // 上下多留一些：纵线号要在棋子外面（原来的号写在底线下面 0.42 格，正好被底线那一排棋子盖住）
+  const pad = c * 0.62;
+  const padY = c * boardPadY(geo.coords);
+  const bx = x0 - pad;
+  const by = y0 - padY;
+  const bw = x1 - x0 + pad * 2;
+  const bh = y1 - y0 + padY * 2;
+  const radius = Math.min(14, c * 0.35);
+
+  // 1. 落地投影 + 底色
+  g.save();
+  g.shadowColor = st.dark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.45)';
+  g.shadowBlur = Math.max(10, c * 0.4);
+  g.shadowOffsetY = Math.max(3, c * 0.12);
+  g.fillStyle = st.base;
+  roundRectPath(g, bx, by, bw, bh, radius);
+  g.fill();
+  g.restore();
+
+  // 2. 材质（按像素算，缓存）
+  g.save();
+  roundRectPath(g, bx, by, bw, bh, radius);
+  g.clip();
+  const res = Math.min(1.2, geo.dpr * st.res);
+  // 纹理按"格宽取整到 2 像素"来算和缓存：手机地址栏一收一放，棋盘差几个像素，不用整张重算（一张要一两百毫秒）
+  const cq = Math.max(8, Math.round(c / 2) * 2);
+  const tw = (bw / c) * cq;
+  const th = (bh / c) * cq;
+  const tex = cached(`b|${st.id}|${cq}|${Math.round(tw)}x${Math.round(th)}`, () => {
+    const n1 = makeNoise(1301 + st.id.length * 17);
+    const n2 = makeNoise(7717 + st.id.length * 29);
+    const cv = paintPixels(tw, th, res, cq, (u, v) => {
+      const col = st.surface(n1, n2, u, v);
+      return [col[0], col[1], col[2], 255];
+    });
+    if (st.decorate) {
+      const tg = cv.getContext('2d')!;
+      tg.setTransform(cv.width / tw, 0, 0, cv.height / th, 0, 0);
+      st.decorate(tg, tw, th, cq, n1, mulberry32(4242));
+    }
+    return cv;
+  });
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(tex, bx, by, bw, bh);
+
+  // 3. 光：左上来的清漆反光 + 四角暗角
+  if (st.gloss > 0) {
+    const gl = g.createLinearGradient(bx, by, bx + bw * 0.75, by + bh * 0.9);
+    gl.addColorStop(0, `rgba(255,255,255,${st.gloss})`);
+    gl.addColorStop(0.45, `rgba(255,255,255,${st.gloss * 0.25})`);
+    gl.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gl;
+    g.fillRect(bx, by, bw, bh);
+  }
+  if (st.vignette > 0) {
+    const vg = g.createRadialGradient(bx + bw / 2, by + bh / 2, Math.min(bw, bh) * 0.35, bx + bw / 2, by + bh / 2, Math.hypot(bw, bh) * 0.62);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, `rgba(0,0,0,${st.vignette})`);
+    g.fillStyle = vg;
+    g.fillRect(bx, by, bw, bh);
+  }
+
+  // 4. 边框：外圈一道框，倒角（左上亮、右下暗）
+  const band = Math.max(3, c * 0.13);
+  g.lineWidth = band;
+  g.strokeStyle = st.frame;
+  g.globalAlpha = st.id === 'paper' ? 0 : 0.85;
+  roundRectPath(g, bx + band / 2, by + band / 2, bw - band, bh - band, Math.max(1, radius - band / 2));
+  g.stroke();
+  g.globalAlpha = 1;
+  const bev = g.createLinearGradient(bx, by, bx + bw, by + bh);
+  bev.addColorStop(0, 'rgba(255,255,255,0.45)');
+  bev.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+  bev.addColorStop(1, 'rgba(0,0,0,0.35)');
+  g.strokeStyle = bev;
+  g.lineWidth = 1.2;
+  roundRectPath(g, bx + 0.8, by + 0.8, bw - 1.6, bh - 1.6, radius);
+  g.stroke();
+  if (st.id !== 'paper') {
+    // 框里面那条缝：内侧一道暗线，盘面像是嵌进框里的
+    g.strokeStyle = st.dark ? 'rgba(0,0,0,0.55)' : 'rgba(60,36,14,0.45)';
+    g.lineWidth = 1;
+    roundRectPath(g, bx + band, by + band, bw - band * 2, bh - band * 2, Math.max(1, radius - band));
+    g.stroke();
+  }
+  g.restore();
+
+  // 5. 格线外面的方框（棋谱、红木、玄漆再多一道细线）
+  const lw = Math.max(1, st.lineW * Math.max(0.9, c / 44));
+  const line = (draw: () => void) => {
+    if (st.engrave > 0) {
+      // 刻线：先画一道偏右下的亮边，再画线——像是刻进木头里、底边受光
+      g.save();
+      g.translate(0.7, 0.8);
+      g.strokeStyle = `rgba(255,248,230,${st.engrave})`;
+      draw();
+      g.restore();
+    }
+    g.strokeStyle = st.line;
+    draw();
+  };
+  g.lineCap = 'round';
+  const fr = c * 0.3;
+  g.lineWidth = lw * 1.4;
+  line(() => g.strokeRect(x0 - fr, y0 - fr, x1 - x0 + fr * 2, y1 - y0 + fr * 2));
+  if (st.double) {
+    g.lineWidth = Math.max(0.8, lw * 0.6);
+    const fr2 = c * 0.38;
+    line(() => g.strokeRect(x0 - fr2, y0 - fr2, x1 - x0 + fr2 * 2, y1 - y0 + fr2 * 2));
+  }
+  if (st.corners) cornerKnots(g, x0 - c * 0.38, y0 - c * 0.38, x1 + c * 0.38, y1 + c * 0.38, c * 0.2, st.line, Math.max(0.8, lw * 0.7));
+
+  // 6. 河界染色
+  if (st.riverTint) {
+    g.fillStyle = st.riverTint;
+    g.fillRect(x0, y0 + 4 * c, x1 - x0, c);
+  }
+
+  // 7. 格线
+  g.lineWidth = lw;
+  line(() => {
+    for (let y = 0; y < rows; y++) {
+      g.beginPath();
+      g.moveTo(x0, y0 + y * c);
+      g.lineTo(x1, y0 + y * c);
+      g.stroke();
+    }
+    for (let x = 0; x < cols; x++) {
+      g.beginPath();
+      if (x === 0 || x === cols - 1) {
+        g.moveTo(x0 + x * c, y0);
+        g.lineTo(x0 + x * c, y1);
+      } else {
+        g.moveTo(x0 + x * c, y0);
+        g.lineTo(x0 + x * c, y0 + 4 * c);
+        g.moveTo(x0 + x * c, y0 + 5 * c);
+        g.lineTo(x0 + x * c, y1);
+      }
+      g.stroke();
+    }
+    // 九宫斜线
+    for (const [ax, ay, ex, ey] of [
+      [3, 0, 5, 2],
+      [5, 0, 3, 2],
+      [3, 7, 5, 9],
+      [5, 7, 3, 9],
+    ]) {
+      g.beginPath();
+      g.moveTo(x0 + ax * c, y0 + ay * c);
+      g.lineTo(x0 + ex * c, y0 + ey * c);
+      g.stroke();
+    }
+    // 兵、炮位的小角标
+    const tick = (gx: number, gy: number) => {
+      const d = c * 0.09;
+      const len = c * 0.15;
+      for (const sx of [-1, 1]) {
+        for (const sy of [-1, 1]) {
+          if ((gx === 0 && sx < 0) || (gx === cols - 1 && sx > 0)) continue;
+          const px = x0 + gx * c + sx * d;
+          const py = y0 + gy * c + sy * d;
+          g.beginPath();
+          g.moveTo(px + sx * len, py);
+          g.lineTo(px, py);
+          g.lineTo(px, py + sy * len);
+          g.stroke();
+        }
+      }
+    };
+    for (const gy of [3, 6]) for (const gx of [0, 2, 4, 6, 8]) tick(gx, gy);
+    for (const [gx, gy] of [
+      [1, 2],
+      [7, 2],
+      [1, 7],
+      [7, 7],
+    ])
+      tick(gx, gy);
+  });
+
+  // 8. 纵线号：红方从右往左一～九，黑方从左往右 1～9（中文记谱靠它对位置）
+  if (geo.coords) {
+    const CN = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = `${Math.round(c * 0.25)}px system-ui, sans-serif`;
+    const bottomIsRed = !geo.flip;
+    for (let x = 0; x < cols; x++) {
+      const gx = geo.flip ? cols - 1 - x : x;
+      const px = x0 + gx * c;
+      g.fillStyle = st.label;
+      g.fillText(bottomIsRed ? CN[cols - 1 - x] : String(x + 1), px, y1 + c * 0.7);
+      g.globalAlpha = 0.72;
+      g.fillText(bottomIsRed ? String(x + 1) : CN[cols - 1 - x], px, y0 - c * 0.7);
+      g.globalAlpha = 1;
+    }
+  }
+
+  // 9. 楚河汉界：用棋子的字体
+  const f = fontOf(look);
+  const [left, right] = riverText(look);
+  g.font = `${f.weight} ${Math.round(c * 0.6 * f.scale)}px ${f.family}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  const my = y0 + 4.5 * c + c * 0.6 * f.dy;
+  for (const [tx, txt] of [
+    [x0 + 2 * c, left],
+    [x0 + 6 * c, right],
+  ] as const) {
+    if (st.engrave > 0) {
+      g.fillStyle = `rgba(255,248,230,${st.engrave * 0.9})`;
+      g.fillText(txt, tx + 0.8, my + 1);
+    }
+    g.fillStyle = st.river;
+    g.fillText(txt, tx, my);
+  }
+}
+
+/** 四个角上的回纹：两道折线，像家具上的角花 */
+function cornerKnots(g: CanvasRenderingContext2D, ax: number, ay: number, bx: number, by: number, s: number, color: string, lw: number) {
+  g.save();
+  g.strokeStyle = color;
+  g.lineWidth = lw;
+  g.lineCap = 'square';
+  for (const [cx, cy, sx, sy] of [
+    [ax, ay, 1, 1],
+    [bx, ay, -1, 1],
+    [ax, by, 1, -1],
+    [bx, by, -1, -1],
+  ]) {
+    g.beginPath();
+    // 外面一道"回"字折线
+    g.moveTo(cx + sx * s * 2.2, cy + sy * s * 0.5);
+    g.lineTo(cx + sx * s * 0.5, cy + sy * s * 0.5);
+    g.lineTo(cx + sx * s * 0.5, cy + sy * s * 2.2);
+    g.moveTo(cx + sx * s * 1.5, cy + sy * s * 1.1);
+    g.lineTo(cx + sx * s * 1.1, cy + sy * s * 1.1);
+    g.lineTo(cx + sx * s * 1.1, cy + sy * s * 1.5);
+    g.stroke();
+  }
+  g.restore();
+}
+
+// ───────────────────────── 棋子 ─────────────────────────
+
+interface Side {
+  /** 棋面：亮、中、暗 */
+  face: [string, string, string];
+  /** 字：一个颜色，或者上下两色（金字的渐变） */
+  text: string | [string, string];
+  /** 字外面那一圈隔离带的颜色 */
+  halo: string;
+  /** 内圈刻线 */
+  ring: string;
+  /** 侧边（棋子的厚度） */
+  edge: string;
+}
+
+export interface PieceStyle {
+  id: PieceId;
+  name: string;
+  desc: string;
+  r: Side;
+  b: Side;
+  /** 棋面的纹理 */
+  tex: 'ivory' | 'wood' | 'jade' | 'metal' | 'paper' | 'none';
+  /** 高光 */
+  gloss: number;
+  /** 字：阴刻（刻进去）、阳刻（凸出来）、墨（洇开一点）、平的 */
+  carve: 'deboss' | 'emboss' | 'ink' | 'flat';
+  /** 厚度（半径的几分之几） */
+  thick: number;
+  /** 两道刻线（青花） */
+  rings?: number;
+}
+
+export const PIECES: PieceStyle[] = [
+  {
+    id: 'ivory',
+    name: '象牙',
+    desc: '暖白象牙面，红黑刻字',
+    r: { face: ['#fff8e8', '#f3e2bf', '#d8bd90'], text: '#c41d16', halo: '#fff6e2', ring: '#c41d16', edge: '#b59263' },
+    b: { face: ['#f8f5ee', '#e8e2d4', '#cbc3ae'], text: '#14283b', halo: '#f6f2ea', ring: '#14283b', edge: '#a59c86' },
+    tex: 'ivory',
+    gloss: 0.32,
+    carve: 'deboss',
+    thick: 0.1,
+  },
+  {
+    id: 'boxwood',
+    name: '黄杨木',
+    desc: '黄杨木刻，木纹看得见，字刻进去上漆',
+    r: { face: ['#f3d9a2', '#e2bd7a', '#c4974f'], text: '#a8150e', halo: '#f2d9a6', ring: '#a8150e', edge: '#8c6431' },
+    b: { face: ['#efd49b', '#ddb673', '#bf9149'], text: '#1c1712', halo: '#efd6a2', ring: '#1c1712', edge: '#86602f' },
+    tex: 'wood',
+    gloss: 0.18,
+    carve: 'deboss',
+    thick: 0.13,
+  },
+  {
+    id: 'jade',
+    name: '玉石',
+    desc: '红方白玉、黑方墨玉，絮纹透光',
+    r: { face: ['#fbfdf6', '#e4ede0', '#c3d3bf'], text: '#bd1f25', halo: '#f2f7ee', ring: '#bd1f25', edge: '#9fb39a' },
+    b: { face: ['#4f7563', '#2b4b3d', '#132820'], text: '#eef6ea', halo: '#2b4b3d', ring: '#cfe3d2', edge: '#0d1c16' },
+    tex: 'jade',
+    gloss: 0.55,
+    carve: 'deboss',
+    thick: 0.1,
+  },
+  {
+    id: 'bronze',
+    name: '青铜',
+    desc: '红方金铜、黑方青铜，车纹铜锈，字是铸出来的',
+    r: { face: ['#f6dc98', '#d4a85a', '#94692b'], text: '#7a1408', halo: '#e9c77e', ring: '#7a1408', edge: '#5e4119' },
+    b: { face: ['#a9b89a', '#6f8268', '#3d4c3a'], text: '#111a14', halo: '#93a487', ring: '#111a14', edge: '#2a3527' },
+    tex: 'metal',
+    gloss: 0.45,
+    carve: 'emboss',
+    thick: 0.12,
+  },
+  {
+    id: 'porcelain',
+    name: '青花瓷',
+    desc: '白瓷釉面，青花蓝、釉里红，两道细圈',
+    r: { face: ['#ffffff', '#f1f4f8', '#d6dde8'], text: '#b0221b', halo: '#ffffff', ring: '#b0221b', edge: '#b9c3d3' },
+    b: { face: ['#ffffff', '#eef2f8', '#d2dbe8'], text: '#1d4f9e', halo: '#ffffff', ring: '#1d4f9e', edge: '#b3bfd2' },
+    tex: 'none',
+    gloss: 0.7,
+    carve: 'flat',
+    thick: 0.11,
+    rings: 2,
+  },
+  {
+    id: 'lacquer',
+    name: '漆器',
+    desc: '朱漆对黑漆，描金字，亮面',
+    r: { face: ['#e04a36', '#b8261a', '#7a120a'], text: ['#fff0b8', '#d9a945'], halo: '#9c1c12', ring: '#f2cf78', edge: '#4e0a05' },
+    b: { face: ['#3c3c44', '#1d1d22', '#08080a'], text: ['#fff0b8', '#d9a945'], halo: '#1d1d22', ring: '#e8c56e', edge: '#000000' },
+    tex: 'none',
+    gloss: 0.62,
+    carve: 'emboss',
+    thick: 0.12,
+  },
+  {
+    id: 'ink',
+    name: '印章',
+    desc: '宣纸面、朱砂和墨写的字，像盖上去的印',
+    r: { face: ['#fbf4e2', '#efe4c8', '#dccda8'], text: '#c0321f', halo: '#f6eed8', ring: '#c0321f', edge: '#bcae8c' },
+    b: { face: ['#fbf4e2', '#efe4c8', '#dccda8'], text: '#1b1916', halo: '#f6eed8', ring: '#1b1916', edge: '#bcae8c' },
+    tex: 'paper',
+    gloss: 0,
+    carve: 'ink',
+    thick: 0.07,
+  },
+  {
+    id: 'flat',
+    name: '扁平',
+    desc: '没有纹理和高光，字最大最清楚',
+    r: { face: ['#fdf5e1', '#fdf5e1', '#f2e4c3'], text: '#d01b12', halo: '#fdf5e1', ring: '#d01b12', edge: '#c9ad7c' },
+    b: { face: ['#f7f4ec', '#f7f4ec', '#e6e0d0'], text: '#0f2234', halo: '#f7f4ec', ring: '#0f2234', edge: '#b3aa95' },
+    tex: 'none',
+    gloss: 0,
+    carve: 'flat',
+    thick: 0.06,
+  },
+];
+export const pieceStyle = (id: PieceId) => PIECES.find((p) => p.id === id) ?? PIECES[0];
+
+/** 棋面纹理：一张带透明度的图，盖在棋面渐变上 */
+function pieceTexture(st: PieceStyle, c: Color, size: number, res: number): HTMLCanvasElement | null {
+  if (st.tex === 'none') return null;
+  return cached(`p|${st.id}|${c}|${Math.round(size)}|${res}`, () => {
+    const n1 = makeNoise(c === 'r' ? 911 : 4127);
+    const n2 = makeNoise(c === 'r' ? 2333 : 6151);
+    const s = size; // 以棋子直径为 1
+    return paintPixels(size, size, res, size, (u, v) => {
+      const dx = u - 0.5;
+      const dy = v - 0.5;
+      const rr = Math.hypot(dx, dy);
+      switch (st.tex) {
+        case 'ivory': {
+          // 象牙：极细的颗粒 + 几道若有若无的生长纹
+          const grain = n2(u * 60, v * 60) - 0.5;
+          const growth = Math.pow(0.5 + 0.5 * Math.sin((rr * 9 + fbm(n1, u * 3, v * 3, 3) * 1.5) * Math.PI * 2), 6);
+          return grain > 0 ? [255, 255, 250, grain * 70] : [120, 92, 50, -grain * 60 + growth * 22];
+        }
+        case 'wood': {
+          const warp = fbm(n1, u * 1.6, v * 5, 4) * 1.8;
+          const ring = Math.pow(0.5 + 0.5 * Math.sin((v * 7 + warp) * Math.PI * 2), 4);
+          const fiber = n2(u * 4, v * 70);
+          return [110, 66, 24, ring * 95 + fiber * 40];
+        }
+        case 'jade': {
+          const cloud = fbm(n1, u * 3.2, v * 3.2, 5);
+          const ridge = Math.pow(1 - Math.abs(fbm(n2, u * 4 + 3, v * 4, 4) * 2 - 1), 6);
+          const lightness = c === 'r' ? [210, 228, 205] : [150, 200, 170];
+          return [lightness[0], lightness[1], lightness[2], clamp01((cloud - 0.45) * 1.6) * 110 + ridge * 120];
+        }
+        case 'metal': {
+          // 青铜：同心的车削纹 + 一点点铜锈
+          const lathe = 0.5 + 0.5 * Math.sin(rr * 160 + n2(u * 8, v * 8) * 3);
+          // 铜锈只在青铜（黑方）上明显；金铜（红方）只在边上一点点，不然像脏了
+          const patina = smooth(c === 'r' ? 0.7 : 0.56, c === 'r' ? 0.8 : 0.7, fbm(n1, u * 3.5, v * 3.5, 4)) * (c === 'r' ? smooth(0.32, 0.5, rr) : 1);
+          if (patina > 0.05) return c === 'r' ? [70, 140, 110, patina * 90] : [90, 170, 140, patina * 160];
+          return lathe > 0.5 ? [255, 244, 210, (lathe - 0.5) * 70] : [40, 26, 8, (0.5 - lathe) * 60];
+        }
+        case 'paper': {
+          const fiber = Math.pow(n2(u * 26, v * 7), 6) * 0.7 + Math.pow(n1(u * 6 + 4, v * 24), 7) * 0.6;
+          const mottle = fbm(n1, u * 2, v * 2, 3) - 0.5;
+          return [150, 128, 90, clamp01(fiber + mottle * 0.4) * 110];
+        }
+      }
+      void s;
+      return [0, 0, 0, 0];
+    });
+  });
+}
+
+/**
+ * 画一个棋子：面心在 (cx, cy)，半径 r。底下的侧边、投影会往下多占 r 的十几分之一。
+ */
+export function paintPiece(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, t: PType, c: Color, look: Look = getLook(), dpr = 2): void {
+  const st = pieceStyle(look.piece);
+  const sd = c === 'r' ? st.r : st.b;
+  const th = r * st.thick;
+
+  // 1. 投影 + 侧边：棋子有厚度，底下露出一圈侧边
+  g.save();
+  g.shadowColor = 'rgba(0,0,0,0.45)';
+  g.shadowBlur = Math.max(2, r * 0.22);
+  g.shadowOffsetY = Math.max(1, r * 0.1);
+  g.fillStyle = sd.edge;
+  g.beginPath();
+  g.arc(cx, cy + th, r, 0, Math.PI * 2);
+  g.fill();
+  g.restore();
+  const side = g.createLinearGradient(cx - r, 0, cx + r, 0);
+  side.addColorStop(0, sd.edge);
+  side.addColorStop(0.35, sd.face[2]);
+  side.addColorStop(1, sd.edge);
+  g.fillStyle = side;
+  g.beginPath();
+  g.arc(cx, cy + th, r, 0, Math.PI * 2);
+  g.fill();
+
+  // 2. 棋面：光从左上来
+  const face = g.createRadialGradient(cx - r * 0.38, cy - r * 0.42, r * 0.08, cx, cy, r * 1.15);
+  face.addColorStop(0, sd.face[0]);
+  face.addColorStop(0.55, sd.face[1]);
+  face.addColorStop(1, sd.face[2]);
+  g.fillStyle = face;
+  g.beginPath();
+  g.arc(cx, cy, r, 0, Math.PI * 2);
+  g.fill();
+
+  // 3. 纹理
+  const tex = pieceTexture(st, c, r * 2, Math.min(2, dpr));
+  if (tex) {
+    g.save();
+    g.beginPath();
+    g.arc(cx, cy, r * 0.995, 0, Math.PI * 2);
+    g.clip();
+    g.drawImage(tex, cx - r, cy - r, r * 2, r * 2);
+    g.restore();
+  }
+
+  // 4. 凸起的边沿：左上亮、右下暗
+  if (st.id !== 'flat' && st.id !== 'ink') {
+    const rim = g.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+    rim.addColorStop(0, 'rgba(255,255,255,0.65)');
+    rim.addColorStop(0.5, 'rgba(255,255,255,0.08)');
+    rim.addColorStop(1, 'rgba(0,0,0,0.32)');
+    g.strokeStyle = rim;
+    g.lineWidth = Math.max(1, r * 0.085);
+    g.beginPath();
+    g.arc(cx, cy, r * 0.955, 0, Math.PI * 2);
+    g.stroke();
+    // 边沿和棋面之间那道阴影：边沿是凸起来的
+    g.strokeStyle = 'rgba(0,0,0,0.13)';
+    g.lineWidth = Math.max(0.6, r * 0.03);
+    g.beginPath();
+    g.arc(cx, cy, r * 0.905, 0, Math.PI * 2);
+    g.stroke();
+  }
+
+  // 5. 内圈刻线
+  const ringR = st.rings ? [0.84, 0.76] : [0.82];
+  for (const k of ringR) {
+    const lw = st.rings ? Math.max(0.9, r * 0.04) : Math.max(1.3, r * 0.065);
+    if (st.carve === 'deboss') {
+      g.strokeStyle = 'rgba(255,255,255,0.5)';
+      g.lineWidth = lw;
+      g.beginPath();
+      g.arc(cx + 0.5, cy + 0.6, r * k, 0, Math.PI * 2);
+      g.stroke();
+    }
+    g.strokeStyle = sd.ring;
+    g.lineWidth = lw;
+    g.beginPath();
+    if (st.carve === 'ink') {
+      // 印章的圈：手画的，粗细不匀
+      for (let a = 0; a <= 64; a++) {
+        const ang = (a / 64) * Math.PI * 2;
+        const wob = 1 + Math.sin(ang * 3 + (c === 'r' ? 0.7 : 2.1)) * 0.012 + Math.sin(ang * 7) * 0.006;
+        const px = cx + Math.cos(ang) * r * k * wob;
+        const py = cy + Math.sin(ang) * r * k * wob;
+        if (a) g.lineTo(px, py);
+        else g.moveTo(px, py);
+      }
+      g.lineWidth = Math.max(1.6, r * 0.08);
+    } else g.arc(cx, cy, r * k, 0, Math.PI * 2);
+    g.stroke();
+  }
+
+  // 6. 字
+  const f = fontOf(look);
+  const label = glyph(t, c, look);
+  const size = Math.round(r * 1.22 * f.scale);
+  g.font = `${f.weight} ${size}px ${f.family}`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineJoin = 'round';
+  g.miterLimit = 2;
+  const ty = cy + size * f.dy;
+  // 隔离带：字和棋面之间描一圈棋面色，手机上棋子才五六十像素，字边不糊
+  g.strokeStyle = sd.halo;
+  g.lineWidth = Math.max(2, r * 0.17);
+  g.strokeText(label, cx, ty);
+  const fill = Array.isArray(sd.text)
+    ? (() => {
+        const gr = g.createLinearGradient(0, ty - size / 2, 0, ty + size / 2);
+        gr.addColorStop(0, sd.text[0]);
+        gr.addColorStop(1, sd.text[1]);
+        return gr;
+      })()
+    : sd.text;
+  const o = Math.max(0.6, r * 0.035);
+  const darkFace = c === 'b' && (st.id === 'jade' || st.id === 'lacquer');
+  if (st.carve === 'deboss') {
+    // 阴刻：字是凹下去的，左上边缘背光（暗）、右下边缘受光（亮）
+    g.fillStyle = darkFace ? 'rgba(0,0,0,0.55)' : 'rgba(40,22,6,0.45)';
+    g.fillText(label, cx - o, ty - o);
+    g.fillStyle = darkFace ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.75)';
+    g.fillText(label, cx + o, ty + o);
+  } else if (st.carve === 'emboss') {
+    // 阳刻（铸出来、描金堆起来）：左上亮、右下暗
+    g.fillStyle = 'rgba(255,255,255,0.45)';
+    g.fillText(label, cx - o * 0.8, ty - o * 0.8);
+    g.fillStyle = 'rgba(0,0,0,0.5)';
+    g.fillText(label, cx + o, ty + o * 1.2);
+  } else if (st.carve === 'ink') {
+    // 墨：边上洇开一点
+    g.save();
+    g.shadowColor = typeof sd.text === 'string' ? sd.text : sd.text[1];
+    g.shadowBlur = Math.max(1, r * 0.06);
+    g.globalAlpha = 0.55;
+    g.fillStyle = fill;
+    g.fillText(label, cx, ty);
+    g.restore();
+  }
+  g.fillStyle = fill;
+  g.fillText(label, cx, ty);
+
+  // 7. 高光：瓷、漆、玉、铜都亮
+  if (st.gloss > 0) {
+    g.save();
+    g.beginPath();
+    g.arc(cx, cy, r, 0, Math.PI * 2);
+    g.clip();
+    g.translate(cx - r * 0.3, cy - r * 0.45);
+    g.rotate(-0.55);
+    g.scale(1, 0.55);
+    const hl = g.createRadialGradient(0, 0, 0, 0, 0, r * 0.7);
+    hl.addColorStop(0, `rgba(255,255,255,${st.gloss * 0.7})`);
+    hl.addColorStop(0.5, `rgba(255,255,255,${st.gloss * 0.22})`);
+    hl.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = hl;
+    g.beginPath();
+    g.arc(0, 0, r * 0.7, 0, Math.PI * 2);
+    g.fill();
+    g.restore();
+  }
+
+  // 8. 外缘一道细线：和盘面分开
+  g.strokeStyle = 'rgba(0,0,0,0.28)';
+  g.lineWidth = 0.8;
+  g.beginPath();
+  g.arc(cx, cy, r, 0, Math.PI * 2);
+  g.stroke();
+}
+
+const iconCache = new Map<string, string>();
+/** 小棋子图（吃子托盘里用）：和盘上的棋子同一套样式，按样式缓存成图片地址 */
+export function pieceIcon(t: PType, c: Color, px = 20): string {
+  const key = `${t}${c}${px}`;
+  const hit = iconCache.get(key);
+  if (hit) return hit;
+  if (typeof document === 'undefined') return '';
+  const dpr = 2;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = px * dpr;
+  const g = cv.getContext('2d')!;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const look = getLook();
+  const r = px * 0.42;
+  paintPiece(g, px / 2, px / 2 - r * pieceStyle(look.piece).thick * 0.5, r, t, c, look, dpr);
+  const url = cv.toDataURL();
+  iconCache.set(key, url);
+  return url;
+}

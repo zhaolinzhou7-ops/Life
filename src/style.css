@@ -3912,6 +3912,12 @@ canvas {
 }
 .xq-tray-row .pcs i.r { color: #c8201a; }
 .xq-tray-row .pcs i.b { color: #15283a; background: #e8e3d6; }
+/* 托盘里的小棋子：和盘上同一套样式画出来的图 */
+.xq-tray-row .pcs img {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
 .xq-tray-row .pcs .none {
   font-size: 11px;
   color: rgba(240, 230, 210, 0.22);
@@ -5161,3 +5167,51 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
 .xq-rv-trial .log em.lv { font-style: normal; display: inline-block; min-width: 16px; text-align: center; font-size: 10.5px; font-weight: 700; color: #fff; background: var(--g); border-radius: 50%; padding: 0 3px; }
 .xq-rv-trial .log .foe { opacity: 0.85; }
 .xq-rv-act.try { border-color: rgba(143, 211, 255, 0.55); background: rgba(143, 211, 255, 0.12); }
+
+/* ───────── 棋盘和棋子样式 ───────── */
+.xq-look-preview {
+  width: 100%;
+  max-width: 360px;
+  aspect-ratio: 9.9 / 11.2;
+  margin: 4px auto 6px;
+  position: relative;
+}
+.xq-look-preview .xq-b2d { position: absolute; inset: 0; }
+.xq-look-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.xq-look-card {
+  color: var(--text, #e8eef5);
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+.xq-look-card .pic {
+  height: 84px;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.18);
+}
+.xq-look-card .pic canvas { display: block; max-width: 100%; height: auto !important; }
+.xq-look-card .title { font-size: 14px; font-weight: 600; margin-top: 2px; }
+.xq-look-card .desc { font-size: 11.5px; line-height: 1.35; margin-top: 0; }
+.xq-look-trad {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 2px 4px;
+  font-size: 14px;
+}
+.xq-look-trad input { width: 18px; height: 18px; }
+.xq-look-trad em { font-style: normal; font-size: 12px; opacity: 0.6; }
+.xq-home-look { margin-top: 4px; }
