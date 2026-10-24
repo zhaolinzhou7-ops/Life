@@ -66,7 +66,7 @@ import { BoardView } from './boardview';
 import { PRESETS, boardStyle, fontOf, getLook, pieceStyle, presetOf, setLook } from './boardtheme';
 import { renderLookPicker } from './lookui';
 import { fxEnabled } from './fx';
-import { getHeroPick, heroInfo, nextHero, playHeroIntro, preloadHero } from './intro';
+import { getHeroPick, heroInfo, nextHero, playHeroIntro, preloadHero, stopHeroIntro } from './intro';
 import { inkBackdrop, splash } from './heroart';
 import { getVoiceKind, xqShout } from '../xqvoice';
 
@@ -998,13 +998,17 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
      * 对手的开场白、执黑时对手的第一步都等它（started）。
      * 从复盘某一手接着下、接着下没下完的棋不演——那不是"开局"
      */
+    /** 这一盘已经收掉了（出场演到一半就退出了）：等出场的那几件事都不做了 */
+    let gone = false;
     const opening = (): Promise<void> => {
       const hero = from || !fxEnabled() ? null : nextHero();
       if (!hero) {
         scene.dealIn();
         return Promise.resolve();
       }
-      return playHeroIntro(hero).then(() => scene.dealIn());
+      return playHeroIntro(hero).then(() => {
+        if (!gone) scene.dealIn();
+      });
     };
     let started = opening();
 
@@ -1397,7 +1401,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       thinkTimer = window.setInterval(tick, 500);
     };
 
-    void started.then(() => setTimeout(() => say(pickLine(rival.xq.greet)), 700));
+    void started.then(() => setTimeout(() => !gone && say(pickLine(rival.xq.greet)), 700));
 
     // ---- 流程 ----
     /**
@@ -2037,9 +2041,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       setTurnUI(turn !== me);
       setCoachLine(null);
       prepareTurn();
-      void started.then(() => setTimeout(() => say(pickLine(rival.xq.greet)), 500));
+      void started.then(() => setTimeout(() => !gone && say(pickLine(rival.xq.greet)), 500));
       // 执黑重开：红方先走，得由对手走第一步，不然两边都干等着
-      if (turn !== me) void started.then(() => setTimeout(() => afterMove(), 400));
+      if (turn !== me) void started.then(() => setTimeout(() => !gone && afterMove(), 400));
     }
 
     let resultEl: HTMLElement | null = null;
@@ -2311,7 +2315,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
      * 原来的流程只有"我走完 → afterMove → 轮到对手"这一条路径，
      * 开局没人触发，执黑就会卡在空棋盘上谁也不动。
      */
-    if (turn !== me) void started.then(() => setTimeout(() => afterMove(), 400));
+    if (turn !== me) void started.then(() => setTimeout(() => !gone && afterMove(), 400));
 
     // 开发期测试钩子：3D 棋盘靠射线拾取，自动化测试没法算出格子的屏幕坐标，
     // 这里把内部动作直接暴露出来。生产构建里 import.meta.env.DEV 为 false，整块会被摇掉。
@@ -2398,6 +2402,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     }
 
     cleanupGame = () => {
+      gone = true;
+      stopHeroIntro();
       document.removeEventListener('visibilitychange', onVisibility);
       offLost();
       releaseAnalysis();

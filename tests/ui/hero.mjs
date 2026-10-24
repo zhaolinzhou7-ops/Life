@@ -51,6 +51,7 @@ ok('人物背后一团泼墨', (await page.locator('.xqh-splash svg').count()) =
 ok('人物那一层画出来了', await page.evaluate(() => (document.querySelector('.xqh-fig svg')?.getBoundingClientRect().height ?? 0) > 300));
 await page.waitForTimeout(1300);
 await page.screenshot({ path: OUT + '/hero-guangong-live.png' });
+ok('背景五层都换成了位图（镜头推的时候不用重画带滤镜的矢量图）', (await page.locator('.xqh-cam > .xqh-l > canvas').count()) === 5);
 ok('演的时候棋盘还没入场（等人物演完）', !(await boardIntro()));
 ok('关公报名号（他自己的录音）', await said('hero-guangong'));
 ok('演完自己退场（四五秒）', await until(() => !document.querySelector('.xqh'), null, 6000));
@@ -70,6 +71,14 @@ ok('点一下屏幕就跳过', await until(() => !document.querySelector('.xqh')
 console.log(`   点下去到画面收掉：${Date.now() - tTap} 毫秒`);
 ok('跳过之后棋盘马上入场', await until(() => document.querySelector('.xq-boardwrap')?.dataset.fx === 'opening', null, 1000));
 ok('对手（红方）随后走了第一步', await until(() => window.__xq?.turn() === 'b', null, 15000));
+
+// ───────── 演到一半就退出（比如手机的返回键）：画面收掉，等着的事都不做了 ─────────
+await start({ 'xq-hero': 'dasheng', 'xq-side': 'b' });
+ok('这一盘是大圣', await until(() => document.querySelector('.xqh')?.dataset.hero === 'dasheng', null, 2000));
+await page.evaluate(() => document.querySelector('.xq-back')?.click());
+ok('退出：出场画面当场收掉', await until(() => !document.querySelector('.xqh'), null, 800));
+await page.waitForTimeout(5500);
+ok('退出之后不再入场、对手也不走（回到了开局设置）', !(await page.evaluate(() => !!document.querySelector('.xq-boardwrap'))) && (await page.getByText('开始对弈').count()) > 0);
 
 // ───────── 随机：不和上一盘重复 ─────────
 await start({ 'xq-hero': 'random', 'xq-hero-last': 'daoke', 'xq-side': 'r' });

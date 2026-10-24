@@ -364,12 +364,50 @@ function runAir(cv: HTMLCanvasElement, air: Air[], durMs: number) {
   return () => cancelAnimationFrame(raf);
 }
 
+// ───────────────────────── 背景层画成位图 ─────────────────────────
+
+/**
+ * 背景几层（天、远山、中景、雾、近景）是静止的画，但镜头一推，浏览器会按新的缩放把带滤镜的矢量图重画——
+ * 近景那层竹子（湍流毛边 + 景深模糊，比屏幕还大三成）一层就把帧率从将近 30 拖到 18（无头浏览器、两倍像素实测）。
+ * 所以一进场就把它们各画一次成位图（canvas），镜头只是挪位图。原来的 SVG 先顶着，位图画好了再换上，看不出来。
+ * scale：按几倍像素画（虚的层用 1 倍就够，远山中景 1.5 倍）
+ */
+function rasterize(host: HTMLElement, scale: number) {
+  const svg = host.innerHTML.trim();
+  const w = host.clientWidth;
+  const h = host.clientHeight;
+  if (!svg.startsWith('<svg') || !w || !h) return;
+  const W = Math.round(w * scale);
+  const H = Math.round(h * scale);
+  const img = new Image();
+  img.onload = () => {
+    if (!host.isConnected) return;
+    const cv = document.createElement('canvas');
+    cv.width = W;
+    cv.height = H;
+    const g = cv.getContext('2d');
+    if (!g) return;
+    try {
+      g.drawImage(img, 0, 0, W, H);
+    } catch {
+      return; // 画不出来就留着 SVG
+    }
+    host.replaceChildren(cv);
+  };
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg.replace('<svg ', `<svg width="${W}" height="${H}" `))}`;
+}
+
 // ───────────────────────── 演一场 ─────────────────────────
 
 let current: { el: HTMLElement; end: () => void } | null = null;
 
 /** 现在有没有在演（测试、调试看） */
 export const heroPlaying = () => !!current;
+
+/** 不演了（对局还没开始就退出了）：画面立刻收掉 */
+export function stopHeroIntro() {
+  current?.end();
+}
 
 /**
  * 演一场出场。返回的 Promise 在"该轮到棋盘入场"时 resolve（画面开始淡出、或者被点了跳过）。
@@ -416,6 +454,10 @@ export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opt
     el.style.setProperty('mask-image', BLOT);
   }
   host.appendChild(root);
+  // 一帧画一层（一起画，开场那一帧要卡上一百多毫秒）；最费的近景先画
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const layers = [['.xqh-near', 1], ['.xqh-far', 1.5], ['.xqh-mid', 1.5], ['.xqh-mist', 1], ['.xqh-sky', 1]] as const;
+  layers.forEach(([sel, sc], i) => window.setTimeout(() => rasterize(root.querySelector(sel) as HTMLElement, Math.min(dpr, sc)), 40 + i * 45));
   // 洇开之后遮罩就没用了，撤掉省得每一帧都要算
   const scene = root.querySelector('.xqh-scene') as HTMLElement;
   scene.addEventListener('animationend', (e) => {

@@ -5502,7 +5502,8 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
   inset: -16%;
   will-change: transform;
 }
-.xqh-l > svg {
+.xqh-l > svg,
+.xqh-l > canvas {
   width: 100%;
   height: 100%;
   display: block;
@@ -5520,7 +5521,7 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
 .xqh-mist {
   transform: translateZ(-130px) scale(1.144);
 }
-.xqh-mist > svg {
+.xqh-mist > * {
   animation: xqh-drift var(--T) linear both;
 }
 @keyframes xqh-drift {
@@ -5821,7 +5822,7 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
 }
 @media (prefers-reduced-motion: reduce) {
   .xqh-cam,
-  .xqh-mist > svg {
+  .xqh-mist > * {
     animation: none;
   }
 }

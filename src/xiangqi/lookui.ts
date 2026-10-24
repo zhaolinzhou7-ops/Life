@@ -76,6 +76,13 @@ function heroThumb(id: HeroId): HTMLElement {
   const el = document.createElement('div');
   el.className = 'xq-hero-pic';
   el.innerHTML = `<div class="sky">${re(a.sky)}</div><div class="fig">${re(a.fig)}</div>`;
+  // 小样停在一个姿势上（流光扫过去之后）：五张一直飘着，这一页开着就一直在耗电
+  requestAnimationFrame(() =>
+    el.querySelectorAll('svg').forEach((s) => {
+      s.setCurrentTime(3.2);
+      s.pauseAnimations();
+    }),
+  );
   return el;
 }
 function textThumb(cls: string, text: string): HTMLElement {

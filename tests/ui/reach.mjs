@@ -92,7 +92,7 @@ for (const [dev, w, h] of [['手机', 390, 844], ['小屏', 320, 568], ['平板'
   const tap = async (s, n = 0) => { await page.locator(s).nth(n).click().catch(() => {}); };
 
   await home(); await check('象棋首页');
-  await tap('.xq-home-card', 0); await check('对弈设置');
+  await tap('[data-home="play"]'); await check('对弈设置');
   await page.getByText('开始对弈').first().click(); await page.waitForTimeout(2500); await check('对局中');
 
   await home(); await tap('.xq-home-card', 1); await check('学棋入口');
