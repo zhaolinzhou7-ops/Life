@@ -69,9 +69,12 @@ export let lastSaid = '';
 
 async function play(name: string, delayMs: number, vol: number) {
   if (isMuted()) return;
+  // 约好的是"从现在起多少毫秒"：第一次要先下载、解码，等下来的这段时间要从延迟里扣掉，不然话就晚了
+  const due = performance.now() + delayMs;
   const buf = await load(name);
   const core = musicCore();
   if (!buf || !core || isMuted()) return;
+  delayMs = Math.max(0, due - performance.now());
   const t0 = core.c.currentTime + delayMs / 1000;
   const src = core.c.createBufferSource();
   src.buffer = buf;

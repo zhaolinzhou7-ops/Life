@@ -1,5 +1,6 @@
 /**
- * 棋盘、棋子样式选择：上面一块实时预览，下面依次是现成搭配、棋盘、棋子、字体、繁体字。
+ * 棋盘、棋子样式选择：上面一块实时预览，下面依次是现成搭配、棋盘、棋子、字体、繁体字，
+ * 再往下是出场人物、配音（男声女声）、对局特效开关——"好不好看、好不好听"的事都在这一页。
  * 点哪一项当场换，所有棋盘（包括正在下的那一盘）都跟着换；存在 localStorage，下次打开还是这一套。
  */
 import { Board2D } from './board2d';
@@ -24,6 +25,10 @@ import { applyMove, initialBoard, legalMoves, type Color, type PType } from './r
 import { textToMove } from './notation';
 import { liftBack } from './navbar';
 import { fxEnabled, setFxEnabled } from './fx';
+import { HEROES, getHeroPick, playHeroIntro, preloadHero, setHeroPick, type HeroPick } from './intro';
+import { heroArt, type HeroId } from './heroart';
+import { getVoiceKind, setVoiceKind, xqShout, type VoiceKind } from '../xqvoice';
+import { unlockAudio } from '../gamesfx';
 
 /** 预览用的局面：开局走了几步，红黑各种子都在、有子过了河 */
 function sampleBoard() {
@@ -64,11 +69,27 @@ function swatch(look: Look, w: number, h: number, pieces: { x: number; y: number
   return cv;
 }
 
+/** 出场人物的小样：天空 + 人物（id 换个前缀，和正在演的那一场不串） */
+function heroThumb(id: HeroId): HTMLElement {
+  const a = heroArt(id);
+  const re = (svg: string) => svg.replace(/(id="|url\(#|href="#)/g, '$1t');
+  const el = document.createElement('div');
+  el.className = 'xq-hero-pic';
+  el.innerHTML = `<div class="sky">${re(a.sky)}</div><div class="fig">${re(a.fig)}</div>`;
+  return el;
+}
+function textThumb(cls: string, text: string): HTMLElement {
+  const el = document.createElement('div');
+  el.className = `xq-hero-pic ${cls}`;
+  el.innerHTML = `<span>${text}</span>`;
+  return el;
+}
+
 export function renderLookPicker(host: HTMLElement, onBack: () => void): () => void {
   const s = document.createElement('div');
   s.className = 'screen xq-setup xq-look';
   host.appendChild(s);
-  s.innerHTML = `<h1>棋盘和棋子</h1><div class="sub">点一下当场换，正在下的棋也跟着换</div>`;
+  s.innerHTML = `<h1>样式、出场、配音</h1><div class="sub">点一下当场换，正在下的棋也跟着换</div>`;
 
   // 实时预览
   const pv = document.createElement('div');
@@ -103,7 +124,7 @@ export function renderLookPicker(host: HTMLElement, onBack: () => void): () => v
     body.appendChild(grid);
     return grid;
   };
-  const card = (grid: HTMLElement, name: string, desc: string, on: boolean, art: () => HTMLCanvasElement, pick: () => void, attr: Record<string, string>) => {
+  const card = (grid: HTMLElement, name: string, desc: string, on: boolean, art: () => HTMLElement, pick: () => void, attr: Record<string, string>) => {
     const el = document.createElement('button');
     el.className = `card xq-look-card${on ? ' selected' : ''}`;
     for (const [k, v] of Object.entries(attr)) el.dataset[k] = v;
@@ -220,11 +241,42 @@ export function renderLookPicker(host: HTMLElement, onBack: () => void): () => v
     (tr.querySelector('input') as HTMLInputElement).onchange = (e) => setLook({ trad: (e.target as HTMLInputElement).checked });
     body.appendChild(tr);
 
+    // 出场人物：开局前谁来亮相（intro.ts）。点一位当场演一遍
+    const hp = getHeroPick();
+    const hs = section('出场人物', '开局之前，一位人物在水墨里亮相、报名号，然后才摆棋。点一位当场看一遍；对局里点一下屏幕就跳过。');
+    const pickHero = (v: HeroPick) => {
+      setHeroPick(v);
+      render();
+      if (v !== 'random' && v !== 'off') {
+        unlockAudio();
+        void playHeroIntro(v);
+      }
+    };
+    card(hs, '随机', '每盘换一位，不和上一盘重复', hp === 'random', () => textThumb('xq-hero-rand', '五位轮流'), () => pickHero('random'), { hero: 'random' });
+    for (const h of HEROES) card(hs, h.label, h.desc, hp === h.id, () => heroThumb(h.id), () => pickHero(h.id), { hero: h.id });
+    card(hs, '不演', '直接摆棋开局', hp === 'off', () => textThumb('xq-hero-off', '直接开局'), () => pickHero('off'), { hero: 'off' });
+
+    // 配音：开局、吃车马炮、将军、绝杀时喊一声（xqvoice.ts）。点一下试听"将军！"
+    const vk = getVoiceKind();
+    const vs = section('配音', '开局、吃车马炮、将军、绝杀时喊一声，出场人物报名号。点一下试听。');
+    const pickVoice = (v: VoiceKind) => {
+      setVoiceKind(v);
+      render();
+      unlockAudio();
+      if (v !== 'off') xqShout('jiangjun');
+    };
+    const VOICES: [VoiceKind, string, string, string][] = [
+      ['m', '男声', '浑厚、带一点戏台的回响', '将军！'],
+      ['f', '女声', '清亮、干脆', '将军！'],
+      ['off', '不要配音', '只留锣鼓和棋子声', '……'],
+    ];
+    for (const [v, name, desc, word] of VOICES) card(vs, name, desc, vk === v, () => textThumb(`xq-voice-${v}`, word), () => pickVoice(v), { voice: v });
+
     // 对局特效：开局入场、吃子碎裂、将军、绝杀（fx.ts）。不是样式，但"好不好看"的事都在这一页
     const fx = document.createElement('label');
     fx.className = 'xq-look-trad';
     fx.dataset.act = 'fx-toggle';
-    fx.innerHTML = `<input type="checkbox" ${fxEnabled() ? 'checked' : ''}> <span>对局特效（开局入场、吃子、吃车、将军、绝杀）</span>`;
+    fx.innerHTML = `<input type="checkbox" ${fxEnabled() ? 'checked' : ''}> <span>对局特效（出场人物、开局入场、吃子、吃车、将军、绝杀）</span>`;
     (fx.querySelector('input') as HTMLInputElement).onchange = (e) => setFxEnabled((e.target as HTMLInputElement).checked);
     body.appendChild(fx);
 
@@ -240,6 +292,7 @@ export function renderLookPicker(host: HTMLElement, onBack: () => void): () => v
 
   // 字体小样要等字体加载完才画得对：先把几个随包字体都拉下来（每个几 KB）
   for (const f of FONTS) void ensureFont(f.id);
+  preloadHero();
   render();
   const off = onLook(render);
 

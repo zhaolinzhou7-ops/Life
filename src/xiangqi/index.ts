@@ -66,6 +66,15 @@ import { BoardView } from './boardview';
 import { PRESETS, boardStyle, fontOf, getLook, pieceStyle, presetOf, setLook } from './boardtheme';
 import { renderLookPicker } from './lookui';
 import { fxEnabled } from './fx';
+import { getHeroPick, heroInfo, nextHero, playHeroIntro, preloadHero } from './intro';
+import { getVoiceKind } from '../xqvoice';
+
+const VOICE_NAME = { m: '男声', f: '女声', off: '不要' } as const;
+/** 开局设置页上写的"出场：……" */
+function heroPickName() {
+  const p = getHeroPick();
+  return p === 'random' ? '随机' : p === 'off' ? '不演' : heroInfo(p).label;
+}
 import { xqSfxMove } from '../xqsfx';
 import { ERR_INFO, PIECE_VALUE, attackersOf, inPieces } from './teach';
 import { moveToText, toFen } from './notation';
@@ -399,6 +408,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   // ============ 开局设置界面 ============
   function showSetup() {
     clearAll();
+    preloadHero();
 
     let level = storedLevel();
     let rival = Number(localStorage.getItem('xq-rival') ?? 2);
@@ -563,7 +573,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       // 棋盘样式：现在是哪一套，点进去换（换之前把这一屏选好的先存下，回来还是这样）
       const lookLabel = document.createElement('div');
       lookLabel.className = 'xq-sec';
-      lookLabel.textContent = '棋盘样式';
+      lookLabel.textContent = '样式 · 出场 · 配音';
       s.appendChild(lookLabel);
       const lookRow = document.createElement('div');
       lookRow.className = 'diff-row';
@@ -573,7 +583,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       lookCard.className = 'card';
       lookCard.dataset.act = 'look';
       lookCard.innerHTML = `<div class="title" style="justify-content:center">🎨 ${pre ? pre.name : '自己搭配'}</div>
-        <div class="desc" style="text-align:center">${pre ? pre.desc : `${boardStyle(lk.board).name}棋盘 · ${pieceStyle(lk.piece).name}棋子 · ${fontOf(lk).name}`}。点这里换棋盘、棋子、字体</div>`;
+        <div class="desc" style="text-align:center">${pre ? pre.desc : `${boardStyle(lk.board).name}棋盘 · ${pieceStyle(lk.piece).name}棋子 · ${fontOf(lk).name}`}。出场：${heroPickName()} · 配音：${VOICE_NAME[getVoiceKind()]}。点这里换</div>`;
       lookCard.onclick = () => {
         persist();
         showLook(() => showSetup());
@@ -966,10 +976,23 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     scene.syncBoard(board);
     // 先把搜索线程热起来，别让第一步的回手慢一大截
     warmupAi(board, foe);
-    scene.dealIn();
     // 配乐：每盘随机一种乐队（高山流水、江南丝竹、禅院松风、塞上曲），不和上一盘重复；
     // 跟着棋局走——开局静、中局行云流水、胶着、攻杀、占优、劣势、残局各是一种情绪（updateMusic）
     const music = startXqMusic();
+    /**
+     * 开局仪式：先请一位人物在水墨里亮相、报名号（intro.ts，四秒多，点一下跳过），演完棋盘才转平、棋子落下。
+     * 对手的开场白、执黑时对手的第一步都等它（started）。
+     * 从复盘某一手接着下、接着下没下完的棋不演——那不是"开局"
+     */
+    const opening = (): Promise<void> => {
+      const hero = from || !fxEnabled() ? null : nextHero();
+      if (!hero) {
+        scene.dealIn();
+        return Promise.resolve();
+      }
+      return playHeroIntro(hero).then(() => scene.dealIn());
+    };
+    let started = opening();
 
     // ---- HUD ----
     const hud = document.createElement('div');
@@ -1360,7 +1383,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       thinkTimer = window.setInterval(tick, 500);
     };
 
-    setTimeout(() => say(pickLine(rival.xq.greet)), 700);
+    void started.then(() => setTimeout(() => say(pickLine(rival.xq.greet)), 700));
 
     // ---- 流程 ----
     /**
@@ -1993,16 +2016,16 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       scene.setSlideSec(TEMPO.slide);
       scene.syncBoard(board);
       warmupAi(board, foe);
-      scene.dealIn();
+      started = opening();
       scene.setLastMove(null);
       scene.setBadge(null);
       refreshLog();
       setTurnUI(turn !== me);
       setCoachLine(null);
       prepareTurn();
-      setTimeout(() => say(pickLine(rival.xq.greet)), 500);
+      void started.then(() => setTimeout(() => say(pickLine(rival.xq.greet)), 500));
       // 执黑重开：红方先走，得由对手走第一步，不然两边都干等着
-      if (turn !== me) setTimeout(() => afterMove(), 400);
+      if (turn !== me) void started.then(() => setTimeout(() => afterMove(), 400));
     }
 
     let resultEl: HTMLElement | null = null;
@@ -2272,7 +2295,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
      * 原来的流程只有"我走完 → afterMove → 轮到对手"这一条路径，
      * 开局没人触发，执黑就会卡在空棋盘上谁也不动。
      */
-    if (turn !== me) setTimeout(() => afterMove(), 400);
+    if (turn !== me) void started.then(() => setTimeout(() => afterMove(), 400));
 
     // 开发期测试钩子：3D 棋盘靠射线拾取，自动化测试没法算出格子的屏幕坐标，
     // 这里把内部动作直接暴露出来。生产构建里 import.meta.env.DEV 为 false，整块会被摇掉。

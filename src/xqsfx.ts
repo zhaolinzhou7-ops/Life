@@ -2,7 +2,7 @@
  * 象棋对局的特效音：开局鼓点、吃子、吃车那一声"锵"、将军、绝杀。
  *
  * 用户原话："设计一些3D出场动画，吃子特效，包括将军，开局，绝杀等，另外吃车有一句响亮的音效。"
- * 之前用户嫌过机器念字"傻"（配乐第三版去掉了人声），所以这里一句话都不念，全用锣鼓：
+ * 这里只管锣鼓和棋子声（人声的喊话在 xqvoice.ts）：
  * 戏台上"锵"的那一下——大鼓垫底、大锣定音、铙钹炸开——就是中国人耳朵里"好！"的声音。
  *
  * 都是现场合成（零音频文件），走 gamesfx 的总线（同一个混响、同一个压缩），静音时不出声。
@@ -13,6 +13,8 @@
  *   铙钹  高通噪声 + 几个很高的金属泛音，炸开再散        "锵"
  *   木裂  几下很短的高频敲击 + 一点噪声                 棋子被打碎
  *   呼啸  带通噪声扫频                                 横幅飞进来
+ *   古筝  一串谐波、高的散得快                          出场时往上刮的那一串
+ *   刀鸣  扫上去的摩擦声 + 很高、尾巴长的金属泛音        刀客出场
  */
 import type { PType } from './xiangqi/rules';
 import { isMuted, musicCore } from './gamesfx';
@@ -295,4 +297,94 @@ export function xqSfxMate(win: boolean) {
     bigGong(k, bang, 0.5, 98, 3.6);
     noiseHit(k, bang, 1.4, 0.12, { lp: 500 });
   }
+}
+
+// ───────────────────────── 出场人物（intro.ts） ─────────────────────────
+
+/** 古筝拨一下：基音 + 几个谐波，越高散得越快；带一点拨弦的"嗒" */
+function pluck(k: Core, t0: number, f: number, vol: number, pan = 0) {
+  partials(
+    k,
+    t0,
+    [
+      [f, vol * 0.5, 1.5],
+      [f * 2, vol * 0.3, 0.95],
+      [f * 3, vol * 0.17, 0.6],
+      [f * 4.01, vol * 0.1, 0.38],
+      [f * 5.03, vol * 0.05, 0.24],
+    ],
+    pan,
+  );
+  noiseHit(k, t0, 0.018, vol * 0.25, { bp: Math.min(8000, f * 6), q: 2 }, pan);
+}
+
+/** 五声音阶（D 宫）往上数第 i 个音 */
+const PENTA = [293.66, 329.63, 369.99, 440, 493.88];
+const penta = (i: number) => PENTA[((i % 5) + 5) % 5] * Math.pow(2, Math.floor(i / 5));
+
+/** 一串古筝刮奏：从第 from 个音起，n 个音，每个隔 dt 秒（dir=-1 往下刮） */
+function gliss(k: Core, t0: number, from: number, n: number, dt: number, vol: number, dir = 1) {
+  for (let i = 0; i < n; i++) {
+    const v = vol * (0.6 + 0.4 * Math.sin((i / Math.max(1, n - 1)) * Math.PI));
+    pluck(k, t0 + i * dt, penta(from + i * dir), v, -0.5 + i / n);
+  }
+}
+
+/** 刀出鞘"铮——" */
+function bladeRing(k: Core, t0: number, vol: number) {
+  noiseHit(k, t0, 0.3, vol * 0.3, { bp: 2400, q: 3, attack: 0.24, sweep: [1400, 6200] });
+  partials(k, t0 + 0.27, [
+    [2637, vol * 0.2, 1.7],
+    [3951, vol * 0.15, 1.3],
+    [5274, vol * 0.09, 1.0],
+    [6644, vol * 0.05, 0.7],
+    [1318.5, vol * 0.08, 1.1],
+  ]);
+}
+
+/**
+ * 出场的声音：墨滴落下——低低一声鼓、一声"嗡"；画卷洇开——一阵风、一串古筝往上刮；
+ * 每位人物再加一笔自己的：刀客是雨声和刀鸣，关公是一阵越擂越紧的战鼓，哪吒是一团火和乾坤圈的"当"，
+ * 女侠是往下回落的一串筝和一声磬，大圣是戏台上的"仓 才 仓"；最后印章盖下去"咚"一声。
+ * 人物报名号的人声在 0.8 秒进来（xqHeroLine），这里的东西都压在人声底下
+ */
+export function xqSfxHero(id: string) {
+  const k = core();
+  if (!k) return;
+  const t0 = k.c.currentTime + 0.03;
+  taiko(k, t0, 0.5, 0.62);
+  bigGong(k, t0 + 0.02, 0.14, 64, 3.2);
+  whoosh(k, t0 + 0.18, 1.05, 0.09);
+  gliss(k, t0 + 0.3, 0, 12, 0.042, 0.11);
+  switch (id) {
+    case 'daoke':
+      noiseHit(k, t0 + 0.2, 3.8, 0.05, { hp: 900, lp: 5200, attack: 0.9 }, -0.2);
+      noiseHit(k, t0 + 0.25, 3.6, 0.04, { hp: 1400, lp: 7000, attack: 1 }, 0.25);
+      bladeRing(k, t0 + 1.05, 0.5);
+      break;
+    case 'guangong':
+      [0.55, 0.82, 1.03, 1.18, 1.3, 1.4, 1.48].forEach((d, i) => taiko(k, t0 + d, 0.26 + i * 0.05, 0.86, i % 2 ? 0.25 : -0.25));
+      bigGong(k, t0 + 1.9, 0.32, 118, 2.6);
+      break;
+    case 'nezha':
+      noiseHit(k, t0 + 0.35, 1.7, 0.13, { lp: 900, attack: 0.55 });
+      noiseHit(k, t0 + 0.4, 1.2, 0.05, { bp: 2200, q: 0.8, attack: 0.4 });
+      smallGong(k, t0 + 1.15, 0.22, 990, -0.3);
+      smallGong(k, t0 + 1.4, 0.16, 1180, 0.3);
+      break;
+    case 'nvxia':
+      gliss(k, t0 + 1.2, 14, 8, 0.06, 0.08, -1);
+      smallGong(k, t0 + 1.55, 0.14, 1320, 0.2);
+      noiseHit(k, t0 + 0.6, 2.4, 0.035, { bp: 600, q: 0.7, attack: 1.1, sweep: [500, 1100] });
+      break;
+    case 'dasheng':
+      bigGong(k, t0 + 1.15, 0.26, 150, 1.2);
+      cymbal(k, t0 + 1.15, 0.24, 0.6);
+      smallGong(k, t0 + 1.42, 0.2, 620);
+      bigGong(k, t0 + 1.66, 0.3, 150, 1.6);
+      cymbal(k, t0 + 1.66, 0.28, 0.8);
+      break;
+  }
+  // 印章盖下
+  taiko(k, t0 + 1.92, 0.48, 0.84);
 }

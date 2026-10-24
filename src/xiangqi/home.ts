@@ -158,7 +158,7 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
     const look = document.createElement('button');
     look.className = 'btn ghost xq-home-look';
     look.dataset.home = 'look';
-    look.textContent = '🎨 棋盘和棋子样式';
+    look.textContent = '🎨 棋盘样式 · 出场人物 · 配音';
     look.onclick = act.onLook;
     s.appendChild(look);
   }

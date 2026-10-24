@@ -5205,6 +5205,65 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
 .xq-look-card .pic canvas { display: block; max-width: 100%; height: auto !important; }
 .xq-look-card .title { font-size: 14px; font-weight: 600; margin-top: 2px; }
 .xq-look-card .desc { font-size: 11.5px; line-height: 1.35; margin-top: 0; }
+/* 出场人物、配音的小样 */
+.xq-hero-pic {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.xq-hero-pic .sky,
+.xq-hero-pic .fig {
+  position: absolute;
+}
+.xq-hero-pic .sky {
+  inset: 0;
+}
+.xq-hero-pic .fig {
+  left: 50%;
+  bottom: -46%;
+  height: 150%;
+  aspect-ratio: 300 / 420;
+  transform: translateX(-50%);
+}
+.xq-hero-pic svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.xq-hero-rand,
+.xq-hero-off,
+.xq-voice-m,
+.xq-voice-f,
+.xq-voice-off {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "XQ Hero", "XQ MaShan", "STKaiti", "KaiTi", serif;
+  font-size: 24px;
+  letter-spacing: 0.12em;
+}
+.xq-hero-rand {
+  background: radial-gradient(circle at 50% 60%, #3a2a1a, #0d0b0a);
+  color: #f0cf7a;
+}
+.xq-hero-off {
+  background: linear-gradient(#d9cfb6, #b9ab8a);
+  color: #3a2a1a;
+  font-size: 20px;
+}
+.xq-voice-m {
+  background: radial-gradient(circle at 50% 55%, #5a1a12, #1a0806);
+  color: #f6d68a;
+}
+.xq-voice-f {
+  background: radial-gradient(circle at 50% 55%, #1c2f4a, #0a1220);
+  color: #f3eee2;
+}
+.xq-voice-off {
+  background: rgba(0, 0, 0, 0.25);
+  color: rgba(255, 255, 255, 0.5);
+}
 .xq-look-trad {
   display: flex;
   align-items: center;
@@ -5335,4 +5394,416 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
 }
 @media (prefers-reduced-motion: reduce) {
   .xq-fx-tilt, .xq-fx-shake, .xq-fx-shake-big { animation: none; }
+}
+
+/* ───────────── 出场人物（intro.ts）：墨滴洇开 → 水墨画卷 → 人物凝出来 → 大名、印章 → 淡出 ───────────── */
+.xqh {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  overflow: hidden;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  --name: #15120f;
+  --name-hi: #fff2c4;
+  --name-shadow: rgba(255, 246, 220, 0.55);
+  --verse: #2a2622;
+  --line: #f4efe4;
+  --line-shadow: rgba(0, 0, 0, 0.8);
+  --rim: rgba(255, 228, 160, 0.45);
+}
+.xqh.out {
+  animation: xqh-out var(--out, 650ms) ease-in forwards;
+  pointer-events: none;
+}
+@keyframes xqh-out {
+  to {
+    opacity: 0;
+    transform: scale(1.05);
+  }
+}
+.xqh-dark,
+.xqh-scene {
+  position: absolute;
+  inset: 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: 50% 46%;
+  mask-position: 50% 46%;
+}
+.xqh-dark {
+  background: #0b0a09;
+  animation: xqh-drop 0.62s cubic-bezier(0.3, 0, 0.25, 1) both;
+}
+.xqh-scene {
+  perspective: 900px;
+  /* 镜头对着人物胸口推：人物往上长，脚不会被推出屏幕 */
+  perspective-origin: 50% 68%;
+  animation: xqh-bloom 1.15s 0.25s cubic-bezier(0.45, 0, 0.2, 1) both;
+}
+@keyframes xqh-drop {
+  from {
+    -webkit-mask-size: 0vmax 0vmax;
+    mask-size: 0vmax 0vmax;
+  }
+  to {
+    -webkit-mask-size: 320vmax 320vmax;
+    mask-size: 320vmax 320vmax;
+  }
+}
+@keyframes xqh-bloom {
+  from {
+    -webkit-mask-size: 0vmax 0vmax;
+    mask-size: 0vmax 0vmax;
+  }
+  to {
+    -webkit-mask-size: 340vmax 340vmax;
+    mask-size: 340vmax 340vmax;
+  }
+}
+/* 镜头：慢慢往前推、从左往右微微转——各层深浅不同，走得快慢就不同 */
+.xqh-cam {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  animation: xqh-cam var(--T) cubic-bezier(0.2, 0.55, 0.3, 1) both;
+}
+@keyframes xqh-cam {
+  from {
+    transform: translateX(-12px) translateZ(-90px) rotateY(5deg) rotateX(2deg);
+  }
+  to {
+    transform: translateX(10px) translateZ(110px) rotateY(-3deg) rotateX(0deg);
+  }
+}
+.xqh-l {
+  position: absolute;
+  inset: -16%;
+  will-change: transform;
+}
+.xqh-l > svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* 每层往后放多远，就放大多少倍，看上去大小不变（scale = (900 - z) / 900） */
+.xqh-sky {
+  transform: translateZ(-900px) scale(2);
+}
+.xqh-far {
+  transform: translateZ(-520px) scale(1.578);
+}
+.xqh-mid {
+  transform: translateZ(-240px) scale(1.267);
+}
+.xqh-mist {
+  transform: translateZ(-130px) scale(1.144);
+}
+.xqh-mist > svg {
+  animation: xqh-drift var(--T) linear both;
+}
+@keyframes xqh-drift {
+  from {
+    transform: translateX(-5%);
+  }
+  to {
+    transform: translateX(5%);
+  }
+}
+.xqh-near {
+  transform: translateZ(170px) scale(0.811);
+}
+/* 人物：站在下方正中，高六成多屏 */
+.xqh-hero {
+  --fh: min(56vh, 110vw);
+  position: absolute;
+  left: 50%;
+  bottom: max(10vh, 70px);
+  height: var(--fh);
+  aspect-ratio: 300 / 420;
+  transform: translateX(-50%) translateZ(0);
+}
+.xqh-fig {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 0 7px var(--rim));
+  animation: xqh-fig 1.05s 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.xqh-fig > svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+@keyframes xqh-fig {
+  from {
+    opacity: 0;
+    transform: translateY(4%) scale(1.07);
+    filter: blur(16px) brightness(0.3) drop-shadow(0 0 7px var(--rim));
+  }
+  55% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0) brightness(1) drop-shadow(0 0 7px var(--rim));
+  }
+}
+/* 背后那一团泼墨 */
+.xqh-splash {
+  position: absolute;
+  left: 50%;
+  bottom: calc(max(10vh, 70px) + min(56vh, 110vw) * 0.52);
+  width: min(108vw, 66vh);
+  aspect-ratio: 1;
+  transform: translate(-50%, 50%) translateZ(-60px) scale(1.067);
+}
+.xqh-splash > svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  animation: xqh-splash 0.9s 0.42s cubic-bezier(0.1, 0.8, 0.2, 1) both;
+}
+@keyframes xqh-splash {
+  from {
+    opacity: 0;
+    transform: scale(0.25) rotate(-12deg);
+  }
+  30% {
+    opacity: 0.92;
+  }
+  to {
+    opacity: 0.88;
+    transform: none;
+  }
+}
+.xqh-air,
+.xqh-paper {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+/* 宣纸的纹理 + 四角压暗：整幅画像画在纸上 */
+.xqh-paper {
+  background:
+    radial-gradient(ellipse 80% 70% at 50% 48%, transparent 55%, rgba(0, 0, 0, 0.42) 100%),
+    url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .42 0 0 0 0 .37 0 0 0 0 .3 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23p)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
+  opacity: 0.55;
+}
+/* 大名竖着写、旁边一句诗、一方印 */
+.xqh-title {
+  position: absolute;
+  top: max(8vh, 52px);
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-start;
+  gap: min(2.6vw, 14px);
+  pointer-events: none;
+}
+.xqh-side-r .xqh-title {
+  right: max(6vw, 16px);
+}
+.xqh-side-l .xqh-title {
+  left: max(6vw, 16px);
+}
+.xqh-name {
+  writing-mode: vertical-rl;
+  font-family: "XQ Hero", "XQ MaShan", "STKaiti", "KaiTi", serif;
+  font-size: min(19vw, 12.5vh, 120px);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: transparent;
+  background: linear-gradient(170deg, var(--name) 0 38%, var(--name-hi) 48%, var(--name) 58% 100%);
+  background-size: 100% 320%;
+  background-position: 0 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 0 10px var(--name-shadow)) drop-shadow(0 2px 0 rgba(0, 0, 0, 0.25));
+  -webkit-mask-image: linear-gradient(to bottom, #000 0 45%, transparent 55% 100%);
+  mask-image: linear-gradient(to bottom, #000 0 45%, transparent 55% 100%);
+  -webkit-mask-size: 100% 220%;
+  mask-size: 100% 220%;
+  animation: xqh-write 0.75s 1s cubic-bezier(0.5, 0, 0.3, 1) both, xqh-sheen 1s 1.8s ease-in-out both;
+}
+@keyframes xqh-write {
+  from {
+    -webkit-mask-position: 0 100%;
+    mask-position: 0 100%;
+    transform: translateY(-6px);
+  }
+  to {
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+    transform: none;
+  }
+}
+@keyframes xqh-sheen {
+  from {
+    background-position: 0 100%;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+.xqh-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: min(5vw, 30px);
+}
+.xqh-verse {
+  writing-mode: vertical-rl;
+  font-family: "XQ Verse", "XQ XingShu", "STKaiti", "KaiTi", serif;
+  font-size: min(6.4vw, 4.2vh, 36px);
+  line-height: 1.1;
+  letter-spacing: 0.12em;
+  color: var(--verse);
+  text-shadow: 0 0 8px var(--name-shadow);
+  animation: xqh-fade 0.8s 1.45s ease-out both;
+}
+@keyframes xqh-fade {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+.xqh-seal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 5px;
+  border-radius: 4px;
+  background: #b3221a;
+  box-shadow: inset 0 0 0 2px #b3221a, inset 0 0 0 3.4px #f3e2cc, 0 2px 8px rgba(0, 0, 0, 0.35);
+  color: #f6e8d4;
+  font-family: "XQ Hero", "XQ MaShan", "STKaiti", serif;
+  font-size: min(5.4vw, 3.4vh, 30px);
+  line-height: 1.05;
+  transform: rotate(-4deg);
+  animation: xqh-stamp 0.42s 1.9s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+@keyframes xqh-stamp {
+  from {
+    opacity: 0;
+    transform: scale(2.4) rotate(-14deg);
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: rotate(-4deg);
+  }
+}
+/* 印章盖下去那一下，字一震 */
+.xqh-title {
+  animation: xqh-jolt 0.3s 2.02s ease-out both;
+}
+@keyframes xqh-jolt {
+  0% {
+    translate: 0 0;
+  }
+  30% {
+    translate: 0 4px;
+  }
+  60% {
+    translate: 0 -2px;
+  }
+  100% {
+    translate: 0 0;
+  }
+}
+/* 字幕：报的名号 */
+.xqh-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: max(3.2vh, 22px);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  animation: xqh-fade 0.6s 0.85s ease-out both;
+}
+.xqh-line > span {
+  font-family: "XQ Hero", "XQ MaShan", "STKaiti", "KaiTi", serif;
+  font-size: min(5.6vw, 28px);
+  letter-spacing: 0.22em;
+  color: var(--line);
+  text-shadow: 0 0 6px var(--line-shadow), 0 0 14px var(--line-shadow);
+  padding: 4px 18px;
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.34) 18%, rgba(0, 0, 0, 0.34) 82%, transparent);
+  border-top: 1px solid rgba(240, 200, 120, 0.5);
+  border-bottom: 1px solid rgba(240, 200, 120, 0.5);
+  border-image: linear-gradient(90deg, transparent, rgba(240, 200, 120, 0.75), transparent) 1;
+}
+.xqh-skip {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: 14px;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.62);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  animation: xqh-fade 0.5s 0.8s ease-out both;
+}
+.xqh-side-r .xqh-skip {
+  right: auto;
+  left: 14px;
+}
+/* 五位人物各自的颜色 */
+.xqh-daoke {
+  --name: #121010;
+  --name-hi: #f3d68a;
+  --name-shadow: rgba(250, 246, 236, 0.6);
+  --verse: #1d1a17;
+  --rim: rgba(255, 244, 214, 0.42);
+}
+.xqh-guangong {
+  --name: #f2c45e;
+  --name-hi: #fffbe8;
+  --name-shadow: rgba(140, 20, 10, 0.85);
+  --verse: #f6dca0;
+  --rim: rgba(255, 196, 110, 0.5);
+}
+.xqh-nezha {
+  --name: #ffcf6a;
+  --name-hi: #fffbe8;
+  --name-shadow: rgba(200, 40, 16, 0.85);
+  --verse: #ffe2b0;
+  --rim: rgba(255, 170, 80, 0.55);
+}
+.xqh-nvxia {
+  --name: #f3f0e6;
+  --name-hi: #ffffff;
+  --name-shadow: rgba(110, 150, 210, 0.85);
+  --verse: #d8e2f0;
+  --rim: rgba(200, 220, 255, 0.55);
+}
+.xqh-dasheng {
+  --name: #f6cf62;
+  --name-hi: #fffbe8;
+  --name-shadow: rgba(90, 40, 60, 0.85);
+  --verse: #ffe8b4;
+  --rim: rgba(255, 220, 130, 0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  .xqh-cam,
+  .xqh-mist > svg {
+    animation: none;
+  }
 }
