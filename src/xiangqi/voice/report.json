@@ -1,0 +1,192 @@
+{
+ "m-kaiju": {
+  "text": "开局！",
+  "voice": "zm_yunjian",
+  "speed": 1.0,
+  "reverb": 0.2,
+  "heard": "开局",
+  "score": 3,
+  "f0": 87,
+  "bytes": 15981
+ },
+ "m-jiangjun": {
+  "text": "将军！",
+  "voice": "zm_yunjian",
+  "speed": 1.0,
+  "reverb": 0.2,
+  "heard": "将军",
+  "score": 3,
+  "f0": 95,
+  "bytes": 16365
+ },
+ "m-jiesha": {
+  "text": "绝杀！",
+  "voice": "zm_yunjian",
+  "speed": 1.0,
+  "reverb": 0.12,
+  "heard": "绝杀",
+  "score": 3,
+  "f0": 82,
+  "bytes": 14829
+ },
+ "m-kunbi": {
+  "text": "困毙！",
+  "voice": "zm_yunjian",
+  "speed": 0.95,
+  "reverb": 0.2,
+  "heard": "困闭",
+  "score": 2,
+  "f0": 111,
+  "bytes": 15981
+ },
+ "m-chiche": {
+  "text": "吃掉车！",
+  "voice": "zm_yunjian",
+  "speed": 0.95,
+  "reverb": 0.2,
+  "heard": "吃吊车",
+  "score": 2,
+  "f0": 109,
+  "bytes": 18285
+ },
+ "m-chima": {
+  "text": "吃掉马！",
+  "voice": "zm_yunjian",
+  "speed": 0.95,
+  "reverb": 0.2,
+  "heard": "吃掉吗",
+  "score": 1,
+  "f0": 111,
+  "bytes": 18093
+ },
+ "m-chipao": {
+  "text": "吃炮！",
+  "voice": "zm_yunjian",
+  "speed": 1.0,
+  "reverb": 0.03,
+  "heard": "吃炮",
+  "score": 3,
+  "f0": 108,
+  "bytes": 12717
+ },
+ "f-kaiju": {
+  "text": "开局！",
+  "voice": "zf_xiaoxiao",
+  "speed": 1.0,
+  "reverb": 0.2,
+  "heard": "开局",
+  "score": 3,
+  "f0": 270,
+  "bytes": 16941
+ },
+ "f-jiangjun": {
+  "text": "将军！",
+  "voice": "zf_xiaoxiao",
+  "speed": 1.0,
+  "reverb": 0.2,
+  "heard": "将军",
+  "score": 3,
+  "f0": 293,
+  "bytes": 16941
+ },
+ "f-jiesha": {
+  "text": "绝杀！",
+  "voice": "zf_xiaoni",
+  "speed": 1.0,
+  "reverb": 0.14,
+  "heard": "绝杀",
+  "score": 3,
+  "f0": 203,
+  "bytes": 15213
+ },
+ "f-kunbi": {
+  "text": "困毙！",
+  "voice": "zf_xiaoxiao",
+  "speed": 1.0,
+  "reverb": 0.2,
+  "heard": "困闭",
+  "score": 2,
+  "f0": 267,
+  "bytes": 16557
+ },
+ "f-chiche": {
+  "text": "吃车！",
+  "voice": "zf_xiaoxiao",
+  "speed": 1.0,
+  "reverb": 0.07,
+  "heard": "吃车",
+  "score": 3,
+  "f0": 271,
+  "bytes": 15789
+ },
+ "f-chima": {
+  "text": "吃马！",
+  "voice": "zf_xiaoxiao",
+  "speed": 0.95,
+  "reverb": 0.07,
+  "heard": "吃麻",
+  "score": 1,
+  "f0": 274,
+  "bytes": 14829
+ },
+ "f-chipao": {
+  "text": "吃掉炮！",
+  "voice": "zf_xiaoxiao",
+  "speed": 1.0,
+  "reverb": 0.07,
+  "heard": "吃掉炮",
+  "score": 3,
+  "f0": 276,
+  "bytes": 16173
+ },
+ "hero-daoke": {
+  "text": "刀在鞘中，棋在心中。请！",
+  "voice": "zm_yunjian",
+  "speed": 0.92,
+  "reverb": 0.07,
+  "heard": "刀在鞘中旗在心中请",
+  "score": 2,
+  "f0": 114,
+  "bytes": 30573
+ },
+ "hero-guangong": {
+  "text": "关某在此，请赐教！",
+  "voice": "zm_yunyang",
+  "speed": 0.92,
+  "reverb": 0.16,
+  "heard": "关某在此请赐教",
+  "score": 3,
+  "f0": 133,
+  "bytes": 28653
+ },
+ "hero-nezha": {
+  "text": "哪吒在此，风火轮来也！",
+  "voice": "zm_yunxia",
+  "speed": 0.95,
+  "reverb": 0.24,
+  "heard": "哪吒在此风火轮来也",
+  "score": 3,
+  "f0": 300,
+  "bytes": 30573
+ },
+ "hero-nvxia": {
+  "text": "白衣仗剑，请赐教！",
+  "voice": "zf_xiaoxiao",
+  "speed": 1.0,
+  "reverb": 0.16,
+  "heard": "白衣仗剑请赐教",
+  "score": 3,
+  "f0": 255,
+  "bytes": 26541
+ },
+ "hero-dasheng": {
+  "text": "俺老孙来也！",
+  "voice": "zm_yunxi",
+  "speed": 0.95,
+  "reverb": 0.24,
+  "heard": "俺老孙来也",
+  "score": 3,
+  "f0": 164,
+  "bytes": 23469
+ }
+}
