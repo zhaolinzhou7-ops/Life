@@ -1,0 +1,250 @@
+/**
+ * 棋盘、棋子样式选择：上面一块实时预览，下面依次是现成搭配、棋盘、棋子、字体、繁体字。
+ * 点哪一项当场换，所有棋盘（包括正在下的那一盘）都跟着换；存在 localStorage，下次打开还是这一套。
+ */
+import { Board2D } from './board2d';
+import {
+  BOARDS,
+  DEFAULT_LOOK,
+  FONTS,
+  PIECES,
+  PRESETS,
+  boardPadY,
+  ensureFont,
+  fontOf,
+  getLook,
+  onLook,
+  paintBoard,
+  paintPiece,
+  presetOf,
+  setLook,
+  type Look,
+} from './boardtheme';
+import { applyMove, initialBoard, legalMoves, type Color, type PType } from './rules';
+import { textToMove } from './notation';
+import { liftBack } from './navbar';
+
+/** 预览用的局面：开局走了几步，红黑各种子都在、有子过了河 */
+function sampleBoard() {
+  let b = initialBoard();
+  let c: Color = 'r';
+  for (const t of ['炮二平五', '马8进7', '马二进三', '车9平8', '车一平二', '炮8进4', '兵三进一', '马2进3']) {
+    const m = textToMove(b, c, t, legalMoves(b, c));
+    if (!m) break;
+    b = applyMove(b, m);
+    c = c === 'r' ? 'b' : 'r';
+  }
+  return b;
+}
+
+/**
+ * 一张小样：棋盘左上角那几格 + 几个棋子。
+ * big：看棋子、字体用——棋子画大（半径是高的几成），x、y 是占宽高的几成，底下还是这套棋盘
+ */
+function swatch(look: Look, w: number, h: number, pieces: { x: number; y: number; t: PType; c: Color }[], big = 0): HTMLCanvasElement {
+  const cv = document.createElement('canvas');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  cv.style.width = `${w}px`;
+  cv.style.height = `${h}px`;
+  const g = cv.getContext('2d')!;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // 三行格子正好放得下：最上一行的棋子到第三行的棋子都完整露出来
+  const c = (h - 4) / 3.2;
+  const x0 = c * 0.62 + 6;
+  const y0 = c * boardPadY(false) + 4;
+  paintBoard(g, { x0, y0, c, cols: 9, rows: 10, flip: false, coords: false, dpr }, look);
+  for (const p of pieces) {
+    const cx = big ? p.x * w : x0 + p.x * c;
+    const cy = big ? p.y * h : y0 + p.y * c;
+    paintPiece(g, cx, cy, big ? h * big : c * 0.44, p.t, p.c, look, dpr);
+  }
+  return cv;
+}
+
+export function renderLookPicker(host: HTMLElement, onBack: () => void): () => void {
+  const s = document.createElement('div');
+  s.className = 'screen xq-setup xq-look';
+  host.appendChild(s);
+  s.innerHTML = `<h1>棋盘和棋子</h1><div class="sub">点一下当场换，正在下的棋也跟着换</div>`;
+
+  // 实时预览
+  const pv = document.createElement('div');
+  pv.className = 'xq-look-preview';
+  s.appendChild(pv);
+  const view = new Board2D(pv, { coords: true });
+  view.setBoard(sampleBoard());
+  view.setLastMove({ fx: 1, fy: 0, tx: 2, ty: 2 });
+  view.setMarks([
+    { x: 1, y: 7, kind: 'ring' },
+    { x: 1, y: 6, kind: 'dot' },
+    { x: 1, y: 5, kind: 'dot' },
+    { x: 1, y: 3, kind: 'dot' },
+  ]);
+
+  const body = document.createElement('div');
+  s.appendChild(body);
+
+  const section = (title: string, note?: string) => {
+    const h = document.createElement('div');
+    h.className = 'xq-sec';
+    h.textContent = title;
+    body.appendChild(h);
+    if (note) {
+      const n = document.createElement('div');
+      n.className = 'xq-note';
+      n.textContent = note;
+      body.appendChild(n);
+    }
+    const grid = document.createElement('div');
+    grid.className = 'xq-look-grid';
+    body.appendChild(grid);
+    return grid;
+  };
+  const card = (grid: HTMLElement, name: string, desc: string, on: boolean, art: () => HTMLCanvasElement, pick: () => void, attr: Record<string, string>) => {
+    const el = document.createElement('button');
+    el.className = `card xq-look-card${on ? ' selected' : ''}`;
+    for (const [k, v] of Object.entries(attr)) el.dataset[k] = v;
+    const pic = document.createElement('div');
+    pic.className = 'pic';
+    el.appendChild(pic);
+    const t = document.createElement('div');
+    t.className = 'title';
+    t.textContent = name;
+    el.appendChild(t);
+    const d = document.createElement('div');
+    d.className = 'desc';
+    d.textContent = desc;
+    el.appendChild(d);
+    el.onclick = pick;
+    grid.appendChild(el);
+    // 小样要按像素算材质：一张一张排着画，不卡住界面
+    queue.push(() => {
+      if (el.isConnected) pic.appendChild(art());
+    });
+  };
+
+  let queue: (() => void)[] = [];
+  let timer = 0;
+  const pump = () => {
+    const job = queue.shift();
+    if (job) job();
+    timer = queue.length ? window.setTimeout(pump, 0) : 0;
+  };
+
+  const render = () => {
+    const look = getLook();
+    body.innerHTML = '';
+    queue = [];
+    if (timer) clearTimeout(timer);
+
+    const pre = section('现成的搭配', presetOf(look) ? undefined : '现在是你自己搭的。');
+    for (const p of PRESETS) {
+      card(
+        pre,
+        p.name,
+        p.desc,
+        presetOf(look)?.id === p.id,
+        () =>
+          swatch(p.look, 160, 84, [
+            { x: 0, y: 0, t: 'R', c: 'b' },
+            { x: 2, y: 0, t: 'E', c: 'b' },
+            { x: 1, y: 2, t: 'C', c: 'r' },
+          ]),
+        () => setLook(p.look),
+        { preset: p.id },
+      );
+    }
+
+    const bd = section('棋盘');
+    for (const b of BOARDS) {
+      card(bd, b.name, b.desc, look.board === b.id, () => swatch({ ...look, board: b.id }, 160, 84, [{ x: 1, y: 2, t: 'C', c: 'r' }]), () => setLook({ board: b.id }), { board: b.id });
+    }
+
+    const pc = section('棋子');
+    for (const p of PIECES) {
+      card(
+        pc,
+        p.name,
+        p.desc,
+        look.piece === p.id,
+        () =>
+          swatch(
+            { ...look, piece: p.id },
+            160,
+            84,
+            [
+              { x: 0.3, y: 0.47, t: 'K', c: 'r' },
+              { x: 0.7, y: 0.47, t: 'K', c: 'b' },
+            ],
+            0.33,
+          ),
+        () => setLook({ piece: p.id }),
+        { piece: p.id },
+      );
+    }
+
+    const ft = section('字体', '前四种字体随软件带着（开源字体，每个只有几 KB），换到哪台手机上都一样；黑体用手机自带的。');
+    for (const f of FONTS) {
+      card(
+        ft,
+        f.name,
+        f.desc,
+        look.font === f.id,
+        () =>
+          swatch(
+            { ...look, font: f.id },
+            160,
+            84,
+            [
+              { x: 0.19, y: 0.47, t: 'H', c: 'r' },
+              { x: 0.5, y: 0.47, t: 'C', c: 'b' },
+              { x: 0.81, y: 0.47, t: 'P', c: 'r' },
+            ],
+            0.27,
+          ),
+        () => setLook({ font: f.id }),
+        { font: f.id },
+      );
+    }
+
+    // 繁体字
+    const tr = document.createElement('label');
+    tr.className = 'xq-look-trad';
+    const ok = fontOf(look).trad;
+    tr.innerHTML = `<input type="checkbox" ${look.trad ? 'checked' : ''} ${ok ? '' : 'disabled'}> <span>繁体字（帥將、馬車、漢界）</span>${
+      ok ? '' : '<em>这款字体只有简体</em>'
+    }`;
+    (tr.querySelector('input') as HTMLInputElement).onchange = (e) => setLook({ trad: (e.target as HTMLInputElement).checked });
+    body.appendChild(tr);
+
+    const reset = document.createElement('button');
+    reset.className = 'btn ghost';
+    reset.dataset.act = 'look-reset';
+    reset.textContent = '恢复默认样式';
+    reset.onclick = () => setLook(DEFAULT_LOOK);
+    body.appendChild(reset);
+
+    timer = window.setTimeout(pump, 0);
+  };
+
+  // 字体小样要等字体加载完才画得对：先把几个随包字体都拉下来（每个几 KB）
+  for (const f of FONTS) void ensureFont(f.id);
+  render();
+  const off = onLook(render);
+
+  const back = document.createElement('button');
+  back.className = 'btn ghost';
+  back.textContent = '← 返回';
+  back.onclick = onBack;
+  s.appendChild(back);
+  liftBack(s, '棋盘样式');
+
+  return () => {
+    off();
+    if (timer) clearTimeout(timer);
+    view.dispose();
+    s.remove();
+  };
+}

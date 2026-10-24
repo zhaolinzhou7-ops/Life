@@ -45,6 +45,8 @@ export interface HomeActions {
   onLevel: () => void;
   /** 私教：一节课只讲一件事 */
   onTutor?: () => void;
+  /** 棋盘、棋子样式 */
+  onLook?: () => void;
   onExit: () => void;
   /**
    * 有一盘没下完的棋（被系统杀掉的后台页面、刷新、手滑关掉）。
@@ -150,6 +152,16 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
   gamesCard.dataset.home = 'games';
   list.appendChild(gamesCard);
   s.appendChild(list);
+
+  // 样式不算"练棋的事"，不占首页的三个入口：底下一个小按钮
+  if (act.onLook) {
+    const look = document.createElement('button');
+    look.className = 'btn ghost xq-home-look';
+    look.dataset.home = 'look';
+    look.textContent = '🎨 棋盘和棋子样式';
+    look.onclick = act.onLook;
+    s.appendChild(look);
+  }
 
   const back = document.createElement('button');
   back.className = 'btn ghost';

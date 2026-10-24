@@ -7,29 +7,15 @@
  *
  * 画法沿用麻将牌的路子：静态层（木纹、格线、河界）渲染一次缓存起来，
  * 每帧只 blit；棋子按 (兵种,颜色,尺寸) 缓存成精灵，避免反复画圆和文字。
+ * 棋盘、棋子长什么样（材质、光、字体）在 boardtheme.ts：八种棋盘、八种棋子、五种字体，
+ * 换了样式所有开着的棋盘当场重画。
  */
 import { COLS, ROWS, type Board, type Color, type Move, type Piece, type PType } from './rules';
-import { pieceName } from './notation';
+import { boardPadY, getLook, markColors, onLook, paintBoard, paintPiece } from './boardtheme';
 
-/**
- * 棋子颜色。
- *
- * 原来的 #a51e0c / #141d24 偏暗，在木色盘面上"陷"进去，隔一臂远看
- * 红黑两方要凑近才分得清。现在两边都提亮提纯：红往正红走、黑往蓝黑走，
- * 色相拉开之后**不用读字也能一眼分出敌我**，这在快速扫盘时最要紧。
- */
 /** 上一手标记：亮多久、多久淡完 */
 const LAST_HOLD_MS = 1400;
 const LAST_FADE_MS = 2400;
-
-const RED = '#c8201a';
-const BLACK = '#15283a';
-
-/** 棋子面的底色。红黑用两种极轻微不同的色温，进一步帮助一眼区分 */
-const FACE: Record<Color, [string, string, string]> = {
-  r: ['#fff6e2', '#f6e3bd', '#dcc298'],
-  b: ['#f6f2ea', '#e8e3d6', '#cdc6b4'],
-};
 
 export interface Mark {
   x: number;
@@ -136,6 +122,8 @@ export class Board2D {
   private raf = 0;
   private dirty = true;
   private disposed = false;
+  /** 换样式（或者随包字体加载完）就把静态层、棋子精灵全扔掉重画 */
+  private offLook: () => void;
 
   constructor(parent: HTMLElement, opts: Board2DOpts = {}) {
     this.flip = !!opts.flip;
@@ -148,8 +136,21 @@ export class Board2D {
     this.g = this.canvas.getContext('2d')!;
     this.canvas.addEventListener('pointerdown', this.pointer);
     window.addEventListener('resize', this.resize);
+    this.offLook = onLook(() => {
+      this.bgCv = null;
+      this.sprites.clear();
+      this.dirty = true;
+      this.tagLook();
+    });
+    this.tagLook();
     this.resize();
     this.loop();
+  }
+
+  /** 画在画布上的东西测试看不见：现在用的样式挂在属性上 */
+  private tagLook() {
+    const l = getLook();
+    this.canvas.dataset.look = `${l.board}/${l.piece}/${l.font}${l.trad ? '/trad' : ''}`;
   }
 
   // ---------- 对外 ----------
@@ -259,6 +260,7 @@ export class Board2D {
 
   dispose() {
     this.disposed = true;
+    this.offLook();
     cancelAnimationFrame(this.raf);
     this.canvas.removeEventListener('pointerdown', this.pointer);
     window.removeEventListener('resize', this.resize);
@@ -312,9 +314,10 @@ export class Board2D {
     this.canvas.width = Math.round(r.width * dpr);
     this.canvas.height = Math.round(r.height * dpr);
     this.g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // 棋盘 8 格宽 × 9 格高，四周留出半格多的边距
-    // 上下各多留 0.35 格给纵线号，否则号会被裁掉
-    this.cell = Math.min(r.width / (COLS + 0.9), r.height / (ROWS + 1.2));
+    // 棋盘 8 格宽 × 9 格高，四周留出半格多的边距；
+    // 带纵线号的上下各留将近一格（号写在棋子外面，boardtheme 的 boardPadY），再给投影留一点。
+    // 带号的棋盘高是 ROWS + 1.2 格：和样式表里画布的宽高比（9.9 / 11.2）对得上，画布里不会再留一圈空
+    this.cell = Math.min(r.width / (COLS + 0.9), r.height / (ROWS - 1 + boardPadY(this.coords) * 2 + 0.3));
     this.ox = (r.width - (COLS - 1) * this.cell) / 2;
     this.oy = (r.height - (ROWS - 1) * this.cell) / 2;
     this.bgCv = null;
@@ -331,246 +334,33 @@ export class Board2D {
     cv.height = Math.round(this.h * dpr);
     const g = cv.getContext('2d')!;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const c = this.cell;
-    const x0 = this.ox;
-    const y0 = this.oy;
-    const x1 = x0 + (COLS - 1) * c;
-    const y1 = y0 + (ROWS - 1) * c;
-
     // 木底只铺棋盘那一块，不铺满画布——铺满会让棋盘"泡"在一片木色里，
     // 看不出这是一块实物棋盘。留出的地方透出页面底色，棋盘才立得住。
-    const pad = c * 0.62;
-    const bx = x0 - pad;
-    const by = y0 - pad;
-    const bw = x1 - x0 + pad * 2;
-    const bh = y1 - y0 + pad * 2;
-    const radius = Math.min(14, c * 0.35);
-
-    const roundRect = () => {
-      g.beginPath();
-      g.moveTo(bx + radius, by);
-      g.arcTo(bx + bw, by, bx + bw, by + bh, radius);
-      g.arcTo(bx + bw, by + bh, bx, by + bh, radius);
-      g.arcTo(bx, by + bh, bx, by, radius);
-      g.arcTo(bx, by, bx + bw, by, radius);
-      g.closePath();
-    };
-
-    // 落地投影，让棋盘有厚度
-    g.save();
-    g.shadowColor = 'rgba(0,0,0,0.45)';
-    g.shadowBlur = 16;
-    g.shadowOffsetY = 5;
-    const grd = g.createLinearGradient(0, by, 0, by + bh);
-    grd.addColorStop(0, '#e8caa0');
-    grd.addColorStop(0.5, '#e0bd8e');
-    grd.addColorStop(1, '#d0a875');
-    g.fillStyle = grd;
-    roundRect();
-    g.fill();
-    g.restore();
-
-    // 木纹只画在棋盘内
-    g.save();
-    roundRect();
-    g.clip();
-    g.globalAlpha = 0.05;
-    g.strokeStyle = '#7a5227';
-    for (let i = 0; i < 70; i++) {
-      const yy = by + Math.random() * bh;
-      g.beginPath();
-      g.moveTo(bx, yy);
-      g.bezierCurveTo(bx + bw * 0.3, yy + Math.random() * 5 - 2.5, bx + bw * 0.7, yy + Math.random() * 5 - 2.5, bx + bw, yy);
-      g.lineWidth = 0.4 + Math.random() * 0.9;
-      g.stroke();
-    }
-    g.restore();
-
-    // 边框：外深内浅，做出一圈木框的厚度
-    g.strokeStyle = 'rgba(90,58,28,0.75)';
-    g.lineWidth = 2;
-    roundRect();
-    g.stroke();
-    g.strokeStyle = '#6b4423';
-    g.lineWidth = 1.4;
-    g.strokeRect(x0 - c * 0.3, y0 - c * 0.3, x1 - x0 + c * 0.6, y1 - y0 + c * 0.6);
-
-    g.strokeStyle = '#7a5430';
-    g.lineWidth = 1.1;
-    // 横线：十条通到底
-    for (let y = 0; y < ROWS; y++) {
-      g.beginPath();
-      g.moveTo(x0, y0 + y * c);
-      g.lineTo(x1, y0 + y * c);
-      g.stroke();
-    }
-    // 竖线：最左最右通到底，中间七条被楚河汉界断开
-    for (let x = 0; x < COLS; x++) {
-      g.beginPath();
-      if (x === 0 || x === COLS - 1) {
-        g.moveTo(x0 + x * c, y0);
-        g.lineTo(x0 + x * c, y1);
-      } else {
-        g.moveTo(x0 + x * c, y0);
-        g.lineTo(x0 + x * c, y0 + 4 * c);
-        g.moveTo(x0 + x * c, y0 + 5 * c);
-        g.lineTo(x0 + x * c, y1);
-      }
-      g.stroke();
-    }
-    // 九宫斜线
-    for (const [ax, ay, bx, by] of [
-      [3, 0, 5, 2],
-      [5, 0, 3, 2],
-      [3, 7, 5, 9],
-      [5, 7, 3, 9],
-    ]) {
-      g.beginPath();
-      g.moveTo(x0 + ax * c, y0 + ay * c);
-      g.lineTo(x0 + bx * c, y0 + by * c);
-      g.stroke();
-    }
-
-    // 兵/炮位的小角标
-    const tick = (gx: number, gy: number) => {
-      const d = c * 0.09;
-      const len = c * 0.15;
-      for (const sx of [-1, 1]) {
-        for (const sy of [-1, 1]) {
-          // 盘边上的点只画朝内的一半
-          if ((gx === 0 && sx < 0) || (gx === COLS - 1 && sx > 0)) continue;
-          const px = x0 + gx * c + sx * d;
-          const py = y0 + gy * c + sy * d;
-          g.beginPath();
-          g.moveTo(px + sx * len, py);
-          g.lineTo(px, py);
-          g.lineTo(px, py + sy * len);
-          g.stroke();
-        }
-      }
-    };
-    for (const gy of [3, 6]) for (const gx of [0, 2, 4, 6, 8]) tick(gx, gy);
-    for (const [gx, gy] of [[1, 2], [7, 2], [1, 7], [7, 7]]) tick(gx, gy);
-
-    // 纵线号。
-    //
-    // 中文记谱是"炮二平五"这种，二和五指的是**纵线号**，而且红黑各数各的：
-    // 红方从右往左数一~九，黑方从左往右数 1~9。不把号标在盘边上，
-    // 新手拿着棋谱根本对不上位置——这是学棋软件最不该省的一样东西。
-    if (this.coords) {
-      const CN = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      g.font = `${Math.round(c * 0.26)}px system-ui, sans-serif`;
-      for (let x = 0; x < COLS; x++) {
-        const gx = this.flip ? COLS - 1 - x : x;
-        const px = x0 + gx * c;
-        // 下方标自己这一方的号，上方标对方的
-        const bottomIsRed = !this.flip;
-        g.fillStyle = 'rgba(122,84,48,0.85)';
-        g.fillText(bottomIsRed ? CN[COLS - 1 - x] : String(x + 1), px, y1 + c * 0.42);
-        g.fillStyle = 'rgba(122,84,48,0.6)';
-        g.fillText(bottomIsRed ? String(x + 1) : CN[COLS - 1 - x], px, y0 - c * 0.42);
-      }
-    }
-
-    // 楚河汉界
-    g.fillStyle = 'rgba(80,50,22,0.72)';
-    g.font = `${Math.round(c * 0.62)}px "STKaiti","KaiTi","Songti SC",serif`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    const my = y0 + 4.5 * c;
-    g.save();
-    g.translate(x0 + 2 * c, my);
-    g.fillText('楚　河', 0, 0);
-    g.restore();
-    g.save();
-    g.translate(x0 + 6 * c, my);
-    g.fillText('漢　界', 0, 0);
-    g.restore();
-
+    paintBoard(g, { x0: this.ox, y0: this.oy, c: this.cell, cols: COLS, rows: ROWS, flip: this.flip, coords: this.coords, dpr });
     return cv;
   }
 
   // ---------- 棋子精灵 ----------
+  /** 棋子半径、精灵四周给侧边和投影留的边 */
+  private spriteGeom(): { r: number; pad: number; half: number } {
+    const r = this.cell * 0.44;
+    const pad = Math.ceil(r * 0.32) + 3;
+    return { r, pad, half: r + pad };
+  }
+
   private sprite(t: PType, c: Color): HTMLCanvasElement {
     const key = `${t}${c}`;
     const hit = this.sprites.get(key);
     if (hit) return hit;
-
-    const r = this.cell * 0.44;
-    const pad = 4;
-    const size = (r + pad) * 2;
+    const { r, half } = this.spriteGeom();
+    const size = half * 2;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const cv = document.createElement('canvas');
     cv.width = Math.round(size * dpr);
     cv.height = Math.round(size * dpr);
     const g = cv.getContext('2d')!;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const cx = size / 2;
-    const cy = size / 2;
-
-    // 落盘阴影
-    g.save();
-    g.shadowColor = 'rgba(0,0,0,0.42)';
-    g.shadowBlur = 4;
-    g.shadowOffsetY = 2;
-    const face = FACE[c];
-    g.fillStyle = face[1];
-    g.beginPath();
-    g.arc(cx, cy, r, 0, Math.PI * 2);
-    g.fill();
-    g.restore();
-
-    // 象牙面：斜向渐变做出圆盘的受光
-    const grd = g.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
-    grd.addColorStop(0, face[0]);
-    grd.addColorStop(0.55, face[1]);
-    grd.addColorStop(1, face[2]);
-    g.fillStyle = grd;
-    g.beginPath();
-    g.arc(cx, cy, r, 0, Math.PI * 2);
-    g.fill();
-
-    // 内圈刻线（棋子的标志性特征）
-    const col = c === 'r' ? RED : BLACK;
-    g.strokeStyle = 'rgba(120,85,45,0.45)';
-    g.lineWidth = 1;
-    g.beginPath();
-    g.arc(cx, cy, r * 0.98, 0, Math.PI * 2);
-    g.stroke();
-    g.strokeStyle = col;
-    g.lineWidth = Math.max(1.5, r * 0.075);
-    g.beginPath();
-    g.arc(cx, cy, r * 0.85, 0, Math.PI * 2);
-    g.stroke();
-
-    /**
-     * 字。**认得清排在好看前面。**
-     *
-     * 原来是"先压一道半透明暗影再写正色"，那道偏移的暗影其实在糊边缘，
-     * 字号也只有半径的 1.08 倍。手机上一个棋子才五六十像素，糊一点就认不出
-     * 炮和相的区别了。
-     *
-     * 改成路牌和字幕的通用做法：**先用盘面底色在字外面描一圈**，
-     * 把字和底隔开，再补一条极细的深色边把轮廓咬死，最后填正色。
-     * 不改配色，纯靠隔离带提对比。字号也放大到 1.24 倍半径。
-     */
-    const label = pieceName(t, c);
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.font = `700 ${Math.round(r * 1.24)}px "STKaiti","KaiTi","Songti SC",serif`;
-    g.lineJoin = 'round';
-    g.miterLimit = 2;
-    g.strokeStyle = face[0];
-    g.lineWidth = Math.max(2, r * 0.20);
-    g.strokeText(label, cx, cy);
-    g.strokeStyle = 'rgba(60,38,14,0.45)';
-    g.lineWidth = Math.max(0.8, r * 0.035);
-    g.strokeText(label, cx, cy);
-    g.fillStyle = col;
-    g.fillText(label, cx, cy);
-
+    paintPiece(g, size / 2, size / 2, r, t, c, getLook(), dpr);
     this.sprites.set(key, cv);
     return cv;
   }
@@ -610,7 +400,8 @@ export class Board2D {
     if (!this.board) return;
 
     const c = this.cell;
-    const spriteR = c * 0.44 + 4;
+    const spriteR = this.spriteGeom().half;
+    const mc = markColors();
 
     // 上一手：起点画空心方框、终点画实心底色。
     // 这是对局里最容易被忽略却最有用的一条信息——没有它，对手走完之后
@@ -664,12 +455,12 @@ export class Board2D {
     for (const mk of this.marks) {
       const [px, py] = this.px(mk.x, mk.y);
       if (mk.kind === 'dot') {
-        g.fillStyle = 'rgba(46,160,90,0.55)';
+        g.fillStyle = mc.dot;
         g.beginPath();
         g.arc(px, py, c * 0.13, 0, Math.PI * 2);
         g.fill();
       } else {
-        g.strokeStyle = mk.kind === 'bad' ? 'rgba(214,64,52,0.95)' : 'rgba(46,160,90,0.95)';
+        g.strokeStyle = mk.kind === 'bad' ? 'rgba(214,64,52,0.95)' : mc.ring;
         g.lineWidth = Math.max(2, c * 0.055);
         g.beginPath();
         g.arc(px, py, c * 0.46, 0, Math.PI * 2);
