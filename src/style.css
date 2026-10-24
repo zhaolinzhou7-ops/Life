@@ -5215,3 +5215,124 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
 .xq-look-trad input { width: 18px; height: 18px; }
 .xq-look-trad em { font-style: normal; font-size: 12px; opacity: 0.6; }
 .xq-home-look { margin-top: 4px; }
+
+/* ───────── 对局特效（fx.ts）：开局入场、吃子、将军、绝杀 ───────── */
+.xq-fxhost { position: relative; }
+.xq-fx {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+.xq-fx-layer {
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  perspective: 700px;
+  perspective-origin: 50% 40%;
+  --fxw: 360px;
+}
+/* 开局：整块棋盘从斜着的 3D 角度转平 */
+@keyframes xqfx-tilt {
+  0% { transform: perspective(900px) rotateX(58deg) translateY(-10%) scale(0.82); opacity: 0; }
+  35% { opacity: 1; }
+  78% { transform: perspective(900px) rotateX(-3deg) translateY(0) scale(1.01); }
+  100% { transform: perspective(900px) rotateX(0) translateY(0) scale(1); opacity: 1; }
+}
+.xq-fx-tilt { animation: xqfx-tilt 1s cubic-bezier(0.22, 0.9, 0.3, 1) both; transform-origin: 50% 70%; }
+/* 震一下 */
+@keyframes xqfx-shake {
+  0%, 100% { transform: translate(0, 0); }
+  15% { transform: translate(-4px, 2px); }
+  30% { transform: translate(4px, -3px); }
+  45% { transform: translate(-3px, 2px); }
+  60% { transform: translate(2px, -1px); }
+  80% { transform: translate(-1px, 1px); }
+}
+@keyframes xqfx-shake-big {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  10% { transform: translate(-9px, 5px) rotate(-0.6deg); }
+  22% { transform: translate(8px, -6px) rotate(0.5deg); }
+  36% { transform: translate(-6px, 4px) rotate(-0.3deg); }
+  52% { transform: translate(4px, -3px); }
+  70% { transform: translate(-2px, 2px); }
+  86% { transform: translate(1px, -1px); }
+}
+.xq-fx-shake { animation: xqfx-shake 0.4s ease-out; }
+.xq-fx-shake-big { animation: xqfx-shake-big 0.56s ease-out; }
+
+/* 大字：从远处砸过来的立体金字（三层投影叠出厚度） */
+@keyframes xqfx-slam {
+  0% { transform: translateZ(-900px) rotateX(68deg) scale(0.6); opacity: 0; }
+  32% { transform: translateZ(90px) rotateX(-10deg) scale(1.16); opacity: 1; }
+  44% { transform: translateZ(0) rotateX(4deg) scale(0.95); }
+  56% { transform: none; }
+  80% { transform: none; opacity: 1; }
+  100% { transform: translateZ(160px) scale(1.12); opacity: 0; }
+}
+@keyframes xqfx-slam-hold {
+  0% { transform: translateZ(-900px) rotateX(68deg) scale(0.6); opacity: 0; }
+  45% { transform: translateZ(90px) rotateX(-10deg) scale(1.16); opacity: 1; }
+  65% { transform: translateZ(0) rotateX(4deg) scale(0.95); }
+  100% { transform: none; opacity: 1; }
+}
+.xq-fx-word {
+  position: absolute;
+  font-family: "XQ MaShan", "XQ WenKai", "STKaiti", "KaiTi", serif;
+  font-size: calc(var(--fxw) * 0.22);
+  line-height: 1;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  background-image: linear-gradient(180deg, #fffbe6 0%, #ffe08a 30%, #f0a92e 58%, #b0600f 100%);
+  filter: drop-shadow(0 1px 0 #8a4a0c) drop-shadow(0 2px 0 #6e3a08) drop-shadow(0 3px 0 #552c05) drop-shadow(0 10px 16px rgba(0, 0, 0, 0.6));
+  animation: xqfx-slam 1.15s cubic-bezier(0.2, 0.85, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+.xq-fx-word.hold { animation: xqfx-slam-hold 0.62s cubic-bezier(0.2, 0.85, 0.3, 1) both; }
+.xq-fx-word.one { font-size: calc(var(--fxw) * 0.3); transform-origin: 50% 60%; left: calc(50% + var(--slot) * var(--fxw) * 0.32 - var(--fxw) * 0.15); }
+.xq-fx-word.silver {
+  background-image: linear-gradient(180deg, #ffffff 0%, #dfe7ef 35%, #9fb0c2 62%, #4f5f72 100%);
+  filter: drop-shadow(0 1px 0 #3c4756) drop-shadow(0 2px 0 #2d3644) drop-shadow(0 3px 0 #202733) drop-shadow(0 10px 16px rgba(0, 0, 0, 0.6));
+}
+.xq-fx-word.red {
+  background-image: linear-gradient(180deg, #fff0e6 0%, #ff8a70 32%, #e0301f 60%, #8a0e06 100%);
+  filter: drop-shadow(0 1px 0 #6a0b05) drop-shadow(0 2px 0 #520803) drop-shadow(0 3px 0 #3c0602) drop-shadow(0 10px 16px rgba(0, 0, 0, 0.6));
+}
+.xq-fx-word.ink {
+  background-image: linear-gradient(180deg, #6b6b6b 0%, #2a2a2a 45%, #050505 100%);
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.55)) drop-shadow(0 2px 0 #000) drop-shadow(0 10px 18px rgba(120, 0, 0, 0.7));
+}
+/* 开局印章：红底白字的方印，从侧面翻过来盖上 */
+@keyframes xqfx-seal {
+  0% { transform: rotateY(-115deg) translateZ(260px) scale(1.5); opacity: 0; }
+  38% { transform: rotateY(12deg) translateZ(0) scale(0.9); opacity: 1; }
+  52% { transform: rotateY(-5deg) scale(1.04); }
+  66% { transform: none; }
+  84% { transform: none; opacity: 1; }
+  100% { transform: scale(1.06); opacity: 0; }
+}
+.xq-fx-seal {
+  width: calc(var(--fxw) * 0.3);
+  height: calc(var(--fxw) * 0.3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12%;
+  background: radial-gradient(120% 120% at 30% 25%, #e8463a 0%, #c0241a 55%, #8a1209 100%);
+  box-shadow: inset 0 0 0 calc(var(--fxw) * 0.012) rgba(255, 236, 220, 0.85), inset 0 0 calc(var(--fxw) * 0.05) rgba(0, 0, 0, 0.35), 0 12px 28px rgba(0, 0, 0, 0.55);
+  color: #fff4e4;
+  font-family: "XQ MaShan", "XQ WenKai", "STKaiti", serif;
+  font-size: calc(var(--fxw) * 0.11);
+  line-height: 1.02;
+  text-shadow: 0 1px 0 rgba(90, 0, 0, 0.5);
+  animation: xqfx-seal 1.7s cubic-bezier(0.2, 0.85, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .xq-fx-tilt, .xq-fx-shake, .xq-fx-shake-big { animation: none; }
+}

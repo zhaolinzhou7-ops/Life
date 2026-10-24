@@ -301,7 +301,7 @@ for (const [w, h] of [[360, 640], [390, 844], [768, 1024]]) {
   const page = await (await browser.newContext({ viewport: { width: w, height: h } })).newPage();
   await openGame(page);
   const bar = await page.locator('.xq-bar').boundingBox();
-  const board = await page.locator('.xq-boardwrap canvas').boundingBox();
+  const board = await page.locator('.xq-boardwrap canvas.xq-b2d').boundingBox();
   const hud = await page.locator('.xq-hud').boundingBox();
   const line = await page.locator('.xq-coachline').boundingBox();
   const inView = bar && bar.y + bar.height <= h + 1 && bar.x >= 0 && bar.x + bar.width <= w + 1;

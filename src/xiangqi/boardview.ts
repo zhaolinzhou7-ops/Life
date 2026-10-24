@@ -15,11 +15,14 @@
  * 这样对局和复盘的代码几乎不用改，也就不会在搬运过程中搬出新 bug。
  */
 import { Board2D, type Arrow, type Badge, type Mark } from './board2d';
-import { applyMove, type Board, type Move } from './rules';
+import { BoardFx } from './fx';
+import { applyMove, type Board, type Color, type Move, type Piece } from './rules';
 
 export class BoardView {
   private view: Board2D;
   private host: HTMLElement;
+  /** 特效层：开局入场、吃子、将军、绝杀（fx.ts） */
+  private fx: BoardFx;
   private board: Board | null = null;
   /** 落子后的轻微延时，纯粹为了节奏，不做位移动画——棋子一帧都不离开交叉点 */
   private slideMs = 0;
@@ -32,6 +35,7 @@ export class BoardView {
     this.host.className = 'xq-boardwrap';
     parent.appendChild(this.host);
     this.view = new Board2D(this.host, { flip, coords: true, onTap: (x, y) => (this.tapOverride ?? onTap)(x, y) });
+    this.fx = new BoardFx(this.host, this.view);
   }
 
   setTapOverride(fn: ((x: number, y: number) => void) | undefined) {
@@ -101,9 +105,29 @@ export class BoardView {
     this.view.setCheck({ x, y });
   }
 
-  /** 3D 版本有发牌动画，2D 没有——保留这个方法只是为了调用方不用分支 */
+  /** 开局入场：棋盘从斜着转平、棋子一排排落下、"开局"印章（fx.ts）。盘面本身早就摆好了 */
   dealIn() {
-    /* 正视棋盘直接摆好，不需要入场动画 */
+    this.fx.opening();
+  }
+
+  /** 吃子特效（等走的子落下再炸）；吃车是那一声"锵" */
+  fxCapture(x: number, y: number, victim: Piece, by: Color) {
+    this.fx.capture(x, y, victim, by);
+  }
+
+  /** 将军：从将军的子到老将一道光、"将军"大字 */
+  fxCheck(kx: number, ky: number, from: { x: number; y: number }[], byMe: boolean) {
+    this.fx.check(kx, ky, from, byMe);
+  }
+
+  /** 绝杀（困毙）：老将倒下、大字、烟花或墨烟 */
+  fxMate(kx: number, ky: number, king: Piece, win: boolean, word: string) {
+    this.fx.mate(kx, ky, king, win, word);
+  }
+
+  /** 悔棋、重开：还在演的特效收掉（倒下的老将扶起来） */
+  fxReset() {
+    this.fx.reset();
   }
 
   /** 对手思考时给棋盘加一层淡淡的呼吸，让人知道在等什么 */
@@ -134,6 +158,7 @@ export class BoardView {
   }
 
   dispose() {
+    this.fx.dispose();
     this.view.dispose();
     this.host.remove();
   }

@@ -124,6 +124,12 @@ export class Board2D {
   private disposed = false;
   /** 换样式（或者随包字体加载完）就把静态层、棋子精灵全扔掉重画 */
   private offLook: () => void;
+  /** 开局入场：棋子从上面落下来 */
+  private introAt: { t0: number; dur: number; landed: Set<string> } | null = null;
+  /** 某个棋子落定的时候叫一声（特效层在那里扬一点灰） */
+  onLand?: (x: number, y: number, c: Color) => void;
+  /** 暂时不画的子（绝杀时老将倒下由特效层画） */
+  private hidden = new Set<string>();
 
   constructor(parent: HTMLElement, opts: Board2DOpts = {}) {
     this.flip = !!opts.flip;
@@ -230,6 +236,47 @@ export class Board2D {
     this.dirty = true;
   }
 
+  // ---------- 给特效层用 ----------
+  /** 一个交叉点在画布上的位置（CSS 像素，相对画布左上角）和格宽 */
+  pointOf(x: number, y: number): { x: number; y: number; cell: number } {
+    const [px, py] = this.px(x, y);
+    return { x: px, y: py, cell: this.cell };
+  }
+  /** 棋子精灵（和盘上同一张图）和它的半边长 */
+  spriteFor(t: PType, c: Color): { img: HTMLCanvasElement; half: number } {
+    return { img: this.sprite(t, c), half: this.spriteGeom().half };
+  }
+  /** 正在走的那一手还要多久走到（毫秒）；吃子特效等棋子落下再炸 */
+  animLeft(): number {
+    if (!this.anim) return 0;
+    return Math.max(0, this.anim.dur - (performance.now() - this.anim.t0));
+  }
+  /** 这些点上的子先不画（特效层自己画）；传空数组恢复 */
+  setHidden(pts: { x: number; y: number }[]) {
+    this.hidden = new Set(pts.map((p) => `${p.x},${p.y}`));
+    this.dirty = true;
+  }
+  /**
+   * 开局入场：棋子一排一排从上面落下来，落地时影子收拢、扬一点灰（onLand）。
+   * 黑方从最上一排往下、红方从最下一排往上，两边同时，靠近楚河的最后落。
+   * 盘面本身一直是摆好的样子，点子、判规则都不受影响；只是这一秒多里棋子画在半空。
+   */
+  intro(dur = 1300) {
+    const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) return;
+    this.introAt = { t0: performance.now(), dur, landed: new Set() };
+    this.canvas.dataset.intro = '1';
+    this.dirty = true;
+  }
+  /** 入场时某个子落下的进度：0 还在天上，1 落定 */
+  private introK(x: number, y: number, c: Color, now: number): number {
+    const it = this.introAt!;
+    // 自己这一方的底线离屏幕下沿近：按"离自己底线几排"排先后
+    const row = c === 'b' ? y : 9 - y;
+    const delay = (row / 4) * it.dur * 0.55 + (Math.abs(x - 4) / 4) * it.dur * 0.08;
+    return Math.max(0, Math.min(1, (now - it.t0 - delay) / (it.dur * 0.32)));
+  }
+
   /**
    * 走一步。**没有动画，落子即到。**
    *
@@ -276,9 +323,12 @@ export class Board2D {
   }
 
   private pointer = (e: PointerEvent) => {
+    // 点在画布自己的坐标里（offsetX：浏览器已经把 3D 倾斜、震动这些变换反算回去了）；
+    // 老浏览器没有就退回按屏幕上的位置算
     const r = this.canvas.getBoundingClientRect();
-    const cx = e.clientX - r.left;
-    const cy = e.clientY - r.top;
+    const local = e.target === this.canvas && typeof e.offsetX === 'number';
+    const cx = local ? e.offsetX : e.clientX - r.left;
+    const cy = local ? e.offsetY : e.clientY - r.top;
     // 点在带 id 的箭头上：算"选这一路"（离箭身最近的那一条；终点那一格也算）
     if (this.onArrowTap) {
       let best: { id: string; d: number } | null = null;
@@ -307,7 +357,7 @@ export class Board2D {
 
   private resize = () => {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const r = this.canvas.getBoundingClientRect();
+    const r = { width: this.canvas.clientWidth, height: this.canvas.clientHeight };
     if (r.width < 2 || r.height < 2) return;
     this.w = r.width;
     this.h = r.height;
@@ -369,9 +419,18 @@ export class Board2D {
   private loop = () => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.loop);
-    // 容器一开始可能还没布局（宽高为 0），量到尺寸变化就重新算一次
-    const r = this.canvas.getBoundingClientRect();
-    if (Math.abs(r.width - this.w) > 1 || Math.abs(r.height - this.h) > 1) this.resize();
+    // 容器一开始可能还没布局（宽高为 0），量到尺寸变化就重新算一次。
+    // 量的是布局尺寸（clientWidth），不是屏幕上看到的大小：特效会给画布加 3D 倾斜、震动，那不算换尺寸
+    const cw = this.canvas.clientWidth;
+    const ch = this.canvas.clientHeight;
+    if (Math.abs(cw - this.w) > 1 || Math.abs(ch - this.h) > 1) this.resize();
+    if (this.introAt) {
+      this.dirty = true;
+      if (performance.now() - this.introAt.t0 > this.introAt.dur * 1.3) {
+        this.introAt = null;
+        this.canvas.dataset.intro = '';
+      }
+    }
     // 将军圈要呼吸，这段时间必须每帧重画；其余时候保持"脏了才画"
     if (this.check) {
       this.pulse += 0.06;
@@ -393,6 +452,7 @@ export class Board2D {
 
   private draw() {
     const g = this.g;
+    const now = performance.now();
     if (this.w < 2) return;
     if (!this.bgCv) this.bgCv = this.renderBg();
     g.clearRect(0, 0, this.w, this.h);
@@ -468,18 +528,41 @@ export class Board2D {
       }
     }
 
-    const now = performance.now();
     const an = this.anim;
     const k = an ? (an.dur ? Math.min(1, (now - an.t0) / an.dur) : 1) : 1;
     this.drawTrail(now, an ? k : 1);
 
     // 棋子：每个都画在自己的交叉点上；正在走的那个单独画在路上
+    const it = this.introAt;
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
         const p = this.board[y][x];
         if (!p) continue;
         if (an && an.m.tx === x && an.m.ty === y) continue;
+        if (this.hidden.has(`${x},${y}`)) continue;
         const [px, py] = this.px(x, y);
+        if (it) {
+          // 入场：从高处落下（越高越大越淡），影子在落点上越收越小越深
+          const k = this.introK(x, y, p.c, now);
+          if (k <= 0) continue;
+          const fall = 1 - (1 - k) * (1 - k);
+          const hgt = (1 - fall) * c * 3.2;
+          const sc = 1 + (hgt / c) * 0.22;
+          g.save();
+          g.fillStyle = `rgba(0,0,0,${0.28 * fall})`;
+          g.beginPath();
+          g.ellipse(px, py + c * 0.06, c * 0.42 * (0.6 + 0.4 * fall), c * 0.2 * (0.6 + 0.4 * fall), 0, 0, Math.PI * 2);
+          g.fill();
+          g.globalAlpha = Math.min(1, k * 2.5);
+          g.drawImage(this.sprite(p.t, p.c), px - spriteR * sc, py - hgt - spriteR * sc, spriteR * 2 * sc, spriteR * 2 * sc);
+          g.restore();
+          const key = `${x},${y}`;
+          if (k >= 1 && !it.landed.has(key)) {
+            it.landed.add(key);
+            this.onLand?.(x, y, p.c);
+          }
+          continue;
+        }
         g.drawImage(this.sprite(p.t, p.c), px - spriteR, py - spriteR, spriteR * 2, spriteR * 2);
       }
     }

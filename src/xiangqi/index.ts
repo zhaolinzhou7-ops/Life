@@ -66,7 +66,8 @@ import { minorsDead } from './minors';
 import { BoardView } from './boardview';
 import { PRESETS, boardStyle, fontOf, getLook, onLook, pieceIcon, pieceStyle, presetOf, setLook } from './boardtheme';
 import { renderLookPicker } from './lookui';
-import { ERR_INFO, PIECE_VALUE, inPieces } from './teach';
+import { fxEnabled } from './fx';
+import { ERR_INFO, PIECE_VALUE, attackersOf, inPieces } from './teach';
 import { moveToText, pieceName, toFen } from './notation';
 import {
   isMuted,
@@ -74,7 +75,6 @@ import {
   sfxAlert,
   sfxKnock,
   sfxLose,
-  sfxSlash,
   sfxTap,
   sfxWinBig,
   unlockAudio,
@@ -1830,7 +1830,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       scene.hideCheck();
       scene.animateMove(m, () => {
         if (captured) {
-          sfxSlash();
+          // 吃子的声音（吃车那一声"锵"）跟着特效走：等棋子落下那一刻响（fx.ts / xqsfx.ts）
           if (bigCapture) xqStinger('capture');
           // 对手吃了你的子才轮到它得意；原来写死成黑方，执黑时变成你吃子它在笑
           if (mover.c === foe) say(pickLine(rival.xq.capture));
@@ -1842,6 +1842,8 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         pendingTap = null;
         if (p && !busy && !over && turn === me) onTap(p.x, p.y);
       });
+      // 吃子特效：被吃的子碎开、木屑溅开（等走的子落下再炸）
+      if (victim) scene.fxCapture(m.tx, m.ty, victim, mover.c);
       refreshTray();
       refreshLog();
       setTurnUI(turn === foe);
@@ -1854,7 +1856,12 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         // 原来这里是 showResult(st === 'red-win')——执黑赢了会显示"你输了"
         const mated = isInCheck(board, turn);
         const k = findKing(board, turn);
-        if (k) scene.finishBlast(k[0], k[1]);
+        if (k) {
+          scene.finishBlast(k[0], k[1]);
+          // 绝杀（困毙）：盘面压暗、老将裂开倒下、大字一个个砸下来；你赢放烟花，输了是墨烟
+          const kp = board[k[1]][k[0]];
+          if (kp) scene.fxMate(k[0], k[1], kp, turn !== me, mated ? '绝杀' : '困毙');
+        }
         endGame({ winner: turn === 'r' ? 'b' : 'r', reason: mated ? 'mate' : 'stalemate' });
         return;
       }
@@ -1884,10 +1891,13 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     function nextTurn() {
       if (isInCheck(board, turn)) {
         const k = findKing(board, turn);
-        if (k) scene.flashCheck(k[0], k[1]);
-        showToast('将军！');
-        // 战鼓"咚、哒哒"一声锣，代替原来机器念的"将军"
-        xqStinger('check');
+        if (k) {
+          scene.flashCheck(k[0], k[1]);
+          // 将军：从将军的子射到老将一道光、"将军"两个立体大字砸下来，堂鼓一记、小锣"当"（fx.ts、xqsfx.ts）
+          const by: Color = turn === 'r' ? 'b' : 'r';
+          scene.fxCheck(k[0], k[1], attackersOf(board, k[0], k[1], by).map((a) => ({ x: a.fx, y: a.fy })), by === me);
+        }
+        if (!fxEnabled()) showToast('将军！');
         if (turn === me) say(pickLine(rival.xq.check));
       }
       updateMusic();
@@ -1981,6 +1991,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       refreshLog();
       scene.setLastMove(moveLog.length ? moveLog[moveLog.length - 1] : null);
       scene.setBadge(null);
+      scene.fxReset();
       scene.setSlideSec(TEMPO.slide);
       scene.syncBoard(board);
       setTurnUI();
@@ -2057,11 +2068,12 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       setCoachLine(null);
       setTurnUI();
       const quick = end.reason !== 'mate' && end.reason !== 'stalemate';
+      // 绝杀的特效（老将倒下、"绝杀"两个字、烟花）要演完再出结果页
       setTimeout(() => {
         if (ending !== end) return; // 期间悔棋/重开了
         showResult(end);
         if (thenReview) openReview();
-      }, quick ? 250 : 700);
+      }, quick ? 250 : fxEnabled() ? 2600 : 700);
     }
 
     /**
@@ -2102,11 +2114,13 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       startAnalysis(playerWon);
       xqMusicEnd(result);
       const playNote = notePlay(result, end);
+      // 将死、困毙的那一声"咚咚锵"在绝杀特效里已经响过了，结果页不再来一遍
+      const cadenced = end.reason === 'mate' || end.reason === 'stalemate';
       if (result === 'win') {
-        sfxWinBig();
+        if (!cadenced) sfxWinBig();
         setTimeout(() => say(pickLine(rival.xq.lose)), 500);
       } else if (result === 'loss') {
-        sfxLose();
+        if (!cadenced) sfxLose();
         setTimeout(() => say(pickLine(rival.xq.win)), 400);
       } else {
         sfxKnock();
@@ -2372,6 +2386,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           over = false;
           busy = false;
           selected = null;
+          scene.fxReset();
           scene.syncBoard(board);
           scene.setLastMove(null);
           scene.setBadge(null);

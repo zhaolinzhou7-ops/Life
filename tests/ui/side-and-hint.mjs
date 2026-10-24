@@ -33,7 +33,7 @@ for (let i=0;i<40;i++){ const t = await page.locator('.xq-besthint .xq-tip-statu
 const hint = (await page.locator('.xq-besthint .xq-tip-text').textContent()) ?? '';
 console.log('   求助结果：' + hint.trim().slice(0,80));
 ok('求助给出了最优解（中局是"最优是"，定式局面是"按定式走"）', hint.includes('最优是') || hint.includes('按定式走'));
-const arrows = await page.evaluate(()=>!!document.querySelector('.xq-boardwrap canvas'));
+const arrows = await page.evaluate(()=>!!document.querySelector('.xq-boardwrap canvas.xq-b2d'));
 ok('棋盘还在（箭头画在画布上）', arrows);
 await page.screenshot({path:OUT+'/side-hint.png'});
 await page.locator('[data-act="more"]').click(); await page.waitForTimeout(400);

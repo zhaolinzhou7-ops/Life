@@ -40,7 +40,7 @@ for (const [w, h] of [[390, 664], [375, 548]]) {
   await page.waitForTimeout(800);
 
   const fits = () => page.evaluate(() => {
-    const c = document.querySelector('.xq-boardwrap canvas')?.getBoundingClientRect();
+    const c = document.querySelector('.xq-boardwrap canvas.xq-b2d')?.getBoundingClientRect();
     const p = document.querySelector('.xq-rv')?.getBoundingClientRect();
     return c && p ? { board: Math.round(c.bottom), panel: Math.round(p.top), w: Math.round(c.width), h: Math.round(c.height), top: Math.round(c.top) } : null;
   });
@@ -52,7 +52,7 @@ for (const [w, h] of [[390, 664], [375, 548]]) {
   // 炮五进四：失误，棋子上挂"错"或"漏"
   await page.evaluate(() => document.querySelector('.xq-rv-item[data-i="4"]')?.click());
   await page.waitForTimeout(500);
-  const badge = await page.evaluate(() => document.querySelector('.xq-boardwrap canvas')?.dataset.badge ?? '');
+  const badge = await page.evaluate(() => document.querySelector('.xq-boardwrap canvas.xq-b2d')?.dataset.badge ?? '');
   note(`[${dev}] 炮五进四的角标：${badge}`);
   ok(`[${dev}] 走错的那一手，棋子上挂着评级（错 / 漏 / 差）`, /,[错漏差]$/.test(badge));
   const detail = (await page.locator('.xq-rv-detail').innerText()).replace(/\s+/g, ' ');
@@ -63,14 +63,14 @@ for (const [w, h] of [[390, 664], [375, 548]]) {
   ok(`[${dev}] 告诉你下次落子前先问自己什么`, detail.includes('落子前先问自己'));
 
   // 演示：棋盘一步步走（有动画）
-  const anims0 = await page.evaluate(() => Number(document.querySelector('.xq-boardwrap canvas')?.dataset.anims ?? 0));
+  const anims0 = await page.evaluate(() => Number(document.querySelector('.xq-boardwrap canvas.xq-b2d')?.dataset.anims ?? 0));
   await page.locator('.xq-rv-pun').click();
   await page.waitForTimeout(400);
   ok(`[${dev}] 演示开始：讲第 1 步`, (await page.locator('[data-demo]').innerText()).includes('第 1 /'));
   await page.locator('[data-act="demo-next"]').click(); await page.waitForTimeout(500);
   const d2 = (await page.locator('[data-demo]').innerText()).replace(/\s+/g, ' ');
   note(`[${dev}] 演示第 2 步：${d2.slice(0, 80)}`);
-  ok(`[${dev}] 下一步：对手 马7进5，棋子是走过去的（有动画）`, d2.includes('马7进5') && (await page.evaluate(() => Number(document.querySelector('.xq-boardwrap canvas')?.dataset.anims ?? 0))) > anims0);
+  ok(`[${dev}] 下一步：对手 马7进5，棋子是走过去的（有动画）`, d2.includes('马7进5') && (await page.evaluate(() => Number(document.querySelector('.xq-boardwrap canvas.xq-b2d')?.dataset.anims ?? 0))) > anims0);
   f = await fits();
   ok(`[${dev}] 演示时棋盘也完整`, f.board <= f.panel + 1);
   await page.locator('[data-act="demo-end"]').click(); await page.waitForTimeout(300);
@@ -80,7 +80,7 @@ for (const [w, h] of [[390, 664], [375, 548]]) {
   // ── 天天象棋式布局：局势图一直在棋盘下面、底部一排工具条、按住局势图拖就翻 ──
   const ui = await page.evaluate(() => {
     const g = document.querySelector('.xq-rv-graph')?.getBoundingClientRect();
-    const c = document.querySelector('.xq-boardwrap canvas')?.getBoundingClientRect();
+    const c = document.querySelector('.xq-boardwrap canvas.xq-b2d')?.getBoundingClientRect();
     const tbs = [...document.querySelectorAll('.xq-rv-nav .xq-rv-tb')].map((b) => b.getBoundingClientRect());
     return { graph: g && g.height > 20 && g.top >= (c?.bottom ?? 0) - 1, tbs: tbs.length, fit: tbs.every((r) => r.left >= 0 && r.right <= window.innerWidth + 0.5 && r.height >= 40) };
   });
@@ -100,7 +100,7 @@ for (const [w, h] of [[390, 664], [375, 548]]) {
   // ── 试下：点棋盘上的子走走看，引擎替对方应，告诉你这一手比最佳差多少 ──
   await page.evaluate(() => document.querySelector('.xq-rv-item[data-i="4"]')?.click());
   await page.waitForTimeout(300);
-  const arrows0 = await page.evaluate(() => document.querySelector('.xq-boardwrap canvas')?.dataset.arrows);
+  const arrows0 = await page.evaluate(() => document.querySelector('.xq-boardwrap canvas.xq-b2d')?.dataset.arrows);
   const sh = await page.evaluate(() => window.__xqReview.shown());
   const tryMove = await page.evaluate(async (fen) => {
     const R = await import('/Life/src/xiangqi/rules.ts');
@@ -151,7 +151,7 @@ for (const [w, h] of [[390, 664], [375, 548]]) {
     }
     await back();
   }
-  ok(`[${dev}] 结束试下：回到这一手，棋谱没动，箭头回来了`, !(await page.evaluate(() => window.__xqReview.trial())) && (await page.evaluate(() => window.__xqReview.cursor())) === 4 && (await page.evaluate(() => document.querySelector('.xq-boardwrap canvas')?.dataset.arrows)) === arrows0);
+  ok(`[${dev}] 结束试下：回到这一手，棋谱没动，箭头回来了`, !(await page.evaluate(() => window.__xqReview.trial())) && (await page.evaluate(() => window.__xqReview.cursor())) === 4 && (await page.evaluate(() => document.querySelector('.xq-boardwrap canvas.xq-b2d')?.dataset.arrows)) === arrows0);
 
   // 展开讲解：棋盘缩小但不被盖（画布铺满上面那一块，棋盘按能放下的最大尺寸画）
   const h0 = f.h;

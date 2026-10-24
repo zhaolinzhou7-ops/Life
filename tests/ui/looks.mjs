@@ -47,11 +47,17 @@ ok('不是哪一套现成的了：写着"自己搭的"', (await page.locator('.x
 
 // 没有繁体的字体：繁体勾不上
 await page.locator('[data-font="mashan"]').click(); await page.waitForTimeout(900);
-ok('换成毛笔字：繁体那一项变灰，盘上是简体', (await page.locator('.xq-look-trad input').isDisabled()) && (await look()) === 'jade/lacquer/mashan/trad');
+ok('换成毛笔字：繁体那一项变灰，盘上是简体', (await page.locator('.xq-look-trad:not([data-act]) input').isDisabled()) && (await look()) === 'jade/lacquer/mashan/trad');
 const glyph = await page.evaluate(async () => (await import('/Life/src/xiangqi/boardtheme.ts')).glyph('C', 'b'));
 ok('毛笔字没有"砲"：黑炮也写"炮"', glyph === '炮');
 await page.locator('[data-font="wenkai"]').click(); await page.waitForTimeout(600);
-ok('换回文楷：繁体能勾', !(await page.locator('.xq-look-trad input').isDisabled()));
+ok('换回文楷：繁体能勾', !(await page.locator('.xq-look-trad:not([data-act]) input').isDisabled()));
+
+// 对局特效开关也在这一页
+ok('特效开关在这一页，默认开着', await page.locator('[data-act="fx-toggle"] input').isChecked());
+await page.locator('[data-act="fx-toggle"] input').uncheck(); await page.waitForTimeout(200);
+ok('关掉特效：记下了', (await page.evaluate(() => localStorage.getItem('xq-fx'))) === '0');
+await page.locator('[data-act="fx-toggle"] input').check(); await page.waitForTimeout(200);
 
 // 恢复默认
 await page.locator('[data-act="look-reset"]').click(); await page.waitForTimeout(600);
@@ -65,7 +71,7 @@ ok('返回到首页', (await page.locator('[data-home="play"]').count()) === 1);
 await page.locator('[data-home="play"]').click(); await page.waitForTimeout(500);
 ok('开局设置里写着现在的样式', (await page.locator('[data-act="look"]').innerText()).includes('翡翠玉局'));
 await page.getByText('开始对弈').first().click(); await page.waitForTimeout(1500);
-const gameLook = () => page.locator('.xq-boardwrap canvas').first().getAttribute('data-look');
+const gameLook = () => page.locator('.xq-boardwrap canvas.xq-b2d').first().getAttribute('data-look');
 ok('对局的棋盘就是选好的那一套', (await gameLook()) === 'jade/jade/wenkai/trad');
 await page.screenshot({ path: OUT + '/looks-game.png' });
 await page.locator('#xq-look').click(); await page.waitForTimeout(800);

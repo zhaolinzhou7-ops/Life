@@ -23,6 +23,7 @@ import {
 import { applyMove, initialBoard, legalMoves, type Color, type PType } from './rules';
 import { textToMove } from './notation';
 import { liftBack } from './navbar';
+import { fxEnabled, setFxEnabled } from './fx';
 
 /** 预览用的局面：开局走了几步，红黑各种子都在、有子过了河 */
 function sampleBoard() {
@@ -218,6 +219,14 @@ export function renderLookPicker(host: HTMLElement, onBack: () => void): () => v
     }`;
     (tr.querySelector('input') as HTMLInputElement).onchange = (e) => setLook({ trad: (e.target as HTMLInputElement).checked });
     body.appendChild(tr);
+
+    // 对局特效：开局入场、吃子碎裂、将军、绝杀（fx.ts）。不是样式，但"好不好看"的事都在这一页
+    const fx = document.createElement('label');
+    fx.className = 'xq-look-trad';
+    fx.dataset.act = 'fx-toggle';
+    fx.innerHTML = `<input type="checkbox" ${fxEnabled() ? 'checked' : ''}> <span>对局特效（开局入场、吃子、吃车、将军、绝杀）</span>`;
+    (fx.querySelector('input') as HTMLInputElement).onchange = (e) => setFxEnabled((e.target as HTMLInputElement).checked);
+    body.appendChild(fx);
 
     const reset = document.createElement('button');
     reset.className = 'btn ghost';

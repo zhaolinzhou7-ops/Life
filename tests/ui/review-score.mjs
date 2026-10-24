@@ -99,7 +99,7 @@ await page.locator('[data-act="next-bad"]').click();
 await page.waitForTimeout(300);
 console.log('   下个问题手：' + (await page.locator('.xq-rv-pos').textContent()) + ' ' + (await page.locator('[data-act="next-bad"]').textContent()));
 ok('棋盘整块露在面板上面（面板不压棋盘）', await page.evaluate(() => {
-  const b = document.querySelector('.xq-boardwrap canvas')?.getBoundingClientRect();
+  const b = document.querySelector('.xq-boardwrap canvas.xq-b2d')?.getBoundingClientRect();
   const p = document.querySelector('.xq-rv')?.getBoundingClientRect();
   return !!b && !!p && b.bottom <= p.top + 2;
 }));
