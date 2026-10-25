@@ -88,7 +88,7 @@ for (const [w, h] of [[390, 664], [375, 548]]) {
     return { graph: g && g.height > 20 && g.top >= (c?.bottom ?? 0) - 1, tbs: tbs.length, fit: tbs.every((r) => r.left >= 0 && r.right <= window.innerWidth + 0.5 && r.height >= 40) };
   });
   ok(`[${dev}] 看某一手时局势图也一直在棋盘正下方`, ui.graph);
-  ok(`[${dev}] 底部工具条 7 个按钮（返回 上一手 问题手 下一手 试下 讲解 报告）都在屏幕里、够大`, ui.tbs === 7 && ui.fit);
+  ok(`[${dev}] 底部工具条 8 个按钮（返回 上一手 自动 下一手 问题手 试下 讲解 报告）都在屏幕里、够大`, ui.tbs === 8 && ui.fit);
   const gb = await page.locator('.xq-rv-graph').boundingBox();
   await page.mouse.move(gb.x + gb.width - 2, gb.y + gb.height / 2);
   await page.mouse.down();
