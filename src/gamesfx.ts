@@ -83,7 +83,15 @@ function ac(): AudioContext | null {
       busIn.connect(revSend);
       revSend.connect(conv).connect(revReturn).connect(glue); // 湿声
 
-      glue.connect(master).connect(ctx.destination);
+      // 最后一道保险：几样声音叠在一起（锣鼓 + 喊声）峰过了满刻度就压住，不让浏览器硬削波（平时碰不到，-1.5 dB 以上才动）
+      const limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -1.5;
+      limiter.knee.value = 0;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.001;
+      limiter.release.value = 0.12;
+
+      glue.connect(limiter).connect(master).connect(ctx.destination);
     } catch {
       return null;
     }

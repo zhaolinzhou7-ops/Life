@@ -110,7 +110,8 @@ async function play(name: string, delayMs: number, vol: number, seg?: [number, n
   window.setTimeout(() => {
     lastSaid = label;
     if (typeof document !== 'undefined') document.documentElement.dataset.xqSaid = label;
-    xqMusicDuck(0.4, dur * 0.9);
+    // 喊声、开场白压过一切：配乐压到两成（报着法只是念一声，压到四成）
+    xqMusicDuck(seg ? 0.4 : 0.2, dur * 0.9);
   }, lead);
 }
 
@@ -202,7 +203,7 @@ export function xqAnnounce(text: string, delayMs = 0, wait = false) {
 export function xqShout(s: Shout, delayMs = 0) {
   const k = getVoiceKind();
   if (k === 'off') return;
-  void play(`${k}-${s}`, delayMs, 0.95);
+  void play(`${k}-${s}`, delayMs, 1);
 }
 
 /** 出场人物的开场白（人物自己的嗓子；配音关掉了就不念） */

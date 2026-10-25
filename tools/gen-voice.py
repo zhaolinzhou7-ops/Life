@@ -13,7 +13,7 @@
      - 吼出来的粗：按基频的一半调幅，出次谐波（嘶吼的那种毛刺）；并联一路狠狠削波的失真混一点进来；
      - "顶"在前面：去掉低频的软、450Hz 的闷收一点、2.5~4k 的咬字推上去，齿音收一点；
      - 千军万马：再叠两三个人一起吼（错开十来二十毫秒、音高差十几二十音分）；
-     - 压得密：快压缩把声音压实，最后再压一道峰（最响的几下压下去 6 dB）——峰均比小、听着又密又响；
+     - 压得密：快压缩把声音压实，再压一道峰（最响的几下压下去 10 dB），最后一道软削波——峰均比小、听着又密又响；
      - 短而硬的混响 + 一记山谷回声（原来一秒多的大殿混响，把人推远了）；
   3. 压成 MP3（单声道 24kHz），放进 src/xiangqi/voice/；
   4. 听不见声音，就让机器听：两个开源普通话识别（paraformer、SenseVoice）任一个听出的拼音对得上才收。
@@ -47,15 +47,16 @@ SR = 24000
 # 对局里的喊声：男声、女声各一套。每一句列几种念法（念的字、语速），都试一遍，留机器听得最准的。
 # 只喊关键的几步（用户原话："不是每一步都要说话，就是关键的那几步，比如说吃车、将军、绝杀……开局也不用说开局"）。
 # 念的字和屏幕上写的只差同音字：车念 jū，送进去的是"吃居"
+# 语速快一点的排在前面：发怒的时候字是往外砸的，不拖
 SHOUTS = {
-    'jiangjun': [('将军！', 1.0), ('将军！', 1.05), ('将军！', 0.95)],
-    'jiesha': [('绝杀！', 1.0), ('绝杀！', 0.95), ('绝杀！', 1.05), ('绝，杀！', 1.0), ('绝，杀！', 0.95)],
-    'kunbi': [('困毙！', 1.0), ('困毙！', 0.95), ('困毙！', 1.05)],
-    'chiche': [('吃居！', 1.0), ('吃居！', 0.95), ('吃居！', 1.05), ('吃，居！', 1.0)],
+    'jiangjun': [('将军！', 1.12), ('将军！', 1.05), ('将军！', 1.0)],
+    'jiesha': [('绝杀！', 1.1), ('绝，杀！', 1.1), ('绝杀！', 1.0), ('绝，杀！', 1.0), ('绝杀！', 0.95)],
+    'kunbi': [('困毙！', 1.1), ('困毙！', 1.0), ('困毙！', 0.95)],
+    'chiche': [('吃居！', 1.12), ('吃，居！', 1.1), ('吃居！', 1.05), ('吃，居！', 1.0), ('吃居！', 1.0)],
     # 终局：赢了、输了、和了，说一句有江湖气的话（输了宽慰一句，"胜败乃兵家常事"）
-    'win': [('大获全胜！', 1.0), ('大获全胜！', 1.05)],
-    'lose': [('胜败乃兵家常事！', 1.0), ('胜败乃兵家常事！', 1.05)],
-    'draw': [('握手言和！', 1.0), ('握手言和！', 0.95), ('和棋！', 1.0)],
+    'win': [('大获全胜！', 1.1), ('大获全胜！', 1.0)],
+    'lose': [('胜败乃兵家常事！', 1.08), ('胜败乃兵家常事！', 1.0)],
+    'draw': [('握手言和！', 1.08), ('握手言和！', 1.0), ('握手，言和！', 1.0)],
 }
 # 男声：云健（几个男声里最低沉）；女声：晓晓（试的几个女声里每句都念得清楚）
 VOICES = {'m': 'zm_yunjian', 'f': 'zf_xiaoxiao'}
@@ -63,15 +64,48 @@ VOICES = {'m': 'zm_yunjian', 'f': 'zf_xiaoxiao'}
 # （晓妮不用：声调跑得厉害，"炮已架好"机器听成"抛一家浩"）
 BACKUP = {'zm_yunjian': ['zm_yunyang', 'zm_yunxia'], 'zf_xiaoxiao': ['zf_xiaoyi', 'zf_xiaobei']}
 
-# 喊声怎么处理（fierce）：semis 抬几个半音、formant 共振峰乘几（小于 1 嗓子大一号）、growl 次谐波调幅多深（吼的毛刺）、
-# dirt 削波的那一路混进来多少、bite 2.5~4k 推几 dB、body 低频留几 dB、army 再叠几个人一起吼（晚几毫秒、差几音分、多响）、
-# rv / wet 混响多长、多湿，echo 回声（晚几秒、多响）
+# 喊声怎么处理（fierce）：semis 抬几个半音、formant 共振峰乘几（小于 1 嗓子大一号、大于 1 更尖）、rng 声调起伏放大几倍、
+# dur 时长乘几（小于 1 字更短更冲）、growl 次谐波调幅多深（吼的毛刺）、roar 压低一个八度的怒吼垫多响、
+# dirt 削波的那一路混进来多少、drive 削得多狠、bite / bite_f 咬字那一段推几 dB、在哪、edge 6.5k 以上的锐（dB）、
+# body 低频留几 dB、punch 字头砸多实、army 再叠几个人一起吼（晚几毫秒、差几音分、多响）、
+# rv / wet 混响多长、多湿，echo 回声（晚几秒、多响）、limit 最后压峰压几 dB（越多越密越响）、clip 最后软削波多狠
+# （男声削得最狠；女声的锐靠咬字和高频，削狠了"绝杀"会听不出来）。
+# 用户原话："还是不够有力……所有的都需要增加力度，调到最大的力度……男生的那个铿锵的感觉，女生的那个尖锐的感觉，
+# 男生的那种杀气、怒气"——男声：音高抬、胸腔大、字头砸实、怒吼的底、削得狠；女声：音高抬得更多、共振峰往上、4k 和 6.5k 以上推亮
 SHOUT_PROF = {
-    'm': dict(semis=2.0, formant=0.96, growl=0.3, dirt=0.32, bite=6.0, body=2.0, army=[(11, 18, 0.42), (19, -22, 0.36), (27, 10, 0.26)], rv=0.7, wet=0.05, echo=(0.12, 0.08)),
-    'f': dict(semis=1.0, formant=1.0, growl=0.14, dirt=0.24, bite=5.0, body=0.5, army=[(10, 15, 0.32), (18, -18, 0.26)], rv=0.65, wet=0.05, echo=(0.11, 0.07)),
+    'm': dict(semis=3.5, formant=0.92, rng=1.25, dur=0.92, growl=0.45, roar=0.22, dirt=0.45, drive=8.0, bite=8.0, bite_f=2600, edge=-1.0, body=3.0,
+              punch=0.8, army=[(11, 18, 0.45), (19, -22, 0.4), (27, 10, 0.3)], rv=0.6, wet=0.04, echo=(0.11, 0.07), limit=10.0, thr=-24.0, ratio=6.0, clip=4.0),
+    'f': dict(semis=3.0, formant=1.02, rng=1.3, dur=0.92, growl=0.18, dirt=0.32, drive=7.0, bite=9.0, bite_f=3800, edge=4.0, body=-1.0,
+              punch=0.8, army=[(10, 15, 0.35), (18, -18, 0.3)], rv=0.5, wet=0.04, echo=(0.1, 0.06), limit=10.0, thr=-24.0, ratio=6.0, clip=2.6),
 }
-# 几档：从狠到轻（吼的毛刺、削波、咬字、叠的人都乘这个数），留最狠、机器还听得出的那一档
-LEVELS = [1.0, 0.75, 0.5, 0.25]
+
+# 个别喊声单独调（按"男/女-哪一句"）：绝杀不叠人、不加混响回声——一个人干脆利落地砸下去（叠人加混响的尾巴会把"杀"拖成"上"，
+# 最狠那一档就听不出来了）；女声的绝杀再不放大起伏、不动共振峰（不然"绝"成了"介""缺"），别的照样拉满
+SHOUT_OVERRIDE = {
+    'm-jiesha': dict(army=[], wet=0.0, echo=(0.1, 0.0)),
+    'f-jiesha': dict(army=[], wet=0.0, echo=(0.1, 0.0), rng=1.0, formant=1.0),
+}
+
+
+def max_force(prof, female):
+    """出场人物的开场白也调到最大力度：在各自的嗓子上，统一再加一层（音高、起伏、语速、毛刺、削波、字头、压峰）"""
+    p = dict(prof)
+    p['semis'] = prof['semis'] + (2.0 if female else 1.5)
+    p['formant'] = prof['formant'] * (1.02 if female else 0.97)
+    p['rng'], p['dur'] = 1.2, 0.93
+    p['growl'] = prof['growl'] * 1.4
+    p['dirt'] = min(0.5, prof['dirt'] * 1.4)
+    p['drive'] = 8.0
+    p['bite'] = prof['bite'] + 2.5
+    p['bite_f'] = 3800 if female else 2700
+    p['edge'] = 3.0 if female else -1.0
+    p['punch'] = 0.7
+    p['roar'] = prof.get('roar', 0.0 if female else 0.15)
+    p['limit'], p['thr'], p['ratio'], p['clip'] = 10.0, -24.0, 6.0, 3.2
+    return p
+
+# 几档：从狠到轻（音高、共振峰、起伏、毛刺、削波、咬字、字头、叠的人都往回收），留最狠、机器还听得出的那一档
+LEVELS = [1.0, 0.85, 0.7, 0.55, 0.4]
 
 # 出场人物的开场白：(嗓子, [(念的字, 语速)...], 处理)。屏幕上的字幕在 intro.ts，和这里只差同音字：
 # 斩将的"将"念 jiàng（斩匠），落子念 luò zǐ（注音器按"落枕"的 lào 念，换成"落梓"）
@@ -79,7 +113,7 @@ LEVELS = [1.0, 0.75, 0.5, 0.25]
 HEROES = {
     # 关公：最沉最大的嗓子，吼得最粗，身后叠两个亲兵
     'guangong': ('zm_yunyang', [('关某在此！鼠辈，谁敢与我一战！', 1.0), ('关某在此！鼠辈，谁敢与我一战！', 0.95)],
-                 dict(semis=0.0, formant=0.9, growl=0.38, dirt=0.34, bite=5.5, body=3.0, army=[(12, 16, 0.38), (21, -20, 0.3)], rv=0.9, wet=0.1, echo=(0.14, 0.12))),
+                 dict(semis=0.0, formant=0.9, growl=0.38, dirt=0.34, bite=5.5, body=3.0, roar=0.25, army=[(12, 16, 0.38), (21, -20, 0.3)], rv=0.9, wet=0.1, echo=(0.14, 0.12))),
     # 哪吒：少年音，亮、冲
     'nezha': ('zm_yunxia', [('哪吒在此！火尖枪下，片甲不留！', 1.0), ('哪吒在此！火尖枪下，片甲不留！', 1.05)],
               dict(semis=1.5, formant=1.0, growl=0.14, dirt=0.24, bite=5.0, body=1.0, army=[(10, 15, 0.3)], rv=0.6, wet=0.07, echo=(0.11, 0.08))),
@@ -133,6 +167,9 @@ def biquad(kind, f0, gain_db=0.0, q=0.707):
     if kind == 'lowshelf':
         b = [A * ((A + 1) - (A - 1) * cw + 2 * np.sqrt(A) * alpha), 2 * A * ((A - 1) - (A + 1) * cw), A * ((A + 1) - (A - 1) * cw - 2 * np.sqrt(A) * alpha)]
         a = [(A + 1) + (A - 1) * cw + 2 * np.sqrt(A) * alpha, -2 * ((A - 1) + (A + 1) * cw), (A + 1) + (A - 1) * cw - 2 * np.sqrt(A) * alpha]
+    elif kind == 'highshelf':
+        b = [A * ((A + 1) + (A - 1) * cw + 2 * np.sqrt(A) * alpha), -2 * A * ((A - 1) + (A + 1) * cw), A * ((A + 1) + (A - 1) * cw - 2 * np.sqrt(A) * alpha)]
+        a = [(A + 1) - (A - 1) * cw + 2 * np.sqrt(A) * alpha, 2 * ((A - 1) - (A + 1) * cw), (A + 1) - (A - 1) * cw - 2 * np.sqrt(A) * alpha]
     elif kind == 'peak':
         b = [1 + alpha * A, -2 * cw, 1 - alpha * A]
         a = [1 + alpha / A, -2 * cw, 1 - alpha / A]
@@ -226,13 +263,42 @@ def trim(x, th=0.01):
     return x[max(0, idx[0] - int(0.04 * SR)): idx[-1] + int(0.05 * SR)]
 
 
-def effort(x, semis, formant):
-    """嗓子使劲：整体抬 semis 个半音（声调起伏不动），共振峰乘 formant（Praat 的 Change gender）"""
-    s = parselmouth.Sound(x, SR)
+def median_f0(s):
     f = s.to_pitch(time_step=0.01, pitch_floor=70, pitch_ceiling=500).selected_array['frequency']
     f = f[f > 0]
-    med = float(np.median(f)) if len(f) else 150.0
-    return call(s, 'Change gender', 70, 500, formant, med * 2 ** (semis / 12), 1.0, 1.0).values[0].astype(np.float64)
+    return float(np.median(f)) if len(f) else 150.0
+
+
+def effort(x, semis, formant, rng=1.0, dur=1.0):
+    """嗓子使劲：抬 semis 个半音、声调起伏放大 rng 倍、共振峰乘 formant、时长乘 dur（Praat 的 Change gender）"""
+    s = parselmouth.Sound(x, SR)
+    return call(s, 'Change gender', 70, 500, formant, median_f0(s) * 2 ** (semis / 12), rng, dur).values[0].astype(np.float64)
+
+
+def onepole(x, tau):
+    a = np.exp(-1 / (tau * SR))
+    return lfilter([1 - a], [1, -a], x)
+
+
+def punch(x, amount):
+    """字头砸实（铿锵）：每个字一起头那二三十毫秒，快包络比慢包络高出来的那一截放大"""
+    if amount <= 0:
+        return x
+    a = np.abs(x)
+    g = np.clip((onepole(a, 0.001) / (onepole(a, 0.04) + 1e-6)) ** amount, 1.0, 3.0)
+    return x * onepole(g, 0.003)
+
+
+def roar(x, gain):
+    """怒吼的底：同一句压低一个八度（共振峰不动）垫在下面"""
+    if gain <= 0:
+        return x
+    s = parselmouth.Sound(x, SR)
+    low = call(s, 'Change gender', 70, 500, 1.0, median_f0(s) * 0.5, 1.0, 1.0).values[0].astype(np.float64)
+    out = x.copy()
+    n = min(len(x), len(low))
+    out[:n] += low[:n] * gain
+    return out
 
 
 def growl(x, depth):
@@ -277,18 +343,25 @@ def limit(x, cut_db=6.0, look=0.002, rel=0.06):
 
 
 def fierce(raw, prof, level=1.0):
-    """喊出杀气（见文件头）。返回（成品，干声）：干声是嗓子处理完、还没叠人、没加混响回声的那一版，给机器听"""
-    x = trim(effort(trim(raw), prof['semis'], prof['formant']))
+    """喊出杀气（见文件头）。返回（成品，干声）：干声是嗓子处理完、还没叠人、没加混响回声的那一版，给机器听。
+    level 从 1 往下退时，起伏、毛刺、削波、咬字、字头、怒吼的底、叠的人一起往回收"""
+    rng = 1 + (prof.get('rng', 1.0) - 1) * level
+    formant = 1 + (prof['formant'] - 1) * level
+    semis = prof['semis'] * (0.6 + 0.4 * level)
+    x = trim(effort(trim(raw), semis, formant, rng, prof.get('dur', 1.0)))
     x = growl(x, prof['growl'] * level)
+    x = roar(x, prof.get('roar', 0.0) * level)
     x = eq(x, 'highpass', 95)
     x = eq(x, 'lowshelf', 160, prof['body'])
     x = eq(x, 'peak', 450, -2.5, 1.0)
-    x = eq(x, 'peak', 3000, prof['bite'] * (0.4 + 0.6 * level), 0.8)
-    x = eq(x, 'peak', 7200, -3.0, 1.5)
+    x = eq(x, 'peak', prof.get('bite_f', 3000), prof['bite'] * (0.4 + 0.6 * level), 0.8)
+    x = eq(x, 'highshelf', 6500, prof.get('edge', -3.0))
     x = x / (np.abs(x).max() + 1e-9)
-    hard = eq(np.tanh(5 * x) / np.tanh(5), 'lowpass', 6500)
+    drive = prof.get('drive', 5.0)
+    hard = eq(np.tanh(drive * x) / np.tanh(drive), 'lowpass', 7000)
     dirt = prof['dirt'] * level
     x = (1 - dirt) * x + dirt * hard
+    x = punch(x, prof.get('punch', 0.0) * level)
     dry = x / (np.abs(x).max() + 1e-9)
     y = np.zeros(len(x) + int(0.06 * SR))
     y[: len(x)] += x
@@ -312,7 +385,12 @@ def fierce(raw, prof, level=1.0):
     fade = int(0.2 * SR)
     out[n - fade:] *= np.linspace(1, 0, fade) ** 2
     out = limit(out, prof.get('limit', 6.0))
-    return out / (np.abs(out).max() + 1e-9) * 10 ** (-1 / 20), dry
+    # 最后一道软削波：峰再削掉一截、整体推到最响，顺带一点砂砾感
+    clip = 1 + (prof.get('clip', 1.0) - 1) * level
+    if clip > 1.01:
+        out = out / (np.abs(out).max() + 1e-9)
+        out = np.tanh(clip * out) / np.tanh(clip)
+    return out / (np.abs(out).max() + 1e-9) * 10 ** (-0.5 / 20), dry
 
 
 def write_mp3(name, x):
@@ -435,9 +513,9 @@ def main():
 
 
 def run_jobs(report, bad):
-    jobs = [(f'{g}-{k}', VOICES[g], cands, SHOUT_PROF[g], 1.0) for g in VOICES for k, cands in SHOUTS.items()]
+    jobs = [(f'{g}-{k}', VOICES[g], cands, {**SHOUT_PROF[g], **SHOUT_OVERRIDE.get(f'{g}-{k}', {})}, 1.0) for g in VOICES for k, cands in SHOUTS.items()]
     # 开场白长：十几个音节里错一两个（识别器没学过"鼠辈""帅首"这种词）也算听得出
-    jobs += [(f'hero-{k}', v, cands, prof, 0.85) for k, (v, cands, prof) in HEROES.items()]
+    jobs += [(f'hero-{k}', v, cands, max_force(prof, v.startswith('zf')), 0.85) for k, (v, cands, prof) in HEROES.items()]
     if ONLY:
         # 只补几句：别的录音不动，报告里原来的记录留着
         jobs = [j for j in jobs if j[0] in ONLY]
