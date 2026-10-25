@@ -203,7 +203,7 @@ export class BoardFx {
 
   /**
    * 吃子：等走的那个子落下，被吃的子碎成几块飞出去、木屑溅开、冲击波一圈；
-   * 马炮再震一下棋盘；**吃车**：金光一闪、大字"吃車"砸下来、棋盘大震，配那一声"锵——"。
+   * 马炮再震一下棋盘；**吃车**：金光一闪、"吃车"大字（刀光一闪：两刀，字被斩成两半）、棋盘大震，配那一声"锵——"。
    */
   capture(x: number, y: number, victim: Piece, by: Color) {
     const shout = CAPTURE_SHOUT[victim.t];
