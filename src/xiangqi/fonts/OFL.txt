@@ -12,7 +12,7 @@ xq-xiaowei.woff2  站酷小薇 ZCOOL XiaoWei 1.000
                   Copyright 2018 The ZCOOL XiaoWei Project Authors (https://www.github.com/googlefonts/xiaowei)
 
 另外三份同样是截出来的（同上两款字体，同一份许可证）：
-xq-hero.woff2     马善政毛笔楷书：出场人物的大名、字幕要用的几十个字
+xq-hero.woff2     马善政毛笔楷书：出场人物的名字、开场白字幕、结果页要用的一百多个字
 xq-verse.woff2    志莽行书：出场人物的诗句
 xq-fx.woff2       马善政毛笔楷书：对局大字"开局 吃车 将军 绝杀 困毙"和"楚汉"印（十二个字）
 
