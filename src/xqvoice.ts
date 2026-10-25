@@ -69,8 +69,11 @@ export function preloadVoice(names: string[]) {
 export function preloadShouts() {
   const k = getVoiceKind();
   if (k === 'off') return;
-  preloadVoice((['jiangjun', 'jiesha', 'kunbi', 'chiche', 'win', 'lose', 'draw'] as Shout[]).map((s) => `${k}-${s}`));
+  preloadVoice((['jiangjun', 'jiesha', 'kunbi', 'chiche', 'win', 'lose', 'draw'] as Shout[]).flatMap((s) => variants(`${k}-${s}`)));
 }
+
+/** 一句喊声有几种说法：m-win、m-win-2、m-win-3……（终局那几句：大获全胜！胜负已分！痛快！再来！）有几个文件算几种 */
+const variants = (name: string) => [name, `${name}-2`, `${name}-3`, `${name}-4`].filter((n) => urlOf(n));
 
 /** 最近一次喊的是哪一句（测试看） */
 export let lastSaid = '';
@@ -203,11 +206,12 @@ export function xqAnnounce(text: string, delayMs = 0, wait = false) {
 export function xqShout(s: Shout, delayMs = 0) {
   const k = getVoiceKind();
   if (k === 'off') return;
-  void play(`${k}-${s}`, delayMs, 1);
+  const alts = variants(`${k}-${s}`);
+  void play(alts[Math.floor(Math.random() * alts.length)], delayMs, 1);
 }
 
-/** 出场人物的开场白（人物自己的嗓子；配音关掉了就不念） */
-export function xqHeroLine(hero: string, delayMs = 0) {
+/** 出场人物的开场白：第 n 句（从 1 数；人物自己的嗓子；配音关掉了就不念） */
+export function xqHeroLine(hero: string, n: number, delayMs = 0) {
   if (getVoiceKind() === 'off') return;
-  void play(`hero-${hero}`, delayMs, 1);
+  void play(`hero-${hero}-${n}`, delayMs, 1);
 }

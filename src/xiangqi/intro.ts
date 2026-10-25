@@ -30,12 +30,15 @@ export interface HeroInfo {
   id: HeroId;
   /** 设置页里的名字 */
   label: string;
-  /** 开场白（和录音一字不差） */
-  line: string;
+  /**
+   * 开场白：五句，每次出场随机挑一句（不和这位上一次念的那句重复）。和录音 hero-{id}-{第几句} 一字不差——
+   * 录音里为了念准换过同音字（车念"居"、将念"匠"……），这里写的是真字
+   */
+  lines: string[];
   /** 一句话介绍（设置页） */
   desc: string;
-  /** 录音多长（秒），整场按它排 */
-  voiceSec: number;
+  /** 每一句录音多长（秒），整场按它排 */
+  voiceSec: number[];
   /** 画铺满屏幕时对齐哪里（object-position）：对着画上的题字那一边 */
   pos: string;
   /** 镜头从哪个样子推到哪个样子（transform），绕哪一点 */
@@ -70,9 +73,15 @@ export const HEROES: HeroInfo[] = [
     id: 'guangong',
     side: 'l',
     label: '关公',
-    line: '关某在此！鼠辈，谁敢与我一战！',
+    lines: [
+      '关某在此！鼠辈，谁敢与我一战！',
+      '青龙偃月刀下，从无活口！',
+      '过五关，斩六将，岂惧你一盘棋！',
+      '吾观你，不过插标卖首之辈！',
+      '赤兔追风，取你帅首，易如反掌！',
+    ],
     desc: '提刀斩将：骑赤兔马、提青龙偃月刀，古战场上冲锋',
-    voiceSec: 3.2,
+    voiceSec: [3.14, 3.0, 3.35, 3.16, 3.37],
     // 一上来贴得很近（马和刀冲到脸前），拉开到整幅；尘土碎石朝镜头飞过来；刀光顺着偃月刀的刃口划下去
     pos: '50% 0%',
     from: 'scale(1.24) translate(3%, 4%)',
@@ -86,9 +95,15 @@ export const HEROES: HeroInfo[] = [
     id: 'nezha',
     side: 'l',
     label: '哪吒',
-    line: '哪吒在此！火尖枪下，片甲不留！',
+    lines: [
+      '哪吒在此！火尖枪下，片甲不留！',
+      '风火轮起，烧你个满盘皆空！',
+      '小爷来也！谁敢接我三枪！',
+      '乾坤圈出，管你是帅是将，统统砸烂！',
+      '混天绫一卷，你的帅，跑不掉！',
+    ],
     desc: '踩风火轮：云海仙山间腾空，混天绫翻飞、火尖枪',
-    voiceSec: 3.3,
+    voiceSec: [3.33, 3.18, 2.94, 3.87, 2.99],
     // 近处拉开到全身；火星往上窜；太阳一团光晕；风火轮上炸开一圈火环
     pos: '50% 0%',
     from: 'scale(1.16) translateY(5%)',
@@ -103,9 +118,15 @@ export const HEROES: HeroInfo[] = [
     id: 'daoke',
     side: 'l',
     label: '斗笠刀客',
-    line: '刀已出鞘，不见血，不回鞘！',
+    lines: [
+      '刀已出鞘，不见血，不回鞘！',
+      '一人一刀，斩尽这一局！',
+      '江湖路远，你的帅，今日留下！',
+      '我的刀，只问输赢，不问生死！',
+      '落子如刀，一步，便是一命！',
+    ],
     desc: '江湖一人一刀：云海孤峰，斗笠长刀，衣袍猎猎',
-    voiceSec: 3.2,
+    voiceSec: [3.16, 2.8, 3.32, 3.08, 2.98],
     // 慢慢推近斗笠和左上角的题字"江湖 一人一刀"（绕人物中间推会把字推出屏幕）；雪和落叶横着飘；一道横着的刀光
     pos: '50% 0%',
     from: 'scale(1.01) translateX(-1.5%)',
@@ -119,9 +140,15 @@ export const HEROES: HeroInfo[] = [
     id: 'shaoshuai',
     side: 'r',
     label: '少帅',
-    line: '三军听令！过河，斩将，夺帅旗！',
+    lines: [
+      '三军听令！过河，斩将，夺帅旗！',
+      '擂鼓！列阵！今日踏平你的九宫！',
+      '车马炮齐出，一个不留！',
+      '兵临城下，降者免死！',
+      '我的兵，只进不退！',
+    ],
     desc: '运筹帷幄：夕阳下战旗猎猎，黑袍红襟、腰横长剑，按住一枚棋子',
-    voiceSec: 3.2,
+    voiceSec: [3.33, 3.26, 2.88, 2.78, 2.49],
     pos: '74% 0%',
     from: 'scale(1.2) translate(1%, 3%)',
     to: 'scale(1.02)',
@@ -134,9 +161,15 @@ export const HEROES: HeroInfo[] = [
     id: 'hongzhuang',
     side: 'l',
     label: '红妆女将',
-    line: '步步为营，步步见血！你的帅，本姑娘要定了！',
+    lines: [
+      '步步为营，步步见血！你的帅，本姑娘要定了！',
+      '红妆上阵，不让须眉！接招！',
+      '别眨眼！我红妆出手，绝不留情！',
+      '哭也没用，这一盘，你输定了！',
+      '胭脂是红的，血也是红的！',
+    ],
     desc: '步步为营：朱楼红灯下一身红装，红绫翻飞，笑着等你送帅',
-    voiceSec: 4.3,
+    voiceSec: [4.41, 3.25, 3.63, 3.13, 3.13],
     pos: '0% 0%',
     from: 'scale(1.16) translate(-2%, 2%)',
     to: 'scale(1.02)',
@@ -149,9 +182,15 @@ export const HEROES: HeroInfo[] = [
     id: 'ziyi',
     side: 'r',
     label: '紫衣炮手',
-    line: '炮已架好！隔山，也取你帅首！',
+    lines: [
+      '炮已架好！隔山，也取你帅首！',
+      '一炮定乾坤，你躲不过！',
+      '炮声一响，寸草不生！',
+      '隔子打子，专打你的心窝！',
+      '点火！送你的帅，上路！',
+    ],
     desc: '指尖风云：暮色宫阙、紫衣黑甲，指尖捏着一枚炮',
-    voiceSec: 3.1,
+    voiceSec: [3.13, 2.86, 2.68, 2.8, 2.62],
     pos: '100% 0%',
     from: 'scale(1.22) translate(-2%, 1%)',
     to: 'scale(1.02)',
@@ -164,9 +203,15 @@ export const HEROES: HeroInfo[] = [
     id: 'xuanyi',
     side: 'l',
     label: '玄衣棋客',
-    line: '落子无悔！这一局，我要你满盘皆输！',
+    lines: [
+      '落子无悔！这一局，我要你满盘皆输！',
+      '一子落下，生死已定！',
+      '你走的每一步，都在我算中！',
+      '黑云压城，这一局，没有活路！',
+      '算你十步，杀你一步！',
+    ],
     desc: '落子无悔：悬崖古亭、飞瀑松风，一身玄衣，一子按下',
-    voiceSec: 3.8,
+    voiceSec: [3.83, 2.75, 3.23, 3.24, 2.84],
     pos: '50% 0%',
     from: 'scale(1.16) translate(-1%, 2%)',
     to: 'scale(1.02)',
@@ -180,9 +225,15 @@ export const HEROES: HeroInfo[] = [
     id: 'suyi',
     side: 'l',
     label: '素衣棋仙',
-    line: '莫看我笑！取你性命，只需一手！',
+    lines: [
+      '莫看我笑！取你性命，只需一手！',
+      '花开一季，你的帅，撑不过一盘！',
+      '别怕，很快就结束了！',
+      '我笑一次，就有人输一次！',
+      '梨花落尽，胜负已分！',
+    ],
     desc: '自有乾坤：梨花树下、素衣轻纱，支颐一笑，一手定生死',
-    voiceSec: 3.3,
+    voiceSec: [3.29, 3.12, 2.57, 2.71, 2.47],
     pos: '50% 0%',
     from: 'scale(1.18) translate(1%, 2%)',
     to: 'scale(1.02)',
@@ -196,9 +247,15 @@ export const HEROES: HeroInfo[] = [
     id: 'moke',
     side: 'l',
     label: '白衣墨客',
-    line: '行云流水，杀人不见血。请落子！',
+    lines: [
+      '行云流水，杀人不见血。请落子！',
+      '一笔一画，皆是杀机！',
+      '胜负？我早已写好了！',
+      '墨未干，你已败！',
+      '风雪千里，只为斩你一局！',
+    ],
     desc: '行云流水：雪峰群鹤之间，一身泼墨白衣，抬手便是一局',
-    voiceSec: 3.3,
+    voiceSec: [3.29, 2.71, 2.75, 2.37, 3.02],
     pos: '50% 0%',
     from: 'scale(1.03) translateY(-1%)',
     to: 'scale(1.16)',
@@ -249,6 +306,38 @@ function pickRandom(): HeroId {
   return pool[Math.floor(Math.random() * pool.length)].id;
 }
 
+/**
+ * 这一位这一次念第几句（从 0 数）：随机，不和他上一次那句重复。
+ * 开局设置页就先挑好（preloadHero），好先把那一句录音拉下来；真演的时候（takeLine）取走、记下
+ */
+const queuedLine = new Map<HeroId, number>();
+const LINE_LAST = 'xq-hero-line';
+function lastLines(): Record<string, number> {
+  try {
+    const m = JSON.parse(localStorage.getItem(LINE_LAST) ?? '{}');
+    return m && typeof m === 'object' ? m : {};
+  } catch {
+    return {};
+  }
+}
+function pickLine(id: HeroId): number {
+  const last = lastLines()[id];
+  const pool = heroInfo(id)
+    .lines.map((_, i) => i)
+    .filter((i) => i !== last);
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+function takeLine(id: HeroId): number {
+  const i = queuedLine.get(id) ?? pickLine(id);
+  queuedLine.delete(id);
+  try {
+    localStorage.setItem(LINE_LAST, JSON.stringify({ ...lastLines(), [id]: i }));
+  } catch {
+    /* 记不下就可能和上一次同一句，不要紧 */
+  }
+  return i;
+}
+
 /** 这一盘请谁出场（关掉了返回 null） */
 export function nextHero(): HeroId | null {
   const pick = getHeroPick();
@@ -290,7 +379,8 @@ export function preloadHero() {
   const pick = getHeroPick();
   if (pick === 'off') return;
   const id = pick === 'random' ? (queued ??= pickRandom()) : pick;
-  preloadVoice([`hero-${id}`]);
+  if (!queuedLine.has(id)) queuedLine.set(id, pickLine(id));
+  preloadVoice([`hero-${id}-${queuedLine.get(id)! + 1}`]);
   // 那一幅画（一两百 KB）：先拉下来，出场时墨一洇开就是画，不会先黑一下
   const img = new Image();
   img.decoding = 'async';
@@ -307,6 +397,95 @@ const BLOT = (() => {
     `<g filter="url(#b)" fill="#000"><circle cx="100" cy="100" r="62"/><circle cx="160" cy="70" r="7"/><circle cx="44" cy="146" r="5"/><circle cx="58" cy="44" r="4"/><circle cx="150" cy="156" r="6"/></g></svg>`;
   return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
 })();
+
+/** 烈焰燃开的遮罩：下半截不透明、上沿是一排火舌（湍流推歪），从屏幕底下烧上去 */
+const FLAME = (() => {
+  const r = (seed: number) => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  const rnd = r(29);
+  let d = 'M0 220V108';
+  for (let x = 0; x < 100; ) {
+    const w = 5 + rnd() * 9;
+    const tip = 82 + rnd() * 20;
+    d += `Q${(x + w * 0.3).toFixed(1)} ${(tip + 10).toFixed(1)} ${(x + w * 0.5).toFixed(1)} ${tip.toFixed(1)}Q${(x + w * 0.7).toFixed(1)} ${(tip + 12).toFixed(1)} ${(x + w).toFixed(1)} 108`;
+    x += w;
+  }
+  d += 'V220Z';
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 220" preserveAspectRatio="none"><filter id="f" x="-10%" y="-10%" width="120%" height="120%">` +
+    `<feTurbulence type="fractalNoise" baseFrequency=".09 .05" numOctaves="2" seed="4"/><feDisplacementMap in="SourceGraphic" scale="7"/></filter>` +
+    `<path filter="url(#f)" d="${d}" fill="#000"/></svg>`;
+  return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+})();
+
+// ───────────────────────── 开场：画怎么露出来（每次随机一种） ─────────────────────────
+
+/**
+ * 墨滴洇开（原来那一种）、刀光裂屏（一道刀光斜着劈开黑幕，两半各自飞开）、烈焰燃开（黑幕从底下烧上去，火舌一路舔上来）、
+ * 金门洞开（两扇朱漆金钉的大门往两边推开，门缝里先漏出一道金光）、雷霆一击（黑里一道闪电，一闪一闪地把画照出来）、
+ * 卷轴展开（两根卷轴从中间往两边滚开，画一点点露出来）。
+ * 都在一秒左右露全，亮相一招（1.15 秒那一刀）照旧
+ */
+export type Reveal = 'ink' | 'blade' | 'fire' | 'gate' | 'thunder' | 'scroll';
+export const REVEALS: Reveal[] = ['ink', 'blade', 'fire', 'gate', 'thunder', 'scroll'];
+const REVEAL_LAST = 'xq-hero-reveal';
+function pickReveal(): Reveal {
+  let last = '';
+  try {
+    last = localStorage.getItem(REVEAL_LAST) ?? '';
+  } catch {
+    /* 没有就随便挑 */
+  }
+  const pool = REVEALS.filter((r) => r !== last);
+  const r = pool[Math.floor(Math.random() * pool.length)];
+  try {
+    localStorage.setItem(REVEAL_LAST, r);
+  } catch {
+    /* 记不下就可能和上一次一样，不要紧 */
+  }
+  return r;
+}
+
+/** 一道闪电：从上往下折几折，中途分一叉 */
+function bolt(): string {
+  let x = 210 + (Math.random() - 0.5) * 80;
+  let y = -20;
+  let d = `M${x.toFixed(0)} ${y}`;
+  let fork = '';
+  while (y < 820) {
+    x += (Math.random() - 0.5) * 90;
+    y += 40 + Math.random() * 60;
+    d += `L${x.toFixed(0)} ${y.toFixed(0)}`;
+    if (!fork && y > 260) {
+      let fx = x;
+      let fy = y;
+      fork = `M${fx.toFixed(0)} ${fy.toFixed(0)}`;
+      for (let k = 0; k < 4; k++) {
+        fx += 20 + Math.random() * 40;
+        fy += 30 + Math.random() * 40;
+        fork += `L${fx.toFixed(0)} ${fy.toFixed(0)}`;
+      }
+    }
+  }
+  return `<path d="${d}"/><path class="fk" d="${fork}"/>`;
+}
+
+/** 各种开场要叠在画上面的那一层 */
+function revealLayer(rv: Reveal): string {
+  switch (rv) {
+    case 'blade':
+      return `<div class="xqh-rv xqh-rv-blade"><div class="h a"></div><div class="h b"></div><svg viewBox="0 0 100 100" preserveAspectRatio="none"><line x1="-5" y1="64" x2="105" y2="36" pathLength="1"/></svg><div class="fl"></div></div>`;
+    case 'fire':
+      return `<div class="xqh-rv xqh-rv-fire"><div class="burn"></div></div>`;
+    case 'gate':
+      return `<div class="xqh-rv xqh-rv-gate"><div class="door l"><i></i></div><div class="door r"><i></i></div><div class="beam"></div></div>`;
+    case 'thunder':
+      return `<div class="xqh-rv xqh-rv-thunder"><div class="cv"></div><svg viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice">${bolt()}</svg><div class="fl"></div></div>`;
+    case 'scroll':
+      return `<div class="xqh-rv xqh-rv-scroll"><div class="rod l"></div><div class="rod r"></div></div>`;
+    default:
+      return '';
+  }
+}
 
 // ───────────────────────── 空中飘的东西 ─────────────────────────
 
@@ -604,18 +783,28 @@ export function stopHeroIntro() {
  * 演一场出场。返回的 Promise 在"该轮到棋盘入场"时 resolve（画面开始淡出、或者被点了跳过）。
  * host 默认整个页面（盖住一切，点一下就跳过）
  */
-export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opts: { hold?: boolean; vs?: string } = {}): Promise<void> {
+export function playHeroIntro(
+  id: HeroId,
+  host: HTMLElement = document.body,
+  opts: { hold?: boolean; vs?: string; line?: number; reveal?: Reveal } = {},
+): Promise<void> {
   current?.end();
   const h = heroInfo(id);
   void loadFonts();
   const voiced = getVoiceKind() !== 'off';
+  // 念哪一句：随机（不和上一次重复）；调试、截图可以指定
+  const li = opts.line ?? takeLine(id);
   // 整场多长：喊完再留一点余韵；不配音就短一点
-  const total = Math.round(voiced ? Math.max(3600, 800 + h.voiceSec * 1000 + 150) : 3500);
+  const total = Math.round(voiced ? Math.max(3600, 800 + h.voiceSec[li] * 1000 + 150) : 3500);
   const outMs = 650;
 
   const root = document.createElement('div');
   root.className = `xqh xqh-${id} xqh-side-${h.side}`;
   root.dataset.hero = id;
+  root.dataset.line = String(li + 1);
+  // 画怎么露出来：随机一种（不和上一次一样）
+  const rv = opts.reveal ?? pickReveal();
+  root.dataset.rv = rv;
   root.style.setProperty('--T', `${total}ms`);
   root.style.setProperty('--pos', h.pos);
   root.style.setProperty('--kb-from', h.from);
@@ -636,22 +825,24 @@ export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opt
       <canvas class="xqh-air"></canvas>
       <div class="xqh-vign"></div>
     </div>
+    ${revealLayer(rv)}
     <svg class="xqh-slash" viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice">${h.slash}</svg>
     <div class="xqh-flash"></div>
     ${title}
-    <div class="xqh-line"><span>${clauses(h.line)}</span></div>
+    <div class="xqh-line"><span>${clauses(h.lines[li])}</span></div>
     ${opts.vs ? `<div class="xqh-vs">对阵 · ${opts.vs}</div>` : ''}
     <div class="xqh-skip">轻触跳过</div>`;
-  for (const sel of ['.xqh-dark', '.xqh-scene']) {
+  const masks: [string, string][] = rv === 'ink' ? [['.xqh-dark', BLOT], ['.xqh-scene', BLOT]] : rv === 'fire' ? [['.xqh-scene', FLAME]] : [];
+  for (const [sel, m] of masks) {
     const el = root.querySelector(sel) as HTMLElement;
-    el.style.setProperty('-webkit-mask-image', BLOT);
-    el.style.setProperty('mask-image', BLOT);
+    el.style.setProperty('-webkit-mask-image', m);
+    el.style.setProperty('mask-image', m);
   }
   host.appendChild(root);
   // 洇开之后遮罩就没用了，撤掉省得每一帧都要算
   const scene = root.querySelector('.xqh-scene') as HTMLElement;
   scene.addEventListener('animationend', (e) => {
-    if (e.target === scene && e.animationName === 'xqh-bloom') {
+    if (e.target === scene && (e.animationName === 'xqh-bloom' || e.animationName === 'xqh-burn')) {
       scene.style.setProperty('-webkit-mask-image', 'none');
       scene.style.setProperty('mask-image', 'none');
     }
@@ -662,7 +853,7 @@ export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opt
   const sparkTimer = window.setTimeout(() => air.burst(window.innerWidth * h.spark[0], window.innerHeight * h.spark[1], 60, SPARK_HUE[id]), 1250);
 
   xqSfxHero(id);
-  if (voiced) xqHeroLine(id, 800);
+  if (voiced) xqHeroLine(id, li + 1, 800);
   window.setTimeout(() => xqMusicDuck(0.22, total / 1000), 30);
 
   return new Promise<void>((resolve) => {

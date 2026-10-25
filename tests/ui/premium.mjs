@@ -1,6 +1,8 @@
 /**
  * "会员级"的那几样：
  *   - 典藏棋盘（水墨山河 / 鎏金玄漆 / 金碧青绿）会动的那一层：流光、河水粼光、薄雾、金粉，贴着棋盘；关了特效就没有；
+ *   - 水墨以外的四套典藏（星河夜弈 / 霓虹赛博 / 烽火沙场 / 敦煌飞天）各有各会动的东西（星星眨眼和流星、扫描线和河边跑的光、
+ *     火星、花瓣），对局画面的底也跟着换（深空、霓虹城、烽火城墙、大漠月夜）；换回水墨那几套，底换回水墨远山；
  *   - 报着法：走一步念一声"炮二平五"，对手走的也念；报完再喊"将军"，不叠在一起。默认关着（用户原话："不是每一步都要说话，
  *     就是关键的那几步"），样式页打开；
  *   - 对局两边对着两框：你那一框（执哪方、实战分、用时）和对手框，轮到谁谁亮、钟在走；
@@ -115,13 +117,40 @@ ok('关了对局特效：棋盘上没有会动的那一层', await page.evaluate
 await start({});
 await page.waitForTimeout(1500);
 ok('普通棋盘（榉木）：不加那一层', await page.evaluate(() => !document.querySelector('.xq-amb')?.children.length));
+ok('普通棋盘：对局画面的底是水墨远山', (await page.evaluate(() => document.querySelector('.xq-ink-bg')?.dataset.bg)) === 'ink');
+
+// ───────── 水墨以外的四套典藏：各有各会动的东西，画面的底跟着换 ─────────
+const NEW = {
+  xinghe: { look: { board: 'xinghe', piece: 'glass', font: 'xiaowei', trad: false }, sel: ['.amb-stars b', '.amb-meteor'], name: '星河夜弈：星星眨眼、流星' },
+  neon: { look: { board: 'neon', piece: 'neon', font: 'hei', trad: false }, sel: ['.amb-scan', '.amb-river .amb-pulse'], name: '霓虹赛博：扫描线、河边跑的光' },
+  fenghuo: { look: { board: 'fenghuo', piece: 'bronze', font: 'mashan', trad: false }, sel: ['.amb-embers i', '.amb-river .amb-ripple'], name: '烽火沙场：火星往上飞、河里的火' },
+  dunhuang: { look: { board: 'dunhuang', piece: 'lacquer', font: 'mashan', trad: false }, sel: ['.amb-petals i', '.amb-motes i'], name: '敦煌飞天：花瓣往下飘、金粉' },
+};
+for (const [id, t] of Object.entries(NEW)) {
+  await start({ 'xq-look': JSON.stringify(t.look) });
+  await page.waitForTimeout(2600);
+  const r = await page.evaluate(([id, sel]) => ({
+    cls: document.querySelector('.xq-amb')?.className ?? '',
+    has: sel.map((s) => document.querySelectorAll(s).length),
+    anim: sel.map((s) => (document.querySelector(s) ? getComputedStyle(document.querySelector(s)).animationName : '')),
+    bg: document.querySelector('.xq-ink-bg')?.dataset.bg,
+    live: document.querySelectorAll('.xq-ink-bg svg').length,
+  }), [id, t.sel]);
+  console.log(`   ${id}: ${JSON.stringify(r)}`);
+  ok(`${t.name}（都在动）`, r.cls.includes(`amb-${id}`) && r.has.every((n) => n > 0) && r.anim.every((a) => a && a !== 'none'));
+  ok(`${id}：对局画面的底换成这一套的（底图一张、会动的一张）`, r.bg === id && r.live === 2);
+  await page.screenshot({ path: `${OUT}/premium-${id}.png` });
+}
+// 对局里点 🎨 换下一套（敦煌飞天的下一套是"清晰护眼"）：底当场换回水墨远山（不用重进）
+await page.locator('#xq-look').click(); await page.waitForTimeout(600);
+ok('对局里换到普通棋盘：底当场换回水墨远山', (await page.evaluate(() => document.querySelector('.xq-ink-bg')?.dataset.bg)) === 'ink');
 
 // ───────── 出场：黑边、亮相一招、对阵 ─────────
 await start({ 'xq-hero': 'shaoshuai' });
 ok('出场：少帅', await until(() => document.querySelector('.xqh')?.dataset.hero === 'shaoshuai', null, 2000));
 ok('出场：亮相那一招（一道光）', (await page.locator('.xqh-slash path, .xqh-slash circle').count()) === 1);
 ok('出场：写着"对阵 · 对手"', /对阵 · .+ · /.test((await page.locator('.xqh-vs').textContent()) ?? ''));
-ok('出场：喊开场白', await until(() => document.documentElement.dataset.xqSaid === 'hero-shaoshuai', null, 4000));
+ok('出场：喊开场白', await until(() => /^hero-shaoshuai-[1-5]$/.test(document.documentElement.dataset.xqSaid ?? ''), null, 4000));
 await page.waitForTimeout(1300);
 await page.screenshot({ path: OUT + '/premium-hero.png' });
 

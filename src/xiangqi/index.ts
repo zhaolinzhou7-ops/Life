@@ -63,11 +63,12 @@ import {
 import { mateInOne } from './teach';
 import { minorsDead } from './minors';
 import { BoardView } from './boardview';
-import { PRESETS, boardStyle, fontOf, getLook, pieceStyle, presetOf, setLook } from './boardtheme';
+import { PRESETS, boardStyle, fontOf, getLook, onLook, pieceStyle, presetOf, setLook } from './boardtheme';
 import { renderLookPicker } from './lookui';
 import { fxEnabled } from './fx';
 import { getHeroPick, heroInfo, nextHero, playHeroIntro, preloadHero, stopHeroIntro } from './intro';
-import { inkBackdrop, splash } from './inkart';
+import { splash } from './inkart';
+import { backdropFor, backdropKey } from './backdrop';
 import { getVoiceKind, xqAnnounce, xqShout } from '../xqvoice';
 
 const VOICE_NAME = { m: '男声', f: '女声', off: '不要' } as const;
@@ -168,10 +169,20 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   const wrap = document.createElement('div');
   wrap.className = 'xq-root';
   app.appendChild(wrap);
-  // 对局画面的底：一层很暗的水墨远山（inkart.inkBackdrop），首页、设置页这些全屏页面自己有底色，盖在上面
+  // 对局画面的底：跟着棋盘走（backdrop.ts）——水墨那几套是很暗的夜色远山，星河是深空、霓虹是夜里的城……
+  // 首页、设置页这些全屏页面自己有底色，盖在上面
   const inkBg = document.createElement('div');
   inkBg.className = 'xq-ink-bg';
-  inkBg.innerHTML = inkBackdrop();
+  let bgKey = '';
+  const paintBg = () => {
+    const k = backdropKey(getLook().board);
+    if (k === bgKey) return;
+    bgKey = k;
+    inkBg.dataset.bg = k;
+    inkBg.innerHTML = backdropFor(getLook().board);
+  };
+  paintBg();
+  const offBg = onLook(paintBg);
   wrap.appendChild(inkBg);
   // 出场、结果页大字用的毛笔字体先拉下来（两个文件二十几 KB）
   preloadHero();
@@ -994,7 +1005,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     // 跟着棋局走——开局静、中局行云流水、胶着、攻杀、占优、劣势、残局各是一种情绪（updateMusic）
     const music = startXqMusic();
     /**
-     * 开局仪式：先请一位人物在水墨里亮相、报名号（intro.ts，四秒多，点一下跳过），演完棋盘才转平、棋子落下。
+     * 开局仪式：先请一位人物亮相、喊一句开场白（intro.ts，四秒多，点一下跳过），演完棋盘才转平、棋子落下。
      * 对手的开场白、执黑时对手的第一步都等它（started）。
      * 从复盘某一手接着下、接着下没下完的棋不演——那不是"开局"
      */
@@ -2485,6 +2496,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
 
   return () => {
     window.removeEventListener('pointerdown', unlock);
+    offBg();
     cleanupGame?.();
     disposeCoach?.();
     stopXqMusic();

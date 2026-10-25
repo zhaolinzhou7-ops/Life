@@ -28,9 +28,9 @@ ok('首页还是三个入口（样式不占入口）', (await page.locator('.xq-
 await page.locator('[data-home="look"]').click(); await page.waitForTimeout(1500);
 
 ok('默认：榉木、象牙、文楷', (await look()) === 'wood/ivory/wenkai');
-ok('十二套现成搭配（含三套典藏）', (await page.locator('[data-preset]').count()) === 12);
-ok('十一种棋盘（含水墨山河、鎏金玄漆、金碧青绿）', (await page.locator('[data-board]').count()) === 11);
-ok('八种棋子', (await page.locator('[data-piece]').count()) === 8);
+ok('十六套现成搭配（含七套典藏）', (await page.locator('[data-preset]').count()) === 16);
+ok('十五种棋盘（含水墨山河、鎏金玄漆、金碧青绿，和水墨以外的星河夜弈、霓虹赛博、烽火沙场、敦煌飞天）', (await page.locator('[data-board]').count()) === 15);
+ok('十种棋子（含琉璃、霓虹）', (await page.locator('[data-piece]').count()) === 10);
 ok('五种字体', (await page.locator('[data-font]').count()) === 5);
 await page.waitForTimeout(1500);
 ok('每张卡片都画出了小样', await page.evaluate(() => [...document.querySelectorAll('.xq-look-card')].every((c) => c.querySelector('.pic canvas, .pic .xq-hero-pic'))));

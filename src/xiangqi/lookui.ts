@@ -254,7 +254,10 @@ export function renderLookPicker(host: HTMLElement, onBack: () => void): () => v
 
     // 出场人物：开局前谁来亮相（intro.ts）。点一位当场演一遍
     const hp = getHeroPick();
-    const hs = section('出场人物', '开局之前，一位人物在水墨里亮相、报名号，然后才摆棋。点一位当场看一遍；对局里点一下屏幕就跳过。');
+    const hs = section(
+      '出场人物',
+      '开局之前，一位人物亮相、喊一句（每人五句，随机念一句），然后才摆棋。画怎么露出来也随机：墨滴洇开、刀光裂屏、烈焰燃开、金门洞开、雷霆一击、卷轴展开。点一位当场看一遍；对局里点一下屏幕就跳过。',
+    );
     const pickHero = (v: HeroPick) => {
       setHeroPick(v);
       render();
@@ -263,13 +266,13 @@ export function renderLookPicker(host: HTMLElement, onBack: () => void): () => v
         void playHeroIntro(v);
       }
     };
-    card(hs, '随机', '每盘换一位，不和上一盘重复', hp === 'random', () => textThumb('xq-hero-rand', '五位轮流'), () => pickHero('random'), { hero: 'random' });
+    card(hs, '随机', '每盘换一位，不和上一盘重复', hp === 'random', () => textThumb('xq-hero-rand', '九位轮流'), () => pickHero('random'), { hero: 'random' });
     for (const h of HEROES) card(hs, h.label, h.desc, hp === h.id, () => heroThumb(h.id), () => pickHero(h.id), { hero: h.id });
     card(hs, '不演', '直接摆棋开局', hp === 'off', () => textThumb('xq-hero-off', '直接开局'), () => pickHero('off'), { hero: 'off' });
 
-    // 配音：开局、吃车马炮、将军、绝杀时喊一声（xqvoice.ts）。点一下试听"将军！"
+    // 配音：吃车、将军、绝杀时喊一声（xqvoice.ts）。点一下试听"将军！"
     const vk = getVoiceKind();
-    const vs = section('配音', '开局、吃车马炮、将军、绝杀时喊一声，终局说一句，出场人物报名号；还能报着法。点一下试听。');
+    const vs = section('配音', '只在关键几步喊：吃车、将军、绝杀；终局说一句（几种说法随机），出场人物喊开场白；还能报着法。点一下试听。');
     const pickVoice = (v: VoiceKind) => {
       setVoiceKind(v);
       render();

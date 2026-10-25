@@ -5,21 +5,21 @@
  * 以前出场人物（刀客、关公……）也是在这里手画的矢量图；后来出场全换成了用户给的整幅画（intro.ts），那些画就删了。
  */
 
-const rng = (seed: number) => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
-const n1 = (v: number) => (Math.round(v * 10) / 10).toString();
+export const rng = (seed: number) => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+export const n1 = (v: number) => (Math.round(v * 10) / 10).toString();
 
 /** 背景层：竖版 400×800，铺满屏幕（多出来的裁掉） */
-const scene = (inner: string) =>
+export const scene = (inner: string) =>
   `<svg viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
 
 /** 毛笔的毛边：湍流把轮廓推歪一点 */
 const rough = (id: string, scale = 4, freq = 0.04, seed = 3) =>
   `<filter id="${id}" x="-8%" y="-8%" width="116%" height="116%"><feTurbulence type="fractalNoise" baseFrequency="${freq}" numOctaves="2" seed="${seed}" result="t"/><feDisplacementMap in="SourceGraphic" in2="t" scale="${scale}" xChannelSelector="R" yChannelSelector="G"/></filter>`;
 
-const blur = (id: string, sd: number) => `<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${sd}"/></filter>`;
+export const blur = (id: string, sd: number) => `<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${sd}"/></filter>`;
 
 /** 竖直渐变 */
-const vgrad = (id: string, stops: [number, string, number?][]) =>
+export const vgrad = (id: string, stops: [number, string, number?][]) =>
   `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">${stops
     .map(([o, c, a]) => `<stop offset="${o}" stop-color="${c}"${a === undefined ? '' : ` stop-opacity="${a}"`}/>`)
     .join('')}</linearGradient>`;
@@ -28,7 +28,7 @@ const vgrad = (id: string, stops: [number, string, number?][]) =>
  * 一列山：几座峰叠在一起，取最高的轮廓；峰顶浓、山脚淡进雾里（水墨山的画法）。
  * sharp 越大峰越尖
  */
-function range(id: string, seed: number, base: number, hMin: number, hMax: number, n: number, color: string, alpha: number, sharp = 1.6) {
+export function range(id: string, seed: number, base: number, hMin: number, hMax: number, n: number, color: string, alpha: number, sharp = 1.6) {
   const r = rng(seed);
   const pk = Array.from({ length: n }, () => ({ x: -40 + r() * 480, h: hMin + r() * (hMax - hMin), w: 46 + r() * 80 }));
   let d = `M-30 820 L-30 ${base}`;
@@ -63,7 +63,7 @@ function range(id: string, seed: number, base: number, hMin: number, hMax: numbe
 }
 
 /** 一团雾：几片横着的、很虚的亮色 */
-function mistBands(id: string, seed: number, ys: number[], color: string, alpha: number) {
+export function mistBands(id: string, seed: number, ys: number[], color: string, alpha: number) {
   const r = rng(seed);
   let s = `<defs>${blur(id, 16)}</defs><g filter="url(#${id})" fill="${color}">`;
   for (const y of ys) {
