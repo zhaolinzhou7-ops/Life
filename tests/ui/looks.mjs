@@ -1,5 +1,5 @@
 /**
- * 棋盘和棋子样式：首页底下有入口；九套搭配、八种棋盘、八种棋子、五种字体都列出来；
+ * 棋盘和棋子样式：首页底下有入口；十二套搭配、十一种棋盘（三种典藏）、八种棋子、五种字体都列出来；
  * 点哪个当场换（预览和存档都变）；没有繁体字的字体不让勾繁体；开一盘棋，棋盘是选好的那一套；
  * 对局里 🎨 换下一套，当场重画；吃子托盘去掉了（只剩棋谱条）。
  * 同一页还有出场人物（随机 / 五位 / 不演）和配音（男声 / 女声 / 不要，点了试听"将军！"）。
@@ -28,8 +28,8 @@ ok('首页还是三个入口（样式不占入口）', (await page.locator('.xq-
 await page.locator('[data-home="look"]').click(); await page.waitForTimeout(1500);
 
 ok('默认：榉木、象牙、文楷', (await look()) === 'wood/ivory/wenkai');
-ok('九套现成搭配', (await page.locator('[data-preset]').count()) === 9);
-ok('八种棋盘', (await page.locator('[data-board]').count()) === 8);
+ok('十二套现成搭配（含三套典藏）', (await page.locator('[data-preset]').count()) === 12);
+ok('十一种棋盘（含水墨山河、鎏金玄漆、金碧青绿）', (await page.locator('[data-board]').count()) === 11);
 ok('八种棋子', (await page.locator('[data-piece]').count()) === 8);
 ok('五种字体', (await page.locator('[data-font]').count()) === 5);
 await page.waitForTimeout(1500);

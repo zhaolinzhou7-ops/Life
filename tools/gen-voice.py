@@ -229,50 +229,61 @@ def score(got, text):
     return 0
 
 
-report = {}
-bad = []
 # 处理的几档：混响先重后轻——听得一样准的里头选最有气势（混响最足）的那一档；最后一档几乎是干声
 # （混响长、湿声、回声、叠一层）
 SHOUT_FX = [(1.3, 0.2, True, True), (1.2, 0.12, True, True), (1.2, 0.14, True, False), (1.0, 0.07, False, False), (0.8, 0.03, False, False)]
 HERO_FX = [(2.0, 0.24, False, True), (1.8, 0.14, False, True), (1.8, 0.16, False, False), (1.4, 0.07, False, False)]
-jobs = [(f'{g}-{k}', VOICES[g][0], cands, VOICES[g][1], SHOUT_FX) for g in VOICES for k, cands in SHOUTS.items()]
-jobs += [(f'hero-{k}', v, cands, semis, HERO_FX) for k, (v, cands, semis) in HEROES.items()]
-if ONLY:
-    # 只补几句：别的录音不动，报告里原来的记录留着
-    jobs = [j for j in jobs if j[0] in ONLY]
-    with open(os.path.join(OUT, 'report.json')) as fh:
-        report = json.load(fh)
-for name, voice, cands, semis, fxs in jobs:
-    # 每种念法、每档处理都试一遍，留听得最准的（同样准，留排在前面的：念法靠前、混响足）
-    best = None
-    tries = [(voice, t, sp) for t, sp in cands] + ([(b, t, sp) for b in BACKUP[voice] for t, sp in cands] if name[0] in 'mf' and voice in BACKUP else [])
-    for who, text, speed in tries:
-        if best and best[0] >= 2 and who != voice:
-            break  # 主嗓子已经念得准了，不用备用的
-        raw = say(text, who, speed)
-        for rv, wet, echo, dbl in fxs:
-            x = process(raw, semis, rv, wet, echo, dbl)
-            path = write_mp3(name, x)
-            got = heard(path)
-            sc = score(got, text)
-            if sc and (best is None or sc > best[0]):
-                best = (sc, text, speed, wet, got, x, who)
-            if sc == 3:
+
+
+def main():
+    report = {}
+    bad = []
+    run_jobs(report, bad)
+    with open(os.path.join(OUT, 'report.json'), 'w') as fh:
+        json.dump(report, fh, ensure_ascii=False, indent=1)
+    if bad:
+        print('识别对不上：', bad)
+        sys.exit(1)
+
+
+def run_jobs(report, bad):
+    jobs = [(f'{g}-{k}', VOICES[g][0], cands, VOICES[g][1], SHOUT_FX) for g in VOICES for k, cands in SHOUTS.items()]
+    jobs += [(f'hero-{k}', v, cands, semis, HERO_FX) for k, (v, cands, semis) in HEROES.items()]
+    if ONLY:
+        # 只补几句：别的录音不动，报告里原来的记录留着
+        jobs = [j for j in jobs if j[0] in ONLY]
+        with open(os.path.join(OUT, 'report.json')) as fh:
+            report.update(json.load(fh))
+    for name, voice, cands, semis, fxs in jobs:
+        # 每种念法、每档处理都试一遍，留听得最准的（同样准，留排在前面的：念法靠前、混响足）
+        best = None
+        tries = [(voice, t, sp) for t, sp in cands] + ([(b, t, sp) for b in BACKUP[voice] for t, sp in cands] if name[0] in 'mf' and voice in BACKUP else [])
+        for who, text, speed in tries:
+            if best and best[0] >= 2 and who != voice:
+                break  # 主嗓子已经念得准了，不用备用的
+            raw = say(text, who, speed)
+            for rv, wet, echo, dbl in fxs:
+                x = process(raw, semis, rv, wet, echo, dbl)
+                path = write_mp3(name, x)
+                got = heard(path)
+                sc = score(got, text)
+                if sc and (best is None or sc > best[0]):
+                    best = (sc, text, speed, wet, got, x, who)
+                if sc == 3:
+                    break
+            if best and best[0] == 3:
                 break
-        if best and best[0] == 3:
-            break
-    if not best:
-        print(f'✗ {name:16s} 试过 {len(cands)} 种念法都听不对（最后一次听成「{got}」）')
-        bad.append(name)
-        continue
-    sc, text, speed, wet, got, x, who = best
-    path = write_mp3(name, x)
-    f = pitch(path)
-    size = os.path.getsize(path)
-    report[name] = {'text': text, 'voice': who, 'speed': speed, 'reverb': wet, 'heard': got, 'score': sc, 'f0': round(f), 'bytes': size}
-    print(f'{"✓✓✓"[:sc]:3s} {name:16s} {text:14s} {who:12s} 语速 {speed} 混响 {wet:.2f} 听成「{got}」 基频 {f:4.0f}Hz {size // 1024}KB')
-with open(os.path.join(OUT, 'report.json'), 'w') as fh:
-    json.dump(report, fh, ensure_ascii=False, indent=1)
-if bad:
-    print('识别对不上：', bad)
-    sys.exit(1)
+        if not best:
+            print(f'✗ {name:16s} 试过 {len(cands)} 种念法都听不对（最后一次听成「{got}」）')
+            bad.append(name)
+            continue
+        sc, text, speed, wet, got, x, who = best
+        path = write_mp3(name, x)
+        f = pitch(path)
+        size = os.path.getsize(path)
+        report[name] = {'text': text, 'voice': who, 'speed': speed, 'reverb': wet, 'heard': got, 'score': sc, 'f0': round(f), 'bytes': size}
+        print(f'{"✓✓✓"[:sc]:3s} {name:16s} {text:14s} {who:12s} 语速 {speed} 混响 {wet:.2f} 听成「{got}」 基频 {f:4.0f}Hz {size // 1024}KB')
+
+
+if __name__ == '__main__':
+    main()

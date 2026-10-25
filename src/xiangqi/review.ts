@@ -59,6 +59,7 @@ import { lineTalk, whatItDoes } from './coachexplain';
 import type { MoveScore } from './ai';
 import { engineAnalyse, engineReady, engineScoreMove, loadEngine } from './pikafish';
 import { xqSfxCapture, xqSfxMove } from '../xqsfx';
+import { preloadAnnounce, xqAnnounce } from '../xqvoice';
 
 const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
@@ -340,6 +341,8 @@ export function runReview(opts: ReviewOpts): () => void {
       const mv = list[cursor].move;
       if (boards[cursor][mv.ty][mv.tx]) xqSfxCapture(boards[cursor][mv.ty][mv.tx]!.t);
       else xqSfxMove();
+      // 一手一手翻的时候也报着法（自动播放听着就像看直播）
+      xqAnnounce(list[cursor].text);
     }
     const cm = cursor >= 0 ? list[cursor] : null;
     // 你走得不好的一手：棋盘停在走之前，红箭头是你走的、绿箭头是最佳——点箭头看两条路各自怎么发展
@@ -1673,6 +1676,7 @@ export function runReview(opts: ReviewOpts): () => void {
   goto(-1);
   onProgress();
   requestAnimationFrame(drawGraph);
+  preloadAnnounce();
 
   if (import.meta.env.DEV) {
     (window as unknown as Record<string, unknown>).__xqReview = {

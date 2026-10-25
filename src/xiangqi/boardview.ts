@@ -16,6 +16,7 @@
  */
 import { Board2D, type Arrow, type Badge, type Mark } from './board2d';
 import { BoardFx } from './fx';
+import { BoardAmbient } from './ambient';
 import { applyMove, type Board, type Color, type Move, type Piece } from './rules';
 
 export class BoardView {
@@ -23,6 +24,7 @@ export class BoardView {
   private host: HTMLElement;
   /** 特效层：开局入场、吃子、将军、绝杀（fx.ts） */
   private fx: BoardFx;
+  private amb: BoardAmbient;
   private board: Board | null = null;
   /** 落子后的轻微延时，纯粹为了节奏，不做位移动画——棋子一帧都不离开交叉点 */
   private slideMs = 0;
@@ -36,6 +38,8 @@ export class BoardView {
     parent.appendChild(this.host);
     this.view = new Board2D(this.host, { flip, coords: true, onTap: (x, y) => (this.tapOverride ?? onTap)(x, y) });
     this.fx = new BoardFx(this.host, this.view);
+    // 典藏棋盘会动的那一层（流光、河水、薄雾、金粉）
+    this.amb = new BoardAmbient(this.host, this.view);
   }
 
   setTapOverride(fn: ((x: number, y: number) => void) | undefined) {
@@ -158,6 +162,7 @@ export class BoardView {
   }
 
   dispose() {
+    this.amb.dispose();
     this.fx.dispose();
     this.view.dispose();
     this.host.remove();

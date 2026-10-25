@@ -356,6 +356,9 @@ export function xqSfxHero(id: string) {
   bigGong(k, t0 + 0.02, 0.14, 64, 3.2);
   whoosh(k, t0 + 0.18, 1.05, 0.09);
   gliss(k, t0 + 0.3, 0, 12, 0.042, 0.11);
+  // 亮相那一招（一道光劈过去）："唰"一声，接一记闷鼓
+  noiseHit(k, t0 + 1.08, 0.24, 0.16, { bp: 3200, q: 1.1, attack: 0.06, sweep: [7000, 1100] });
+  taiko(k, t0 + 1.16, 0.42, 0.75);
   switch (id) {
     case 'daoke':
       noiseHit(k, t0 + 0.2, 3.8, 0.05, { hp: 900, lp: 5200, attack: 0.9 }, -0.2);

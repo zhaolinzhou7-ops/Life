@@ -27,7 +27,7 @@ import mashanUrl from './fonts/xq-mashan.woff2?url';
 import xingshuUrl from './fonts/xq-xingshu.woff2?url';
 import xiaoweiUrl from './fonts/xq-xiaowei.woff2?url';
 
-export type BoardId = 'wood' | 'rosewood' | 'bamboo' | 'paper' | 'jade' | 'marble' | 'night' | 'plain';
+export type BoardId = 'wood' | 'rosewood' | 'bamboo' | 'paper' | 'jade' | 'marble' | 'night' | 'inkland' | 'goldlac' | 'qinglv' | 'plain';
 export type PieceId = 'ivory' | 'boxwood' | 'jade' | 'bronze' | 'porcelain' | 'lacquer' | 'ink' | 'flat';
 export type FontId = 'wenkai' | 'mashan' | 'xingshu' | 'xiaowei' | 'hei';
 
@@ -241,6 +241,10 @@ export const PRESETS: { id: string; name: string; desc: string; look: Look }[] =
   { id: 'qinghua', name: '青花汉白玉', desc: '汉白玉棋盘、青花瓷棋子、宋体字', look: { board: 'marble', piece: 'porcelain', font: 'xiaowei', trad: false } },
   { id: 'lacquer', name: '朱漆夜宴', desc: '玄漆描金棋盘、朱漆对黑漆、金字', look: { board: 'night', piece: 'lacquer', font: 'wenkai', trad: true } },
   { id: 'bronze', name: '青铜古韵', desc: '红木棋盘、青铜棋子、毛笔字', look: { board: 'rosewood', piece: 'bronze', font: 'mashan', trad: false } },
+  // 典藏：带画、带动效
+  { id: 'shanhe', name: '✨ 水墨山河', desc: '洒金宣纸、河里一幅水墨山水、印章式棋子；流光和河水会动', look: { board: 'inkland', piece: 'ink', font: 'mashan', trad: false } },
+  { id: 'liujin', name: '✨ 鎏金玄漆', desc: '黑漆洒金、祥云、朱漆对黑漆、金字；金光隔几秒扫一遍', look: { board: 'goldlac', piece: 'lacquer', font: 'wenkai', trad: true } },
+  { id: 'jinbi', name: '✨ 金碧青绿', desc: '绢本青绿山水、金线勾边、青花瓷棋子', look: { board: 'qinglv', piece: 'porcelain', font: 'xiaowei', trad: false } },
   { id: 'clear', name: '清晰护眼', desc: '素色棋盘、扁平棋子、粗黑体：最好认', look: { board: 'plain', piece: 'flat', font: 'hei', trad: false } },
 ];
 
@@ -397,6 +401,13 @@ export interface BoardStyle {
   res: number;
   /** 按像素算完以后再用笔画几样细节（宣纸纤维、竹节），画进缓存的纹理里 */
   decorate?: (g: CanvasRenderingContext2D, w: number, h: number, c: number, n1: (x: number, y: number) => number, rnd: () => number) => void;
+  /**
+   * 会动的那一层（ambient.ts，叠在棋盘上的 CSS 动画，不重画棋盘）：
+   * sheen 隔几秒斜着扫过去的一道流光；river 楚河汉界里水面的粼光；mist 河上飘的雾；motes 金粉一点点往上飘
+   */
+  ambient?: { sheen: string; river?: string; mist?: string; motes?: string };
+  /** 典藏：样式页上标出来（带动效、带画） */
+  premium?: boolean;
 }
 
 const WOOD_L = hex('#ecd2a6');
@@ -418,6 +429,106 @@ const MARBLE_V = hex('#8c8a84');
 const NIGHT_L = hex('#2a3142');
 const NIGHT_D = hex('#121620');
 const PLAIN = hex('#f1dfb6');
+const XUAN_L = hex('#f7f0df');
+const XUAN_D = hex('#e6d9bb');
+const LAC_L = hex('#2a1e1c');
+const LAC_D = hex('#0d0a0a');
+const SILK_L = hex('#ece3c4');
+const SILK_D = hex('#d6c9a0');
+
+/** 棋盘纹理里格子的原点（decorate 拿到的是整块纹理，四周有边） */
+const gridOrigin = (w: number, h: number, c: number) => ({ ox: (w - 8 * c) / 2, oy: (h - 9 * c) / 2 });
+
+/**
+ * 一列水墨山：几座峰叠在一起取最高的轮廓，峰顶浓、山脚淡进雾里。
+ * 画在 [xa, xb] 之间、山脚在 base，最高 hMax。fill 是峰顶的颜色（山脚透明）
+ */
+function inkRidge(g: CanvasRenderingContext2D, xa: number, xb: number, base: number, hMax: number, rnd: () => number, fill: [number, number, number], alpha: number, sharp = 1.6, n = 4) {
+  const pk = Array.from({ length: n }, () => ({ x: xa + rnd() * (xb - xa), h: hMax * (0.45 + rnd() * 0.55), w: (xb - xa) * (0.12 + rnd() * 0.22) }));
+  const step = Math.max(1, (xb - xa) / 90);
+  g.beginPath();
+  g.moveTo(xa, base);
+  for (let x = xa; x <= xb + 0.01; x += step) {
+    let y = 0;
+    for (const p of pk) {
+      const u = Math.abs(x - p.x) / p.w;
+      if (u < 1) y = Math.max(y, p.h * Math.pow(Math.cos((u * Math.PI) / 2), sharp));
+    }
+    g.lineTo(x, base - y - (rnd() - 0.5) * hMax * 0.025);
+  }
+  g.lineTo(xb, base);
+  g.closePath();
+  const gr = g.createLinearGradient(0, base - hMax, 0, base);
+  gr.addColorStop(0, `rgba(${fill[0]},${fill[1]},${fill[2]},${alpha})`);
+  gr.addColorStop(0.6, `rgba(${fill[0]},${fill[1]},${fill[2]},${alpha * 0.45})`);
+  gr.addColorStop(1, `rgba(${fill[0]},${fill[1]},${fill[2]},0)`);
+  g.fillStyle = gr;
+  g.fill();
+  return pk;
+}
+
+/** 洒金：纸面上星星点点的金箔碎片（形状不规则，有的亮有的暗） */
+function goldFlecks(g: CanvasRenderingContext2D, w: number, h: number, c: number, rnd: () => number, density: number, alpha: number) {
+  const n = Math.round(((w * h) / (c * c)) * density);
+  for (let i = 0; i < n; i++) {
+    const x = rnd() * w;
+    const y = rnd() * h;
+    const r = c * (0.012 + rnd() * rnd() * 0.07);
+    const k = 3 + Math.floor(rnd() * 4);
+    const a0 = rnd() * Math.PI;
+    const lit = rnd();
+    g.fillStyle = `rgba(${Math.round(196 + lit * 50)},${Math.round(150 + lit * 70)},${Math.round(60 + lit * 70)},${alpha * (0.45 + rnd() * 0.55)})`;
+    g.beginPath();
+    for (let j = 0; j < k; j++) {
+      const a = a0 + (j / k) * Math.PI * 2;
+      const rr = r * (0.55 + rnd() * 0.75);
+      const px = x + Math.cos(a) * rr;
+      const py = y + Math.sin(a) * rr;
+      if (j) g.lineTo(px, py);
+      else g.moveTo(px, py);
+    }
+    g.closePath();
+    g.fill();
+  }
+}
+
+/** 祥云：一个圆卷、两个小卷，金线勾出来 */
+function cloudCurl(g: CanvasRenderingContext2D, x: number, y: number, s: number, color: string, lw: number) {
+  g.save();
+  g.strokeStyle = color;
+  g.lineWidth = lw;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.arc(x, y, s, Math.PI * 0.9, Math.PI * 2.6);
+  g.arc(x + s * 0.45, y - s * 0.1, s * 0.45, Math.PI * 0.6, Math.PI * 1.9, true);
+  g.stroke();
+  g.beginPath();
+  g.arc(x + s * 1.6, y + s * 0.15, s * 0.7, Math.PI * 1.0, Math.PI * 2.4);
+  g.stroke();
+  g.beginPath();
+  g.moveTo(x - s * 1.4, y + s * 0.95);
+  g.quadraticCurveTo(x + s * 0.6, y + s * 1.25, x + s * 2.8, y + s * 0.9);
+  g.stroke();
+  g.restore();
+}
+
+/** 河面：几道淡淡的水纹（横着、断断续续） */
+function waterLines(g: CanvasRenderingContext2D, xa: number, xb: number, ya: number, yb: number, rnd: () => number, color: string, n: number) {
+  g.save();
+  g.strokeStyle = color;
+  g.lineCap = 'round';
+  for (let i = 0; i < n; i++) {
+    const y = ya + rnd() * (yb - ya);
+    const x = xa + rnd() * (xb - xa);
+    const len = (xb - xa) * (0.04 + rnd() * 0.1);
+    g.lineWidth = 0.6 + rnd() * 0.8;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.quadraticCurveTo(x + len / 2, y - len * 0.04, x + len, y);
+    g.stroke();
+  }
+  g.restore();
+}
 
 /** 木纹：顺着横向的年轮（被噪声扭弯）+ 细细的顺纹纤维 */
 function woodGrain(n1: (x: number, y: number) => number, n2: (x: number, y: number) => number, u: number, v: number, L: RGB, M: RGB, D: RGB, contrast: number): RGB {
@@ -639,6 +750,182 @@ export const BOARDS: BoardStyle[] = [
     corners: true,
     double: true,
     dark: true,
+  },
+  // ───── 典藏：带画、带动效（ambient.ts）─────
+  {
+    id: 'inkland',
+    res: 0.45,
+    name: '水墨山河',
+    desc: '洒金宣纸，楚河汉界里一幅水墨山水；流光、河水、薄雾会动',
+    premium: true,
+    base: '#f0e6cf',
+    surface: (n1, n2, u, v) => {
+      const mottle = fbm(n1, u * 0.3, v * 0.3, 5);
+      const fine = fbm(n2, u * 3.2, v * 3.2, 3) - 0.5;
+      // 墨在纸上洇开的几团极淡的灰
+      const wash = smooth(0.62, 0.8, fbm(n1, u * 0.12 + 40, v * 0.12, 3)) * 0.22;
+      return mix(XUAN_L, XUAN_D, clamp01((mottle - 0.42) * 0.6 + fine * 0.22 + wash));
+    },
+    decorate: (g, w, h, c, _n1, rnd) => {
+      const { ox, oy } = gridOrigin(w, h, c);
+      const top = oy + 4 * c;
+      const bot = oy + 5 * c;
+      goldFlecks(g, w, h, c, rnd, 1.6, 0.85);
+      g.save();
+      g.beginPath();
+      g.rect(ox, top, 8 * c, c);
+      g.clip();
+      // 远山一抹（整条河上都有，很淡）
+      inkRidge(g, ox, ox + 8 * c, bot - c * 0.2, c * 0.42, rnd, [60, 74, 84], 0.16, 1.2, 7);
+      // 中间（"楚河""汉界"两组字之间）一组浓一点的山，一轮朱红的日头
+      g.fillStyle = 'rgba(196,58,40,0.55)';
+      g.beginPath();
+      g.arc(ox + 3.45 * c, top + c * 0.3, c * 0.13, 0, Math.PI * 2);
+      g.fill();
+      inkRidge(g, ox + 2.95 * c, ox + 5.05 * c, bot - c * 0.12, c * 0.74, rnd, [34, 40, 44], 0.62, 2.1, 4);
+      inkRidge(g, ox + 3.2 * c, ox + 4.9 * c, bot - c * 0.02, c * 0.38, rnd, [22, 26, 28], 0.72, 1.7, 3);
+      // 一叶小舟
+      g.fillStyle = 'rgba(28,30,32,0.75)';
+      const bx = ox + 4.62 * c;
+      const byy = bot - c * 0.13;
+      g.beginPath();
+      g.moveTo(bx - c * 0.13, byy);
+      g.quadraticCurveTo(bx, byy + c * 0.06, bx + c * 0.14, byy - c * 0.01);
+      g.closePath();
+      g.fill();
+      g.fillRect(bx - c * 0.01, byy - c * 0.12, c * 0.012, c * 0.12);
+      waterLines(g, ox, ox + 8 * c, bot - c * 0.22, bot - c * 0.04, rnd, 'rgba(50,64,74,0.22)', 26);
+      g.restore();
+    },
+    frame: '#3a2c1c',
+    line: '#2b2724',
+    lineW: 1.2,
+    engrave: 0,
+    river: 'rgba(28,24,21,0.9)',
+    label: 'rgba(60,52,44,0.85)',
+    gloss: 0.06,
+    vignette: 0.14,
+    double: true,
+    corners: true,
+    ambient: { sheen: 'rgba(255,226,150,0.55)', river: 'rgba(120,150,170,0.35)', mist: 'rgba(255,255,255,0.55)', motes: '#e8c46a' },
+  },
+  {
+    id: 'goldlac',
+    res: 0.3,
+    name: '鎏金玄漆',
+    desc: '黑漆洒金、金线金字，河里一道祥云；金光隔几秒扫一遍',
+    premium: true,
+    base: '#16100f',
+    surface: (n1, n2, u, v) => {
+      const cloud = fbm(n1, u * 0.28, v * 0.28, 4);
+      const fine = n2(u * 14, v * 14) - 0.5;
+      return mix(LAC_D, LAC_L, clamp01(cloud * 0.75 + fine * 0.05));
+    },
+    decorate: (g, w, h, c, _n1, rnd) => {
+      const { ox, oy } = gridOrigin(w, h, c);
+      goldFlecks(g, w, h, c, rnd, 2.6, 0.75);
+      // 河里：中间一组金线祥云，两头淡淡的金色水波
+      const top = oy + 4 * c;
+      g.save();
+      g.beginPath();
+      g.rect(ox, top, 8 * c, c);
+      g.clip();
+      const gr = g.createLinearGradient(0, top, 0, top + c);
+      gr.addColorStop(0, 'rgba(214,170,90,0)');
+      gr.addColorStop(0.5, 'rgba(214,170,90,0.1)');
+      gr.addColorStop(1, 'rgba(214,170,90,0)');
+      g.fillStyle = gr;
+      g.fillRect(ox, top, 8 * c, c);
+      cloudCurl(g, ox + 3.55 * c, top + c * 0.48, c * 0.17, 'rgba(226,186,104,0.85)', Math.max(1, c * 0.028));
+      cloudCurl(g, ox + 4.15 * c, top + c * 0.36, c * 0.12, 'rgba(226,186,104,0.6)', Math.max(0.8, c * 0.022));
+      waterLines(g, ox, ox + 8 * c, top + c * 0.7, top + c * 0.95, rnd, 'rgba(226,186,104,0.22)', 22);
+      g.restore();
+    },
+    frame: '#050303',
+    line: '#d6ac5a',
+    lineW: 1.15,
+    engrave: 0,
+    river: 'rgba(236,200,120,0.95)',
+    label: 'rgba(226,190,112,0.85)',
+    gloss: 0.18,
+    vignette: 0.34,
+    corners: true,
+    double: true,
+    dark: true,
+    ambient: { sheen: 'rgba(255,214,120,0.6)', river: 'rgba(240,196,110,0.3)', motes: '#f5d27a' },
+  },
+  {
+    id: 'qinglv',
+    res: 0.4,
+    name: '金碧青绿',
+    desc: '绢本，河里一幅青绿山水、金线勾边（金碧山水）；薄雾、流光会动',
+    premium: true,
+    base: '#e4d9b4',
+    surface: (n1, n2, u, v) => {
+      // 绢：经纬细细的十字纹 + 年久泛黄的斑
+      const weave = n2(u * 30, v * 30);
+      const age = fbm(n1, u * 0.25, v * 0.25, 4);
+      const fine = fbm(n2, u * 2.5, v * 2.5, 2) - 0.5;
+      return mix(SILK_L, SILK_D, clamp01((age - 0.4) * 0.8 + weave * 0.08 + fine * 0.18));
+    },
+    decorate: (g, w, h, c, _n1, rnd) => {
+      const { ox, oy } = gridOrigin(w, h, c);
+      const top = oy + 4 * c;
+      const bot = oy + 5 * c;
+      g.save();
+      g.beginPath();
+      g.rect(ox, top, 8 * c, c);
+      g.clip();
+      // 远处一抹石青
+      inkRidge(g, ox, ox + 8 * c, bot - c * 0.18, c * 0.4, rnd, [70, 120, 150], 0.22, 1.3, 7);
+      // 中间一组石绿 → 石青的峰，金线勾边
+      const draw = (xa: number, xb: number, base: number, hm: number, a: number) => {
+        const pk = Array.from({ length: 3 }, () => ({ x: xa + rnd() * (xb - xa), h: hm * (0.5 + rnd() * 0.5), w: (xb - xa) * (0.18 + rnd() * 0.2) }));
+        const path = new Path2D();
+        path.moveTo(xa, base);
+        for (let x = xa; x <= xb; x += (xb - xa) / 60) {
+          let y = 0;
+          for (const p of pk) {
+            const u = Math.abs(x - p.x) / p.w;
+            if (u < 1) y = Math.max(y, p.h * Math.pow(Math.cos((u * Math.PI) / 2), 2.2));
+          }
+          path.lineTo(x, base - y);
+        }
+        path.lineTo(xb, base);
+        path.closePath();
+        const gr = g.createLinearGradient(0, base - hm, 0, base);
+        gr.addColorStop(0, `rgba(46,104,150,${a})`);
+        gr.addColorStop(0.55, `rgba(52,140,110,${a})`);
+        gr.addColorStop(1, `rgba(120,160,110,${a * 0.2})`);
+        g.fillStyle = gr;
+        g.fill(path);
+        g.strokeStyle = `rgba(196,150,60,${a})`;
+        g.lineWidth = Math.max(0.8, c * 0.018);
+        g.stroke(path);
+      };
+      draw(ox + 2.95 * c, ox + 5.05 * c, bot - c * 0.1, c * 0.72, 0.8);
+      draw(ox + 3.35 * c, ox + 4.75 * c, bot, c * 0.36, 0.9);
+      // 一条白雾横过山腰
+      const mg = g.createLinearGradient(0, bot - c * 0.4, 0, bot - c * 0.22);
+      mg.addColorStop(0, 'rgba(250,246,232,0)');
+      mg.addColorStop(0.5, 'rgba(250,246,232,0.55)');
+      mg.addColorStop(1, 'rgba(250,246,232,0)');
+      g.fillStyle = mg;
+      g.fillRect(ox + 2.7 * c, bot - c * 0.4, 2.6 * c, c * 0.18);
+      waterLines(g, ox, ox + 8 * c, bot - c * 0.12, bot - c * 0.02, rnd, 'rgba(46,104,150,0.28)', 20);
+      g.restore();
+    },
+    frame: '#5a4420',
+    line: '#3b3020',
+    lineW: 1.15,
+    engrave: 0,
+    river: 'rgba(52,40,22,0.88)',
+    label: 'rgba(70,56,32,0.85)',
+    gloss: 0.08,
+    vignette: 0.16,
+    double: true,
+    corners: true,
+    ambient: { sheen: 'rgba(255,236,170,0.5)', river: 'rgba(80,150,170,0.32)', mist: 'rgba(255,252,240,0.6)', motes: '#d8b45a' },
   },
   {
     id: 'plain',

@@ -138,9 +138,63 @@ const morph = (ds: string[], dur: number) =>
  * 人物：300×420，脚踩在 y≈405。sil 是剪影本身（流光只扫在它上面）；
  * 剪影外面一圈很淡的逆光描边由 intro.ts 的 CSS 加
  */
+/**
+ * 毛笔的笔触：一张 160×160 的小图（一道道干笔的丝、几团洇开的淡墨），平铺在人物身上正片叠底——
+ * 平涂的颜色一压，就有了笔触，不再像剪纸。现画一次、留着（四边接得上，平铺看不出缝）
+ */
+let inkTile = '';
+function inkTex(): string {
+  if (inkTile || typeof document === 'undefined') return inkTile;
+  const S = 160;
+  const cv = document.createElement('canvas');
+  cv.width = S;
+  cv.height = S;
+  const g = cv.getContext('2d');
+  if (!g) return '';
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, S, S);
+  const r = rng(91);
+  const wrap = (draw: (dx: number, dy: number) => void) => {
+    for (const dx of [-S, 0, S]) for (const dy of [-S, 0, S]) draw(dx, dy);
+  };
+  for (let i = 0; i < 280; i++) {
+    const x = r() * S;
+    const y = r() * S;
+    const len = 18 + r() * 70;
+    const a = Math.PI / 2 + (r() - 0.5) * 0.55;
+    const al = 0.04 + r() * 0.13;
+    const lw = 0.5 + r() * 1.7;
+    wrap((dx, dy) => {
+      g.strokeStyle = `rgba(0,0,0,${al})`;
+      g.lineWidth = lw;
+      g.beginPath();
+      g.moveTo(x + dx, y + dy);
+      g.lineTo(x + dx + Math.cos(a) * len, y + dy + Math.sin(a) * len);
+      g.stroke();
+    });
+  }
+  for (let i = 0; i < 14; i++) {
+    const x = r() * S;
+    const y = r() * S;
+    const rr = 8 + r() * 24;
+    const al = 0.05 + r() * 0.09;
+    wrap((dx, dy) => {
+      const gr = g.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, rr);
+      gr.addColorStop(0, `rgba(0,0,0,${al})`);
+      gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr;
+      g.fillRect(x + dx - rr, y + dy - rr, rr * 2, rr * 2);
+    });
+  }
+  inkTile = cv.toDataURL('image/png');
+  return inkTile;
+}
+
 function figure(p: string, defs: string, sil: string, extra = '') {
+  const tex = inkTex();
   return (
     `<svg viewBox="0 0 300 420" xmlns="http://www.w3.org/2000/svg" overflow="visible"><defs>${defs}` +
+    (tex ? `<pattern id="${p}tx" patternUnits="userSpaceOnUse" width="96" height="96"><image href="${tex}" width="96" height="96"/></pattern>` : '') +
     `<filter id="${p}w"><feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0"/></filter>` +
     `<mask id="${p}m" maskUnits="userSpaceOnUse" x="-40" y="-40" width="380" height="500"><use href="#${p}sil" filter="url(#${p}w)"/></mask>` +
     `<linearGradient id="${p}sh" gradientUnits="userSpaceOnUse" x1="-160" y1="0" x2="-84" y2="44">` +
@@ -149,6 +203,7 @@ function figure(p: string, defs: string, sil: string, extra = '') {
     `${blur(p + 'sd', 5)}</defs>` +
     `<ellipse cx="150" cy="406" rx="100" ry="9" fill="#000" opacity=".38" filter="url(#${p}sd)"/>` +
     `<g id="${p}sil">${sil}</g>` +
+    (tex ? `<rect x="-40" y="-40" width="380" height="500" fill="url(#${p}tx)" mask="url(#${p}m)" style="mix-blend-mode:multiply" opacity=".55"/>` : '') +
     `<rect x="-40" y="-40" width="380" height="500" fill="url(#${p}sh)" mask="url(#${p}m)" style="mix-blend-mode:screen"/>${extra}</svg>`
   );
 }

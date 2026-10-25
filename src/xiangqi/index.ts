@@ -68,7 +68,7 @@ import { renderLookPicker } from './lookui';
 import { fxEnabled } from './fx';
 import { getHeroPick, heroInfo, nextHero, playHeroIntro, preloadHero, stopHeroIntro } from './intro';
 import { inkBackdrop, splash } from './heroart';
-import { getVoiceKind, xqShout } from '../xqvoice';
+import { getVoiceKind, xqAnnounce, xqShout } from '../xqvoice';
 
 const VOICE_NAME = { m: '男声', f: '女声', off: '不要' } as const;
 /** 结果页大字背后的那团墨：赢了是朱红泛金，输了是焦墨，和了是青灰 */
@@ -1006,11 +1006,15 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
         scene.dealIn();
         return Promise.resolve();
       }
-      return playHeroIntro(hero).then(() => {
+      return playHeroIntro(hero, document.body, { vs: `${rival.name} · ${L.name}` }).then(() => {
         if (!gone) scene.dealIn();
       });
     };
     let started = opening();
+    void started.then(() => {
+      clockAt = performance.now();
+      clockOn = true;
+    });
 
     // ---- HUD ----
     const hud = document.createElement('div');
@@ -1198,9 +1202,41 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     rivalBox.appendChild(av);
     const info = document.createElement('div');
     info.className = 'info';
-    info.innerHTML = `<b>${rival.name}</b><span>${L.name} · ${rival.style}</span>`;
+    info.innerHTML = `<b>${rival.name}</b><span>${L.name} · ${rival.style}</span><i class="xq-clock" title="对手这盘用了多少时间">00:00</i>`;
     rivalBox.appendChild(info);
     wrap.appendChild(rivalBox);
+
+    /**
+     * 你自己的那一框（右上，和对手框对着）：执哪一方、实战分、这盘用时。
+     * 专业软件都是这样两边对着摆：轮到谁，谁那一框亮着、钟在走（只计时，不会因为超时判负）
+     */
+    const meBox = document.createElement('div');
+    meBox.className = 'xq-mebox';
+    meBox.style.setProperty('--c', me === 'r' ? '#e0443a' : '#6aa8d8');
+    const myPlay = getPlay();
+    meBox.innerHTML = `<div class="info"><b>你 · 执${me === 'r' ? '红' : '黑'}</b><span>实战分 ${myPlay && myPlay.n ? myPlay.r : '待定'}</span><i class="xq-clock" title="你这盘用了多少时间">00:00</i></div><div class="xq-me-seal">${me === 'r' ? '帅' : '将'}</div>`;
+    wrap.appendChild(meBox);
+    /** 两边各用了多少毫秒（出场演完才开始走；对局结束、复盘时停） */
+    const clock: Record<Color, number> = { r: 0, b: 0 };
+    let clockAt = performance.now();
+    let clockOn = false;
+    const fmtClock = (ms: number) => {
+      const t = Math.floor(ms / 1000);
+      return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+    };
+    const elMyClock = meBox.querySelector('.xq-clock') as HTMLElement;
+    const elFoeClock = rivalBox.querySelector('.xq-clock') as HTMLElement;
+    const tickClock = () => {
+      const now = performance.now();
+      if (clockOn && !over && !closeReview && !document.hidden) clock[turn] += now - clockAt;
+      clockAt = now;
+      elMyClock.textContent = fmtClock(clock[me]);
+      elFoeClock.textContent = fmtClock(clock[foe]);
+      const live = clockOn && !over;
+      meBox.classList.toggle('on', live && turn === me);
+      rivalBox.classList.toggle('on', live && turn === foe);
+    };
+    const clockTimer = window.setInterval(tickClock, 500);
 
     /**
      * 吃子托盘 + 棋谱。
@@ -1823,6 +1859,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       const victim = board[m.ty][m.tx];
       const captured = !!victim;
       const mover = board[m.fy][m.fx]!;
+      // 报着法：双方每走一步都念一声"炮二平五"（配音选了"不要"、关了报着法就不念）；
+      // 后面的"吃车""将军"排在它后面说，不叠在一起
+      xqAnnounce(moveToText(board, m));
       // 吃掉车马炮：配乐里算"杀进来了"，琵琶扫一下
       const bigCapture = !!victim && victim.t !== 'P' && victim.t !== 'A' && victim.t !== 'E';
       if (bigCapture) bigCapAt.push(plies.length + 1);
@@ -2034,7 +2073,14 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       scene.setSlideSec(TEMPO.slide);
       scene.syncBoard(board);
       warmupAi(board, foe);
+      clock.r = 0;
+      clock.b = 0;
+      clockOn = false;
       started = opening();
+      void started.then(() => {
+        clockAt = performance.now();
+        clockOn = true;
+      });
       scene.setLastMove(null);
       scene.setBadge(null);
       refreshLog();
@@ -2223,6 +2269,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       resultEl?.classList.add('xq-hidden');
       hud.classList.add('xq-hidden');
       rivalBox.classList.add('xq-hidden');
+      meBox.classList.add('xq-hidden');
       closeReview = runReview({
         host: wrap,
         scene,
@@ -2253,6 +2300,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           resultEl?.classList.remove('xq-hidden');
           hud.classList.remove('xq-hidden');
           rivalBox.classList.remove('xq-hidden');
+          meBox.classList.remove('xq-hidden');
         },
       });
     }
@@ -2419,11 +2467,13 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       clearInterval(thinkTimer);
       clearTimeout(toastTimer);
       clearTimeout(bubbleTimer);
+      clearInterval(clockTimer);
       stopXqMusic();
       scene.dispose();
       disposeAi();
       hud.remove();
       rivalBox.remove();
+      meBox.remove();
       bubble.remove();
       toast.remove();
       play.remove();

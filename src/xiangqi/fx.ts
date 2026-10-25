@@ -17,7 +17,7 @@ import type { Board2D } from './board2d';
 import { ensureFont, getLook, pieceStyle } from './boardtheme';
 import type { Color, Piece } from './rules';
 import { xqSfxCapture, xqSfxCheck, xqSfxLand, xqSfxMate, xqSfxOpening } from '../xqsfx';
-import { getVoiceKind, preloadShouts, xqShout, type Shout } from '../xqvoice';
+import { getVoiceKind, preloadAnnounce, preloadShouts, xqShout, type Shout } from '../xqvoice';
 
 /** 吃了哪个子喊哪一句（兵士象不喊，一盘棋吃十几个兵卒，喊多了烦） */
 const CAPTURE_SHOUT: Partial<Record<string, Shout>> = { R: 'chiche', H: 'chima', C: 'chipao' };
@@ -182,6 +182,7 @@ export class BoardFx {
     this.reset();
     this.mark('opening');
     preloadShouts();
+    preloadAnnounce();
     if (!fxEnabled()) {
       xqShout('kaiju', 300);
       return;

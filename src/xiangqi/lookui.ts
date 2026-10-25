@@ -27,7 +27,8 @@ import { liftBack } from './navbar';
 import { fxEnabled, setFxEnabled } from './fx';
 import { HEROES, getHeroPick, playHeroIntro, preloadHero, setHeroPick, type HeroPick } from './intro';
 import { heroArt, type HeroId } from './heroart';
-import { getVoiceKind, setVoiceKind, xqShout, type VoiceKind } from '../xqvoice';
+import { getAnnounce, getVoiceKind, getVoiceVolume, preloadAnnounce, setAnnounce, setVoiceKind, setVoiceVolume, xqAnnounce, xqShout, type VoiceKind } from '../xqvoice';
+import { getXqMusicVolume, setXqMusicVolume } from '../xqmusic';
 import { unlockAudio } from '../gamesfx';
 
 /** 预览用的局面：开局走了几步，红黑各种子都在、有子过了河 */
@@ -265,7 +266,7 @@ export function renderLookPicker(host: HTMLElement, onBack: () => void): () => v
 
     // 配音：开局、吃车马炮、将军、绝杀时喊一声（xqvoice.ts）。点一下试听"将军！"
     const vk = getVoiceKind();
-    const vs = section('配音', '开局、吃车马炮、将军、绝杀时喊一声，出场人物报名号。点一下试听。');
+    const vs = section('配音', '开局、吃车马炮、将军、绝杀时喊一声，终局说一句，出场人物报名号；还能报着法。点一下试听。');
     const pickVoice = (v: VoiceKind) => {
       setVoiceKind(v);
       render();
@@ -278,6 +279,36 @@ export function renderLookPicker(host: HTMLElement, onBack: () => void): () => v
       ['off', '不要配音', '只留锣鼓和棋子声', '……'],
     ];
     for (const [v, name, desc, word] of VOICES) card(vs, name, desc, vk === v, () => textThumb(`xq-voice-${v}`, word), () => pickVoice(v), { voice: v });
+    // 报着法：每走一步念出记谱（天天象棋这些软件语音包的核心）。一个嗓子两三 MB，开了才下载
+    const an = document.createElement('label');
+    an.className = 'xq-look-trad';
+    an.dataset.act = 'announce-toggle';
+    an.innerHTML = `<input type="checkbox" ${getAnnounce() ? 'checked' : ''} ${vk === 'off' ? 'disabled' : ''}> <span>报着法：双方每走一步念出记谱（"炮二平五""马8进7"）</span>${
+      vk === 'off' ? '<em>配音关着</em>' : ''
+    }`;
+    (an.querySelector('input') as HTMLInputElement).onchange = (e) => {
+      const on = (e.target as HTMLInputElement).checked;
+      setAnnounce(on);
+      if (on) {
+        unlockAudio();
+        preloadAnnounce();
+        xqAnnounce('炮二平五');
+      }
+    };
+    body.appendChild(an);
+
+    // 音量：配乐、配音分开调（专业软件都分开：有人只想听报棋不想听音乐，有人反过来）
+    const vols = document.createElement('div');
+    vols.className = 'xq-look-vols';
+    vols.innerHTML = `<label data-act="vol-music"><span>🎵 配乐音量</span><input type="range" min="0" max="100" value="${Math.round(getXqMusicVolume() * 100)}"></label>
+      <label data-act="vol-voice"><span>🗣 配音音量</span><input type="range" min="0" max="100" value="${Math.round(getVoiceVolume() * 100)}"></label>`;
+    (vols.querySelector('[data-act="vol-music"] input') as HTMLInputElement).oninput = (e) => setXqMusicVolume(Number((e.target as HTMLInputElement).value) / 100);
+    (vols.querySelector('[data-act="vol-voice"] input') as HTMLInputElement).onchange = (e) => {
+      setVoiceVolume(Number((e.target as HTMLInputElement).value) / 100);
+      unlockAudio();
+      xqShout('jiangjun');
+    };
+    body.appendChild(vols);
 
     // 对局特效：开局入场、吃子碎裂、将军、绝杀（fx.ts）。不是样式，但"好不好看"的事都在这一页
     const fx = document.createElement('label');

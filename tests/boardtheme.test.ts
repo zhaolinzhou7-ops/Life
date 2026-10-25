@@ -11,11 +11,12 @@ describe('棋盘样式', async () => {
     T.setLook(T.DEFAULT_LOOK);
   });
 
-  it('八种棋盘、八种棋子、五种字体，九套搭配都指向有的样式', () => {
-    expect(T.BOARDS).toHaveLength(8);
+  it('十一种棋盘（三种典藏）、八种棋子、五种字体，十二套搭配都指向有的样式', () => {
+    expect(T.BOARDS).toHaveLength(11);
+    expect(T.BOARDS.filter((b) => b.premium).map((b) => b.id)).toEqual(['inkland', 'goldlac', 'qinglv']);
     expect(T.PIECES).toHaveLength(8);
     expect(T.FONTS).toHaveLength(5);
-    expect(T.PRESETS).toHaveLength(9);
+    expect(T.PRESETS).toHaveLength(12);
     for (const p of T.PRESETS) {
       expect(T.BOARDS.some((b) => b.id === p.look.board), p.id).toBe(true);
       expect(T.PIECES.some((x) => x.id === p.look.piece), p.id).toBe(true);
@@ -67,6 +68,13 @@ describe('棋盘样式', async () => {
       const sameText = JSON.stringify(p.r.text) === JSON.stringify(p.b.text);
       const sameFace = p.r.face[1] === p.b.face[1];
       expect(sameText && sameFace, p.id).toBe(false);
+    }
+  });
+
+  it('典藏棋盘都带会动的那一层（流光一定有），其余不带', () => {
+    for (const b of T.BOARDS) {
+      if (b.premium) expect(b.ambient?.sheen, b.id).toBeTruthy();
+      else expect(b.ambient, b.id).toBeUndefined();
     }
   });
 });

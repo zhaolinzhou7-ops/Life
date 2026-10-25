@@ -51,6 +51,28 @@ interface Bus {
   out: GainNode;
   /** 配音时把配乐压下去一点（xqMusicDuck） */
   duck: GainNode;
+  /** 配乐音量（样式页的滑块，xqMusicVolume） */
+  vol: GainNode;
+}
+
+const VOL_KEY = 'xq-vol-music';
+/** 配乐音量 0～1（默认 1） */
+export function getXqMusicVolume(): number {
+  try {
+    const v = Number(localStorage.getItem(VOL_KEY) ?? 1);
+    return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1;
+  } catch {
+    return 1;
+  }
+}
+export function setXqMusicVolume(v: number) {
+  const x = Math.max(0, Math.min(1, v));
+  try {
+    localStorage.setItem(VOL_KEY, String(x));
+  } catch {
+    /* 存不下就这一次有效 */
+  }
+  if (live) live.bus.vol.gain.setTargetAtTime(x, live.c.currentTime, 0.05);
 }
 
 const irCache = new WeakMap<BaseAudioContext, AudioBuffer>();
@@ -109,7 +131,9 @@ function makeBus(c: BaseAudioContext, dest: AudioNode, palette: Palette): Bus {
   out.gain.value = MUSIC_LEVEL * palette.gain;
   dry.connect(hp).connect(lowShelf).connect(highShelf).connect(out);
   const duck = c.createGain();
-  out.connect(duck).connect(dest);
+  const vol = c.createGain();
+  vol.gain.value = getXqMusicVolume();
+  out.connect(duck).connect(vol).connect(dest);
 
   const conv = c.createConvolver();
   conv.buffer = hallIR(c);
@@ -129,7 +153,7 @@ function makeBus(c: BaseAudioContext, dest: AudioNode, palette: Palette): Bus {
   dly.connect(delay).connect(dLp).connect(fb).connect(delay);
   dLp.connect(out);
   dLp.connect(rev);
-  return { dry, dly, delay, rev, out, duck };
+  return { dry, dly, delay, rev, out, duck, vol };
 }
 
 /** 换情绪：混响、回声、电平慢慢过去（一两秒），不要一下子变 */

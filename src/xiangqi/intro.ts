@@ -11,8 +11,10 @@
  *   0.5 s  人物背后一团泼墨炸开，人物从墨里凝出来（由虚到实）
  *   0.8 s  人物报名号（各自的嗓子，tools/gen-voice.py 离线生成），字幕跟着出来
  *   1.0 s  大名一笔一笔从上往下写出来，旁边一句诗；一道金光从人物身上、名字上扫过去（流光）
- *   1.9 s  朱红印章"对弈"盖下来，画面一震
+ *   1.15s  亮相的一招：一道光从屏幕上劈过去（刀光、偃月弧、乾坤圈、剑气、金箍棒光柱），一闪白、画面一震
+ *   1.9 s  朱红印章"对弈"盖下来，迸出一把火星；上面一行"对阵 · 某某"
  *   末尾   整幅画淡出，棋盘接着转平入场
+ * 上下两条电影的黑边，字幕在下面那条黑边里；大名背后一笔泼墨
  * 点一下屏幕任何地方就跳过。
  *
  * 人物和场景的画在 heroart.ts；空中飘的雨、火星、花瓣、金尘画在一张 canvas 上。
@@ -262,9 +264,21 @@ interface Streak {
   w: number;
 }
 
-function runAir(cv: HTMLCanvasElement, air: Air[], durMs: number) {
+/** 印章盖下去那一下迸出来的火星：带重力，画成顺着速度方向的一小道 */
+interface Spark {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  age: number;
+  life: number;
+  hue: number;
+}
+
+function runAir(cv: HTMLCanvasElement, air: Air[], durMs: number): { stop: () => void; burst: (x: number, y: number, n: number, hue: number) => void } {
   const g = cv.getContext('2d');
-  if (!g) return () => {};
+  if (!g) return { stop: () => {}, burst: () => {} };
+  const sparks: Spark[] = [];
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const W = cv.clientWidth || window.innerWidth;
   const H = cv.clientHeight || window.innerHeight;
@@ -357,12 +371,56 @@ function runAir(cv: HTMLCanvasElement, air: Air[], durMs: number) {
       g.lineTo(x1, y1);
       g.stroke();
     }
+    // 火星
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const p = sparks[i];
+      p.age += dt;
+      if (p.age > p.life) {
+        sparks.splice(i, 1);
+        continue;
+      }
+      p.vy += 900 * dt;
+      p.vx *= 1 - 1.6 * dt;
+      p.vy *= 1 - 1.6 * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      const a = 1 - p.age / p.life;
+      g.strokeStyle = `hsla(${p.hue},100%,${60 + a * 25}%,${a})`;
+      g.lineWidth = 1.2 + a * 1.4;
+      g.beginPath();
+      g.moveTo(p.x, p.y);
+      g.lineTo(p.x - p.vx * 0.03, p.y - p.vy * 0.03);
+      g.stroke();
+    }
     g.globalCompositeOperation = 'source-over';
     if (t < durMs) raf = requestAnimationFrame(frame);
   };
   raf = requestAnimationFrame(frame);
-  return () => cancelAnimationFrame(raf);
+  const box = () => cv.getBoundingClientRect();
+  return {
+    stop: () => cancelAnimationFrame(raf),
+    burst: (x, y, n, hue) => {
+      const r = box();
+      for (let i = 0; i < n; i++) {
+        const a = rnd() * Math.PI * 2;
+        const v = 160 + rnd() * 520;
+        sparks.push({ x: x - r.left, y: y - r.top, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 180, age: 0, life: 0.5 + rnd() * 0.7, hue: hue + (rnd() - 0.5) * 16 });
+      }
+    },
+  };
 }
+
+/**
+ * 亮相那一下的"招式"：一道光从屏幕上劈过去。刀客横着一刀、关公一道偃月弧、哪吒乾坤圈一圈冲击波、
+ * 女侠一道斜着的剑气、大圣金箍棒一根通天的光柱。坐标和场景一样是竖版 400×800（铺满屏幕）
+ */
+const SLASH: Record<HeroId, string> = {
+  daoke: '<path d="M-30 470 Q200 416 430 452" pathLength="1"/>',
+  guangong: '<path d="M60 610 C80 300 300 210 392 372" pathLength="1"/>',
+  nezha: '<circle cx="200" cy="430" r="70" pathLength="1"/>',
+  nvxia: '<path d="M372 226 L38 694" pathLength="1"/>',
+  dasheng: '<path d="M279 -20 L279 820" pathLength="1"/>',
+};
 
 // ───────────────────────── 背景层画成位图 ─────────────────────────
 
@@ -397,6 +455,19 @@ function rasterize(host: HTMLElement, scale: number) {
   img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg.replace('<svg ', `<svg width="${W}" height="${H}" `))}`;
 }
 
+/**
+ * 大名背后那一笔：起笔重、往下收细、末尾一甩，下半截有几道飞白（干笔刷开的丝），旁边溅几点墨。
+ * 毛边是湍流推出来的；从上往下刷出来（CSS 里 clip-path 一点点放开）
+ */
+const BRUSH =
+  `<svg class="xqh-stroke" viewBox="0 0 100 300" preserveAspectRatio="none">` +
+  `<filter id="xqh-sf" x="-25%" y="-10%" width="150%" height="120%"><feTurbulence type="fractalNoise" baseFrequency=".08 .018" numOctaves="3" seed="5"/><feDisplacementMap in="SourceGraphic" scale="12"/></filter>` +
+  `<mask id="xqh-sm" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="300"><rect width="100" height="300" fill="#fff"/>` +
+  `<path d="M38 170 C40 220 41 260 44 300 M47 196 C48 236 50 270 51 300 M57 160 C58 210 60 250 61 300 M66 188 C66 226 64 262 62 300" stroke="#000" stroke-width="2.6" fill="none"/></mask>` +
+  `<g filter="url(#xqh-sf)" mask="url(#xqh-sm)">` +
+  `<path d="M52 4 C80 6 93 26 86 54 C82 92 80 150 76 200 C73 240 66 270 58 296 L54 300 C44 272 34 236 30 196 C26 150 24 100 22 62 C18 30 30 4 52 4 Z"/>` +
+  `<circle cx="88" cy="36" r="4"/><circle cx="14" cy="88" r="2.5"/><circle cx="82" cy="252" r="2"/><circle cx="20" cy="210" r="1.6"/></g></svg>`;
+
 // ───────────────────────── 演一场 ─────────────────────────
 
 let current: { el: HTMLElement; end: () => void } | null = null;
@@ -413,7 +484,7 @@ export function stopHeroIntro() {
  * 演一场出场。返回的 Promise 在"该轮到棋盘入场"时 resolve（画面开始淡出、或者被点了跳过）。
  * host 默认整个页面（盖住一切，点一下就跳过）
  */
-export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opts: { hold?: boolean } = {}): Promise<void> {
+export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opts: { hold?: boolean; vs?: string } = {}): Promise<void> {
   current?.end();
   const h = heroInfo(id);
   const art = heroArt(id);
@@ -435,6 +506,7 @@ export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opt
         <div class="xqh-l xqh-far">${art.far}</div>
         <div class="xqh-l xqh-mid">${art.mid}</div>
         <div class="xqh-l xqh-mist">${art.mist}</div>
+        <div class="xqh-rays"></div>
         <div class="xqh-splash">${art.splash}</div>
         <div class="xqh-hero"><div class="xqh-fig">${art.fig}</div></div>
         <div class="xqh-l xqh-near">${art.near}</div>
@@ -442,11 +514,15 @@ export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opt
       <canvas class="xqh-air"></canvas>
       <div class="xqh-paper"></div>
     </div>
+    <svg class="xqh-slash" viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice">${SLASH[id]}</svg>
+    <div class="xqh-flash"></div>
+    <div class="xqh-bars"><i></i><i></i></div>
     <div class="xqh-title">
-      <div class="xqh-name">${h.name}</div>
+      <div class="xqh-namebox">${BRUSH}<div class="xqh-name">${h.name}</div></div>
       <div class="xqh-side"><div class="xqh-verse">${h.verse}</div><div class="xqh-seal"><span>对</span><span>弈</span></div></div>
     </div>
     <div class="xqh-line"><span>${h.line}</span></div>
+    ${opts.vs ? `<div class="xqh-vs">对阵 · ${opts.vs}</div>` : ''}
     <div class="xqh-skip">轻触跳过</div>`;
   for (const sel of ['.xqh-dark', '.xqh-scene']) {
     const el = root.querySelector(sel) as HTMLElement;
@@ -466,7 +542,14 @@ export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opt
       scene.style.setProperty('mask-image', 'none');
     }
   });
-  const stopAir = runAir(root.querySelector('.xqh-air') as HTMLCanvasElement, h.air, total);
+  const air = runAir(root.querySelector('.xqh-air') as HTMLCanvasElement, h.air, total);
+  const stopAir = air.stop;
+  // 印章盖下那一下，从印章上迸出一把火星
+  const SPARK_HUE: Record<HeroId, number> = { daoke: 40, guangong: 30, nezha: 22, nvxia: 200, dasheng: 45 };
+  const sparkTimer = window.setTimeout(() => {
+    const r = root.querySelector('.xqh-seal')?.getBoundingClientRect();
+    if (r && r.width) air.burst(r.left + r.width / 2, r.top + r.height / 2, 46, SPARK_HUE[id]);
+  }, 2020);
 
   xqSfxHero(id);
   if (voiced) xqHeroLine(id, 800);
@@ -480,6 +563,7 @@ export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opt
       if (ended) return;
       ended = true;
       timers.forEach(clearTimeout);
+      clearTimeout(sparkTimer);
       stopAir();
       root.remove();
       if (current?.el === root) current = null;
