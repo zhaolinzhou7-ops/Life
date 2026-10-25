@@ -62,12 +62,13 @@ await page.locator('[data-act="fx-toggle"] input').uncheck(); await page.waitFor
 ok('关掉特效：记下了', (await page.evaluate(() => localStorage.getItem('xq-fx'))) === '0');
 await page.locator('[data-act="fx-toggle"] input').check(); await page.waitForTimeout(200);
 
-// 出场人物：随机 + 五位 + 不演（测试开头设成了不演）；点一位当场演一遍的事 hero.mjs 测
-ok('出场人物：随机、五位人物、不演，一共七张', (await page.locator('[data-hero]').count()) === 7);
-// 关公、哪吒、刀客的小样是用户给的那三张画；女侠、大圣是矢量画（天 + 人）
-ok('五位人物都画出了小样（三张整幅的画 + 两张矢量画）', await page.evaluate(() => {
+// 出场人物：随机 + 九位 + 不演（测试开头设成了不演）；点一位当场演一遍的事 hero.mjs 测。白衣女侠、齐天大圣拿掉了
+ok('出场人物：随机、九位人物、不演，一共十一张', (await page.locator('[data-hero]').count()) === 11);
+ok('没有白衣女侠、齐天大圣了', (await page.locator('[data-hero="nvxia"], [data-hero="dasheng"]').count()) === 0);
+// 九位的小样都是用户给的画
+ok('九位人物的小样都是那一幅画', await page.evaluate(() => {
   const photos = [...document.querySelectorAll('[data-hero] .xq-hero-pic.photo img')].map((i) => i.closest('[data-hero]').dataset.hero).sort().join(',');
-  return photos === 'daoke,guangong,nezha' && document.querySelectorAll('[data-hero] .xq-hero-pic .fig svg').length === 2;
+  return photos === 'daoke,guangong,hongzhuang,moke,nezha,shaoshuai,suyi,xuanyi,ziyi';
 }));
 ok('现在是"不演"', (await page.locator('[data-hero="off"].selected').count()) === 1);
 await page.locator('[data-hero="random"]').click(); await page.waitForTimeout(300);

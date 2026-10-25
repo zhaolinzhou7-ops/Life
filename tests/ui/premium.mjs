@@ -4,7 +4,7 @@
  *   - 报着法：走一步念一声"炮二平五"，对手走的也念；报完再喊"将军"，不叠在一起。默认关着（用户原话："不是每一步都要说话，
  *     就是关键的那几步"），样式页打开；
  *   - 对局两边对着两框：你那一框（执哪方、实战分、用时）和对手框，轮到谁谁亮、钟在走；
- *   - 出场（矢量画的人物）：上下电影黑边、亮相一招（一道光劈过去）、"对阵 · 对手"。
+ *   - 出场：亮相一招（一道光劈过去）、"对阵 · 对手"、喊开场白。
  * 用户原话："模仿一下天天象棋……他们的那些顶级出场动画，还有他们花钱要会员才能买的那种动画语音，包括……他们的那个棋盘"
  * 用法：npm run dev，然后 node tests/ui/premium.mjs
  */
@@ -117,11 +117,11 @@ await page.waitForTimeout(1500);
 ok('普通棋盘（榉木）：不加那一层', await page.evaluate(() => !document.querySelector('.xq-amb')?.children.length));
 
 // ───────── 出场：黑边、亮相一招、对阵 ─────────
-await start({ 'xq-hero': 'dasheng' });
-ok('出场：上下两条电影黑边', await until(() => document.querySelectorAll('.xqh-bars i').length === 2, null, 2000));
+await start({ 'xq-hero': 'shaoshuai' });
+ok('出场：少帅', await until(() => document.querySelector('.xqh')?.dataset.hero === 'shaoshuai', null, 2000));
 ok('出场：亮相那一招（一道光）', (await page.locator('.xqh-slash path, .xqh-slash circle').count()) === 1);
 ok('出场：写着"对阵 · 对手"', /对阵 · .+ · /.test((await page.locator('.xqh-vs').textContent()) ?? ''));
-ok('出场：大名背后一笔泼墨', (await page.locator('.xqh-stroke').count()) === 1);
+ok('出场：喊开场白', await until(() => document.documentElement.dataset.xqSaid === 'hero-shaoshuai', null, 4000));
 await page.waitForTimeout(1300);
 await page.screenshot({ path: OUT + '/premium-hero.png' });
 

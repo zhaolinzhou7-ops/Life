@@ -67,7 +67,7 @@ import { PRESETS, boardStyle, fontOf, getLook, pieceStyle, presetOf, setLook } f
 import { renderLookPicker } from './lookui';
 import { fxEnabled } from './fx';
 import { getHeroPick, heroInfo, nextHero, playHeroIntro, preloadHero, stopHeroIntro } from './intro';
-import { inkBackdrop, splash } from './heroart';
+import { inkBackdrop, splash } from './inkart';
 import { getVoiceKind, xqAnnounce, xqShout } from '../xqvoice';
 
 const VOICE_NAME = { m: '男声', f: '女声', off: '不要' } as const;
@@ -168,7 +168,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
   const wrap = document.createElement('div');
   wrap.className = 'xq-root';
   app.appendChild(wrap);
-  // 对局画面的底：一层很暗的水墨远山（heroart.inkBackdrop），首页、设置页这些全屏页面自己有底色，盖在上面
+  // 对局画面的底：一层很暗的水墨远山（inkart.inkBackdrop），首页、设置页这些全屏页面自己有底色，盖在上面
   const inkBg = document.createElement('div');
   inkBg.className = 'xq-ink-bg';
   inkBg.innerHTML = inkBackdrop();

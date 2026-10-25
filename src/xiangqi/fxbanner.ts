@@ -18,7 +18,7 @@
  * 所有坐标按棋盘画布的 CSS 像素（特效层和棋盘画布一样大、对齐）。
  */
 import fxFontUrl from './fonts/xq-fx.woff2?url';
-import { splash } from './heroart';
+import { splash } from './inkart';
 
 export type Tone = 'gold' | 'silver' | 'red' | 'ink';
 

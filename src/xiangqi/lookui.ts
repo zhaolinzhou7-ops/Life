@@ -26,8 +26,7 @@ import { applyMove, initialBoard, legalMoves, type Color, type PType } from './r
 import { textToMove } from './notation';
 import { liftBack } from './navbar';
 import { fxEnabled, setFxEnabled } from './fx';
-import { HEROES, getHeroPick, heroPhoto, playHeroIntro, preloadHero, setHeroPick, type HeroPick } from './intro';
-import { heroArt, type HeroId } from './heroart';
+import { HEROES, getHeroPick, heroPhoto, playHeroIntro, preloadHero, setHeroPick, type HeroId, type HeroPick } from './intro';
 import { getAnnounce, getVoiceKind, getVoiceVolume, preloadAnnounce, setAnnounce, setVoiceKind, setVoiceVolume, xqAnnounce, xqShout, type VoiceKind } from '../xqvoice';
 import { getXqMusicVolume, setXqMusicVolume } from '../xqmusic';
 import { unlockAudio } from '../gamesfx';
@@ -72,27 +71,11 @@ function swatch(look: Look, w: number, h: number, pieces: { x: number; y: number
   return cv;
 }
 
-/** 出场人物的小样：天空 + 人物（id 换个前缀，和正在演的那一场不串） */
+/** 出场人物的小样：就是那一幅画 */
 function heroThumb(id: HeroId): HTMLElement {
-  const ph = heroPhoto(id);
-  if (ph) {
-    const el = document.createElement('div');
-    el.className = 'xq-hero-pic photo';
-    el.innerHTML = `<img src="${ph}" alt="" loading="lazy" decoding="async">`;
-    return el;
-  }
-  const a = heroArt(id);
-  const re = (svg: string) => svg.replace(/(id="|url\(#|href="#)/g, '$1t');
   const el = document.createElement('div');
-  el.className = 'xq-hero-pic';
-  el.innerHTML = `<div class="sky">${re(a.sky)}</div><div class="fig">${re(a.fig)}</div>`;
-  // 小样停在一个姿势上（流光扫过去之后）：五张一直飘着，这一页开着就一直在耗电
-  requestAnimationFrame(() =>
-    el.querySelectorAll('svg').forEach((s) => {
-      s.setCurrentTime(3.2);
-      s.pauseAnimations();
-    }),
-  );
+  el.className = 'xq-hero-pic photo';
+  el.innerHTML = `<img src="${heroPhoto(id)}" alt="" loading="lazy" decoding="async">`;
   return el;
 }
 function textThumb(cls: string, text: string): HTMLElement {

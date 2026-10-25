@@ -6,3 +6,4 @@ dist
 
 # 健康打卡的源码在单独的私有仓库，只发布构建结果 public/health/
 /health-checkin/
+__pycache__/

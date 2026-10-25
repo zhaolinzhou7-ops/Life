@@ -151,7 +151,7 @@ console.log(`   落子峰值 ${move.toFixed(3)}`);
 ok('落子"嗒"听得见、比吃车轻得多', move > 0.03 && move < rook * 0.7);
 ok('落子比吃兵轻（吃子是两子相碰，重一点）', move < pawn);
 // 出场的锣鼓古筝叠了好几层，最响的那一下也不能削波
-for (const h of ['daoke', 'guangong', 'nezha', 'nvxia', 'dasheng']) {
+for (const h of ['guangong', 'nezha', 'daoke', 'shaoshuai', 'hongzhuang', 'ziyi', 'xuanyi', 'suyi', 'moke']) {
   const pk = await level('hero:' + h);
   console.log(`   出场（${h}）峰值 ${pk.toFixed(3)}`);
   ok(`出场（${h}）的声音出来了、不削波`, pk > 0.1 && pk < 0.99);

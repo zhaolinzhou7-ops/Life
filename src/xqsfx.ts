@@ -343,10 +343,11 @@ function bladeRing(k: Core, t0: number, vol: number) {
 }
 
 /**
- * 出场的声音：墨滴落下——低低一声鼓、一声"嗡"；画卷洇开——一阵风、一串古筝往上刮；
- * 每位人物再加一笔自己的：刀客是雨声和刀鸣，关公是一阵越擂越紧的战鼓，哪吒是一团火和乾坤圈的"当"，
- * 女侠是往下回落的一串筝和一声磬，大圣是戏台上的"仓 才 仓"；最后印章盖下去"咚"一声。
- * 人物报名号的人声在 0.8 秒进来（xqHeroLine），这里的东西都压在人声底下
+ * 出场的声音：墨滴落下——低低一声鼓、一声"嗡"；画洇开——一阵风、一串古筝往上刮；亮相一招"唰"一声、一记闷鼓。
+ * 每位人物再加一笔自己的：刀客是风声和刀鸣，关公是一阵越擂越紧的战鼓，哪吒是一团火和乾坤圈的"当"，
+ * 少帅是点兵的鼓和大锣，红妆是戏台上的"仓 才 仓"，紫衣是炮响（一声闷雷炸开），
+ * 玄衣、素衣、墨客是落子那一声"嗒"，跟着一串回落的筝（素衣一声磬，墨客一声刀鸣）；最后"咚"一声收住。
+ * 人物喊开场白的人声在 0.8 秒进来（xqHeroLine），这里的东西都压在人声底下
  */
 export function xqSfxHero(id: string) {
   const k = core();
@@ -361,6 +362,7 @@ export function xqSfxHero(id: string) {
   taiko(k, t0 + 1.16, 0.42, 0.75);
   switch (id) {
     case 'daoke':
+      // 山风
       noiseHit(k, t0 + 0.2, 3.8, 0.05, { hp: 900, lp: 5200, attack: 0.9 }, -0.2);
       noiseHit(k, t0 + 0.25, 3.6, 0.04, { hp: 1400, lp: 7000, attack: 1 }, 0.25);
       bladeRing(k, t0 + 1.05, 0.5);
@@ -375,19 +377,36 @@ export function xqSfxHero(id: string) {
       smallGong(k, t0 + 1.15, 0.22, 990, -0.3);
       smallGong(k, t0 + 1.4, 0.16, 1180, 0.3);
       break;
-    case 'nvxia':
-      gliss(k, t0 + 1.2, 14, 8, 0.06, 0.08, -1);
-      smallGong(k, t0 + 1.55, 0.14, 1320, 0.2);
-      noiseHit(k, t0 + 0.6, 2.4, 0.035, { bp: 600, q: 0.7, attack: 1.1, sweep: [500, 1100] });
+    case 'shaoshuai':
+      [0.5, 0.74, 0.95, 1.12, 1.26].forEach((d, i) => taiko(k, t0 + d, 0.3 + i * 0.06, 0.9, i % 2 ? 0.3 : -0.3));
+      bigGong(k, t0 + 1.15, 0.3, 110, 2.4);
+      cymbal(k, t0 + 1.15, 0.2, 1.1);
       break;
-    case 'dasheng':
+    case 'hongzhuang':
       bigGong(k, t0 + 1.15, 0.26, 150, 1.2);
       cymbal(k, t0 + 1.15, 0.24, 0.6);
       smallGong(k, t0 + 1.42, 0.2, 620);
       bigGong(k, t0 + 1.66, 0.3, 150, 1.6);
       cymbal(k, t0 + 1.66, 0.28, 0.8);
       break;
+    case 'ziyi':
+      // 炮响：一声闷雷炸开，碎屑落一地
+      noiseHit(k, t0 + 1.12, 0.9, 0.3, { lp: 420, attack: 0.01 });
+      taiko(k, t0 + 1.13, 0.7, 0.55);
+      noiseHit(k, t0 + 1.2, 1.1, 0.06, { hp: 1800, lp: 6000, attack: 0.05 });
+      bigGong(k, t0 + 1.2, 0.18, 70, 2.2);
+      break;
+    case 'xuanyi':
+    case 'suyi':
+    case 'moke':
+      // 落子：一声脆的"嗒"，跟着一串回落的筝
+      clack(k, t0 + 1.13, 0.7, 1.15);
+      gliss(k, t0 + 1.3, 14, 8, 0.06, 0.07, -1);
+      if (id === 'suyi') smallGong(k, t0 + 1.6, 0.14, 1320, 0.2);
+      else if (id === 'moke') bladeRing(k, t0 + 1.5, 0.35);
+      else bigGong(k, t0 + 1.6, 0.18, 96, 2.2);
+      break;
   }
-  // 印章盖下
+  // 收住
   taiko(k, t0 + 1.92, 0.48, 0.84);
 }
