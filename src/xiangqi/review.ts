@@ -14,6 +14,13 @@
  *   - 报告：你和对手的准确率、开局/中局/残局三段、好棋和错着各几手，下面是整盘棋谱，每手挂评级。
  * 长讲解（对手怎么罚、计划、残局、邪门布局……）都在卡片下面，点「📖 讲解」把面板拉高看。
  *
+ * 第二版（用户原话："在复盘的时候，我有很多东西划来划去的，还有其他的一些复盘方式都需要再考虑一下"）：
+ *   - 平时那一屏不用滚：这一手只剩一张小卡片（评级、该走什么、一行要点、一排按钮），长讲解收进「📖 讲解」，
+ *     讲解里"对手怎么罚""思路"做成能收起的几段；
+ *   - 局势图下面一条横着的棋谱条，当前这一手自动滚到中间，点哪手到哪手（不用再进报告翻棋谱）；
+ *   - 报告分「总评」「棋谱」两页，不再一长条；
+ *   - 工具条加「⏵ 自动」：一手一手自动放，配落子声（和天天象棋的"自动播放"一样），手一碰就停。
+ *
  * 分析本身在 gamescore.ts：一盘下完就在后台开算，这里只负责展示。
  */
 import type { Board, Color, Move } from './rules';
@@ -51,6 +58,7 @@ import { openLineLab } from './linelab';
 import { lineTalk, whatItDoes } from './coachexplain';
 import type { MoveScore } from './ai';
 import { engineAnalyse, engineReady, engineScoreMove, loadEngine } from './pikafish';
+import { xqSfxCapture, xqSfxMove } from '../xqsfx';
 
 const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
@@ -126,7 +134,9 @@ export function runReview(opts: ReviewOpts): () => void {
       </div>
       <div class="xq-rv-side foe"><span>对手</span><b>—</b><em>准确率</em></div>
     </div>
+    <div class="xq-rv-strip" title="整盘棋谱：点哪一手看哪一手，左右划着找"></div>
     <div class="xq-rv-body">
+      <div class="xq-rv-tabs"><button data-tab="sum" class="on">📊 总评</button><button data-tab="list">📜 棋谱</button></div>
       <div class="xq-rv-detail"></div>
       <div class="xq-rv-report"><div class="xq-rv-summary"></div></div>
       <div class="xq-rv-list"></div>
@@ -144,6 +154,8 @@ export function runReview(opts: ReviewOpts): () => void {
   const elFoeAcc = panel.querySelector('.xq-rv-side.foe b') as HTMLElement;
   const graph = panel.querySelector('.xq-rv-graph') as HTMLCanvasElement;
   const navEl = panel.querySelector('.xq-rv-nav') as HTMLElement;
+  const elStrip = panel.querySelector('.xq-rv-strip') as HTMLElement;
+  panel.dataset.rtab = 'sum';
 
   /** 底部工具条：像天天象棋那样一排图标 + 两个字，单手也点得到 */
   const tb = (attrs: string, icon: string, label: string, cls = '') =>
@@ -151,8 +163,9 @@ export function runReview(opts: ReviewOpts): () => void {
   const navHtml =
     tb('data-nav-back title="回到上一屏"', '←', '返回', 'xq-rv-close') +
     tb('data-go="-1" title="上一手（也可以在棋盘上往右滑）"', '◀', '上一手') +
-    tb('data-act="next-bad" title="跳到你下一个走得有问题的地方"', '⚠', '问题手', 'warn') +
+    tb('data-act="auto" title="自动一手一手往下放（空格键也行），手一碰就停"', '⏵', '自动') +
     tb('data-go="1" title="下一手（也可以在棋盘上往左滑）"', '▶', '下一手') +
+    tb('data-act="next-bad" title="跳到你下一个走得有问题的地方"', '⚠', '问题手', 'warn') +
     tb('data-act="try" title="在棋盘上自己走走看，引擎替对方应"', '🧪', '试下') +
     tb('data-act="detail" title="展开这一手的讲解（棋盘跟着缩小，但一直完整露出来）"', '📖', '讲解', 'xq-rv-fold') +
     tb('data-act="overview" title="复盘报告和整盘棋谱"', '📊', '报告', 'xq-rv-ov');
@@ -317,9 +330,17 @@ export function runReview(opts: ReviewOpts): () => void {
   function goto(i: number) {
     stopDemo();
     stopTrial();
+    if (!autoStepping) setAuto(false);
     if (sheet === 'report') setSheet('none');
     const list = reviewed();
+    const prev = cursor;
     cursor = Math.max(-1, Math.min(list.length - 1, i));
+    // 往前翻一手：和下棋时一样"嗒"一声（吃子是"啪嗒"），翻得快也听得出走了几步
+    if (cursor === prev + 1 && cursor >= 0) {
+      const mv = list[cursor].move;
+      if (boards[cursor][mv.ty][mv.tx]) xqSfxCapture(boards[cursor][mv.ty][mv.tx]!.t);
+      else xqSfxMove();
+    }
     const cm = cursor >= 0 ? list[cursor] : null;
     // 你走得不好的一手：棋盘停在走之前，红箭头是你走的、绿箭头是最佳——点箭头看两条路各自怎么发展
     compare = !!cm && cm.color === playerColor && !!cm.bestMove && isBad(cm);
@@ -334,8 +355,9 @@ export function runReview(opts: ReviewOpts): () => void {
       elPos.textContent = '开局';
       elDetail.innerHTML = `<div class="xq-rv-card start"><div class="xq-rv-empty">${
         list.length ? `开局局面 · 共 ${moves.length} 手。` : `正在给每一手打分（${list.length}/${moves.length}）……`
-      }点 <b>▶</b> 一手一手看，点 <b>⚠ 问题手</b> 直接跳到你走得有问题的地方；在上面的局势图上按住左右拖能快速翻；点棋盘上的子可以<b>试下</b>。</div></div>`;
+      }点 <b>▶</b> 一手一手看、<b>⏵ 自动</b> 自己往下放，点 <b>⚠ 问题手</b> 直接跳到你走得有问题的地方；局势图上按住左右拖、棋盘上左右划都能翻；点棋盘上的子可以<b>试下</b>。</div></div>`;
       renderList();
+      renderStrip();
       return;
     }
 
@@ -366,7 +388,8 @@ export function runReview(opts: ReviewOpts): () => void {
     const before = evalWords(toRed(m.bestScore), mateRed(m.bestMate));
     const after = evalWords(toRed(m.playedScore), mateRed(m.playedMate));
 
-    // 卡片：一眼看完这一手（评级、亏多少、该走什么、两个按钮）；下面是长讲解，点「📖 讲解」拉高看
+    // 卡片：一眼看完这一手（评级、亏多少、该走什么、一行要点、一排按钮）；长讲解收在下面，点「📖 讲解」拉高看
+    const gist = `${before === after ? before : `${before} → ${after}`} · ${(badgeWhy(m) + m.comment).replace(/<[^>]+>/g, '')}`;
     elDetail.innerHTML = `
       <div class="xq-rv-card" data-card>
         <div class="xq-rv-move" style="--g:${L.color}">
@@ -377,6 +400,7 @@ export function runReview(opts: ReviewOpts): () => void {
           <span class="xq-rv-acc" title="这一手的准确率（0～100）">准确率 ${m.accuracy}</span>
         </div>
         ${bestBlock(m)}
+        <button class="xq-rv-gist" data-act="detail" title="展开这一手的完整讲解"><span>${esc(gist)}</span><i>讲解 ›</i></button>
       </div>
       <div class="xq-rv-more">
         <div class="xq-rv-eval">局面：${before === after ? before : `${before} → ${after}`}</div>
@@ -393,12 +417,66 @@ export function runReview(opts: ReviewOpts): () => void {
         ${endgameNote(m, boards[cursor])}
         <div class="xq-rv-actions">
           <button class="xq-rv-deep" data-deep="${cursor}">🔍 从全局讲讲这一手</button>
-          ${opts.onReplayFrom ? `<button class="xq-rv-deep" data-replay="${cursor}">♟ 从这里重下</button>` : ''}
           <button class="xq-rv-deep xq-rv-ask" data-act="ask" title="问教练这一手">🧑‍🏫 问教练</button>
         </div>
         <div class="xq-rv-deepbox"></div>
       </div>`;
     renderList();
+    renderStrip();
+  }
+
+  /**
+   * 横着的一条棋谱：每手带评级颜色，当前这一手滚到中间。手指左右划着找、点哪手到哪手——
+   * 原来要打开「📊 报告」再往下滚才看得到整盘棋谱
+   */
+  function renderStrip() {
+    const list = reviewed();
+    const texts = moveTexts();
+    const off = startColor === 'b' ? 1 : 0;
+    elStrip.innerHTML = texts
+      .map((t, i) => {
+        const m = list[i];
+        const lb = m ? labelOf(m) : null;
+        const L = lb ? MOVE_LABEL[lb] : null;
+        const bad = !!m && isBad(m) && (m.color === playerColor || lb === 'blunder');
+        const ply = i + off;
+        const n = ply % 2 === 0 ? `<em>${ply / 2 + 1}.</em>` : '';
+        return `<button class="xq-rv-sm${i === cursor ? ' on' : ''}${bad ? ' bad' : ''}${m && m.color === playerColor ? ' me' : ''}" data-i="${i}"${
+          L ? ` style="--g:${L.badge}"` : ''
+        }>${n}${t}${L && L.short ? `<i>${L.short}</i>` : ''}</button>`;
+      })
+      .join('');
+    const on = elStrip.querySelector('.on') as HTMLElement | null;
+    if (on) elStrip.scrollLeft = on.offsetLeft - elStrip.clientWidth / 2 + on.offsetWidth / 2;
+    else if (cursor < 0) elStrip.scrollLeft = 0;
+  }
+
+  // ───────── 自动播放 ─────────
+  let autoTimer = 0;
+  let autoStepping = false;
+  /** 一手一手往下放：1.6 秒一手，到最后一手自己停；手碰别的（翻页、试下、演示）就停 */
+  function setAuto(on: boolean) {
+    clearInterval(autoTimer);
+    autoTimer = 0;
+    const btn = navEl.querySelector('[data-act="auto"]');
+    btn?.classList.toggle('on', on);
+    const ic = btn?.querySelector('i');
+    const lb = btn?.querySelector('span');
+    if (ic) ic.textContent = on ? '⏸' : '⏵';
+    if (lb) lb.textContent = on ? '暂停' : '自动';
+    if (!on) return;
+    const step = () => {
+      if (cursor >= reviewed().length - 1) return setAuto(false);
+      autoStepping = true;
+      goto(cursor + 1);
+      autoStepping = false;
+    };
+    if (cursor >= reviewed().length - 1) {
+      autoStepping = true;
+      goto(-1);
+      autoStepping = false;
+    } else step();
+    autoTimer = window.setInterval(step, 1600);
   }
 
   /** 不佳、失误、漏着 */
@@ -418,20 +496,39 @@ export function runReview(opts: ReviewOpts): () => void {
         ? `<button class="xq-rv-act bad xq-rv-pun" data-act="punish-demo">⚠ ${mine ? '对手怎么罚你' : '怎么罚他'}</button>`
         : '';
     const tryBtn = `<button class="xq-rv-act try" data-act="try-here" title="从这一手走之前开始，按你的想法走一手，看对方怎么接">🧪 换一手试试</button>`;
-    if (m.isBest) return `<div class="xq-rv-best ok" data-best>✅ ${mine ? '这就是最佳走法' : '对手这一手就是最佳走法'}。<div class="acts">${pun}${tryBtn}</div></div>`;
-    if (!m.bestMove || !m.bestText) return `<div class="xq-rv-best"><div class="acts">${pun}${tryBtn}</div></div>`;
+    // 从这一手之前的局面接着下（试试正确的走法）：原来藏在长讲解最底下，现在和别的按钮排一排
+    const replay = opts.onReplayFrom ? `<button class="xq-rv-act" data-replay="${cursor}" title="从这一手走之前的局面接着下">♟ 从这里重下</button>` : '';
+    if (m.isBest) return `<div class="xq-rv-best ok" data-best>✅ ${mine ? '这就是最佳走法' : '对手这一手就是最佳走法'}。<div class="acts">${pun}${tryBtn}${replay}</div></div>`;
+    if (!m.bestMove || !m.bestText) return `<div class="xq-rv-best"><div class="acts">${pun}${tryBtn}${replay}</div></div>`;
     const pawns = (m.loss / 100).toFixed(1);
     const who = mine ? '你这手' : '他这手';
-    const hint = compare
-      ? `<div class="tip">棋盘上 <b class="g">绿箭头 ★</b> 是最佳、<b class="r">红箭头「你」</b>是你走的——点箭头看两条路各自怎么走下去。</div>`
-      : !mine && isBad(m)
-        ? '<div class="tip">棋盘上 <b class="g">绿箭头「罚」</b>是你该怎么罚他——点它看整条。</div>'
-        : '';
+    // 箭头怎么看：头几次说一句，看懂了就不再占地方（不然每一手都多一行，一屏放不下）
+    const hint = !tipOnce()
+      ? ''
+      : compare
+        ? `<div class="tip">棋盘上 <b class="g">绿箭头 ★</b> 是最佳、<b class="r">红箭头「你」</b>是你走的——点箭头看两条路各自怎么走下去。</div>`
+        : !mine && isBad(m)
+          ? '<div class="tip">棋盘上 <b class="g">绿箭头「罚」</b>是你该怎么罚他——点它看整条。</div>'
+          : '';
     return `<div class="xq-rv-best" data-best>
       <div class="rec">★ ${mine ? '最佳走法' : '他该走'} <b>${m.bestText}</b>：比${who}多得约 <b>${m.loss} 分</b><em>（约 ${pawns} 个兵）</em></div>
       ${hint}
-      <div class="acts"><button class="xq-rv-act" data-act="best-demo">▶ 看最佳的后续</button>${pun}${tryBtn}<button class="xq-rv-act" data-act="lab">🔀 推演</button></div>
+      <div class="acts"><button class="xq-rv-act" data-act="best-demo">▶ 看最佳的后续</button>${pun}${tryBtn}<button class="xq-rv-act" data-act="lab">🔀 推演</button>${replay}</div>
     </div>`;
+  }
+
+  /** 箭头提示说过几次了（每次打开复盘只算一次，说满三次就不说了） */
+  let tipCounted = false;
+  function tipOnce(): boolean {
+    let n = 0;
+    try {
+      n = Number(localStorage.getItem('xq-rv-tips') ?? 0);
+      if (!tipCounted) localStorage.setItem('xq-rv-tips', String(n + 1));
+    } catch {
+      /* 存不下就一直说 */
+    }
+    tipCounted = true;
+    return n < 3;
   }
 
   /** 这一手走得不好（不佳、失误、漏着）：对手接下来具体怎么罚 */
@@ -458,12 +555,12 @@ export function runReview(opts: ReviewOpts): () => void {
           `<li class="${(st.who === 'me') === mine ? 'me' : 'foe'}${k === 0 ? ' first' : ''}"><span class="w">${k === 0 ? (mine ? '你走错' : '他走软') : who(st.who)}</span><b>${st.text}</b><em>${st.note}</em></li>`,
       )
       .join('');
-    return `<div class="xq-rv-punish${mine ? '' : ' foe'}" data-punish>
-      <div class="hd">${mine ? '⚠️ 走了这步，对手会这样罚你' : '💡 对手这步走软了，你可以这样罚他'}</div>
+    return `<details class="xq-rv-punish xq-rv-sec${mine ? '' : ' foe'}" data-punish open>
+      <summary class="hd">${mine ? '⚠️ 走了这步，对手会这样罚你' : '💡 对手这步走软了，你可以这样罚他'}</summary>
       <ol>${rows}</ol>
       <div class="sum">${p.summary}</div>
       <button class="xq-rv-deep" data-act="punish-demo">▶ 在棋盘上一步步演示</button>
-    </div>`;
+    </details>`;
   }
 
   /**
@@ -475,8 +572,9 @@ export function runReview(opts: ReviewOpts): () => void {
       ? { move: m.bestMove, score: m.bestScore, mateIn: m.bestMate, pv: m.bestLine ?? [m.bestMove] }
       : { move: m.move, score: m.playedScore, mateIn: m.playedMate, pv: m.playedLine ?? [m.move] };
     const p = planOf(before, m.color, src, 7);
-    const head = m.bestMove ? `正确下法 <b>${m.bestText}</b>` : '这一手的思路';
-    return `<div class="xq-rv-pv"><span class="hd">${head}</span>${planHtml(p)}</div>`;
+    const head = m.bestMove ? `正确下法 <b>${m.bestText}</b> 的思路` : '这一手的思路';
+    // 走错了的那一手，"对手怎么罚"更要紧，思路先收着；走对了的就直接摊开
+    return `<details class="xq-rv-pv xq-rv-sec"${isBad(m) ? '' : ' open'}><summary class="hd">${head}</summary>${planHtml(p)}</details>`;
   }
 
   /**
@@ -566,6 +664,9 @@ export function runReview(opts: ReviewOpts): () => void {
     navEl.querySelector('[data-act="detail"]')?.classList.toggle('on', s === 'detail');
     navEl.querySelector('[data-act="overview"]')?.classList.toggle('on', s === 'report');
     if (s === 'report') {
+      // 打开报告先看总评；棋谱在第二页
+      panel.dataset.rtab = 'sum';
+      panel.querySelectorAll('.xq-rv-tabs [data-tab]').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tab === 'sum'));
       renderSummary();
       renderList();
     }
@@ -783,6 +884,7 @@ export function runReview(opts: ReviewOpts): () => void {
       if (sheet === 'report') renderSummary();
     }
     renderList();
+    renderStrip();
     drawGraph();
   }
   let offAnalysis = analysis.subscribe(onProgress);
@@ -890,6 +992,14 @@ export function runReview(opts: ReviewOpts): () => void {
     if (act === 'punish-demo') return startDemo('punish');
     if (act === 'best-demo') return startDemo('best');
     if (act === 'lab') return openLab();
+    if (act === 'auto') return setAuto(!autoTimer);
+    const tab = target.closest('.xq-rv-tabs [data-tab]') as HTMLElement | null;
+    if (tab) {
+      panel.dataset.rtab = tab.dataset.tab!;
+      panel.querySelectorAll('.xq-rv-tabs [data-tab]').forEach((b) => b.classList.toggle('on', b === tab));
+      elBody.scrollTop = 0;
+      return;
+    }
     if (act === 'detail') return setSheet(sheet === 'detail' ? 'none' : 'detail');
     if (act === 'overview') return setSheet(sheet === 'report' ? 'none' : 'report');
     if (act === 'try') return trial ? endTrial() : startTrial();
@@ -1475,6 +1585,11 @@ export function runReview(opts: ReviewOpts): () => void {
       goto(e.key === 'Home' ? -1 : reviewed().length - 1);
       return;
     }
+    if (e.key === ' ' && !trial && !demo) {
+      e.preventDefault();
+      setAuto(!autoTimer);
+      return;
+    }
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     const d = e.key === 'ArrowRight' ? 1 : -1;
     if (demo) {
@@ -1584,6 +1699,7 @@ export function runReview(opts: ReviewOpts): () => void {
 
   function close() {
     clearTimeout(flashTimer);
+    setAuto(false);
     stopDemo();
     stopTrial();
     offAnalysis();

@@ -70,10 +70,13 @@ ok('有称号统计', (await page.locator('.xq-rv-chips .xq-rv-chip').count()) >
 await page.locator('[data-act="overview"]').click();
 await page.waitForTimeout(200);
 ok('报告里有你和对手的对照表（准确率、开局、好棋、失误……）', /准确率[\s\S]*开局[\s\S]*好棋[\s\S]*失误/.test(await page.locator('[data-report]').innerText()));
+// 报告分两页：整盘棋谱在「📜 棋谱」那一页
+await page.locator('[data-tab="list"]').click();
 await page.locator('.xq-rv-item').first().click();
 await page.waitForTimeout(200);
 ok('点棋谱里的一手：报告收起，看这一手', (await page.evaluate(() => window.__xqReview.sheet())) === 'none');
-const det = (await page.locator('.xq-rv-detail').innerText()).replace(/\s+/g, ' ');
+// 长讲解平时收着（点 📖 讲解才摊开），内容照样在：按文字读
+const det = ((await page.locator('.xq-rv-detail').textContent()) ?? '').replace(/\s+/g, ' ');
 console.log('   单手：' + det.slice(0, 120));
 ok('每一手都有分数（准确率）和局面评价', /准确率 \d+/.test(det) && det.includes('局面'));
 ok('每一手都讲思路（计划）：不只是一串着法', (await page.locator('.xq-rv-detail .xq-plan').count()) === 1 && det.includes('计划'));
@@ -117,6 +120,7 @@ console.log('   棋谱：' + clip.split('\n').slice(0, 3).join(' | '));
 ok('棋谱复制出来了，带回合号和中文记谱', /1\. .+/.test(clip) && clip.includes('准确率'));
 
 // 从第 2 手（黑方那手之前）接着下
+await page.locator('[data-tab="list"]').click();
 await page.locator('.xq-rv-item').nth(2).click();
 await page.waitForTimeout(200);
 const want = await page.evaluate(() => {

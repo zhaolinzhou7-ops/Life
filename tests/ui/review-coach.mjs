@@ -57,7 +57,8 @@ for (const [w, h] of [[390, 664], [375, 548]]) {
   const badge = await page.evaluate(() => document.querySelector('.xq-boardwrap canvas.xq-b2d')?.dataset.badge ?? '');
   note(`[${dev}] 炮五进四的角标：${badge}`);
   ok(`[${dev}] 走错的那一手，棋子上挂着评级（错 / 漏 / 差）`, /,[错漏差]$/.test(badge));
-  const detail = (await page.locator('.xq-rv-detail').innerText()).replace(/\s+/g, ' ');
+  // 长讲解平时收着（点 📖 讲解才摊开），内容照样在：按文字读
+  const detail = ((await page.locator('.xq-rv-detail').textContent()) ?? '').replace(/\s+/g, ' ');
   ok(`[${dev}] 走错的一手有"演示对手怎么罚"按钮`, (await page.locator('.xq-rv-pun').count()) === 1);
   const pun = (await page.locator('[data-punish]').innerText()).replace(/\s+/g, ' ');
   note(`[${dev}] 劣势推演：${pun.slice(0, 160)}`);

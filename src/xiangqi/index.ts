@@ -2217,6 +2217,9 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     /** 打开复盘：暂时收起结算页与 HUD，把 3D 棋盘让给复盘界面 */
     function openReview() {
       if (closeReview) return;
+      // 终局特效（倒下的老将、"绝杀""困毙"大字、压暗、老将身上的红圈）收掉——复盘要看的是棋，不是它们
+      scene.fxReset();
+      scene.hideCheck();
       resultEl?.classList.add('xq-hidden');
       hud.classList.add('xq-hidden');
       rivalBox.classList.add('xq-hidden');

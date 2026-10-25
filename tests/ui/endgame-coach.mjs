@@ -242,9 +242,12 @@ const tipOpen = (page) => page.evaluate(() => !!document.querySelector('.xq-tip:
   const flagged = await page.locator('.xq-rv-item .f').count();
   ok('复盘列表里那一手标了 🧑‍🏫', flagged === 1);
   await page.locator('[data-act="overview"]').click();
+  // 报告分两页：整盘棋谱在「📜 棋谱」那一页
+  await page.locator('[data-tab="list"]').click();
   await page.locator('.xq-rv-item').first().click();
   await page.waitForTimeout(300);
-  const detail = await page.locator('.xq-rv-detail').innerText();
+  // 长讲解平时收着（点 📖 讲解才摊开），内容照样在：按文字读
+  const detail = (await page.locator('.xq-rv-detail').textContent()) ?? '';
   console.log('   复盘：' + detail.replace(/\s+/g, ' ').slice(0, 150));
   ok('复盘里写明教练当时说了什么', detail.includes('教练拦过这一手'));
   // 看这一手的评级标签本身（下面那行"✅ 最佳走法 ……"说的是该走什么，不是这一手的评级）

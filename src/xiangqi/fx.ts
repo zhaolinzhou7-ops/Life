@@ -159,6 +159,12 @@ export class BoardFx {
     this.layer.innerHTML = '';
     this.board.setHidden([]);
     this.host.dataset.fx = '';
+    // 画布上还留着最后一帧（倒下的老将、压暗的那一层）：没有新的一帧来擦，得在这里擦掉。
+    // 复盘时"困毙"两个字、躺倒的老将一直盖在棋盘上，就是漏了这一句
+    this.g.save();
+    this.g.setTransform(1, 0, 0, 1, 0, 0);
+    this.g.clearRect(0, 0, this.cv.width, this.cv.height);
+    this.g.restore();
   }
 
   private later(ms: number, fn: () => void) {
