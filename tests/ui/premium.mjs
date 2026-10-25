@@ -1,9 +1,10 @@
 /**
  * "会员级"的那几样：
  *   - 典藏棋盘（水墨山河 / 鎏金玄漆 / 金碧青绿）会动的那一层：流光、河水粼光、薄雾、金粉，贴着棋盘；关了特效就没有；
- *   - 报着法：走一步念一声"炮二平五"，对手走的也念；报完再喊"将军""吃马"，不叠在一起；样式页能关；
+ *   - 报着法：走一步念一声"炮二平五"，对手走的也念；报完再喊"将军"，不叠在一起。默认关着（用户原话："不是每一步都要说话，
+ *     就是关键的那几步"），样式页打开；
  *   - 对局两边对着两框：你那一框（执哪方、实战分、用时）和对手框，轮到谁谁亮、钟在走；
- *   - 出场：上下电影黑边、亮相一招（一道光劈过去）、"对阵 · 对手"。
+ *   - 出场（矢量画的人物）：上下电影黑边、亮相一招（一道光劈过去）、"对阵 · 对手"。
  * 用户原话："模仿一下天天象棋……他们的那些顶级出场动画，还有他们花钱要会员才能买的那种动画语音，包括……他们的那个棋盘"
  * 用法：npm run dev，然后 node tests/ui/premium.mjs
  */
@@ -40,7 +41,7 @@ const start = async (settings) => {
 const INK = JSON.stringify({ board: 'inkland', piece: 'ink', font: 'mashan', trad: false });
 
 // ───────── 典藏棋盘：会动的那一层 ─────────
-await start({ 'xq-look': INK });
+await start({ 'xq-look': INK, 'xq-announce': '1' });
 await page.waitForTimeout(2400);
 const amb = await page.evaluate(() => {
   const a = document.querySelector('.xq-amb');
@@ -97,13 +98,13 @@ seq.push(...(await page.evaluate(() => window.__said)));
 console.log('   将军那一步说了：' + seq.join(' → '));
 ok('将军：先报"车六平五"，再喊"将军！"', seq.indexOf('announce:车六平五') >= 0 && seq.indexOf('announce:车六平五') < seq.indexOf('m-jiangjun'));
 
-// 关掉报着法
-await start({ 'xq-look': INK, 'xq-announce': '0' });
+// 默认（没开报着法）：走棋不念
+await start({ 'xq-look': INK });
 await until(() => window.__xq?.turn() === 'r' && !window.__xq.state().busy, null, 15000);
 await page.evaluate(() => { delete document.documentElement.dataset.xqSaid; });
 await page.evaluate(() => window.__xq.play({ fx: 7, fy: 7, tx: 4, ty: 7 }));
 await page.waitForTimeout(2500);
-ok('关了报着法：走棋不念', !((await page.evaluate(() => document.documentElement.dataset.xqSaid)) ?? '').startsWith('announce:'));
+ok('默认不报着法：走棋不念', !((await page.evaluate(() => document.documentElement.dataset.xqSaid)) ?? '').startsWith('announce:'));
 
 // 关了特效：没有会动的那一层
 await start({ 'xq-look': INK, 'xq-fx': '0' });
@@ -116,7 +117,7 @@ await page.waitForTimeout(1500);
 ok('普通棋盘（榉木）：不加那一层', await page.evaluate(() => !document.querySelector('.xq-amb')?.children.length));
 
 // ───────── 出场：黑边、亮相一招、对阵 ─────────
-await start({ 'xq-hero': 'guangong' });
+await start({ 'xq-hero': 'dasheng' });
 ok('出场：上下两条电影黑边', await until(() => document.querySelectorAll('.xqh-bars i').length === 2, null, 2000));
 ok('出场：亮相那一招（一道光）', (await page.locator('.xqh-slash path, .xqh-slash circle').count()) === 1);
 ok('出场：写着"对阵 · 对手"', /对阵 · .+ · /.test((await page.locator('.xqh-vs').textContent()) ?? ''));
@@ -128,11 +129,12 @@ await page.screenshot({ path: OUT + '/premium-hero.png' });
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(500);
 await page.locator('[data-home="look"]').click(); await page.waitForTimeout(800);
-ok('样式页有"报着法"开关，默认开着', await page.locator('[data-act="announce-toggle"] input').isChecked());
-await page.locator('[data-act="announce-toggle"] input').uncheck();
-ok('关掉：记下了', (await page.evaluate(() => localStorage.getItem('xq-announce'))) === '0');
+ok('样式页有"报着法"开关，默认关着', !(await page.locator('[data-act="announce-toggle"] input').isChecked()));
 await page.locator('[data-act="announce-toggle"] input').check();
 ok('打开：当场念一声"炮二平五"试听', await until(() => document.documentElement.dataset.xqSaid === 'announce:炮二平五', null, 6000));
+ok('打开：记下了', (await page.evaluate(() => localStorage.getItem('xq-announce'))) === '1');
+await page.locator('[data-act="announce-toggle"] input').uncheck();
+ok('关掉：记下了', (await page.evaluate(() => localStorage.getItem('xq-announce'))) === '0');
 
 // 音量：配乐、配音分开调
 ok('样式页有配乐、配音两个音量滑块', (await page.locator('.xq-look-vols input[type=range]').count()) === 2);

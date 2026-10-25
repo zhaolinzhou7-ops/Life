@@ -46,9 +46,35 @@ export interface HeroInfo {
   air: Air[];
   /** 录音多长（秒），整场按它排 */
   voiceSec: number;
+  /**
+   * 整幅的画（用户给的图，Real-ESRGAN 放大过，src/xiangqi/heroimg/）：有它就不用矢量画，
+   * 用这幅画铺满屏幕、镜头推拉；画上自带题字，屏幕上不再叠大名
+   */
+  photo?: Photo;
 }
 
-type Air = 'rain' | 'embers' | 'fire' | 'petals' | 'motes' | 'moon';
+interface Photo {
+  /** 画铺满屏幕时对齐哪里（object-position）：都对着上边，题字在左上角 */
+  pos: string;
+  /** 镜头从哪个样子推到哪个样子（transform），绕哪一点 */
+  from: string;
+  to: string;
+  origin: string;
+  /** 空中飘什么 */
+  air: Air[];
+  /** 亮相一招画在哪（和场景一样是竖版 400×800 的坐标），火星从哪迸出来（屏幕的几成） */
+  slash: string;
+  spark: [number, number];
+  /** 画里的太阳：一团光晕（屏幕的几成） */
+  flare?: [number, number];
+}
+
+type Air = 'rain' | 'embers' | 'fire' | 'petals' | 'motes' | 'moon' | 'dust' | 'snow' | 'leaves';
+
+const PHOTOS = import.meta.glob('./heroimg/*.webp', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
+const photoUrl = (id: HeroId) => PHOTOS[`./heroimg/${id}.webp`];
+/** 这位人物有整幅的画就给画的地址（样式页小样用） */
+export const heroPhoto = (id: HeroId): string | null => (heroInfo(id).photo ? photoUrl(id) : null);
 
 export const HEROES: HeroInfo[] = [
   {
@@ -58,10 +84,13 @@ export const HEROES: HeroInfo[] = [
     // 黄庭坚《寄黄几复》："桃李春风一杯酒，江湖夜雨十年灯"
     verse: '江湖夜雨十年灯',
     line: '刀在鞘中，棋在心中。请！',
-    desc: '雨夜竹林，斗笠、背上一把刀',
+    desc: '江湖一人一刀：云海孤峰，斗笠长刀，衣袍猎猎',
     side: 'r',
     air: ['rain', 'motes'],
     voiceSec: 3.8,
+    // 慢慢推近、略往右移：风吹衣袍，雪和落叶横着飘；一道横着的刀光
+    // 推近时绕左上推（左上角是题字"江湖 一人一刀"，绕人物中间推会把字推出屏幕）
+    photo: { pos: '50% 0%', from: 'scale(1.01) translateX(-1.5%)', to: 'scale(1.13)', origin: '40% 6%', air: ['snow', 'leaves'], slash: '<path d="M-30 500 Q200 455 430 478" pathLength="1"/>', spark: [0.62, 0.55] },
   },
   {
     id: 'guangong',
@@ -69,10 +98,12 @@ export const HEROES: HeroInfo[] = [
     name: '关公',
     verse: '义薄云天',
     line: '关某在此，请赐教！',
-    desc: '赤霞战旗，青龙偃月刀',
+    desc: '提刀斩将：骑赤兔马、提青龙偃月刀，古战场上冲锋',
     side: 'l',
     air: ['embers', 'motes'],
     voiceSec: 3.55,
+    // 一上来贴得很近（马和刀冲到脸前），拉开到整幅；尘土碎石朝镜头飞过来；刀光顺着偃月刀的刃口划下去
+    photo: { pos: '50% 0%', from: 'scale(1.24) translate(3%, 4%)', to: 'scale(1.02)', origin: '42% 58%', air: ['dust', 'embers'], slash: '<path d="M70 410 C60 560 110 690 190 722" pathLength="1"/>', spark: [0.3, 0.8] },
   },
   {
     id: 'nezha',
@@ -80,10 +111,12 @@ export const HEROES: HeroInfo[] = [
     name: '哪吒',
     verse: '脚踏风火轮',
     line: '哪吒在此，风火轮来也！',
-    desc: '闹海火光，风火轮、混天绫',
+    desc: '踩风火轮：云海仙山间腾空，混天绫翻飞、火尖枪',
     side: 'l',
     air: ['fire', 'motes'],
     voiceSec: 3.8,
+    // 从下往上升（人往上飞）；火星往上窜；太阳一团光晕；风火轮上炸开一圈火环
+    photo: { pos: '50% 0%', from: 'scale(1.16) translateY(5%)', to: 'scale(1.02) translateY(-1%)', origin: '50% 35%', air: ['fire', 'motes'], slash: '<circle cx="218" cy="700" r="60" pathLength="1"/>', spark: [0.56, 0.83], flare: [0.63, 0.13] },
   },
   {
     id: 'nvxia',
@@ -182,6 +215,15 @@ export function preloadHero() {
   void loadFonts();
   const pick = getHeroPick();
   if (pick !== 'random' && pick !== 'off') preloadVoice([`hero-${pick}`]);
+  // 整幅的画（每幅两三百 KB）：先拉下来，出场时墨一洇开就是画，不会先黑一下
+  if (pick === 'off') return;
+  for (const h of HEROES) {
+    if (h.photo && (pick === 'random' || pick === h.id)) {
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = photoUrl(h.id);
+    }
+  }
 }
 
 // ───────────────────────── 墨滴的形状（遮罩） ─────────────────────────
@@ -249,11 +291,51 @@ function spawn(k: Air, w: number, h: number, rnd: () => number, anywhere: boolea
       m.a = 0.35 + rnd() * 0.6;
       m.hue = k === 'moon' ? 210 : 42 + rnd() * 10;
       break;
+    case 'dust': {
+      // 战场上的尘土碎石：从画面中下部往四面飞、越飞越大（冲着镜头来）
+      m.x = w * (0.3 + rnd() * 0.4);
+      m.y = h * (0.55 + rnd() * 0.3);
+      const a = Math.atan2(m.y - h * 0.5, m.x - w * 0.5) + (rnd() - 0.5) * 0.9;
+      const v = (60 + rnd() * 160) * s;
+      m.vx = Math.cos(a) * v;
+      m.vy = Math.sin(a) * v - 20 * s;
+      m.r = (0.8 + rnd() * 2.2) * s;
+      m.a = 0.35 + rnd() * 0.45;
+      m.hue = 22 + rnd() * 16;
+      if (anywhere) {
+        m.x = rnd() * w;
+        m.y = rnd() * h;
+      }
+      break;
+    }
+    case 'snow':
+      // 山风吹雪：横着往右飘、慢慢往下
+      m.vx = (50 + rnd() * 90) * s;
+      m.vy = (18 + rnd() * 40) * s;
+      m.r = (0.6 + rnd() * rnd() * 2.6) * s;
+      m.a = 0.35 + rnd() * 0.5;
+      if (!anywhere) {
+        m.x = -10;
+        m.y = rnd() * h;
+      }
+      break;
+    case 'leaves':
+      // 落叶：比花瓣大、翻着跟头被风卷过去
+      m.vx = (80 + rnd() * 90) * s;
+      m.vy = (20 + rnd() * 40) * s;
+      m.r = (3.5 + rnd() * 3) * s;
+      m.a = 0.7 + rnd() * 0.3;
+      m.hue = 70 + rnd() * 40;
+      if (!anywhere) {
+        m.x = -20;
+        m.y = rnd() * h * 0.8;
+      }
+      break;
   }
   return m;
 }
 
-const COUNT: Record<Air, number> = { rain: 150, embers: 55, fire: 80, petals: 34, motes: 70, moon: 40 };
+const COUNT: Record<Air, number> = { rain: 150, embers: 55, fire: 80, petals: 34, motes: 70, moon: 40, dust: 70, snow: 110, leaves: 14 };
 
 /** 流光：几道金色的光从左下往右上一闪而过 */
 interface Streak {
@@ -320,14 +402,28 @@ function runAir(cv: HTMLCanvasElement, air: Air[], durMs: number): { stop: () =>
         g.moveTo(m.x, m.y);
         g.lineTo(m.x - m.vx * 0.022, m.y - m.r);
         g.stroke();
-      } else if (m.k === 'petals') {
+      } else if (m.k === 'dust') {
+        g.globalCompositeOperation = 'source-over';
+        m.r *= 1 + dt * 0.9;
+        g.fillStyle = `hsla(${m.hue},45%,${38 + m.a * 20}%,${m.a * fade})`;
+        g.beginPath();
+        g.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+        g.fill();
+      } else if (m.k === 'snow') {
+        g.globalCompositeOperation = 'source-over';
+        m.y += Math.sin(m.ph) * 10 * dt;
+        g.fillStyle = `rgba(245,248,252,${m.a * fade})`;
+        g.beginPath();
+        g.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+        g.fill();
+      } else if (m.k === 'petals' || m.k === 'leaves') {
         g.globalCompositeOperation = 'source-over';
         m.x += Math.sin(m.ph) * 12 * dt;
         g.save();
         g.translate(m.x, m.y);
         g.rotate(m.ph * m.spin * 0.3);
         g.scale(1, 0.55 + 0.45 * Math.sin(m.ph * 1.7));
-        g.fillStyle = `hsla(${m.hue},70%,${m.hue === 352 ? 56 : 80}%,${m.a * fade})`;
+        g.fillStyle = m.k === 'leaves' ? `hsla(${m.hue},35%,30%,${m.a * fade})` : `hsla(${m.hue},70%,${m.hue === 352 ? 56 : 80}%,${m.a * fade})`;
         g.beginPath();
         g.ellipse(0, 0, m.r, m.r * 0.62, 0, 0, Math.PI * 2);
         g.fill();
@@ -487,7 +583,7 @@ export function stopHeroIntro() {
 export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opts: { hold?: boolean; vs?: string } = {}): Promise<void> {
   current?.end();
   const h = heroInfo(id);
-  const art = heroArt(id);
+  const photo = h.photo;
   void loadFonts();
   const voiced = getVoiceKind() !== 'off';
   // 整场多长：报完名号再留一点余韵；不配音就短一点
@@ -495,21 +591,46 @@ export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opt
   const outMs = 650;
 
   const root = document.createElement('div');
-  root.className = `xqh xqh-${id} xqh-side-${h.side}`;
+  root.className = `xqh xqh-${id} xqh-side-${h.side}${photo ? ' xqh-photo-mode' : ''}`;
   root.dataset.hero = id;
   root.style.setProperty('--T', `${total}ms`);
-  root.innerHTML = `
+  if (photo) {
+    root.style.setProperty('--pos', photo.pos);
+    root.style.setProperty('--kb-from', photo.from);
+    root.style.setProperty('--kb-to', photo.to);
+    root.style.setProperty('--kb-origin', photo.origin);
+  }
+  // 整幅的画：铺满屏幕、镜头推拉；上面一道斜着扫过的流光、画里太阳的光晕、空中飘的东西、上下压暗。画上自带题字
+  const photoScene = photo
+    ? `<div class="xqh-dark"></div>
+    <div class="xqh-scene">
+      <div class="xqh-pic"><img src="${photoUrl(id)}" alt="" decoding="async"></div>
+      ${photo.flare ? `<div class="xqh-flare" style="left:${photo.flare[0] * 100}%;top:${photo.flare[1] * 100}%"></div>` : ''}
+      <div class="xqh-sheen"></div>
+      <canvas class="xqh-air"></canvas>
+      <div class="xqh-vign"></div>
+    </div>
+    <svg class="xqh-slash" viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice">${photo.slash}</svg>
+    <div class="xqh-flash"></div>
+    <div class="xqh-line"><span>${h.line}</span></div>
+    ${opts.vs ? `<div class="xqh-vs">对阵 · ${opts.vs}</div>` : ''}
+    <div class="xqh-skip">轻触跳过</div>`
+    : '';
+  const art = photo ? null : heroArt(id);
+  root.innerHTML = photo
+    ? photoScene
+    : `
     <div class="xqh-dark"></div>
     <div class="xqh-scene">
       <div class="xqh-cam">
-        <div class="xqh-l xqh-sky">${art.sky}</div>
-        <div class="xqh-l xqh-far">${art.far}</div>
-        <div class="xqh-l xqh-mid">${art.mid}</div>
-        <div class="xqh-l xqh-mist">${art.mist}</div>
+        <div class="xqh-l xqh-sky">${art!.sky}</div>
+        <div class="xqh-l xqh-far">${art!.far}</div>
+        <div class="xqh-l xqh-mid">${art!.mid}</div>
+        <div class="xqh-l xqh-mist">${art!.mist}</div>
         <div class="xqh-rays"></div>
-        <div class="xqh-splash">${art.splash}</div>
-        <div class="xqh-hero"><div class="xqh-fig">${art.fig}</div></div>
-        <div class="xqh-l xqh-near">${art.near}</div>
+        <div class="xqh-splash">${art!.splash}</div>
+        <div class="xqh-hero"><div class="xqh-fig">${art!.fig}</div></div>
+        <div class="xqh-l xqh-near">${art!.near}</div>
       </div>
       <canvas class="xqh-air"></canvas>
       <div class="xqh-paper"></div>
@@ -533,7 +654,7 @@ export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opt
   // 一帧画一层（一起画，开场那一帧要卡上一百多毫秒）；最费的近景先画
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const layers = [['.xqh-near', 1], ['.xqh-far', 1.5], ['.xqh-mid', 1.5], ['.xqh-mist', 1], ['.xqh-sky', 1]] as const;
-  layers.forEach(([sel, sc], i) => window.setTimeout(() => rasterize(root.querySelector(sel) as HTMLElement, Math.min(dpr, sc)), 40 + i * 45));
+  if (!photo) layers.forEach(([sel, sc], i) => window.setTimeout(() => rasterize(root.querySelector(sel) as HTMLElement, Math.min(dpr, sc)), 40 + i * 45));
   // 洇开之后遮罩就没用了，撤掉省得每一帧都要算
   const scene = root.querySelector('.xqh-scene') as HTMLElement;
   scene.addEventListener('animationend', (e) => {
@@ -542,14 +663,21 @@ export function playHeroIntro(id: HeroId, host: HTMLElement = document.body, opt
       scene.style.setProperty('mask-image', 'none');
     }
   });
-  const air = runAir(root.querySelector('.xqh-air') as HTMLCanvasElement, h.air, total);
+  const air = runAir(root.querySelector('.xqh-air') as HTMLCanvasElement, photo ? photo.air : h.air, total);
   const stopAir = air.stop;
-  // 印章盖下那一下，从印章上迸出一把火星
+  // 印章盖下那一下，从印章上迸出一把火星（整幅画的那几位没有印章：亮相一招劈下去时，从刀光上迸）
   const SPARK_HUE: Record<HeroId, number> = { daoke: 40, guangong: 30, nezha: 22, nvxia: 200, dasheng: 45 };
-  const sparkTimer = window.setTimeout(() => {
-    const r = root.querySelector('.xqh-seal')?.getBoundingClientRect();
-    if (r && r.width) air.burst(r.left + r.width / 2, r.top + r.height / 2, 46, SPARK_HUE[id]);
-  }, 2020);
+  const sparkTimer = window.setTimeout(
+    () => {
+      if (photo) {
+        air.burst(window.innerWidth * photo.spark[0], window.innerHeight * photo.spark[1], 60, SPARK_HUE[id]);
+        return;
+      }
+      const r = root.querySelector('.xqh-seal')?.getBoundingClientRect();
+      if (r && r.width) air.burst(r.left + r.width / 2, r.top + r.height / 2, 46, SPARK_HUE[id]);
+    },
+    photo ? 1250 : 2020,
+  );
 
   xqSfxHero(id);
   if (voiced) xqHeroLine(id, 800);

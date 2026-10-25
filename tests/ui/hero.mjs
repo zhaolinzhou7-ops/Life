@@ -2,6 +2,9 @@
  * 出场人物：开局前一位人物在水墨里亮相、报名号，演完棋盘才转平、棋子落下。
  * 指定关公就是关公（大名、字幕、录音都对得上）；演的时候棋盘入场、对手的第一步都等着；
  * 点一下就跳过；随机不和上一盘重复；"不演"、关了对局特效都直接开局；样式页点一位当场演一遍；
+ * 关公、哪吒、刀客用的是用户给的三张整幅的画（铺满屏幕、镜头推拉、流光、空中飘尘土火星，画上自带题字，不再压大名）；
+ * 女侠、大圣还是分层的水墨矢量画（大名、印章、五层 3D）。
+ * 进场以后不喊"开局"（用户原话："开局也不用说开局"）。
  * 五位人物的画都画得出来（截图存在 node_modules/.cache/shots/hero-*.png）。
  * 用法：npm run dev，然后 node tests/ui/hero.mjs
  */
@@ -43,20 +46,21 @@ await page.evaluate(() => localStorage.clear());
 // ───────── 指定关公 ─────────
 await start({ 'xq-hero': 'guangong', 'xq-side': 'r' });
 ok('开局先演出场：关公', await until(() => document.querySelector('.xqh')?.dataset.hero === 'guangong', null, 2000));
-ok('大名写的是"关公"', (await page.locator('.xqh-name').innerText()).replace(/\s/g, '') === '关公');
+ok('关公用的是那张整幅的画（骑赤兔马、提青龙偃月刀）', await page.evaluate(() => document.querySelector('.xqh')?.classList.contains('xqh-photo-mode') && /guangong/.test(document.querySelector('.xqh-pic img')?.getAttribute('src') ?? '')));
+ok('画加载出来了、铺满屏幕', await until(() => { const i = document.querySelector('.xqh-pic img'); const r = i?.getBoundingClientRect(); return !!i && i.complete && i.naturalWidth >= 900 && !!r && r.width >= innerWidth - 1 && r.height >= innerHeight - 1; }, null, 3000));
+ok('镜头在推（Ken Burns）', await page.evaluate(() => getComputedStyle(document.querySelector('.xqh-pic img')).animationName === 'xqh-kb'));
+ok('画上自带题字：不再压一层大名', (await page.locator('.xqh-name').count()) === 0);
+ok('空中飘的尘土、火星（一层画布）', (await page.locator('.xqh-air').count()) === 1);
+ok('亮相一招：顺着刀劈下去的一道光', (await page.locator('.xqh-slash path').count()) === 1);
 ok('字幕和录音同一句："关某在此，请赐教！"', (await page.locator('.xqh-line').innerText()).replace(/\s/g, '') === '关某在此，请赐教！');
-ok('朱印"对弈"', (await page.locator('.xqh-seal').innerText()).replace(/\s/g, '') === '对弈');
-ok('画分成几层摆在 3D 里（天、远山、中景、雾、近景）', (await page.locator('.xqh-cam > .xqh-l').count()) === 5);
-ok('人物背后一团泼墨', (await page.locator('.xqh-splash svg').count()) === 1);
-ok('人物那一层画出来了', await page.evaluate(() => (document.querySelector('.xqh-fig svg')?.getBoundingClientRect().height ?? 0) > 300));
 await page.waitForTimeout(1300);
 await page.screenshot({ path: OUT + '/hero-guangong-live.png' });
-ok('背景五层都换成了位图（镜头推的时候不用重画带滤镜的矢量图）', (await page.locator('.xqh-cam > .xqh-l > canvas').count()) === 5);
 ok('演的时候棋盘还没入场（等人物演完）', !(await boardIntro()));
 ok('关公报名号（他自己的录音）', await said('hero-guangong'));
 ok('演完自己退场（四五秒）', await until(() => !document.querySelector('.xqh'), null, 6000));
 ok('接着棋盘入场', await until(() => document.querySelector('.xq-boardwrap')?.dataset.fx === 'opening', null, 1500));
-ok('然后喊"开局！"', await said('m-kaiju', 4000));
+await page.waitForTimeout(2500);
+ok('入场不喊"开局"（只在吃车、将军、绝杀喊）', (await page.evaluate(() => document.documentElement.dataset.xqSaid)) === 'hero-guangong');
 
 // ───────── 执黑：对手的第一步等出场演完；点一下跳过 ─────────
 await start({ 'xq-hero': 'nezha', 'xq-side': 'b' });
@@ -105,7 +109,14 @@ await page.locator('[data-hero="nvxia"]').scrollIntoViewIfNeeded();
 await page.locator('[data-hero="nvxia"]').click();
 ok('样式页点"白衣女侠"：当场演一遍', await until(() => document.querySelector('.xqh')?.dataset.hero === 'nvxia', null, 1500));
 ok('样式页点"白衣女侠"：以后就是她', (await page.evaluate(() => localStorage.getItem('xq-hero'))) === 'nvxia');
+// 女侠、大圣还是分层的水墨矢量画
+ok('女侠：大名写的是"女侠"', (await page.locator('.xqh-name').innerText()).replace(/\s/g, '') === '女侠');
+ok('女侠：朱印"对弈"', (await page.locator('.xqh-seal').innerText()).replace(/\s/g, '') === '对弈');
+ok('女侠：画分成几层摆在 3D 里（天、远山、中景、雾、近景）', (await page.locator('.xqh-cam > .xqh-l').count()) === 5);
+ok('女侠：人物背后一团泼墨', (await page.locator('.xqh-splash svg').count()) === 1);
+ok('女侠：人物那一层画出来了', await page.evaluate(() => (document.querySelector('.xqh-fig svg')?.getBoundingClientRect().height ?? 0) > 300));
 await page.waitForTimeout(1800);
+ok('女侠：背景五层都换成了位图（镜头推的时候不用重画带滤镜的矢量图）', (await page.locator('.xqh-cam > .xqh-l > canvas').count()) === 5);
 await page.screenshot({ path: OUT + '/hero-nvxia-live.png' });
 await page.mouse.click(195, 420);
 ok('点一下收掉，回到样式页', await until(() => !document.querySelector('.xqh') && !!document.querySelector('.xq-look'), null, 1500));
@@ -122,11 +133,16 @@ for (const id of ['daoke', 'guangong', 'nezha', 'nvxia', 'dasheng']) {
     document.querySelectorAll('.xqh svg').forEach((s) => { s.pauseAnimations(); s.setCurrentTime(2.6); });
   });
   await page.waitForTimeout(150);
-  const box = await page.evaluate(() => {
-    const r = document.querySelector('.xqh-fig svg').getBoundingClientRect();
-    return { top: r.top, bottom: r.bottom, h: innerHeight };
-  });
-  ok(`${id}：人物整个在屏幕里（脚没被裁掉）`, box.top > 0 && box.bottom < box.h);
+  if (['guangong', 'nezha', 'daoke'].includes(id)) {
+    // 整幅的画：等图解出来，铺满屏幕
+    ok(`${id}：整幅的画铺满屏幕`, await until(() => { const i = document.querySelector('.xqh-pic img'); const r = i?.getBoundingClientRect(); return !!i && i.complete && i.naturalWidth > 0 && !!r && r.width >= innerWidth - 1 && r.height >= innerHeight - 1; }, null, 3000));
+  } else {
+    const box = await page.evaluate(() => {
+      const r = document.querySelector('.xqh-fig svg').getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, h: innerHeight };
+    });
+    ok(`${id}：人物整个在屏幕里（脚没被裁掉）`, box.top > 0 && box.bottom < box.h);
+  }
   await page.screenshot({ path: `${OUT}/hero-${id}.png` });
   await page.mouse.click(195, 420);
   await until(() => !document.querySelector('.xqh'), null, 1500);

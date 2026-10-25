@@ -1,8 +1,11 @@
 /**
- * 对局特效：开局棋盘转平、棋子落下、"开局"印章；吃子碎开；吃车"吃车"大字 + 响亮的一声；
- * 将军光线 + "将军"大字；绝杀老将倒下 + "绝""杀"两个字、演完才出结果页；悔棋把特效收掉；
+ * 对局特效：开局棋盘转平、棋子落下；吃子碎开；吃车、将军、绝杀；演完才出结果页；悔棋把特效收掉；
  * 样式页里能关掉，关了就不演。吃车的声音比吃兵响，而且不削波。
- * 配音：开局喊"开局"、炮打马喊"吃马"、吃车喊"吃车"、将军喊"将军"、绝杀喊"绝杀"（男声，默认）。
+ * 四个大字各有意境（fxbanner.ts）：开局 · 风起云涌（浓墨扫开、金字写出来、卷云、"楚汉"印）；
+ * 吃车 · 刀光一闪（第一刀劈过车、字砸下、第二刀把字斩成两半）；将军 · 擂鼓点将（集中线收向老将、令旗、两圈气浪）；
+ * 绝杀 · 雷霆血墨（闪电、每个字背后一团血墨和裂纹）。字是截出来的毛笔字（XQ Fx），真的加载上了。
+ * 配音只在关键几步：吃车喊"吃车"、将军喊"将军"、绝杀喊"绝杀"（男声，默认）；开局、吃马吃炮不喊。
+ * 用户原话："不是每一步都要说话，就是关键的那几步，比如说吃车、将军、绝杀……开局也不用说开局"。
  * 吃子托盘去掉了。
  * 用法：npm run dev，然后 node tests/ui/fx.mjs
  */
@@ -39,11 +42,17 @@ ok('开局：棋子正在落下来', (await page.locator('.xq-boardwrap canvas.x
 ok('开局：标记 opening', (await fx()) === 'opening');
 await page.waitForTimeout(250);
 await page.screenshot({ path: OUT + '/fx-opening.png' });
-ok('开局："开局"印章翻过来', await until(() => !!document.querySelector('.xq-fx-seal'), null, 2500));
+ok('开局：一笔浓墨扫开，"开局"两个金字', await until(() => document.querySelector('.xq-bn.kai .xq-bband svg') && document.querySelector('.xq-bn.kai .xq-fx-word')?.textContent === '开局', null, 2500));
+ok('开局：两头金线卷云（每朵双线）', (await page.locator('.xq-bn.kai .xq-bswirl path').count()) === 8);
+ok('开局："楚汉"朱印盖下', (await page.locator('.xq-bn.kai .xq-fx-seal').innerText()).replace(/\s/g, '') === '楚汉');
+ok('大字的毛笔字加载上了（开局吃车将军绝杀困毙都有）', await until(() => document.fonts.check('40px "XQ Fx"', '开局吃车将军绝杀困毙'), null, 3000));
+ok('字面有飞白（遮罩）和金属渐变', await page.evaluate(() => { const c = getComputedStyle(document.querySelector('.xq-bn.kai .xq-bc')); return (c.webkitMaskImage || c.maskImage).startsWith('url(') && c.backgroundImage.startsWith('linear-gradient'); }));
+await page.waitForTimeout(500);
 await page.screenshot({ path: OUT + '/fx-seal.png' });
 ok('入场演完，棋子都落定', await until(() => !document.querySelector('.xq-boardwrap canvas.xq-b2d')?.dataset.intro, null, 3000));
 const said = (name, ms = 4000) => until((n) => document.documentElement.dataset.xqSaid === n, name, ms);
-ok('开局：喊一声"开局！"', await said('m-kaiju'));
+await page.waitForTimeout(1500);
+ok('开局：不喊"开局"', !((await page.evaluate(() => document.documentElement.dataset.xqSaid)) ?? '').startsWith('m-'));
 ok('吃子托盘（我丢了几个子、对方丢了几个子）去掉了', await page.evaluate(() => !document.querySelector('.xq-tray-row')));
 await until(() => window.__xq?.turn() === 'r' && !window.__xq.state().busy, null, 8000);
 
@@ -51,7 +60,7 @@ await until(() => window.__xq?.turn() === 'r' && !window.__xq.state().busy, null
 await page.evaluate(() => window.__xq.play({ fx: 7, fy: 7, tx: 7, ty: 0 }));
 // 走之前教练要先看一眼这一手（一两秒），所以等得久一点
 ok('炮打马：吃子特效（被吃的子碎开）', await until(() => document.querySelector('.xq-boardwrap')?.dataset.fx === 'capture:H', null, 8000));
-ok('炮打马：喊"吃马"', await said('m-chima'));
+ok('炮打马：不喊（只在吃车、将军、绝杀喊）', !(await said('m-chima', 1500)) && !((await page.evaluate(() => document.documentElement.dataset.xqSaid)) ?? '').startsWith('m-'));
 await page.waitForTimeout(120);
 await page.screenshot({ path: OUT + '/fx-capture.png' });
 
@@ -62,9 +71,13 @@ await page.waitForTimeout(400);
 await page.evaluate(() => window.__xq.play({ fx: 0, fy: 9, tx: 0, ty: 5 }));
 ok('吃车：特效标记 capture:R', await until(() => document.querySelector('.xq-boardwrap')?.dataset.fx === 'capture:R', null, 8000));
 ok('吃车："吃车"两个立体大字砸下来', await until(() => [...document.querySelectorAll('.xq-fx-word')].some((e) => e.textContent === '吃车'), null, 1500));
+ok('吃车：第一刀从被吃的车上劈过（一道刀光）', (await page.locator('.xq-bn.chiche .xq-bslash path').count()) === 2);
+ok('吃车：棋盘大震一下', await page.evaluate(() => document.querySelector('.xq-boardwrap canvas.xq-b2d')?.classList.contains('xq-fx-shake-big')));
 await page.waitForTimeout(200);
 await page.screenshot({ path: OUT + '/fx-rook.png' });
-ok('吃车：棋盘大震一下', await page.evaluate(() => document.querySelector('.xq-boardwrap canvas.xq-b2d')?.classList.contains('xq-fx-shake-big')));
+ok('吃车：第二刀从字中间斩过，字裂成上下两半', await until(() => !!document.querySelector('.xq-bn.chiche .xq-bblade'), null, 1500) && (await page.locator('.xq-bn.chiche .xq-bcut .half').count()) === 2);
+await page.waitForTimeout(150);
+await page.screenshot({ path: OUT + '/fx-rook-cut.png' });
 // 先报着法"车九进四"，再喊"吃车"（排着队说，所以要多等一会儿）
 ok('吃车：喊"吃车"', await said('m-chiche'));
 
@@ -76,6 +89,7 @@ await page.waitForTimeout(400);
 await page.evaluate(() => window.__xq.play({ fx: 3, fy: 8, tx: 4, ty: 8 }));
 ok('将军：特效标记 check', await until(() => document.querySelector('.xq-boardwrap')?.dataset.fx === 'check', null, 8000));
 ok('将军："将军"大字', await until(() => [...document.querySelectorAll('.xq-fx-word')].some((e) => e.textContent === '将军'), null, 1500));
+ok('将军：集中线收向老将、令旗、两圈气浪', (await page.locator('.xq-bn.jiang .xq-bspeed path').count()) > 40 && (await page.locator('.xq-bn.jiang .flag svg').count()) === 1 && (await page.locator('.xq-bn.jiang .xq-bring').count()) === 2);
 ok('将军：喊"将军"', await said('m-jiangjun'));
 await page.waitForTimeout(250);
 await page.screenshot({ path: OUT + '/fx-check.png' });
@@ -89,7 +103,9 @@ await page.evaluate(() => window.__xq.play({ fx: 8, fy: 8, tx: 8, ty: 0 }));
 ok('绝杀：特效标记 mate', await until(() => document.querySelector('.xq-boardwrap')?.dataset.fx === 'mate', null, 8000));
 const t0 = Date.now();
 ok('绝杀之前没有结果页', !(await page.evaluate(() => !!document.querySelector('.xq-result'))));
+ok('绝杀：几道闪电劈到老将头上', (await page.locator('.xq-bn.mate.jiesha.win .xq-bbolt .core path').count()) === 3);
 ok('绝杀："绝""杀"两个字一个一个砸下来', await until(() => [...document.querySelectorAll('.xq-fx-word')].map((e) => e.textContent).join('') === '绝杀', null, 2500));
+ok('绝杀：每个字背后一团血墨、一圈裂纹', (await page.locator('.xq-bn.mate .xq-bm .xq-bsplash svg').count()) === 2 && (await page.locator('.xq-bn.mate .xq-bm .xq-bcrack').count()) === 2);
 ok('绝杀：喊"绝杀"', await said('m-jiesha'));
 await page.screenshot({ path: OUT + '/fx-mate.png' });
 ok('绝杀演完才出结果页（两秒多）', await until(() => !!document.querySelector('.xq-result'), null, 6000));

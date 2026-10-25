@@ -6,21 +6,25 @@
  * 两层，都盖在棋盘上、不接点击：
  *   - 一张透明画布（粒子、碎片、冲击波、将军的光线、倒下的老将、烟花、墨烟）。粒子带"高度"z：
  *     飞得越高画得越大、影子落在棋盘上越淡越散，落到盘面上会弹两下——平面棋盘上看得出立体；
- *   - 一层 DOM 横幅（"开局"印章、"将军""吃車""绝杀"大字），用 CSS 3D（perspective + rotateX/translateZ）
- *     从远处砸过来，字是三层投影叠出来的立体金字。
+ *   - 一层 DOM 横幅：开局、吃车、将军、绝杀四个大字，每个字一个意境（风起云涌、刀光一闪、擂鼓点将、雷霆血墨），
+ *     见 fxbanner.ts。
  * 开局时整块棋盘从斜着的 3D 角度转平、棋子一排排落下来（board2d 的 intro）；大动作时棋盘震一下。
  *
  * 盘面（谁在哪一格）从来不跟着特效走——特效只是画法，点子、判规则都按 board2d 的盘面来。
  * 可以在"棋盘和棋子样式"里关掉；系统设了"减少动态效果"时默认关。
  */
 import type { Board2D } from './board2d';
-import { ensureFont, getLook, pieceStyle } from './boardtheme';
+import { getLook, pieceStyle } from './boardtheme';
+import { bannerCapture, bannerCheck, bannerMate, bannerOpening, blade, cutLine, ensureFxFont, mateChar } from './fxbanner';
 import type { Color, Piece } from './rules';
 import { xqSfxCapture, xqSfxCheck, xqSfxLand, xqSfxMate, xqSfxOpening } from '../xqsfx';
 import { getVoiceKind, preloadAnnounce, preloadShouts, xqShout, type Shout } from '../xqvoice';
 
-/** 吃了哪个子喊哪一句（兵士象不喊，一盘棋吃十几个兵卒，喊多了烦） */
-const CAPTURE_SHOUT: Partial<Record<string, Shout>> = { R: 'chiche', H: 'chima', C: 'chipao' };
+/**
+ * 吃了哪个子喊一声：只有吃车。
+ * 用户原话："不是每一步都要说话，就是关键的那几步，比如说吃车、将军、绝杀……开局也不用说开局"
+ */
+const CAPTURE_SHOUT: Partial<Record<string, Shout>> = { R: 'chiche' };
 const voiced = () => getVoiceKind() !== 'off';
 
 const KEY = 'xq-fx';
@@ -133,8 +137,8 @@ export class BoardFx {
     this.layer.className = 'xq-fx-layer';
     host.appendChild(this.layer);
     board.onLand = (x, y, c) => this.dust(x, y, c);
-    // 横幅用毛笔字（几 KB，先拉下来）
-    void ensureFont('mashan');
+    // 大字用的毛笔字（6 KB，先拉下来）
+    void ensureFxFont();
   }
 
   dispose() {
@@ -177,27 +181,23 @@ export class BoardFx {
 
   // ───────────── 对外：几个时刻 ─────────────
 
-  /** 开局：棋盘从斜着转平、棋子一排排落下、"开局"印章翻过来盖上，鼓一阵"锵" */
+  /** 开局：棋盘从斜着转平、棋子一排排落下；"开局"两个金字随一笔浓墨写出来、卷云旋开、"楚汉"印盖下，鼓一阵"锵" */
   opening() {
     this.reset();
     this.mark('opening');
     preloadShouts();
     preloadAnnounce();
-    if (!fxEnabled()) {
-      xqShout('kaiju', 300);
-      return;
-    }
+    if (!fxEnabled()) return;
     this.cssAnim('xq-fx-tilt', 1000);
     this.board.intro(1500);
     xqSfxOpening();
-    // "开局！"跟着最后那一声"锵"、印章盖下来
-    xqShout('kaiju', 1300);
     this.later(1250, () => {
-      const seal = document.createElement('div');
-      seal.className = 'xq-fx-seal';
-      seal.innerHTML = '<span>開</span><span>局</span>';
-      this.banner(seal, 1700);
-      this.shake(false);
+      const { w, h } = this.size();
+      this.banner(bannerOpening(w, h), 1950);
+      // 浓墨扫过去的时候带起一层金粉
+      this.later(180, () => this.motes(w * 0.1, w * 0.9, h / 2, 26, ['#ffe6a0', '#ffd166', '#fff6d8']));
+      // 印章盖下
+      this.later(700, () => this.shake(false));
     });
   }
 
@@ -229,14 +229,26 @@ export class BoardFx {
       if (victim.t === 'R') {
         this.flash = { t0: performance.now(), dur: 520, color: '255,214,120', peak: 0.38 };
         this.rings.push({ x: p.x, y: p.y, t0: performance.now() + 90, dur: 700, r0: c * 0.5, r1: c * 3.4, color: 'rgba(255,200,90,0.7)', w: c * 0.08 });
-        this.word('吃车', by === 'r' ? 'gold' : 'silver', 1250);
+        // 刀光一闪：第一刀劈过被吃的车，"吃车"砸下来；第二刀斩开两个字，火星沿着刀口溅
+        const { w, h } = this.size();
+        const bn = bannerCapture(w, h, p.x, p.y, by === 'r' ? 'gold' : 'silver');
+        this.banner(bn, 1300);
         this.shake(true);
+        this.later(640, () => {
+          const cl = cutLine(bn);
+          if (cl) {
+            blade(bn, cl);
+            for (let k = 1; k < 7; k++) this.sparks(cl[0] + ((cl[2] - cl[0]) * k) / 7, cl[1] + ((cl[3] - cl[1]) * k) / 7, 5, c, ['#ffffff', '#fff3c4', '#ffd166']);
+          }
+          this.shake(false);
+          this.kick();
+        });
       } else if (big) this.shake(false);
       this.kick();
     });
   }
 
-  /** 将军：从将军的子到老将一道光，老将脚下一圈，"将军"两个大字从远处砸过来，棋盘一震 */
+  /** 将军：从将军的子到老将一道光，集中线收向老将，令旗甩开、"将军"从远处砸过来，跟着两记鼓点震两下 */
   check(kx: number, ky: number, from: { x: number; y: number }[], byMe: boolean) {
     if (!fxEnabled()) {
       xqSfxCheck();
@@ -256,20 +268,21 @@ export class BoardFx {
       }
       this.rings.push({ x: k.x, y: k.y, t0: now + 150, dur: 650, r0: k.cell * 0.4, r1: k.cell * 1.5, color: 'rgba(255,80,60,0.85)', w: k.cell * 0.1 });
       this.sparks(k.x, k.y, 14, k.cell, ['#ff8a65', '#ffd180', '#ffffff']);
-      this.later(180, () => {
-        this.word('将军', byMe ? 'gold' : 'red', 1100);
-        this.shake(false);
-      });
+      const { w, h } = this.size();
+      this.banner(bannerCheck(w, h, k.x, k.y, byMe), 1150);
+      // 字砸到、两记鼓点（跟 CSS 里 xqb-drum 的 24%、50%、66% 对上）
+      for (const t of [280, 575, 760]) this.later(t, () => this.shake(false));
       this.kick();
     });
   }
 
   /**
-   * 绝杀（或困毙）：盘面压暗，被杀的老将裂开、倒下，"绝""杀"两个字一个一个砸下来；
-   * 你赢了放烟花，输了是一团墨烟。横幅留着，等结果页出来再收。
+   * 绝杀（或困毙）：盘面压暗、闪电劈下（困毙是一圈墨环收紧），被杀的老将裂开、倒下，
+   * "绝""杀"两个字一个一个砸下来、背后各炸开一团血墨；你赢了放烟花，输了是一团墨烟。横幅留着，等结果页出来再收。
    */
   mate(kx: number, ky: number, king: Piece, win: boolean, word = '绝杀') {
-    const shout: Shout = word === '困毙' ? 'kunbi' : 'jiesha';
+    const kunbi = word === '困毙';
+    const shout: Shout = kunbi ? 'kunbi' : 'jiesha';
     if (!fxEnabled()) {
       xqSfxMate(win);
       xqShout(shout, 880);
@@ -303,13 +316,27 @@ export class BoardFx {
       this.topple = { x: k.x, y: k.y, img: sp.img, half: sp.half, t0: now, dir, cracks };
       this.rings.push({ x: k.x, y: k.y, t0: now + 420, dur: 700, r0: k.cell * 0.4, r1: k.cell * 2.2, color: win ? 'rgba(255,215,110,0.9)' : 'rgba(220,40,30,0.85)', w: k.cell * 0.14 });
       this.later(420, () => this.chips(kx, ky, king.c, 22, 1.1));
+      const { w, h } = this.size();
+      const bn = bannerMate(w, h, k.x, k.y, kunbi, win);
+      this.banner(bn, 0);
+      // 困毙：一圈墨环从四面收紧到老将身上
+      if (kunbi)
+        for (let i = 0; i < 2; i++) this.rings.push({ x: k.x, y: k.y, t0: now + 80 + i * 260, dur: 900, r0: k.cell * 3.4, r1: k.cell * 0.6, color: 'rgba(14,22,34,0.9)', w: k.cell * 0.24 });
       const chars = [...word];
+      const cols = kunbi ? ['#e3f0ff', '#9cc6ff', '#ffffff'] : win ? ['#fff3c4', '#ffd166', '#ff9f43'] : ['#ffb3a0', '#ff5a3c', '#ffd0c0'];
       chars.forEach((ch, i) =>
         this.later(560 + i * 380, () => {
-          this.word(ch, win ? 'gold' : 'ink', 0, i - (chars.length - 1) / 2);
-          this.shake(true);
+          mateChar(bn, ch, i, chars.length, win ? 'gold' : 'ink', kunbi);
+          // 字落到盘面（CSS 里 xqb-drop 的一半）：震、四周迸火星
+          this.later(220, () => {
+            this.shake(true);
+            this.sparks(w / 2 + (i - (chars.length - 1) / 2) * w * 0.34, h / 2, 22, k.cell, cols);
+            this.kick();
+          });
         }),
       );
+      // 两个字落定，余烬从盘面往上飘
+      this.later(560 + chars.length * 380 + 300, () => this.motes(w * 0.05, w * 0.95, h * 0.75, 30, cols));
       if (win) for (let i = 0; i < 6; i++) this.later(1100 + i * 260, () => this.firework());
       else for (let i = 0; i < 5; i++) this.later(700 + i * 160, () => this.smoke(k.x + rand(-1, 1) * k.cell, k.y + rand(-0.6, 0.6) * k.cell, k.cell));
       this.kick();
@@ -346,16 +373,9 @@ export class BoardFx {
     if (ms) this.later(ms, () => el.remove());
   }
 
-  /** 大字：从远处砸过来的立体字。slot：几个字一个一个出来时，这个字在中间往左右第几格 */
-  private word(text: string, tone: 'gold' | 'silver' | 'red' | 'ink', ms: number, slot?: number) {
-    const el = document.createElement('div');
-    el.className = `xq-fx-word ${tone}${ms ? '' : ' hold'}`;
-    el.textContent = text;
-    if (slot !== undefined) {
-      el.classList.add('one');
-      el.style.setProperty('--slot', String(slot));
-    }
-    this.banner(el, ms);
+  /** 特效层多大（和棋盘画布一样） */
+  private size() {
+    return { w: this.board.canvas.clientWidth, h: this.board.canvas.clientHeight };
   }
 
   /** 被吃的子碎成六块：每块是同一张棋子图的一个扇形，往外飞、翻滚、落下弹两下再淡掉 */
@@ -448,6 +468,31 @@ export class BoardFx {
         glow: true,
       });
     }
+  }
+
+  /** 金粉、余烬：一片发亮的小点从一条横线附近慢慢往上飘 */
+  private motes(x0: number, x1: number, y: number, n: number, cols: string[]) {
+    const cell = this.board.pointOf(0, 0).cell || 40;
+    for (let i = 0; i < n; i++)
+      this.parts.push({
+        kind: 'ember',
+        x: rand(x0, x1),
+        y: y + rand(-0.7, 0.7) * cell,
+        z: 0,
+        vx: rand(-0.4, 0.4) * cell,
+        vy: rand(-0.2, 0.2) * cell,
+        vz: cell * rand(0.4, 1.4),
+        age: -rand(0, 0.5),
+        ttl: rand(1, 1.7),
+        size: cell * rand(0.02, 0.045),
+        color: cols[i % cols.length],
+        rot: 0,
+        vr: 0,
+        grav: -cell * 0.5,
+        bounce: false,
+        glow: true,
+      });
+    this.kick();
   }
 
   /** 入场时棋子落定：脚下扬起一小圈灰 */
@@ -718,8 +763,8 @@ export class BoardFx {
         case 'spark':
         case 'ember': {
           g.globalCompositeOperation = 'lighter';
-          // 刚炸开那几帧火星挤在一起，加色混合会叠成一团白：先淡入
-          g.globalAlpha = fade * Math.min(1, p.age * (p.kind === 'ember' ? 5 : 12));
+          // 刚炸开那几帧火星挤在一起，加色混合会叠成一团白：先淡入（金粉的 age 从负的开始 = 晚一点出来）
+          g.globalAlpha = Math.max(0, fade * Math.min(1, p.age * (p.kind === 'ember' ? 5 : 12)));
           const r = p.size * sc * (p.kind === 'ember' ? 2.2 : 3);
           const gr = g.createRadialGradient(sx, sy, 0, sx, sy, r);
           gr.addColorStop(0, p.color);

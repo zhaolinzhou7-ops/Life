@@ -1,14 +1,4 @@
 {
- "m-kaiju": {
-  "text": "开局！",
-  "voice": "zm_yunjian",
-  "speed": 1.0,
-  "reverb": 0.2,
-  "heard": "开局",
-  "score": 3,
-  "f0": 87,
-  "bytes": 15981
- },
  "m-jiangjun": {
   "text": "将军！",
   "voice": "zm_yunjian",
@@ -49,36 +39,6 @@
   "f0": 109,
   "bytes": 18285
  },
- "m-chima": {
-  "text": "吃掉马！",
-  "voice": "zm_yunjian",
-  "speed": 0.95,
-  "reverb": 0.2,
-  "heard": "吃掉吗",
-  "score": 1,
-  "f0": 111,
-  "bytes": 18093
- },
- "m-chipao": {
-  "text": "吃炮！",
-  "voice": "zm_yunjian",
-  "speed": 1.0,
-  "reverb": 0.03,
-  "heard": "吃炮",
-  "score": 3,
-  "f0": 108,
-  "bytes": 12717
- },
- "f-kaiju": {
-  "text": "开局！",
-  "voice": "zf_xiaoxiao",
-  "speed": 1.0,
-  "reverb": 0.2,
-  "heard": "开局",
-  "score": 3,
-  "f0": 270,
-  "bytes": 16941
- },
  "f-jiangjun": {
   "text": "将军！",
   "voice": "zf_xiaoxiao",
@@ -118,26 +78,6 @@
   "score": 3,
   "f0": 271,
   "bytes": 15789
- },
- "f-chima": {
-  "text": "吃马！",
-  "voice": "zf_xiaoxiao",
-  "speed": 0.95,
-  "reverb": 0.07,
-  "heard": "吃麻",
-  "score": 1,
-  "f0": 274,
-  "bytes": 14829
- },
- "f-chipao": {
-  "text": "吃掉炮！",
-  "voice": "zf_xiaoxiao",
-  "speed": 1.0,
-  "reverb": 0.07,
-  "heard": "吃掉炮",
-  "score": 3,
-  "f0": 276,
-  "bytes": 16173
  },
  "hero-daoke": {
   "text": "刀在鞘中，棋在心中。请！",

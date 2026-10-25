@@ -1,5 +1,5 @@
 /**
- * 象棋配音：开局、吃子、将军、绝杀的喊声，出场人物的开场白。
+ * 象棋配音：吃车、将军、绝杀（困毙）的喊声，出场人物的开场白。
  *
  * 终局再说一句（大获全胜、胜败乃兵家常事、握手言和）。
  *
@@ -11,7 +11,7 @@
  *
  * 报着法（xqAnnounce）：每走一步念一声"炮二平五"——天天象棋这些软件的语音包，核心就是这个。
  * 九百多句整句念好的着法拼在一个长音频里（tools/gen-announce.py，一个嗓子两三 MB），旁边一份 json 记每句的起止；
- * 开了报着法、开第一盘棋时才下载。
+ * 默认关着（只在关键几步喊）；样式页打开了、开第一盘棋时才下载。
  * 几句话排着队说：先报"车二进六"，再喊"将军！"，不会两句叠在一起（busyUntil）。
  */
 import { isMuted, musicCore } from './gamesfx';
@@ -22,7 +22,7 @@ const INDEX = import.meta.glob('./xiangqi/voice/announce.json', { query: '?url',
 const urlOf = (name: string) => FILES[`./xiangqi/voice/${name}.mp3`];
 
 /** 对局里喊的几句 */
-export type Shout = 'kaiju' | 'jiangjun' | 'jiesha' | 'kunbi' | 'chiche' | 'chima' | 'chipao' | 'win' | 'lose' | 'draw';
+export type Shout = 'jiangjun' | 'jiesha' | 'kunbi' | 'chiche' | 'win' | 'lose' | 'draw';
 /** 配音：男声、女声、不要 */
 export type VoiceKind = 'm' | 'f' | 'off';
 
@@ -69,7 +69,7 @@ export function preloadVoice(names: string[]) {
 export function preloadShouts() {
   const k = getVoiceKind();
   if (k === 'off') return;
-  preloadVoice((['kaiju', 'jiangjun', 'jiesha', 'kunbi', 'chiche', 'chima', 'chipao', 'win', 'lose', 'draw'] as Shout[]).map((s) => `${k}-${s}`));
+  preloadVoice((['jiangjun', 'jiesha', 'kunbi', 'chiche', 'win', 'lose', 'draw'] as Shout[]).map((s) => `${k}-${s}`));
 }
 
 /** 最近一次喊的是哪一句（测试看） */
@@ -135,12 +135,15 @@ export function setVoiceVolume(v: number) {
 }
 
 const ANN_KEY = 'xq-announce';
-/** 报着法开没开（默认开；配音选了"不要"就都不念） */
+/**
+ * 报着法开没开。默认关：用户原话"不是每一步都要说话，就是关键的那几步"——
+ * 平时只喊吃车、将军、绝杀；想听每一步记谱的，在样式页打开。配音选了"不要"就都不念
+ */
 export function getAnnounce(): boolean {
   try {
-    return localStorage.getItem(ANN_KEY) !== '0';
+    return localStorage.getItem(ANN_KEY) === '1';
   } catch {
-    return true;
+    return false;
   }
 }
 export function setAnnounce(on: boolean) {
