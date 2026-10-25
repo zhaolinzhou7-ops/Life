@@ -89,6 +89,8 @@ async function play(name: string, delayMs: number, vol: number, seg?: [number, n
   const buf = await load(name);
   const core = musicCore();
   if (!buf || !core || isMuted()) return;
+  // 报着法那份长音频第一次要下载两 MB：等下来已经晚了一秒多（对手可能都走了），这一句就不念了
+  if (performance.now() - due > maxLag + 300) return;
   delayMs = Math.max(0, due - performance.now());
   const want = core.c.currentTime + delayMs / 1000;
   const t0 = Math.max(want, busyUntil + 0.06);
@@ -179,14 +181,17 @@ export function preloadAnnounce() {
   void load(`announce-${k}`);
 }
 
-/** 念一步着法（"炮二平五"）。关了、静音、说不出来（没有这一句）都不念 */
-export function xqAnnounce(text: string, delayMs = 0) {
+/**
+ * 念一步着法（"炮二平五"）。关了、静音、说不出来（没有这一句）都不念。
+ * 对局里排队排晚了就不念了；wait：样式页上点了试听——第一次要等长音频下载完，等多久都念
+ */
+export function xqAnnounce(text: string, delayMs = 0, wait = false) {
   const k = getVoiceKind();
   if (k === 'off' || !getAnnounce() || isMuted()) return;
   void loadIndex().then((a) => {
     const i = a?.at.get(announceKey(text));
     const seg = i === undefined ? undefined : a!.idx[k]?.[i];
-    if (seg) void play(`announce-${k}`, delayMs, 0.95, seg, 900, `announce:${announceKey(text)}`);
+    if (seg) void play(`announce-${k}`, delayMs, 0.95, seg, wait ? Infinity : 900, `announce:${announceKey(text)}`);
   });
 }
 

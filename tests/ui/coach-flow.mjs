@@ -166,7 +166,10 @@ await page.screenshot({ path: `${OUT}/c7-review.png` });
 const hasDeep = await page.locator('.xq-rv-deep').count() > 0;
 ok('复盘里有「从全局讲讲这一手」', hasDeep);
 if (hasDeep) {
-  await page.locator('.xq-rv-deep').first().click();
+  // 长讲解平时收着：先点「📖 讲解」摊开，"从全局讲讲这一手"在里面
+  await page.locator('.xq-rv-nav [data-act="detail"]').click();
+  await page.waitForTimeout(300);
+  await page.locator('.xq-rv-deep[data-deep]').first().click();
   for (let i = 0; i < 40; i++) {
     const t = await page.locator('.xq-rv-deepbox').textContent();
     if (t && t.includes('走法梯次')) break;

@@ -62,10 +62,11 @@ await page.waitForTimeout(400);
 await page.evaluate(() => window.__xq.play({ fx: 0, fy: 9, tx: 0, ty: 5 }));
 ok('吃车：特效标记 capture:R', await until(() => document.querySelector('.xq-boardwrap')?.dataset.fx === 'capture:R', null, 8000));
 ok('吃车："吃车"两个立体大字砸下来', await until(() => [...document.querySelectorAll('.xq-fx-word')].some((e) => e.textContent === '吃车'), null, 1500));
-ok('吃车：喊"吃车"', await said('m-chiche'));
 await page.waitForTimeout(200);
 await page.screenshot({ path: OUT + '/fx-rook.png' });
 ok('吃车：棋盘大震一下', await page.evaluate(() => document.querySelector('.xq-boardwrap canvas.xq-b2d')?.classList.contains('xq-fx-shake-big')));
+// 先报着法"车九进四"，再喊"吃车"（排着队说，所以要多等一会儿）
+ok('吃车：喊"吃车"', await said('m-chiche'));
 
 // ───────── 将军 ─────────
 await until(() => window.__xq.turn() === 'r' && !window.__xq.state().busy, null, 15000);

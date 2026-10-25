@@ -7,6 +7,7 @@ import { Board2D } from './board2d';
 import {
   BOARDS,
   DEFAULT_LOOK,
+  boardStyle,
   FONTS,
   PIECES,
   PRESETS,
@@ -48,7 +49,7 @@ function sampleBoard() {
  * 一张小样：棋盘左上角那几格 + 几个棋子。
  * big：看棋子、字体用——棋子画大（半径是高的几成），x、y 是占宽高的几成，底下还是这套棋盘
  */
-function swatch(look: Look, w: number, h: number, pieces: { x: number; y: number; t: PType; c: Color }[], big = 0): HTMLCanvasElement {
+function swatch(look: Look, w: number, h: number, pieces: { x: number; y: number; t: PType; c: Color }[], big = 0, river = false): HTMLCanvasElement {
   const cv = document.createElement('canvas');
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   cv.width = Math.round(w * dpr);
@@ -59,8 +60,9 @@ function swatch(look: Look, w: number, h: number, pieces: { x: number; y: number
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   // 三行格子正好放得下：最上一行的棋子到第三行的棋子都完整露出来
   const c = (h - 4) / 3.2;
-  const x0 = c * 0.62 + 6;
-  const y0 = c * boardPadY(false) + 4;
+  // river：典藏棋盘的画在楚河汉界正中那两格，小样就对着那里（第 3～6 条横线、第 2～6 路）
+  const x0 = river ? w / 2 - 4 * c : c * 0.62 + 6;
+  const y0 = river ? h / 2 - 4.5 * c : c * boardPadY(false) + 4;
   paintBoard(g, { x0, y0, c, cols: 9, rows: 10, flip: false, coords: false, dpr }, look);
   for (const p of pieces) {
     const cx = big ? p.x * w : x0 + p.x * c;
@@ -177,11 +179,13 @@ export function renderLookPicker(host: HTMLElement, onBack: () => void): () => v
         p.desc,
         presetOf(look)?.id === p.id,
         () =>
-          swatch(p.look, 160, 84, [
-            { x: 0, y: 0, t: 'R', c: 'b' },
-            { x: 2, y: 0, t: 'E', c: 'b' },
-            { x: 1, y: 2, t: 'C', c: 'r' },
-          ]),
+          boardStyle(p.look.board).premium
+            ? swatch(p.look, 160, 84, [{ x: 2, y: 3, t: 'P', c: 'b' }, { x: 6, y: 6, t: 'P', c: 'r' }], 0, true)
+            : swatch(p.look, 160, 84, [
+                { x: 0, y: 0, t: 'R', c: 'b' },
+                { x: 2, y: 0, t: 'E', c: 'b' },
+                { x: 1, y: 2, t: 'C', c: 'r' },
+              ]),
         () => setLook(p.look),
         { preset: p.id },
       );
@@ -189,7 +193,16 @@ export function renderLookPicker(host: HTMLElement, onBack: () => void): () => v
 
     const bd = section('棋盘');
     for (const b of BOARDS) {
-      card(bd, b.name, b.desc, look.board === b.id, () => swatch({ ...look, board: b.id }, 160, 84, [{ x: 1, y: 2, t: 'C', c: 'r' }]), () => setLook({ board: b.id }), { board: b.id });
+      // 典藏（带画、会动）的几种标个 ✨
+      card(
+        bd,
+        b.premium ? `✨ ${b.name}` : b.name,
+        b.desc,
+        look.board === b.id,
+        () => (b.premium ? swatch({ ...look, board: b.id }, 160, 84, [], 0, true) : swatch({ ...look, board: b.id }, 160, 84, [{ x: 1, y: 2, t: 'C', c: 'r' }])),
+        () => setLook({ board: b.id }),
+        { board: b.id },
+      );
     }
 
     const pc = section('棋子');
@@ -292,7 +305,7 @@ export function renderLookPicker(host: HTMLElement, onBack: () => void): () => v
       if (on) {
         unlockAudio();
         preloadAnnounce();
-        xqAnnounce('炮二平五');
+        xqAnnounce('炮二平五', 0, true);
       }
     };
     body.appendChild(an);
