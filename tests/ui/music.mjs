@@ -37,6 +37,9 @@ for (const id of ids) {
   const moods = id === ids[0] ? ['serene', 'flow', 'tense', 'battle', 'triumph', 'peril', 'endgame'] : ['serene', 'battle'];
   for (const mood of moods) {
     await page.evaluate((m) => window.__xqMusic.mood(m, 0.8), mood);
+    // 换情绪要等这一句唱完、下一句才换（慢的乐队一句七八秒）：等它真换过来再量，不然量到的还是上一种情绪
+    const t0 = Date.now();
+    while (Date.now() - t0 < 15000 && (await page.evaluate(() => window.__xqMusic.current()))?.mood !== mood) await page.waitForTimeout(150);
     await page.waitForTimeout(1500);
     let peak = 0;
     let rms = 0;
