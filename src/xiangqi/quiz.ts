@@ -156,7 +156,7 @@ export function choiceQuestion(p: Puzzle, dim: Dim): QuizQ | null {
   const me = pos.toMove;
   const ans = textToMove(pos.board, me, p.answer, legal(pos.board, me));
   if (!ans) return null;
-  const wrong = naturalWrong(pos.board, me, ans, new Set(p.also ?? [])).slice(0, 3);
+  const wrong = naturalWrong(pos.board, me, ans, new Set([...(p.also ?? []), ...(p.ok?.[0] ?? [])])).slice(0, 3);
   if (wrong.length < 2) return null;
   const opts = shuffle([ans, ...wrong]);
   const labels = ['A', 'B', 'C', 'D'];
@@ -192,7 +192,7 @@ export function judgeQuestion(p: Puzzle, dim: Dim, rnd = Math.random): QuizQ | n
       fromGame = true;
     } else {
       if (!uniqueAnswer(p)) return null;
-      move = naturalWrong(pos.board, me, ans, new Set(p.also ?? []))[0] ?? null;
+      move = naturalWrong(pos.board, me, ans, new Set([...(p.also ?? []), ...(p.ok?.[0] ?? [])]))[0] ?? null;
     }
   }
   if (!move) return null;

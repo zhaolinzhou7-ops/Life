@@ -38,12 +38,9 @@ export type BoardId =
   | 'inkland'
   | 'goldlac'
   | 'qinglv'
-  | 'xinghe'
-  | 'neon'
-  | 'fenghuo'
   | 'dunhuang'
   | 'plain';
-export type PieceId = 'ivory' | 'boxwood' | 'jade' | 'bronze' | 'porcelain' | 'lacquer' | 'ink' | 'glass' | 'neon' | 'flat';
+export type PieceId = 'ivory' | 'boxwood' | 'jade' | 'bronze' | 'porcelain' | 'lacquer' | 'ink' | 'flat';
 export type FontId = 'wenkai' | 'mashan' | 'xingshu' | 'xiaowei' | 'hei';
 
 export interface Look {
@@ -260,10 +257,7 @@ export const PRESETS: { id: string; name: string; desc: string; look: Look }[] =
   { id: 'shanhe', name: '✨ 水墨山河', desc: '洒金宣纸、河里一幅水墨山水、印章式棋子；流光和河水会动', look: { board: 'inkland', piece: 'ink', font: 'mashan', trad: false } },
   { id: 'liujin', name: '✨ 鎏金玄漆', desc: '黑漆洒金、祥云、朱漆对黑漆、金字；金光隔几秒扫一遍', look: { board: 'goldlac', piece: 'lacquer', font: 'wenkai', trad: true } },
   { id: 'jinbi', name: '✨ 金碧青绿', desc: '绢本青绿山水、金线勾边、青花瓷棋子', look: { board: 'qinglv', piece: 'porcelain', font: 'xiaowei', trad: false } },
-  // 典藏里水墨以外的几套：星空、霓虹、战火、壁画
-  { id: 'xinghe', name: '✨ 星河夜弈', desc: '夜空星云、一道银河横过楚河汉界、琉璃棋子；星星会眨，隔一会儿划过一颗流星', look: { board: 'xinghe', piece: 'glass', font: 'xiaowei', trad: false } },
-  { id: 'neon', name: '✨ 霓虹赛博', desc: '黑底电路板、霓虹格线、发光棋子；扫描线扫过，河里的光来回跑', look: { board: 'neon', piece: 'neon', font: 'hei', trad: false } },
-  { id: 'fenghuo', name: '✨ 烽火沙场', desc: '烧焦的青铜战盘、河里一道火、青铜棋子；火星一阵阵往上飞', look: { board: 'fenghuo', piece: 'bronze', font: 'mashan', trad: false } },
+  // 典藏里水墨以外的一套：壁画。星河夜弈、霓虹赛博、烽火沙场（发光的格线、满盘闪的星、飞的火星）太晃眼，拿掉了
   { id: 'dunhuang', name: '✨ 敦煌飞天', desc: '土墙壁画、石绿石青、河里飘带和莲花、朱漆棋子；花瓣往下飘', look: { board: 'dunhuang', piece: 'lacquer', font: 'mashan', trad: false } },
   { id: 'clear', name: '清晰护眼', desc: '素色棋盘、扁平棋子、粗黑体：最好认', look: { board: 'plain', piece: 'flat', font: 'hei', trad: false } },
 ];
@@ -430,23 +424,9 @@ export interface BoardStyle {
     river?: string;
     mist?: string;
     motes?: string;
-    /** 一闪一闪的星（星河） */
-    stars?: string;
-    /** 隔一会儿斜着划过去一颗流星（星河） */
-    meteor?: string;
-    /** 从上往下扫的一道扫描线（霓虹） */
-    scan?: string;
-    /** 河上下两条边，各有一道光来回跑（霓虹） */
-    pulse?: string;
-    /** 火星：从下往上飞，比金粉快、多，一边飞一边晃（烽火） */
-    embers?: string;
     /** 花瓣从上往下飘、打着转（敦煌，天女散花） */
     petals?: string;
   };
-  /** 格线、楚河汉界的字发光（霓虹、星河、烽火）：line 给线，text 给字 */
-  glow?: { line?: string; text?: string };
-  /** 可走点、选中圈的颜色（不写就按 dark 取） */
-  mark?: { dot: string; ring: string };
   /** 典藏：样式页上标出来（带动效、带画） */
   premium?: boolean;
 }
@@ -476,18 +456,6 @@ const LAC_L = hex('#2a1e1c');
 const LAC_D = hex('#0d0a0a');
 const SILK_L = hex('#ece3c4');
 const SILK_D = hex('#d6c9a0');
-const SKY_D = hex('#060920');
-const SKY_L = hex('#151b48');
-const NEB_V = hex('#4c2474');
-const NEB_T = hex('#1a5c7c');
-const NEON_D = hex('#04030a');
-const NEON_L = hex('#120e2a');
-const NEON_M = hex('#2a0b3c');
-const WAR_D = hex('#120a05');
-const WAR_M = hex('#3a2416');
-const WAR_L = hex('#62402a');
-const WAR_R = hex('#7a3618');
-const WAR_V = hex('#3e6a52');
 const DH_L = hex('#e4c38e');
 const DH_M = hex('#cf9d63');
 const DH_D = hex('#a46c3c');
@@ -986,340 +954,6 @@ export const BOARDS: BoardStyle[] = [
     ambient: { sheen: 'rgba(255,236,170,0.5)', river: 'rgba(80,150,170,0.32)', mist: 'rgba(255,252,240,0.6)', motes: '#d8b45a' },
   },
   {
-    id: 'xinghe',
-    res: 0.35,
-    name: '星河夜弈',
-    desc: '夜空星云，一道银河顺着楚河汉界横过去，北斗七星；星星会眨，隔一会儿划过一颗流星',
-    premium: true,
-    base: '#0a0d26',
-    surface: (n1, n2, u, v) => {
-      // 夜空：靛蓝打底，几团紫的、青的星云
-      const neb = fbm(n1, u * 0.22, v * 0.22, 5);
-      const neb2 = fbm(n2, u * 0.33 + 20, v * 0.33, 4);
-      const fine = fbm(n2, u * 2.4, v * 2.4, 2) - 0.5;
-      let col = mix(SKY_D, SKY_L, clamp01((neb - 0.35) * 1.3 + fine * 0.15));
-      col = mix(col, NEB_V, smooth(0.55, 0.8, neb) * 0.5);
-      return mix(col, NEB_T, smooth(0.56, 0.8, neb2) * 0.35);
-    },
-    decorate: (g, w, h, c, n1, rnd) => {
-      const { ox, oy } = gridOrigin(w, h, c);
-      const mid = oy + 4.5 * c;
-      // 银河：顺着河横过去一条发光的带子，中间亮、两边虚，微微起伏
-      const band = g.createLinearGradient(0, mid - c * 1.5, 0, mid + c * 1.5);
-      band.addColorStop(0, 'rgba(110,120,255,0)');
-      band.addColorStop(0.3, 'rgba(150,140,255,0.14)');
-      band.addColorStop(0.5, 'rgba(228,220,255,0.3)');
-      band.addColorStop(0.7, 'rgba(150,140,255,0.14)');
-      band.addColorStop(1, 'rgba(110,120,255,0)');
-      g.fillStyle = band;
-      g.fillRect(0, mid - c * 1.5, w, c * 3);
-      // 星尘：越靠河中线越密；中间夹几道暗的尘带
-      const dust = Math.round((w / c) * 260);
-      for (let i = 0; i < dust; i++) {
-        const x = rnd() * w;
-        const t = (rnd() + rnd() + rnd() + rnd()) / 4 - 0.5;
-        const y = mid + t * c * 2.6 + Math.sin((x / c) * 0.8) * c * 0.14;
-        if (n1(x / c, y / c) > 0.72) continue;
-        const s = c * (0.008 + rnd() * rnd() * 0.022);
-        g.fillStyle = `rgba(236,232,255,${(0.2 + rnd() * 0.6) * (1 - Math.abs(t) * 1.4)})`;
-        g.fillRect(x, y, s, s);
-      }
-      // 满天星：大小、亮暗、颜色都不一样
-      const hues = ['255,255,255', '200,220,255', '255,238,205', '255,214,232'];
-      const n = Math.round(((w * h) / (c * c)) * 9);
-      for (let i = 0; i < n; i++) {
-        const x = rnd() * w;
-        const y = rnd() * h;
-        const r = c * (0.006 + Math.pow(rnd(), 4) * 0.03);
-        g.fillStyle = `rgba(${hues[Math.floor(rnd() * hues.length)]},${0.35 + rnd() * 0.65})`;
-        g.beginPath();
-        g.arc(x, y, r, 0, Math.PI * 2);
-        g.fill();
-      }
-      // 几颗亮星：一团光晕 + 十字星芒
-      const glint = (x: number, y: number, s: number, a: number) => {
-        const gl = g.createRadialGradient(x, y, 0, x, y, s * 3);
-        gl.addColorStop(0, `rgba(240,244,255,${a})`);
-        gl.addColorStop(0.25, `rgba(190,205,255,${a * 0.35})`);
-        gl.addColorStop(1, 'rgba(160,180,255,0)');
-        g.fillStyle = gl;
-        g.beginPath();
-        g.arc(x, y, s * 3, 0, Math.PI * 2);
-        g.fill();
-        g.strokeStyle = `rgba(235,240,255,${a * 0.7})`;
-        g.lineWidth = Math.max(0.6, s * 0.18);
-        g.beginPath();
-        g.moveTo(x - s * 4, y);
-        g.lineTo(x + s * 4, y);
-        g.moveTo(x, y - s * 4);
-        g.lineTo(x, y + s * 4);
-        g.stroke();
-      };
-      for (let i = 0; i < 9; i++) glint(rnd() * w, rnd() * h, c * (0.03 + rnd() * 0.03), 0.55 + rnd() * 0.4);
-      // 北斗七星：上半盘（黑方那边）右上，连线很淡
-      const dip: [number, number][] = [
-        [0, 0],
-        [1, 0.16],
-        [1.85, 0.22],
-        [2.7, 0.4],
-        [2.85, 1.08],
-        [4, 1.2],
-        [4.15, 0.38],
-      ];
-      const k = c * 0.56;
-      const px = (i: number) => ox + 4.35 * c + dip[i][0] * k;
-      const py = (i: number) => oy + 1.35 * c + dip[i][1] * k;
-      g.strokeStyle = 'rgba(190,210,255,0.22)';
-      g.lineWidth = Math.max(0.6, c * 0.012);
-      g.setLineDash([c * 0.05, c * 0.05]);
-      g.beginPath();
-      for (let i = 0; i < 7; i++) (i ? g.lineTo : g.moveTo).call(g, px(i), py(i));
-      g.lineTo(px(3), py(3));
-      g.stroke();
-      g.setLineDash([]);
-      for (let i = 0; i < 7; i++) glint(px(i), py(i), c * 0.035, 0.85);
-    },
-    frame: '#05071a',
-    line: 'rgba(200,216,255,0.92)',
-    lineW: 1.1,
-    engrave: 0,
-    river: '#f0f3ff',
-    label: 'rgba(190,205,240,0.78)',
-    gloss: 0.08,
-    vignette: 0.45,
-    double: true,
-    corners: true,
-    dark: true,
-    glow: { line: 'rgba(130,160,255,0.85)', text: 'rgba(150,170,255,0.95)' },
-    ambient: { sheen: 'rgba(170,190,255,0.35)', river: 'rgba(205,212,255,0.18)', stars: '#ffffff', meteor: 'rgba(225,235,255,0.95)' },
-  },
-  {
-    id: 'neon',
-    res: 0.35,
-    name: '霓虹赛博',
-    desc: '黑底电路板、霓虹格线，河里一道洋红到青的光带；扫描线扫过，河边的光来回跑',
-    premium: true,
-    base: '#07060f',
-    surface: (n1, n2, u, v) => {
-      const glow = fbm(n1, u * 0.25, v * 0.25, 4);
-      const tint = smooth(0.58, 0.85, fbm(n2, u * 0.2 + 13, v * 0.2, 3));
-      const fine = n2(u * 12, v * 12) - 0.5;
-      return mix(mix(NEON_D, NEON_L, clamp01((glow - 0.3) * 0.9 + fine * 0.05)), NEON_M, tint * 0.4);
-    },
-    decorate: (g, w, h, c, _n1, rnd) => {
-      const { ox, oy } = gridOrigin(w, h, c);
-      const top = oy + 4 * c;
-      // 细格：半格一道，很淡
-      g.strokeStyle = 'rgba(70,225,255,0.07)';
-      g.lineWidth = 0.6;
-      g.beginPath();
-      for (let x = ox - Math.ceil(ox / (c / 2)) * (c / 2); x < w; x += c / 2) {
-        g.moveTo(x, 0);
-        g.lineTo(x, h);
-      }
-      for (let y = oy - Math.ceil(oy / (c / 2)) * (c / 2); y < h; y += c / 2) {
-        g.moveTo(0, y);
-        g.lineTo(w, y);
-      }
-      g.stroke();
-      // 电路走线：横竖走、拐 45 度，两头一个焊盘
-      const q = c / 4;
-      for (let i = 0; i < 34; i++) {
-        let x = Math.round((rnd() * w) / q) * q;
-        let y = Math.round((rnd() * h) / q) * q;
-        const pink = rnd() < 0.3;
-        g.strokeStyle = pink ? 'rgba(255,80,220,0.2)' : 'rgba(80,215,255,0.22)';
-        g.fillStyle = g.strokeStyle;
-        g.lineWidth = Math.max(0.8, c * 0.02);
-        g.beginPath();
-        g.arc(x, y, c * 0.035, 0, Math.PI * 2);
-        g.fill();
-        g.beginPath();
-        g.moveTo(x, y);
-        let dir = Math.floor(rnd() * 4);
-        for (let s = 0; s < 3; s++) {
-          const len = q * (2 + Math.floor(rnd() * 5));
-          const dx = [1, 0, -1, 0][dir];
-          const dy = [0, 1, 0, -1][dir];
-          x += dx * len;
-          y += dy * len;
-          g.lineTo(x, y);
-          if (s < 2) {
-            const turn = rnd() < 0.5 ? 1 : 3;
-            const nd = (dir + turn) % 4;
-            x += ([1, 0, -1, 0][nd] + dx) * q * 0.5;
-            y += ([0, 1, 0, -1][nd] + dy) * q * 0.5;
-            g.lineTo(x, y);
-            dir = nd;
-          }
-        }
-        g.stroke();
-        g.beginPath();
-        g.arc(x, y, c * 0.045, 0, Math.PI * 2);
-        g.stroke();
-      }
-      // 河：洋红 → 紫 → 青的一条光带，横着的细扫描纹
-      g.save();
-      g.beginPath();
-      g.rect(ox, top, 8 * c, c);
-      g.clip();
-      const hb = g.createLinearGradient(ox, 0, ox + 8 * c, 0);
-      hb.addColorStop(0, 'rgba(255,60,200,0.28)');
-      hb.addColorStop(0.5, 'rgba(120,70,255,0.18)');
-      hb.addColorStop(1, 'rgba(40,220,255,0.28)');
-      g.fillStyle = hb;
-      g.fillRect(ox, top, 8 * c, c);
-      const vb = g.createLinearGradient(0, top, 0, top + c);
-      vb.addColorStop(0, 'rgba(0,0,0,0.35)');
-      vb.addColorStop(0.5, 'rgba(0,0,0,0)');
-      vb.addColorStop(1, 'rgba(0,0,0,0.35)');
-      g.fillStyle = vb;
-      g.fillRect(ox, top, 8 * c, c);
-      g.fillStyle = 'rgba(255,255,255,0.05)';
-      for (let y = top; y < top + c; y += 3) g.fillRect(ox, y, 8 * c, 1);
-      // 中间一个准星：两道圈、四个刻度
-      const cx = ox + 4 * c;
-      const cy = top + c / 2;
-      g.shadowColor = 'rgba(60,235,255,0.9)';
-      g.shadowBlur = c * 0.15;
-      g.strokeStyle = 'rgba(110,240,255,0.75)';
-      g.lineWidth = Math.max(0.8, c * 0.022);
-      g.beginPath();
-      g.arc(cx, cy, c * 0.3, 0, Math.PI * 2);
-      g.stroke();
-      g.beginPath();
-      g.arc(cx, cy, c * 0.2, Math.PI * 0.15, Math.PI * 0.85);
-      g.arc(cx, cy, c * 0.2, Math.PI * 1.15, Math.PI * 1.85);
-      g.stroke();
-      for (let a = 0; a < 4; a++) {
-        const ang = (a * Math.PI) / 2;
-        g.beginPath();
-        g.moveTo(cx + Math.cos(ang) * c * 0.34, cy + Math.sin(ang) * c * 0.34);
-        g.lineTo(cx + Math.cos(ang) * c * 0.44, cy + Math.sin(ang) * c * 0.44);
-        g.stroke();
-      }
-      g.fillStyle = 'rgba(255,90,220,0.9)';
-      g.beginPath();
-      g.arc(cx, cy, c * 0.05, 0, Math.PI * 2);
-      g.fill();
-      g.restore();
-    },
-    frame: '#0b0818',
-    line: '#62f2ff',
-    lineW: 1.2,
-    engrave: 0,
-    river: '#ff6ade',
-    label: 'rgba(120,230,255,0.78)',
-    gloss: 0.1,
-    vignette: 0.42,
-    corners: true,
-    dark: true,
-    glow: { line: 'rgba(30,220,255,0.95)', text: 'rgba(255,40,200,0.95)' },
-    mark: { dot: 'rgba(255,100,225,0.9)', ring: 'rgba(90,245,255,0.98)' },
-    ambient: { sheen: 'rgba(90,240,255,0.3)', river: 'rgba(255,90,220,0.4)', scan: 'rgba(90,240,255,0.16)', pulse: '#8ff8ff' },
-  },
-  {
-    id: 'fenghuo',
-    res: 0.35,
-    name: '烽火沙场',
-    desc: '烧焦的青铜战盘、锤打的凹痕、铜锈，河里一道火；火星一阵阵往上飞',
-    premium: true,
-    base: '#24160d',
-    surface: (n1, n2, u, v) => {
-      const base = fbm(n1, u * 0.3, v * 0.3, 5);
-      // 锤打的凹痕：一个个圆坑，坑边亮、坑底暗
-      const ham = n2(u * 3.1, v * 3.1);
-      const fine = n2(u * 16, v * 16) - 0.5;
-      const scorch = smooth(0.55, 0.8, fbm(n2, u * 0.18 + 30, v * 0.18, 4));
-      let col = mix(WAR_M, WAR_L, clamp01((base - 0.35) * 1.2 + (ham - 0.5) * 0.3 + fine * 0.1));
-      col = mix(col, WAR_R, smooth(0.6, 0.76, fbm(n1, u * 0.6 + 11, v * 0.6, 3)) * 0.4);
-      col = mix(col, WAR_V, smooth(0.66, 0.8, fbm(n2, u * 0.45 + 70, v * 0.45, 3)) * 0.22);
-      return mix(col, WAR_D, scorch * 0.75);
-    },
-    decorate: (g, w, h, c, _n1, rnd) => {
-      const { ox, oy } = gridOrigin(w, h, c);
-      const top = oy + 4 * c;
-      // 铜面上的裂纹（暗）
-      g.strokeStyle = 'rgba(10,5,2,0.45)';
-      g.lineCap = 'round';
-      for (let i = 0; i < 9; i++) {
-        let x = rnd() * w;
-        let y = rnd() * h;
-        let a = rnd() * Math.PI * 2;
-        g.lineWidth = 0.6 + rnd() * 0.9;
-        g.beginPath();
-        g.moveTo(x, y);
-        for (let s = 0; s < 7; s++) {
-          a += (rnd() - 0.5) * 1.1;
-          x += Math.cos(a) * c * 0.18;
-          y += Math.sin(a) * c * 0.18;
-          g.lineTo(x, y);
-        }
-        g.stroke();
-      }
-      // 河：一道火——两边暗红、中间橘黄，里面几道烧得发白的裂口
-      g.save();
-      const fireTop = top - c * 0.12;
-      const fireH = c * 1.24;
-      const fb = g.createLinearGradient(0, fireTop, 0, fireTop + fireH);
-      fb.addColorStop(0, 'rgba(90,16,0,0)');
-      fb.addColorStop(0.22, 'rgba(150,34,4,0.5)');
-      fb.addColorStop(0.5, 'rgba(255,120,24,0.5)');
-      fb.addColorStop(0.78, 'rgba(150,34,4,0.5)');
-      fb.addColorStop(1, 'rgba(90,16,0,0)');
-      g.fillStyle = fb;
-      g.fillRect(ox - c * 0.3, fireTop, 8.6 * c, fireH);
-      g.beginPath();
-      g.rect(ox, top, 8 * c, c);
-      g.clip();
-      g.shadowColor = 'rgba(255,110,20,0.95)';
-      g.shadowBlur = c * 0.18;
-      for (let i = 0; i < 7; i++) {
-        let x = ox + rnd() * 8 * c;
-        let y = top + c * (0.3 + rnd() * 0.4);
-        const len = c * (0.8 + rnd() * 1.4);
-        g.strokeStyle = `rgba(255,${200 + Math.floor(rnd() * 50)},${110 + Math.floor(rnd() * 80)},${0.55 + rnd() * 0.35})`;
-        g.lineWidth = Math.max(0.8, c * (0.015 + rnd() * 0.02));
-        g.beginPath();
-        g.moveTo(x, y);
-        for (let d = 0; d < len; d += c * 0.12) {
-          x += c * 0.12;
-          y += (rnd() - 0.5) * c * 0.14;
-          g.lineTo(x, y);
-        }
-        g.stroke();
-      }
-      g.restore();
-      // 地上落着的火星
-      for (let i = 0; i < 46; i++) {
-        const x = rnd() * w;
-        const y = rnd() * h;
-        const r = c * (0.012 + rnd() * rnd() * 0.03);
-        const gl = g.createRadialGradient(x, y, 0, x, y, r * 3);
-        gl.addColorStop(0, `rgba(255,190,90,${0.5 + rnd() * 0.4})`);
-        gl.addColorStop(0.4, 'rgba(255,100,20,0.25)');
-        gl.addColorStop(1, 'rgba(255,80,10,0)');
-        g.fillStyle = gl;
-        g.beginPath();
-        g.arc(x, y, r * 3, 0, Math.PI * 2);
-        g.fill();
-      }
-    },
-    frame: '#140b06',
-    line: '#e6b064',
-    lineW: 1.2,
-    engrave: 0,
-    river: '#ffe2a0',
-    label: 'rgba(232,186,120,0.82)',
-    gloss: 0.12,
-    vignette: 0.5,
-    double: true,
-    corners: true,
-    dark: true,
-    glow: { line: 'rgba(255,120,30,0.4)', text: 'rgba(255,80,10,0.95)' },
-    ambient: { sheen: 'rgba(255,160,70,0.35)', river: 'rgba(255,150,50,0.5)', embers: '#ff8a2a' },
-  },
-  {
     id: 'dunhuang',
     res: 0.4,
     name: '敦煌飞天',
@@ -1449,9 +1083,7 @@ export const boardStyle = (id: BoardId) => BOARDS.find((b) => b.id === id) ?? BO
 
 /** 盘面上"可走点"、选中圈的颜色：深色盘面用亮色 */
 export function markColors(look: Look = getLook()): { dot: string; ring: string } {
-  const st = boardStyle(look.board);
-  if (st.mark) return st.mark;
-  return st.dark
+  return boardStyle(look.board).dark
     ? { dot: 'rgba(255,232,150,0.85)', ring: 'rgba(255,226,120,0.95)' }
     : { dot: 'rgba(46,160,90,0.55)', ring: 'rgba(46,160,90,0.95)' };
 }
@@ -1587,14 +1219,6 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, look: Lo
       g.restore();
     }
     g.strokeStyle = st.line;
-    if (st.glow?.line) {
-      // 发光的线：先带光晕画一遍，再干净地画一遍（线芯清楚）
-      g.save();
-      g.shadowColor = st.glow.line;
-      g.shadowBlur = Math.max(3, c * 0.14);
-      draw();
-      g.restore();
-    }
     draw();
   };
   g.lineCap = 'round';
@@ -1709,13 +1333,6 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, look: Lo
       g.fillText(txt, tx + 0.8, my + 1);
     }
     g.fillStyle = st.river;
-    if (st.glow?.text) {
-      g.save();
-      g.shadowColor = st.glow.text;
-      g.shadowBlur = c * 0.28;
-      g.fillText(txt, tx, my);
-      g.restore();
-    }
     g.fillText(txt, tx, my);
   }
 }
@@ -1758,8 +1375,6 @@ interface Side {
   ring: string;
   /** 侧边（棋子的厚度） */
   edge: string;
-  /** 发光的字、圈（琉璃、霓虹）：光晕的颜色 */
-  glow?: string;
 }
 
 export interface PieceStyle {
@@ -1769,11 +1384,11 @@ export interface PieceStyle {
   r: Side;
   b: Side;
   /** 棋面的纹理 */
-  tex: 'ivory' | 'wood' | 'jade' | 'metal' | 'paper' | 'glass' | 'none';
+  tex: 'ivory' | 'wood' | 'jade' | 'metal' | 'paper' | 'none';
   /** 高光 */
   gloss: number;
-  /** 字：阴刻（刻进去）、阳刻（凸出来）、墨（洇开一点）、平的、发光（字和圈带一圈光晕） */
-  carve: 'deboss' | 'emboss' | 'ink' | 'flat' | 'glow';
+  /** 字：阴刻（刻进去）、阳刻（凸出来）、墨（洇开一点）、平的 */
+  carve: 'deboss' | 'emboss' | 'ink' | 'flat';
   /** 厚度（半径的几分之几） */
   thick: number;
   /** 两道刻线（青花） */
@@ -1860,28 +1475,6 @@ export const PIECES: PieceStyle[] = [
     thick: 0.07,
   },
   {
-    id: 'glass',
-    name: '琉璃',
-    desc: '红方玫瑰琉璃、黑方宝蓝琉璃，里面一缕缕流光，字和圈发光',
-    r: { face: ['#ffd7e1', '#dc4a70', '#5a0a26'], text: '#fff6f8', halo: '#b52f58', ring: '#ffe2eb', edge: '#3a0618', glow: 'rgba(255,110,160,0.95)' },
-    b: { face: ['#d6ecff', '#3a76c8', '#0a1a44'], text: '#f2f8ff', halo: '#2a5698', ring: '#d8ebff', edge: '#06102c', glow: 'rgba(110,175,255,0.95)' },
-    tex: 'glass',
-    gloss: 0.8,
-    carve: 'glow',
-    thick: 0.11,
-  },
-  {
-    id: 'neon',
-    name: '霓虹',
-    desc: '黑亮的底，红方洋红、黑方青色的霓虹圈和字',
-    r: { face: ['#2e2438', '#17111f', '#07060b'], text: '#ff5a86', halo: '#17111f', ring: '#ff3d6e', edge: '#020203', glow: 'rgba(255,40,100,0.95)' },
-    b: { face: ['#2a2a3c', '#13121f', '#06060b'], text: '#5ff2ff', halo: '#13121f', ring: '#3aeaff', edge: '#020203', glow: 'rgba(30,225,255,0.95)' },
-    tex: 'none',
-    gloss: 0.35,
-    carve: 'glow',
-    thick: 0.1,
-  },
-  {
     id: 'flat',
     name: '扁平',
     desc: '没有纹理和高光，字最大最清楚',
@@ -1932,13 +1525,6 @@ function pieceTexture(st: PieceStyle, c: Color, size: number, res: number): HTML
           const patina = smooth(c === 'r' ? 0.7 : 0.56, c === 'r' ? 0.8 : 0.7, fbm(n1, u * 3.5, v * 3.5, 4)) * (c === 'r' ? smooth(0.32, 0.5, rr) : 1);
           if (patina > 0.05) return c === 'r' ? [70, 140, 110, patina * 90] : [90, 170, 140, patina * 160];
           return lathe > 0.5 ? [255, 244, 210, (lathe - 0.5) * 70] : [40, 26, 8, (0.5 - lathe) * 60];
-        }
-        case 'glass': {
-          // 琉璃：里面一缕缕熔进去的彩丝（亮），越到边上越透亮
-          const swirl = Math.sin((fbm(n1, u * 2.2, v * 2.2, 4) * 3 + rr * 5) * Math.PI * 2);
-          const vein = Math.pow(1 - Math.abs(swirl), 8);
-          const edge = smooth(0.36, 0.5, rr);
-          return [255, 255, 255, vein * 70 + edge * 45];
         }
         case 'paper': {
           const fiber = Math.pow(n2(u * 26, v * 7), 6) * 0.7 + Math.pow(n1(u * 6 + 4, v * 24), 7) * 0.6;
@@ -2045,13 +1631,6 @@ export function paintPiece(g: CanvasRenderingContext2D, cx: number, cy: number, 
       }
       g.lineWidth = Math.max(1.6, r * 0.08);
     } else g.arc(cx, cy, r * k, 0, Math.PI * 2);
-    if (st.carve === 'glow' && sd.glow) {
-      g.save();
-      g.shadowColor = sd.glow;
-      g.shadowBlur = r * 0.28;
-      g.stroke();
-      g.restore();
-    }
     g.stroke();
   }
 
@@ -2091,16 +1670,6 @@ export function paintPiece(g: CanvasRenderingContext2D, cx: number, cy: number, 
     g.fillText(label, cx - o * 0.8, ty - o * 0.8);
     g.fillStyle = 'rgba(0,0,0,0.5)';
     g.fillText(label, cx + o, ty + o * 1.2);
-  } else if (st.carve === 'glow' && sd.glow) {
-    // 发光：字外面一圈光晕，叠两遍更浓
-    g.save();
-    g.shadowColor = sd.glow;
-    g.shadowBlur = r * 0.32;
-    g.fillStyle = fill;
-    g.fillText(label, cx, ty);
-    g.shadowBlur = r * 0.12;
-    g.fillText(label, cx, ty);
-    g.restore();
   } else if (st.carve === 'ink') {
     // 墨：边上洇开一点
     g.save();

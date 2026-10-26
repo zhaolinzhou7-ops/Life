@@ -14,7 +14,7 @@
 import type { Dim } from './save';
 import { getOwnPuzzles, effectiveRating, attemptedMap } from './save';
 import type { ErrTag } from './teach';
-import { WON_KEEP } from './analysis';
+import { WON_KEEP, isLost } from './analysis';
 
 export type PuzzleKind = 'mate' | 'tactic' | 'safety' | 'endgame' | 'opening';
 
@@ -34,6 +34,13 @@ export interface Puzzle {
    * 有点水平的人来说这是最伤的一种 bug，所以这些着法必须一起算对。
    */
   also?: string[];
+  /**
+   * 主变上每一步（只数解题方的步，ok[0] 是第一手）除了原谱那一手，深算过一样站得住的着法。
+   * tools/deep-audit 让皮卡鱼 MultiPV 5 深算到 18 层，tools/deep-apply 按"最后的结果一样"定的：
+   * 都赢定、或者都还在胜负未分那一段而且分差不大。用户原话："我觉得要从深度思考的决定、从最终的结果，
+   * 再去判定这个走法合不合适。"——截图那道题第二步，走兵七平六被判错，可两手对下到底都是和棋。
+   */
+  ok?: string[][];
   /**
    * 这道题是从真实对局里"有人在这里走错了"提取出来的，这是那手错着。
    *
@@ -163,17 +170,25 @@ export function wonAnyway(p: Pick<Puzzle, 'goal' | 'ev2'>): boolean {
   return p.goal !== 'mate' && p.ev2 !== undefined && p.ev2 >= WON_KEEP;
 }
 
+/**
+ * 本来就输定了的题：出题时走棋方已经落后约一个马以上（ev 是皮卡鱼深算的分）。
+ * 用户原话："一些已经非常劣势的局面，就不要再去看它好的走法是什么了。"——"找出最顽强的防守"这类题不出。
+ */
+export function lostAnyway(p: Pick<Puzzle, 'goal' | 'ev'>): boolean {
+  return p.goal !== 'mate' && p.ev !== undefined && isLost({ score: p.ev });
+}
+
 /** 中局组合里主题是"杀""连将杀"的，算杀法题——实战局面里的杀棋，对方子力齐全、自己也在进攻，比摆出来的光将杀有用 */
 const MATE_THEMES = new Set(['杀', '连将杀']);
 
-/** 加载题库（只下载一次）：一眼必胜的去掉，组合里的杀棋归到杀法 */
+/** 加载题库（只下载一次）：一眼必胜的、本来就赢定或输定了的去掉，组合里的杀棋归到杀法 */
 export function loadPuzzles(): Promise<Puzzle[]> {
   if (cache) return Promise.resolve(cache);
   if (loading) return loading;
   loading = import('./puzzles.json')
     .then((m) => {
       cache = ((m.default ?? m) as Puzzle[])
-        .filter((p) => !defenseless(p.fen) && !wonAnyway(p))
+        .filter((p) => !defenseless(p.fen) && !wonAnyway(p) && !lostAnyway(p))
         .map((p) => (p.kind !== 'mate' && p.goal === 'mate' && p.themes?.some((t) => MATE_THEMES.has(t)) ? { ...p, kind: 'mate' as PuzzleKind } : p));
       return cache;
     })

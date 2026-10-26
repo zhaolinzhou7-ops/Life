@@ -22,6 +22,12 @@ export type Grade = 'best' | 'good' | 'ok' | 'dubious' | 'mistake' | 'blunder';
  */
 export const WON_KEEP = 600;
 export const isWon = (s: { score: number; mateIn?: number }) => (s.mateIn !== undefined ? s.mateIn > 0 : s.score >= WON_KEEP);
+/**
+ * 已经输定了：走棋方这时大劣（约少一个马以上）或者对方有杀——和 isWon 对称。
+ * 用户原话："一些已经非常劣势的局面，就不要再去看它好的走法是什么了。"
+ * 复盘里这样的一手不再挑好坏、不再说"该走什么"，也不收进错题本；题库里也不出这种局面的题。
+ */
+export const isLost = (s: { score: number; mateIn?: number }) => (s.mateIn !== undefined ? s.mateIn < 0 : s.score <= -WON_KEEP);
 
 /** 失误分级阈值，单位「兵=100」。一个马/炮 ≈ 450~500，一个车 = 1000 */
 const GRADE_CUTS: [number, Grade][] = [
@@ -237,6 +243,8 @@ export interface ReviewedMove {
    * 只有真走坏了的一手才有 tag——好棋没有毛病可言。
    */
   tag?: ErrTag;
+  /** 走这一手之前就已经输定了（isLost）：不挑好坏、不给"该走"，见 reviewMove */
+  hopeless?: boolean;
 }
 
 export interface GameReview {
@@ -417,11 +425,14 @@ export function pvText(b: Board, pv: Move[]): string[] {
  * b 是**走这步之前**的棋盘。
  */
 export function reviewMove(b: Board, ply: number, color: Color, j: Judged): ReviewedMove {
-  const flip = flipOf(j);
-  const loss = Math.min(LOSS_CAP, Math.max(0, j.best.score - j.played.score));
-  const grade = gradeOf(loss, flip);
-  const isBest = j.best.move.fx === j.played.move.fx && j.best.move.fy === j.played.move.fy
-    && j.best.move.tx === j.played.move.tx && j.best.move.ty === j.played.move.ty;
+  // 走之前就输定了：这一手怎么走结果都一样，不算亏分、不定级、不给"该走什么"
+  const hopeless = isLost(j.best);
+  const flip = hopeless ? undefined : flipOf(j);
+  const loss = hopeless ? 0 : Math.min(LOSS_CAP, Math.max(0, j.best.score - j.played.score));
+  const grade = hopeless ? 'ok' : gradeOf(loss, flip);
+  // 输定了的局面不再挑好棋：当作没有"更好的一手"（界面上就不画 ★、不写"该走"）
+  const isBest = hopeless || (j.best.move.fx === j.played.move.fx && j.best.move.fy === j.played.move.fy
+    && j.best.move.tx === j.played.move.tx && j.best.move.ty === j.played.move.ty);
   // 只给真亏了的一手打标签。实测单手 1.2ms，整盘加起来可以忽略
   const tag = loss >= 80 ? tagMistake(b, j.played.move, color, { missedMate: flip === 'missed-mate', loss }) : undefined;
   const wBefore = winPct(j.best.score, j.best.mateIn);
@@ -454,9 +465,10 @@ export function reviewMove(b: Board, ply: number, color: Color, j: Judged): Revi
     bestPv: isBest ? undefined : pvText(b, j.best.pv).slice(0, 6),
     bestLine: isBest ? undefined : j.best.pv?.length ? j.best.pv.slice(0, 12) : [j.best.move],
     playedLine: j.played.pv?.length ? j.played.pv.slice(0, 12) : [j.played.move],
-    comment: commentOf(b, j, color, grade, flip, loss),
+    comment: hopeless ? '这时已经输定了，这一手不再挑好坏。' : commentOf(b, j, color, grade, flip, loss),
     dim: dimOfLoss(b, j, color, ply, flip),
     tag,
+    hopeless: hopeless || undefined,
   };
 }
 

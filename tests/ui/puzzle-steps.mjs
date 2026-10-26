@@ -191,6 +191,42 @@ for (let i = 0; i < 2; i++) {
 ok('对手确实是皮卡鱼在应', (await page.evaluate(() => window.__xqPlay.opp().last)) === 'pro');
 await page.screenshot({ path: OUT + '/trick-full.png' });
 
+// ───────── 6. 守和的题走成死和就算做完 ─────────
+// 用户原话："我方一个马、对方一个马一个兵，很多时候第一步就想把兵给吃了，吃完之后就开始走和棋，要走很多步，这就没有意义"
+await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(700);
+await page.locator('[data-home="coach"]').click(); await page.waitForTimeout(700);
+const deadId = await page.evaluate(async () => {
+  const P = await import('/Life/src/xiangqi/puzzles.ts');
+  const N = await import('/Life/src/xiangqi/notation.ts');
+  const R = await import('/Life/src/xiangqi/rules.ts');
+  const E = await import('/Life/src/xiangqi/endings.ts');
+  for (const p of await P.loadPuzzles()) {
+    if (p.kind === 'mate' || p.goal === 'mate' || (p.ev ?? 0) >= 150) continue;
+    const f = N.fromFen(p.fen);
+    const legal = R.legalMoves(f.board, f.toMove).filter((m) => !R.isInCheck(R.applyMove(f.board, m), f.toMove));
+    const m = N.textToMove(f.board, f.toMove, p.line[0], legal);
+    if (!m) continue;
+    const b = R.applyMove(f.board, m);
+    if (E.noAttackers(b) || E.bareMinors(b, f.toMove === 'r' ? 'b' : 'r')) return p.id;
+  }
+  return null;
+});
+ok(`题库里有第一手就走成死和的守和题（${deadId}）`, !!deadId);
+if (deadId) {
+  await page.evaluate((id) => window.__xqCoach.puzzle(id), deadId);
+  await page.waitForTimeout(500);
+  await page.evaluate(() => window.__xqTrain.playRight());
+  ok('走成死和：当场算做完，说"已经是和棋，不用再走了"', await until(() => window.__xqTrain.state().answered && /已经是和棋/.test(document.querySelector('.xq-tr-fb')?.textContent ?? ''), null, 20000));
+  ok('这题算对', (await st()).verdict?.correct === true);
+}
+const gone = await page.evaluate(async () => {
+  const P = await import('/Life/src/xiangqi/puzzles.ts');
+  const ids = new Set((await P.loadPuzzles()).map((p) => p.id));
+  return ['egp-gen-马兵对单马-5', 'egp-gen-马兵对单马-8', 'egp-gen-马兵对单马-9'].filter((id) => ids.has(id));
+});
+ok(`马兵对单马、第一手就白吃兵的那几道不出了（还剩 ${gone.length} 道）`, gone.length === 0);
+
 await browser.close();
 console.log('\n===== 失败项 =====\n' + (errs.length ? errs.join('\n') : '无'));
 process.exit(errs.length ? 1 : 0);

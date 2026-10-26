@@ -9,6 +9,8 @@
  *     （杀法题要求还能在剩下的步数里杀死），一样好就算对，接着下，对方改由皮卡鱼来应。
  *   - 残局题主变走完还没完：接着和皮卡鱼下到底——进攻方下到将死，守方守成和棋。
  *   - 中间哪一步错了，这题就算错，当场演出对方怎么惩罚你；可以从头再走一遍（不计分）。
+ *   - 守和的题走成了死和（双方只剩一马/一炮、或者谁都没有进攻子力）就算做完，不用再一步步走。用户原话：
+ *     "比如我方一个马、对方一个马一个兵……吃完之后就开始走和棋，要走很多步，这就没有意义。"
  *
  * 两个教学上的讲究照旧：
  *   1. **提示分三级**——直接给答案等于没练。先告诉你该动哪个子，
@@ -26,7 +28,10 @@ import type { MoveScore } from './ai';
 import { runPlayout } from './playout';
 import { isWon, whatItDoes, wrongTalk } from './coachexplain';
 import { evalWords } from './analysis';
+import { holds, holdsOk } from './holds';
 import { retireOwnPuzzle } from './save';
+import { bareMinors, noAttackers } from './endings';
+import { minorsDead } from './minors';
 
 export interface PuzzleResult {
   correct: boolean;
@@ -75,8 +80,12 @@ export interface PuzzleOpts {
   onExit?: () => void;
 }
 
-/** 非杀法题：走出主变之外的一手，比引擎首选差不到这么多就算一样好（车≈1000） */
-const ALT_TOLERANCE = 80;
+/**
+ * 主变之外的一手站不站得住：不只比分差，还看最后的结果（holds.ts，和离线复核题库是同一份）。
+ * 用户原话："我觉得要从深度思考的决定、从最终的结果，再去判定这个走法合不合适。"
+ * 头一次核对只算 1.5 秒（手机上十二三层）：要判你错之前，再算这么久确认一遍
+ */
+const CONFIRM_MS = 5000;
 /** 皮卡鱼核对主变之外的一手：对不对、为什么，以及同一次搜索里你这手和最好那手的分数和主变（讲解要用） */
 interface AltJudge {
   ok: boolean;
@@ -271,23 +280,48 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
      * 判错之后再算一次"该走什么"——搜索时间不同分数就差出一个兵上下，于是出现了
      * "你走的是 帅五退一……这一步该走 帅五退一"（用户截图）：你走的就是首选，却被判差了 0.9 个兵。
      */
+    const rule = (best: MoveScore, mine: MoveScore, deep: boolean): AltJudge => {
+      const by = deep ? '皮卡鱼算深了再核对' : '皮卡鱼核对过';
+      const pawns = ((best.score - mine.score) / 100).toFixed(1);
+      // 判法和离线复核题库是同一份（holds.ts）：不只比分差，还看最后的结果一样不一样
+      const h = holds(best, mine, { same: sameMove(best.move, mv) });
+      const why = (() => {
+        switch (h) {
+          case 'same':
+            return `${by}：这就是它的首选`;
+          case 'close':
+            return `${by}：这一手和最好的差不多`;
+          case 'won':
+            // 已经赢定了的局面：保住胜势就行，不苛求最快赢的那一手（用户原话："还是存在必胜残局在找最佳步数"）
+            return `已经赢定了：这一手保住了胜势（${evalWords(me === 'r' ? mine.score : -mine.score, mine.mateIn === undefined ? undefined : me === 'r' ? mine.mateIn : -mine.mateIn)}），不必非走最快的那一手`;
+          case 'result':
+            return `${by}：这一手比最好的少约 ${pawns} 个兵，可局面一样站得住，最后的结果一样`;
+          case 'mated':
+            return `走了这一手，对方有 ${-(mine.mateIn ?? 0)} 步杀`;
+          case 'missed-mate':
+            return `这里有 ${best.mateIn} 步杀，这一手放过了`;
+          case 'lost-win':
+            return `${by}：这一手把赢定的棋走没了（少了约 ${pawns} 个兵）`;
+          case 'to-lost':
+            return `${by}：走了这一手局面就输定了（少了约 ${pawns} 个兵）`;
+          default:
+            return `${by}：这一手比最好的差了约 ${pawns} 个兵`;
+        }
+      })();
+      return { ok: holdsOk(h), why, best, mine };
+    };
     const list = await engineAnalyse(before, me, { movetime: 1500, multipv: 3, include: mv, history: h });
     const best = list?.find((s) => !s.bound);
     const mine = list?.find((s) => !s.bound && sameMove(s.move, mv));
     if (!best || !mine) return null;
-    if (sameMove(best.move, mv)) return { ok: true, why: '皮卡鱼核对过：这就是它的首选', best, mine };
-    if (mine.mateIn !== undefined && mine.mateIn < 0) return { ok: false, why: `走了这一手，对方有 ${-mine.mateIn} 步杀`, best, mine };
-    // 已经赢定了的局面：保住胜势就行，不苛求最快赢的那一手（用户原话："还是存在必胜残局在找最佳步数"）
-    if (isWon(best) && isWon(mine)) {
-      return { ok: true, why: `已经赢定了：这一手保住了胜势（${evalWords(me === 'r' ? mine.score : -mine.score, mine.mateIn === undefined ? undefined : me === 'r' ? mine.mateIn : -mine.mateIn)}），不必非走最快的那一手`, best, mine };
-    }
-    if (best.mateIn !== undefined && best.mateIn > 0 && !(mine.mateIn !== undefined && mine.mateIn > 0)) {
-      return { ok: false, why: `这里有 ${best.mateIn} 步杀，这一手放过了`, best, mine };
-    }
-    const loss = best.score - mine.score;
-    return loss <= ALT_TOLERANCE
-      ? { ok: true, why: '皮卡鱼核对过：这一手和最好的差不多', best, mine }
-      : { ok: false, why: `皮卡鱼核对过：这一手比最好的差了约 ${(loss / 100).toFixed(1)} 个兵`, best, mine };
+    const quick = rule(best, mine, false);
+    // 要判你错、又不是一眼就输（被杀、丢大子）的：算深一点再定——浅算的分差常常是假的
+    if (quick.ok || (mine.mateIn !== undefined && mine.mateIn < 0) || best.score - mine.score >= 900) return quick;
+    elFb.innerHTML = `<div class="l">你走的是 ${moveToText(before, mv)}——皮卡鱼算深一点再核对…</div>`;
+    const deep = await engineAnalyse(before, me, { movetime: CONFIRM_MS, multipv: 2, include: mv, history: h });
+    const best2 = deep?.find((s) => !s.bound);
+    const mine2 = deep?.find((s) => !s.bound && sameMove(s.move, mv));
+    return best2 && mine2 ? rule(best2, mine2, true) : quick;
   }
 
   /** 这一步该走什么：在主变上就是主变，离开了就问皮卡鱼。b / moves 是轮到你时的局面和着法 */
@@ -314,6 +348,11 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       ok = true;
       note = `这手和 <b>${line[0]}</b> 一样好`;
       onLine = false;
+    } else if (onLine && puzzle.ok?.[myStep]?.includes(text)) {
+      // 离线深算过（tools/deep-audit + deep-apply）：这一步走这手，最后的结果和原谱一样
+      ok = true;
+      note = `皮卡鱼深算过：这一手和原谱的 <b>${line[ply]}</b> 一样站得住`;
+      onLine = false;
     } else {
       elFb.className = 'xq-tr-fb tip';
       elFb.innerHTML = `<div class="l">你走的是 ${text}，不是原谱那一手——正在让皮卡鱼核对…</div>`;
@@ -337,12 +376,27 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     });
   }
 
+  /**
+   * 守和的题（不是杀法、原来就不领先）走成了死和：谁都赢不了了，题就做完了。
+   * 各剩一马/一炮的子摆得别扭时会有杀，先让皮卡鱼看一眼（minors.ts）；引擎起不来就只认谁都没有进攻子力的
+   */
+  async function deadDrawNow(toMove: Color): Promise<string | null> {
+    if (isMate || (puzzle.ev ?? 0) >= 150) return null;
+    if (noAttackers(board)) return '双方都没有能进攻的子了';
+    if (!bareMinors(board, toMove)) return null;
+    if (!(await engineUp) || !engineReady()) return null;
+    return (await minorsDead(board, toMove, history())) ? '双方各只剩一个马或炮' : null;
+  }
+
   async function afterRight(text: string, note: string) {
     const my = token;
     myStep++;
     ply++;
     // 将死了：杀法题就是要到这一步
     if (statusAfter(board, foe) !== 'playing') return solved(`✅ ${text}，将死！`);
+    const dead = await deadDrawNow(foe);
+    if (my !== token) return;
+    if (dead) return solved(`✅ ${text}——${dead}，已经是和棋，不用再走了`);
     // 主变里已经没有你的下一步了（最后剩对方一手应着也不用再走）
     const lineDone = onLine ? ply + 1 >= line.length : myStep >= totalMine;
     if (lineDone) {
@@ -370,8 +424,12 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     board = applyMove(board, reply);
     played.push(reply);
     ply++;
-    view.animateMove(reply, board, () => {
+    view.animateMove(reply, board, async () => {
       if (my !== token) return;
+      // 对方这一手（比如吃掉你最后一个兵）走成了死和：守和的题照样算做完
+      const dead = await deadDrawNow(me);
+      if (my !== token) return;
+      if (dead) return solved(`✅ ${text}　对方应 ${rt}——${dead}，已经是和棋，不用再走了`);
       busy = false;
       view.setArrows([{ fx: reply!.fx, fy: reply!.fy, tx: reply!.tx, ty: reply!.ty, color: 'rgba(214,64,52,0.7)' }]);
       elFb.className = 'xq-tr-fb ok';
@@ -484,6 +542,9 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     }
   }
 
+  /** 这一步除了原谱，深算过一样站得住的那几手 */
+  const okHere = () => [...new Set([...(ply === 0 ? (puzzle.also ?? []) : []), ...(puzzle.ok?.[myStep] ?? [])])];
+
   async function wrong(text: string, why: string, before: Board) {
     const my = token;
     busy = false;
@@ -500,7 +561,7 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       <div class="h">❌ ${myStep ? `第 ${myStep + 1} 步` : ''}不对 · 你走的是 ${text}</div>
       <div class="l">${why ? why + '。' : ''}${
         bestText
-          ? `这一步该走 <b>${bestText}</b>${right && ply === 0 && puzzle.also?.length ? `（走 ${puzzle.also.join('、')} 也一样）` : ''}${rest ? `　之后：${rest}` : ''}`
+          ? `这一步该走 <b>${bestText}</b>${right && okHere().length ? `（走 ${okHere().join('、')} 也一样）` : ''}${rest ? `　之后：${rest}` : ''}`
           : ''
       }</div>
       ${
@@ -732,7 +793,7 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       /** 随便走一手错的（不是这一步的正解） */
       playWrong: () => {
         if (answered || busy) return false;
-        const ok = new Set([onLine ? line[ply] : '', ...(ply === 0 ? puzzle.also ?? [] : [])]);
+        const ok = new Set([onLine ? line[ply] : '', ...(onLine ? okHere() : [])]);
         const m = legal().find((mv) => !ok.has(moveToText(board, mv)));
         if (m) void submit(m);
         return !!m;

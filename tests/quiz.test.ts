@@ -65,7 +65,7 @@ describe('选择题', () => {
       for (const o of q.options!) {
         const legal = legalMoves(pos.board, pos.toMove).filter((m) => !isInCheck(applyMove(pos.board, m), pos.toMove));
         expect(legal.some((m) => moveToText(pos.board, m) === o.text), `${p.id} ${o.text}`).toBe(true);
-        if (o.text !== p.answer) expect(p.also ?? [], p.id).not.toContain(o.text);
+        if (o.text !== p.answer) expect([...(p.also ?? []), ...(p.ok?.[0] ?? [])], p.id).not.toContain(o.text);
       }
     }
     expect(n).toBeGreaterThan(tactic.length * 0.4);
@@ -88,7 +88,7 @@ describe('判断题', () => {
         } else {
           bad++;
           expect(text, p.id).not.toBe(p.answer);
-          expect(p.also ?? [], p.id).not.toContain(text);
+          expect([...(p.also ?? []), ...(p.ok?.[0] ?? [])], p.id).not.toContain(text);
         }
       }
     }

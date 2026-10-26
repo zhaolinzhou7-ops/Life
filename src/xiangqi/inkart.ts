@@ -28,7 +28,7 @@ export const vgrad = (id: string, stops: [number, string, number?][]) =>
  * 一列山：几座峰叠在一起，取最高的轮廓；峰顶浓、山脚淡进雾里（水墨山的画法）。
  * sharp 越大峰越尖
  */
-export function range(id: string, seed: number, base: number, hMin: number, hMax: number, n: number, color: string, alpha: number, sharp = 1.6) {
+function range(id: string, seed: number, base: number, hMin: number, hMax: number, n: number, color: string, alpha: number, sharp = 1.6) {
   const r = rng(seed);
   const pk = Array.from({ length: n }, () => ({ x: -40 + r() * 480, h: hMin + r() * (hMax - hMin), w: 46 + r() * 80 }));
   let d = `M-30 820 L-30 ${base}`;
@@ -63,7 +63,7 @@ export function range(id: string, seed: number, base: number, hMin: number, hMax
 }
 
 /** 一团雾：几片横着的、很虚的亮色 */
-export function mistBands(id: string, seed: number, ys: number[], color: string, alpha: number) {
+function mistBands(id: string, seed: number, ys: number[], color: string, alpha: number) {
   const r = rng(seed);
   let s = `<defs>${blur(id, 16)}</defs><g filter="url(#${id})" fill="${color}">`;
   for (const y of ys) {

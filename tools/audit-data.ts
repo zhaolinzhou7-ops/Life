@@ -23,6 +23,7 @@ import { fromFen, moveToText, textToMove } from '../src/xiangqi/notation';
 import { verdict } from './playout-verdict';
 import { steadyAnalyze } from './steady-analyze';
 import { checkBoard } from './validate-positions';
+import { bareMinors, noAttackers } from '../src/xiangqi/endings';
 import puzzles from '../src/xiangqi/puzzles.json';
 import mates from '../src/xiangqi/matepatterns.json';
 import endgames from '../src/xiangqi/endgamelib.json';
@@ -48,6 +49,7 @@ function auditEncoding(rows: unknown[], label: string) {
 
 interface Row {
   id: string;
+  kind?: string;
   fen: string;
   answer: string;
   also?: string[];
@@ -152,12 +154,46 @@ function auditEndgames(rows: { id: string; name: string; fen: string; you: Color
   }
 }
 
+/**
+ * 走成死和以后不许再走（fix-dead-draws 改过的，这里守住）：
+ *   题库——主变走到死和以后还有着法；残局题第一手白吃成死和；
+ *   实用残局——轮到你走、第一步就能吃成死和。
+ * 用户原话："我方一个马、对方一个马一个兵，很多时候第一步就想把兵给吃了，吃完之后就开始走和棋，要走很多步，这就没有意义。"
+ */
+function auditDeadDraws(rows: Row[], lib: { id: string; fen: string; you: Color }[]) {
+  const dead = (b: Board, c: Color) => noAttackers(b) || bareMinors(b, c);
+  for (const r of rows) {
+    const p = fromFen(r.fen);
+    if (!p || !r.line?.length) continue;
+    let b = p.board;
+    let c = p.toMove;
+    for (let i = 0; i < r.line.length; i++) {
+      const m = textToMove(b, c, r.line[i], legalOf(b, c));
+      if (!m) break;
+      const cap = !!b[m.ty][m.tx];
+      b = applyMove(b, m);
+      c = other(c);
+      if (!dead(b, c)) continue;
+      if (i === 0 && cap && r.kind === 'endgame') flag('题库·残局题第一手白吃成死和', r.id);
+      else if (i + 1 < r.line.length) flag('题库·成死和以后主变还在走', `${r.id} 第${i + 1}手之后`);
+      break;
+    }
+  }
+  for (const e of lib) {
+    const p = fromFen(e.fen);
+    if (!p || p.toMove !== e.you) continue;
+    if (legalOf(p.board, p.toMove).some((m) => !!p.board[m.ty][m.tx] && dead(applyMove(p.board, m), other(p.toMove))))
+      flag('残局·轮到你走第一步就能吃成死和', e.id);
+  }
+}
+
 const all = [puzzles as unknown[], mates as unknown[], endgames as unknown[]];
 const labels = ['题库', '杀法图形', '残局'];
 all.forEach((rows, i) => auditEncoding(rows, labels[i]));
 auditPositions(puzzles as Row[], '题库', true);
 auditPositions(mates as Row[], '杀法图形', true);
 auditPositions(endgames as unknown as Row[], '残局', false);
+auditDeadDraws(puzzles as Row[], endgames as { id: string; fen: string; you: Color }[]);
 
 if (!process.env.FAST) {
   auditMates(puzzles as Row[], '题库');

@@ -11,12 +11,12 @@ describe('棋盘样式', async () => {
     T.setLook(T.DEFAULT_LOOK);
   });
 
-  it('十五种棋盘（七种典藏：三种水墨、四种水墨以外的）、十种棋子、五种字体，十六套搭配都指向有的样式', () => {
-    expect(T.BOARDS).toHaveLength(15);
-    expect(T.BOARDS.filter((b) => b.premium).map((b) => b.id)).toEqual(['inkland', 'goldlac', 'qinglv', 'xinghe', 'neon', 'fenghuo', 'dunhuang']);
-    expect(T.PIECES).toHaveLength(10);
+  it('十二种棋盘（四种典藏：三种水墨、一种壁画）、八种棋子、五种字体，十三套搭配都指向有的样式', () => {
+    expect(T.BOARDS).toHaveLength(12);
+    expect(T.BOARDS.filter((b) => b.premium).map((b) => b.id)).toEqual(['inkland', 'goldlac', 'qinglv', 'dunhuang']);
+    expect(T.PIECES).toHaveLength(8);
     expect(T.FONTS).toHaveLength(5);
-    expect(T.PRESETS).toHaveLength(16);
+    expect(T.PRESETS).toHaveLength(13);
     for (const p of T.PRESETS) {
       expect(T.BOARDS.some((b) => b.id === p.look.board), p.id).toBe(true);
       expect(T.PIECES.some((x) => x.id === p.look.piece), p.id).toBe(true);
@@ -29,6 +29,13 @@ describe('棋盘样式', async () => {
 
   it('搭配里不用认字慢的行书', () => {
     expect(T.PRESETS.some((p) => p.look.font === 'xingshu')).toBe(false);
+  });
+
+  it('选过、后来拿掉了的棋盘和棋子（星河、霓虹、烽火，琉璃、霓虹棋子）读出来回到默认', async () => {
+    localStorage.setItem('xq-look', JSON.stringify({ board: 'neon', piece: 'glass', font: 'hei', trad: false }));
+    vi.resetModules();
+    const T2 = await import('../src/xiangqi/boardtheme');
+    expect(T2.getLook()).toEqual({ board: 'wood', piece: 'ivory', font: 'hei', trad: false });
   });
 
   it('换了存档、通知所有棋盘；存档读回来是同一套', () => {
