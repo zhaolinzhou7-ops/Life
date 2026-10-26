@@ -18,6 +18,12 @@ let master: GainNode | null = null;
 let busIn: GainNode | null = null;
 /** 混响送出量 */
 let revSend: GainNode | null = null;
+/**
+ * 配音的入口：不进房间混响、不进总线压缩，直接到最后那道保险。
+ * 录音里已经带了各自的空间（立体声的混响、回声，tools/gen-voice.py），再进一遍房间混响就糊了；
+ * 总线压缩会把话压平——用户原话："声音没有灵魂、没感觉，而且还有点吵"
+ */
+let voiceIn: GainNode | null = null;
 
 /**
  * 程序生成的房间脉冲响应：早期反射 + 指数衰减噪声尾。
@@ -92,6 +98,8 @@ function ac(): AudioContext | null {
       limiter.release.value = 0.12;
 
       glue.connect(limiter).connect(master).connect(ctx.destination);
+      voiceIn = ctx.createGain();
+      voiceIn.connect(limiter);
     } catch {
       return null;
     }
@@ -733,9 +741,9 @@ export interface Song {
  * 给别的配乐模块（象棋的生成式配乐 xqmusic.ts）用的音频出口：上下文 + 带声位的总线入口。
  * 起不来（没有 Web Audio）返回 null。
  */
-export function musicCore(): { c: AudioContext; outAt: (pan?: number) => AudioNode } | null {
+export function musicCore(): { c: AudioContext; outAt: (pan?: number) => AudioNode; voiceOut: () => AudioNode } | null {
   const c = ac();
-  return c ? { c, outAt } : null;
+  return c ? { c, outAt, voiceOut: () => voiceIn! } : null;
 }
 
 /**

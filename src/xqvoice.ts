@@ -7,7 +7,8 @@
  * 不要只有电子打击音。"
  * 录音是离线生成好的（tools/gen-voice.py：开源语音合成念、处理成浑厚的喊声、再让语音识别把每一句听一遍对过字），
  * 放在 src/xiangqi/voice/，每句十几 KB；用到哪句才下载哪句，解码一次留着。
- * 走 gamesfx 的总线（同一个混响、同一个压缩），喊话时配乐让一让（xqMusicDuck）。
+ * 录音自己带着立体声的空间，所以不走 gamesfx 的房间混响和总线压缩（voiceOut：直接到最后那道保险），
+ * 喊话时配乐让一让（xqMusicDuck）。
  *
  * 报着法（xqAnnounce）：每走一步念一声"炮二平五"——天天象棋这些软件的语音包，核心就是这个。
  * 九百多句整句念好的着法拼在一个长音频里（tools/gen-announce.py，一个嗓子两三 MB），旁边一份 json 记每句的起止；
@@ -75,6 +76,31 @@ export function preloadShouts() {
 /** 一句喊声有几种说法：m-win、m-win-2、m-win-3……（终局那几句：大获全胜！胜负已分！痛快！再来！）有几个文件算几种 */
 const variants = (name: string) => [name, `${name}-2`, `${name}-3`, `${name}-4`].filter((n) => urlOf(n));
 
+/**
+ * 一句话说到第几秒：录音后面拖着混响、回声的尾巴（一两秒），排队、配乐让路只算到话说完——
+ * 最后一下比最响处低 10 dB 以内的地方（尾巴比话轻得多）
+ */
+const spoken = new WeakMap<AudioBuffer, number>();
+function speechEnd(buf: AudioBuffer): number {
+  const had = spoken.get(buf);
+  if (had !== undefined) return had;
+  const d = buf.getChannelData(0);
+  const step = Math.max(1, Math.round(buf.sampleRate * 0.01));
+  let peak = 0;
+  for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+  let end = buf.duration;
+  for (let i = d.length - step; i >= 0; i -= step) {
+    let m = 0;
+    for (let k = i; k < i + step; k++) m = Math.max(m, Math.abs(d[k]));
+    if (m > peak * 0.32) {
+      end = Math.min(buf.duration, (i + step) / buf.sampleRate + 0.08);
+      break;
+    }
+  }
+  spoken.set(buf, end);
+  return end;
+}
+
 /** 最近一次喊的是哪一句（测试看） */
 export let lastSaid = '';
 
@@ -101,20 +127,22 @@ async function play(name: string, delayMs: number, vol: number, seg?: [number, n
   // 切段两头各多让 40 毫秒（MP3 解码前头可能多出一小截，宁可带一点静音也不切掉字头）
   const off = seg ? Math.max(0, seg[0] - 0.04) : 0;
   const dur = seg ? seg[1] + 0.08 : buf.duration;
-  busyUntil = t0 + dur - (seg ? 0.08 : 0.25);
+  const talk = seg ? dur : speechEnd(buf);
+  busyUntil = t0 + talk - (seg ? 0.08 : 0);
   const src = core.c.createBufferSource();
   src.buffer = buf;
   const g = core.c.createGain();
-  g.gain.value = vol * getVoiceVolume();
-  src.connect(g).connect(core.outAt(0));
+  // 喊声、开场白的录音是按有声段 -19 dBFS 做的（留着起伏），这里推一点；报着法那份是老的单声道，照原来走总线
+  g.gain.value = vol * getVoiceVolume() * (seg ? 1 : 1.2);
+  src.connect(g).connect(seg ? core.outAt(0) : core.voiceOut());
   if (seg) src.start(t0, off, dur);
   else src.start(t0);
   const lead = Math.max(0, (t0 - core.c.currentTime) * 1000);
   window.setTimeout(() => {
     lastSaid = label;
     if (typeof document !== 'undefined') document.documentElement.dataset.xqSaid = label;
-    // 喊声、开场白压过一切：配乐压到两成（报着法只是念一声，压到四成）
-    xqMusicDuck(seg ? 0.4 : 0.2, dur * 0.9);
+    // 喊声、开场白在前，配乐让到三成（压到两成以下，一放一收太明显）；报着法只是念一声，压到四成
+    xqMusicDuck(seg ? 0.4 : 0.3, talk * 0.9 + (seg ? 0 : 0.3));
   }, lead);
 }
 
