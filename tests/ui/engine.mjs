@@ -126,6 +126,21 @@ ok('入门档对手回了一手', await until(p3, () => window.__xq.moves().leng
 ok('入门档对手用的也是皮卡鱼', (await p3.evaluate(() => window.__xq.aiEngine())) === 'pro');
 await p3.close();
 
+// ── 只起得来一个引擎的手机：研究借用对局那条车道，照样是皮卡鱼 ──
+// 每个引擎实例 256MB；原来第二个起不来就整个退回自带引擎（用户原话："为什么每一次皮卡鱼都加载不了？"）
+const p4 = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+await p4.addInitScript(() => { try { localStorage.setItem('xq-engine-onelane', '1'); if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
+p4.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
+await openGame(p4, '入门');
+ok('一个引擎：教练还是皮卡鱼', await until(p4, () => window.__xq.engine() === 'pro', null, 20000));
+ok('一个引擎：研究照样往深算（≥10 层）', await until(p4, () => (window.__xq.study()?.depth ?? 0) >= 10, null, 30000));
+await p4.evaluate(() => window.__xq.play({ fx: 7, fy: 7, tx: 4, ty: 7 }));
+ok('一个引擎：对手照样回了一手，用的是皮卡鱼', (await until(p4, () => window.__xq.moves().length >= 2, null, 30000)) && (await p4.evaluate(() => window.__xq.aiEngine())) === 'pro');
+const st4 = await p4.evaluate(() => window.__xq.engineStats());
+console.log('   ' + JSON.stringify(st4));
+ok('一个引擎：研究车道没起实例、借用了对局那条，没有整个退回自带引擎', st4.spawned.study === 0 && st4.shared && !st4.lost);
+await p4.close();
+
 await browser.close();
 console.log('\n===== 失败项 =====\n' + (errs.length ? errs.join('\n') : '无'));
 process.exit(errs.length ? 1 : 0);

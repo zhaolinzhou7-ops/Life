@@ -16,7 +16,7 @@ import type { Board, Color, Move } from './rules';
 import type { MoveScore, SearchOpts } from './ai';
 import { requestScore, startStudy } from './aiclient';
 import { toFen } from './notation';
-import { cooperativeStop, engineReady, engineScoreMove, linesToMoveScores, search, type SearchJob } from './pikafish';
+import { cooperativeStop, engineReady, engineScoreMove, linesToMoveScores, search, sharedEngine, type SearchJob } from './pikafish';
 
 /**
  * 自家引擎的研究预算。
@@ -114,6 +114,8 @@ export class Study {
   /** 让出引擎给"精确算一手"：研究先停，算完接着来。可以叠（两个地方同时要精确算） */
   private holds = 0;
   private held = 0;
+  /** 引擎半路倒下时已经重试过一次 */
+  private retried = false;
 
   constructor(
     readonly board: Board,
@@ -162,7 +164,8 @@ export class Study {
 
   /** 用专业引擎算 movetime 毫秒。不能随时叫停的浏览器上分段算 */
   private runPro(movetime: number) {
-    const chunked = !cooperativeStop() && movetime > CHUNK_MS;
+    // 只起得来一个引擎时研究借用对局那条车道：分段算，对手走棋最多等一段
+    const chunked = (!cooperativeStop() || sharedEngine()) && movetime > CHUNK_MS;
     const job = search(
       {
         lane: 'study',
@@ -185,8 +188,14 @@ export class Study {
       this.job = null;
       // 被暂停叫停的不算"算完"
       if (r.stopped) return;
-      // 引擎出了问题、手里什么都没有：换自家引擎接着算，别让教练两手空空
+      // 引擎出了问题、手里什么都没有：皮卡鱼还没认定跑不动，先再试一次（这条车道的引擎崩了、
+      // 重起又起不来的话，search 会挪到另一条车道上——两条车道合用一个引擎）；还不行才换自家引擎接着算，别让教练两手空空
       if (r.failed && !r.lines.length && !this.moves.length) {
+        if (!this.retried && engineReady() && this.deadline - Date.now() > 1500) {
+          this.retried = true;
+          this.runPro(this.deadline - Date.now());
+          return;
+        }
         this.fallBack();
         return;
       }

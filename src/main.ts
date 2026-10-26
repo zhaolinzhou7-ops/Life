@@ -23,6 +23,20 @@ function trackVisibleHeight() {
 }
 trackVisibleHeight();
 
+/**
+ * 离线缓存（src/appsw.js，构建成 coi-serviceworker.js）：每次打开都让浏览器查一下它有没有新版。
+ * 原来的那个只补跨源隔离的头，页面已经隔离时连注册都不做，浏览器也就不去看它更新了没有——
+ * 旧手机上会一直留着那个"断网全失败"的版本。这里在新程序里主动叫一声，换成能离线的这一版。
+ */
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  void navigator.serviceWorker
+    .getRegistration()
+    .then((r) => r?.update())
+    .catch(() => {
+      /* 断网时查不了更新，用手机里的就行 */
+    });
+}
+
 let dispose: (() => void) | null = null;
 
 function clear() {

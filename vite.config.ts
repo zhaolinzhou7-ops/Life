@@ -125,6 +125,46 @@ function growServiceWorker(base: string): Plugin {
   };
 }
 
+/**
+ * 小游戏合集的离线缓存（src/appsw.js 模板 → dist/coi-serviceworker.js）。
+ *
+ * 用户原话："为什么每一次皮卡鱼都加载不了？每次没网的时候就没办法加载，是不是这个原因？"
+ * 原来的 coi-serviceworker 只补跨源隔离的头，所有请求都转去网上，断网全失败。
+ * 这里在构建产物写完以后，把这一版全部程序文件（JS/CSS/JSON/字体）列进预存清单，
+ * 皮卡鱼的四个文件单列（缓存名带它们的哈希：引擎不换就不重新下载 4.6MB），
+ * 填进模板，**写到 coi-serviceworker.js 原来的位置**——已经注册过旧版的手机会自动更新成这一版。
+ */
+function appServiceWorker(base: string): Plugin {
+  return {
+    name: 'app-service-worker',
+    apply: 'build',
+    writeBundle(options, bundle) {
+      const dir = options.dir ?? resolve(__dirname, 'dist');
+      const code = Object.keys(bundle)
+        .filter((f) => /\.(js|css|json|woff2)$/.test(f) && !f.startsWith('pika/') && !f.startsWith('grow/') && f !== 'coi-serviceworker.js')
+        .sort();
+      const precache = [base, ...code.map((f) => base + f)];
+      const pikaFiles = ['pikafish.js', 'pikafish.wasm', 'pikafish.data', 'pika-worker.js'];
+      const pikaHash = createHash('sha256');
+      for (const f of pikaFiles) pikaHash.update(readFileSync(resolve(PIKA_DIR, f)));
+      const hash = createHash('sha256');
+      hash.update(precache.join('\n'));
+      const html = bundle['index.html'];
+      if (html?.type === 'asset') hash.update(html.source);
+      let sw = readFileSync(resolve(__dirname, 'src/appsw.js'), 'utf8');
+      const fill = (line: string, value: string) => {
+        if (!sw.includes(line)) throw new Error(`app-service-worker：模板里找不到 ${line}`);
+        sw = sw.replace(line, line.replace(/'?__\w+__'?/, value));
+      };
+      fill("const VERSION = '__VERSION__';", JSON.stringify(hash.digest('hex').slice(0, 12)));
+      fill("const PIKA = '__PIKA__';", JSON.stringify(pikaHash.digest('hex').slice(0, 12)));
+      fill('const PRECACHE = __PRECACHE__;', JSON.stringify(precache, null, 2));
+      fill('const PIKA_FILES = __PIKA_FILES__;', JSON.stringify(pikaFiles.map((f) => `${base}pika/${f}`)));
+      writeFileSync(resolve(dir, 'coi-serviceworker.js'), sw);
+    },
+  };
+}
+
 export default defineConfig({
   base: '/Life/',
   build: {
@@ -136,5 +176,5 @@ export default defineConfig({
   },
   server: { headers: ISOLATION },
   preview: { headers: ISOLATION },
-  plugins: [engineAssets('/Life/'), growServiceWorker('/Life/')],
+  plugins: [engineAssets('/Life/'), growServiceWorker('/Life/'), appServiceWorker('/Life/')],
 });

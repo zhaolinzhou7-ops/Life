@@ -1,7 +1,11 @@
 /**
- * 专业引擎中途倒下（手机内存不够、Worker 崩了）：教练不能两手空空、悄悄退回"只看子力"，
- * 要当场换自带引擎接着算，并且如实说一声。
- * 模拟方法：第一个引擎实例（服务车道）正常；研究车道的实例一开算就崩，之后再起的都报内存不够。
+ * 专业引擎中途倒下（手机内存不够、Worker 崩了）：教练不能两手空空、悄悄退回"只看子力"。
+ *
+ * 一、只倒了一条车道（第一个实例正常；研究车道的实例一开算就崩，之后再起的都报内存不够）：
+ *    两条车道合用起来的那一个，教练照样是皮卡鱼（pikafish.ts 的 route / sharedEngine）。
+ *    用户原话："为什么每一次皮卡鱼都加载不了？"——原来这时整个退回自带引擎。
+ * 二、两条车道都起不来（第一个实例起来了、一算就崩，之后再起的都报内存不够）：当场换自带引擎接着算，
+ *    连着起不来就认定跑不动，如实说一声。
  * 用法：npm run dev，然后 node tests/ui/engine-crash.mjs
  */
 import { chromium } from 'playwright';
@@ -18,58 +22,90 @@ const CRASH = `self.onmessage=function(e){var d=e.data||{};if(d.init){self.postM
   if(d.cmd&&d.cmd.indexOf('go')===0)setTimeout(function(){self.postMessage({crashed:'RuntimeError: memory access out of bounds'})},300)};`;
 const OOM = `self.onmessage=function(e){if((e.data||{}).init)self.postMessage({error:'RangeError: Out of memory: Cannot allocate Wasm memory for new instance'})};`;
 const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined });
-const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
-let workers = 0;
-await ctx.route('**/pika/pika-worker.js', async (route) => {
-  workers++;
-  if (workers === 1) return route.continue();
-  await route.fulfill({ status: 200, contentType: 'text/javascript', body: workers === 2 ? CRASH : OOM });
-});
-const page = await ctx.newPage();
-// 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
-await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
-page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
-page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
-await page.goto(BASE, { waitUntil: 'networkidle' });
-await page.evaluate(() => { localStorage.setItem('xq-hint-level', '2'); localStorage.setItem('xq-power', 'standard'); });
-await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
-await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
-await page.evaluate(() => { const d = document.querySelector('.xq-lowlv'); if (d) d.open = true; }); await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
-await page.getByText('执红先行').first().click();
-await page.getByText('开始对弈').first().click();
-await until(page, () => window.__xq.turn() === 'r' && !!window.__xq.study(), null, 15000);
 
-ok('研究车道的引擎崩了之后，当场换自带引擎接着算', await until(page, () => window.__xq.engine() === 'local' && (window.__xq.study()?.depth ?? 0) >= 4, null, 20000));
-const line = await page.evaluate(() => window.__xq.coachLine());
-console.log('   状态行：' + line);
-ok('状态行如实写着"自带引擎"', line.includes('自带引擎'));
-
-// 接着下几手：之后再起引擎都报内存不够，连着两次就认定跑不动，之后一直用自带引擎
-let toast = '';
-for (let i = 0; i < 4; i++) {
-  const w0 = Date.now();
-  const waited = await until(page, () => window.__xq.turn() === "r" && !window.__xq.state().busy && ((window.__xq.study()?.depth ?? 0) >= 4 || !!window.__xq.study()?.done), null, 30000);
-  if (!waited) console.log("   等了 " + (Date.now() - w0) + "ms：" + JSON.stringify(await page.evaluate(() => ({ st: window.__xq.state(), s: window.__xq.study(), line: window.__xq.coachLine() }))));
-  const t = await page.evaluate(() => document.querySelector('.xq-toast, .toast')?.textContent ?? '');
-  if (t.includes('跑不动')) toast = t;
-  const s = await page.evaluate(() => ({ ...window.__xq.study(), engine: window.__xq.engine() }));
-  console.log(`   #${i + 1} ${s.engine} depth=${s.depth}`);
-  ok(`第 ${i + 1} 手：教练手里有真算出来的结果（${s.engine}，${s.depth} 层）`, (s.depth >= 4 || s.done) && !!s.best);
-  await page.evaluate((m) => window.__xq.play(m), s.best);
-  await page.waitForTimeout(400);
-  if (await page.evaluate(() => !!document.querySelector('.xq-tip:not(.xq-besthint):not(.xq-lost)'))) {
-    await page.locator('.xq-tip [data-act="go"]').first().click();
-  }
-  const t2 = await page.evaluate(() => document.querySelector('.xq-toast, .toast')?.textContent ?? '');
-  if (t2.includes('跑不动')) toast = t2;
-  if (await page.evaluate(() => window.__xq.state().over)) break;
+/** 开一盘（入门档、执红）。firstOk：第一个引擎实例正常（只倒一条车道），否则每个都起不来 */
+async function open(firstOk) {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  let workers = 0;
+  await ctx.route('**/pika/pika-worker.js', async (route) => {
+    workers++;
+    if (firstOk && workers === 1) return route.continue();
+    // 带上跨源隔离的头：页面是 require-corp，Worker 脚本不带这两个头浏览器根本不加载（那就成了"第一次就起不来"，测不到中途倒下）
+    await route.fulfill({ status: 200, contentType: 'text/javascript', headers: { 'Cross-Origin-Embedder-Policy': 'require-corp', 'Cross-Origin-Resource-Policy': 'same-origin' }, body: workers === (firstOk ? 2 : 1) ? CRASH : OOM });
+  });
+  const page = await ctx.newPage();
+  // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
+  await page.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
+  page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
+  page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.evaluate(() => { localStorage.setItem('xq-hint-level', '2'); localStorage.setItem('xq-power', 'standard'); });
+  await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
+  await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
+  await page.evaluate(() => { const d = document.querySelector('.xq-lowlv'); if (d) d.open = true; }); await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
+  await page.getByText('执红先行').first().click();
+  await page.getByText('开始对弈').first().click();
+  await until(page, () => window.__xq.turn() === 'r' && !!window.__xq.study(), null, 15000);
+  return { ctx, page };
 }
-const st = await page.evaluate(() => window.__xq.engineStats());
-console.log('   引擎统计：' + JSON.stringify(st));
-ok('连着起不来就认定跑不动（lost），不再一步一试', st.lost === true);
-console.log('   提示：' + toast);
-ok('告诉用户换成了自带引擎', toast.includes('自带引擎'));
-await page.screenshot({ path: OUT + '/engine-crash.png' });
+
+/** 接着下几手，每一手教练手里都要有真算出来的结果；回最后看到的"跑不动"提示 */
+async function playOn(page, tag) {
+  let toast = '';
+  for (let i = 0; i < 4; i++) {
+    const w0 = Date.now();
+    const waited = await until(page, () => window.__xq.turn() === "r" && !window.__xq.state().busy && ((window.__xq.study()?.depth ?? 0) >= 4 || !!window.__xq.study()?.done), null, 30000);
+    if (!waited) console.log("   等了 " + (Date.now() - w0) + "ms：" + JSON.stringify(await page.evaluate(() => ({ st: window.__xq.state(), s: window.__xq.study(), line: window.__xq.coachLine() }))));
+    const t = await page.evaluate(() => document.querySelector('.xq-toast, .toast')?.textContent ?? '');
+    if (t.includes('跑不动')) toast = t;
+    const s = await page.evaluate(() => ({ ...window.__xq.study(), engine: window.__xq.engine() }));
+    console.log(`   #${i + 1} ${s.engine} depth=${s.depth}`);
+    ok(`${tag}第 ${i + 1} 手：教练手里有真算出来的结果（${s.engine}，${s.depth} 层）`, (s.depth >= 4 || s.done) && !!s.best);
+    await page.evaluate((m) => window.__xq.play(m), s.best);
+    await page.waitForTimeout(400);
+    if (await page.evaluate(() => !!document.querySelector('.xq-tip:not(.xq-besthint):not(.xq-lost)'))) {
+      await page.locator('.xq-tip [data-act="go"]').first().click();
+    }
+    const t2 = await page.evaluate(() => document.querySelector('.xq-toast, .toast')?.textContent ?? '');
+    if (t2.includes('跑不动')) toast = t2;
+    if (await page.evaluate(() => window.__xq.state().over)) break;
+  }
+  return toast;
+}
+
+// ───────── 一、只倒了研究车道：合用另一条的皮卡鱼 ─────────
+{
+  const { ctx, page } = await open(true);
+  ok('研究车道的引擎崩了之后，教练照样是皮卡鱼（换到另一条车道接着算）', await until(page, () => window.__xq.engine() === 'pro' && (window.__xq.study()?.depth ?? 0) >= 4 && window.__xq.engineStats().failed.study >= 1, null, 20000));
+  const line = await page.evaluate(() => window.__xq.coachLine());
+  console.log('   状态行：' + line);
+  ok('状态行写着"专业引擎"，不是"自带引擎"', line.includes('专业引擎') && !line.includes('自带引擎'));
+  const toast = await playOn(page, '一条车道：');
+  const st = await page.evaluate(() => window.__xq.engineStats());
+  console.log('   引擎统计：' + JSON.stringify(st));
+  ok('两条车道合用一个（shared），没有认定跑不动（lost）', st.shared === true && st.lost === false);
+  ok('一直是皮卡鱼', await page.evaluate(() => window.__xq.engine() === 'pro'));
+  ok('没有弹"跑不动"', !toast);
+  await page.screenshot({ path: OUT + '/engine-crash-shared.png' });
+  await ctx.close();
+}
+
+// ───────── 二、两条车道都起不来：自带引擎接着算，如实说一声 ─────────
+{
+  const { ctx, page } = await open(false);
+  ok('两条车道都起不来：当场换自带引擎接着算', await until(page, () => window.__xq.engine() === 'local' && (window.__xq.study()?.depth ?? 0) >= 4, null, 20000));
+  const line = await page.evaluate(() => window.__xq.coachLine());
+  console.log('   状态行：' + line);
+  ok('状态行如实写着"自带引擎"', line.includes('自带引擎'));
+  const toast = await playOn(page, '都起不来：');
+  const st = await page.evaluate(() => window.__xq.engineStats());
+  console.log('   引擎统计：' + JSON.stringify(st));
+  ok('连着起不来就认定跑不动（lost），不再一步一试', st.lost === true);
+  console.log('   提示：' + toast);
+  ok('告诉用户换成了自带引擎', toast.includes('自带引擎'));
+  await page.screenshot({ path: OUT + '/engine-crash.png' });
+  await ctx.close();
+}
 await browser.close();
 console.log('\n===== 失败项 =====\n' + (errs.length ? errs.join('\n') : '无'));
 process.exit(errs.length ? 1 : 0);

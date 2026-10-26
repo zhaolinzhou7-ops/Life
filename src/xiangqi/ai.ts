@@ -460,6 +460,25 @@ export function setSimpleEval(on: boolean) {
   simpleEval = on;
 }
 
+/**
+ * 对弈专用的剪枝（只在 think 里开）：皮卡鱼起不来时，对手和"该走哪步"都靠 think，同样的时间要算得更深。
+ *   - 浅层（≤3 层）静态分已经高出 beta 一大截：不细算了（反向无效剪枝）；
+ *   - 静态分加上一大截都够不着 alpha：不吃子、不将军的着法不看了（无效剪枝）；
+ *   - 静态搜索里吃了也追不回来的子不吃（delta 剪枝）；
+ *   - 根节点第二手起先用零窗口试探，没超过当前最好的就不精确算（PVS）；
+ *   - 时间到了，这一层已经算完的着法里有更好的，也用上（原来半层的结果整个扔掉）。
+ * analyze / scoreMove / judgeMove 要每一手的准确分，一律不剪（load 时关掉）。
+ * tools/fallback-strength.ts 用皮卡鱼量过前后：见 README「皮卡鱼用不了的时候」。
+ */
+let prune = false;
+let playPruning = true;
+/** 只给 tools/fallback-strength.ts 做前后对比用 */
+export function setPlayPruning(on: boolean) {
+  playPruning = on;
+}
+const RFP_MARGIN = 120;
+const FUTILITY = [0, 150, 300, 500];
+
 /** 这一格在 side 方的敌境（过河了吗）。side: 0=红 1=黑 */
 const crossed = (i: number, blk: boolean) => (blk ? py(i) >= 5 : py(i) <= 4);
 
@@ -688,6 +707,7 @@ function quiescence(alpha: number, beta: number, ply: number): number {
   for (let i = 0; i < cnt; i++) {
     pickMove(base, cnt, i);
     const m = moveBuf[base + i];
+    if (prune && stand + VAL[bd[mTo(m)] & 7] + 200 <= alpha) continue;
     makeMove(m, ply);
     if (inCheck(me)) { unmakeMove(m, ply); continue; }
     const v = -quiescence(-beta, -alpha, ply + 1);
@@ -728,6 +748,13 @@ function negamax(depth: number, alpha: number, beta: number, ply: number, canNul
     }
   }
 
+  let futile = false;
+  if (prune && !checked && ply > 0 && depth <= 3 && Math.abs(alpha) < MATE - 1000 && Math.abs(beta) < MATE - 1000) {
+    const st = evalSide();
+    if (st - RFP_MARGIN * depth >= beta) return st;
+    futile = st + FUTILITY[depth] <= alpha;
+  }
+
   // 空着裁剪：让对手连走两步仍压不下 beta，说明这里已经很好，可以剪
   if (canNull && !checked && depth >= 3 && ply > 0 && Math.abs(beta) < MATE - 1000) {
     const st = evalSide();
@@ -761,6 +788,7 @@ function negamax(depth: number, alpha: number, beta: number, ply: number, canNul
     makeMove(m, ply);
     if (inCheck(me)) { unmakeMove(m, ply); continue; } // 伪合法 → 过滤掉送将
     legal++;
+    if (futile && legal > 1 && !isCap && !inCheck(side)) { unmakeMove(m, ply); continue; }
 
     let v: number;
     if (legal === 1) {
@@ -768,7 +796,7 @@ function negamax(depth: number, alpha: number, beta: number, ply: number, canNul
     } else {
       // 后期着法缩减 + 零窗口试探
       let red = 0;
-      if (depth >= 3 && legal > 3 && !isCap && !checked) red = 1 + (legal > 8 ? 1 : 0);
+      if (depth >= 3 && legal > 3 && !isCap && !checked) red = 1 + (legal > 8 ? 1 : 0) + (prune && depth >= 6 && legal > 16 ? 1 : 0);
       v = -negamax(depth - 1 - red, -alpha - 1, -alpha, ply + 1, true);
       if (v > alpha && (red > 0 || v < beta)) v = -negamax(depth - 1, -beta, -alpha, ply + 1, true);
     }
@@ -844,6 +872,7 @@ function load(b: Board, color: Color) {
   }
   side = color === 'r' ? 0 : 1;
   if (side === 1) { h1 ^= Z1_SIDE; h2 ^= Z2_SIDE; }
+  prune = false;
 }
 
 const toMove = (m: number): Move => ({
@@ -855,6 +884,7 @@ export const lastSearch = { depth: 0, nodes: 0 };
 
 export function think(b: Board, color: Color, opts: SearchOpts): Move | null {
   load(b, color);
+  prune = playPruning;
   deadline = Date.now() + opts.timeMs;
   stopped = false;
   nodes = 0;
@@ -895,7 +925,11 @@ export function think(b: Board, color: Color, opts: SearchOpts): Move | null {
 
     for (const m of roots) {
       makeMove(m, 0);
-      let v = -negamax(d - 1, -Infinity, -alpha, 1, true);
+      let v: number;
+      if (prune && opts.jitter === 0 && localBest !== 0) {
+        v = -negamax(d - 1, -alpha - 1, -alpha, 1, true);
+        if (v > alpha && !stopped) v = -negamax(d - 1, -Infinity, -alpha, 1, true);
+      } else v = -negamax(d - 1, -Infinity, -alpha, 1, true);
       unmakeMove(m, 0);
       if (stopped) break;
       if (opts.jitter > 0) v += (Math.random() * 2 - 1) * opts.jitter;
@@ -905,6 +939,10 @@ export function think(b: Board, color: Color, opts: SearchOpts): Move | null {
       best = localBest;
       bestScore = localScore;
       reachedDepth = d;
+    } else if (prune && localBest !== 0 && localBest !== best && localScore > bestScore) {
+      // 时间到了，这一层没算完；已经算完的着法里有比上一层最好的还好的（每一手都是完整算完才记下的），用它
+      best = localBest;
+      bestScore = localScore;
     }
     if (stopped || Date.now() > deadline) break;
     if (bestScore > MATE - 200) break; // 已有杀棋

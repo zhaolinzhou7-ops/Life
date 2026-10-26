@@ -224,6 +224,23 @@ export function loadEngine(): Promise<boolean> {
   return loading;
 }
 
+/**
+ * 皮卡鱼有没有存在这台手机里（离线缓存，src/appsw.js）：存了就断网也能用。
+ * 开发环境、浏览器不支持、还没联网打开过一次时是 false
+ */
+export async function engineStoredOffline(): Promise<boolean> {
+  try {
+    if (typeof caches === 'undefined') return false;
+    for (const k of await caches.keys()) {
+      if (!k.startsWith('life-pika-')) continue;
+      if (await (await caches.open(k)).match(new URL(baseUrl() + 'pikafish.data', location.href).href)) return true;
+    }
+  } catch {
+    /* 读不了缓存就当没存 */
+  }
+  return false;
+}
+
 // ───────────────────────── 车道：一个 Worker + 一个队列 ─────────────────────────
 
 /** 页面上一次回到前台的时刻。手机切后台时整个页面（连同 Worker）会被冻住，回来那一刻不能按超时处理 */
@@ -249,6 +266,7 @@ export function engineStats() {
     failed: { ...stats.failed },
     cooperative: cooperativeStop(),
     lost,
+    shared: sharedEngine(),
   };
 }
 
@@ -278,10 +296,25 @@ class Lane {
     return !!this.flag;
   }
 
+  /** 这条车道在这台设备上起不来了（连着失败、或者反复崩）：两条都这样才算引擎倒下 */
+  get dead(): boolean {
+    return this.failures >= MAX_FAILURES || this.crashes >= MAX_CRASHES;
+  }
+
+  /** 起不来过一次（多半是内存不够）：这一次打开里任务都改走另一条，不再拿它试，见 route */
+  get down(): boolean {
+    return this.failures >= 1 || this.crashes >= MAX_CRASHES;
+  }
+
   /** 确保有一个初始化好的 Worker */
   ensure(): Promise<boolean> {
     if (this.worker && this.starting) return this.starting;
     if (!assets || lost) return Promise.resolve(false);
+    // 测试用：模拟内存只够起一个引擎的手机（研究车道起不来）
+    if (this.name === 'study' && simulateOneEngine()) {
+      this.failed();
+      return Promise.resolve(false);
+    }
     let w: Worker;
     try {
       w = new Worker(baseUrl() + 'pika-worker.js');
@@ -301,7 +334,7 @@ class Lane {
         if (!up) {
           this.failed();
           resolve(false);
-        } else if (++this.crashes >= MAX_CRASHES) markLost();
+        } else if (++this.crashes >= MAX_CRASHES) laneDied();
       };
       // 起不来（内存不够时实例化会失败）：别让等它的研究干等
       const timer = setTimeout(bad, 20000);
@@ -331,7 +364,7 @@ class Lane {
 
   private failed() {
     stats.failed[this.name]++;
-    if (++this.failures >= MAX_FAILURES) markLost();
+    if (++this.failures >= MAX_FAILURES) laneDied();
   }
 
   post(cmd: string) {
@@ -374,6 +407,37 @@ class Lane {
 const lanes = { study: new Lane('study', 64), service: new Lane('service', 32) };
 export type LaneName = 'study' | 'service';
 
+/**
+ * 一条车道起不来了：两条都起不来才算引擎倒下（退回自家引擎）。
+ *
+ * 每个引擎实例要 256MB 内存，两条车道就是 512MB——手机内存紧的时候第二个实例常常起不来。
+ * 原来任何一条车道连着失败两次就整个认定"皮卡鱼跑不动"，教练和对手全换成弱得多的自带引擎；
+ * 现在一条起不来，它的活儿就挪到另一条上（共用一个引擎，研究分段算，对手走棋最多等一段）。
+ */
+function laneDied() {
+  if (lanes.study.dead && lanes.service.dead) markLost();
+}
+
+/** 任务该走哪条车道：要的那条起不来了、另一条还活着，就走另一条 */
+function route(name: LaneName): Lane {
+  const want = lanes[name];
+  const other = lanes[name === 'study' ? 'service' : 'study'];
+  return want.down && !other.down ? other : want;
+}
+
+/** 研究在借用对局那条车道（只起得来一个引擎）：研究要分段算，别把对手走棋堵住 */
+export function sharedEngine(): boolean {
+  return lanes.study.down && !lanes.service.down;
+}
+
+function simulateOneEngine(): boolean {
+  try {
+    return !!localStorage.getItem('xq-engine-onelane');
+  } catch {
+    return false;
+  }
+}
+
 // ───────────────────────── 搜索 ─────────────────────────
 
 export interface SearchOpts {
@@ -414,7 +478,9 @@ const HALT_GRACE = 3000;
 const WATCHDOG_MARGIN = 10000;
 
 export function search(opts: SearchOpts, onDepth?: (lines: PvLine[], depth: number) => void): SearchJob {
-  const lane = lanes[opts.lane ?? 'service'];
+  let lane = route(opts.lane ?? 'service');
+  /** 已经从起不来的车道挪到另一条上了（只挪一次） */
+  let moved = false;
   let stopRequested = false;
   /** 正在算时：交出结果（job 的 promise 马上兑现）并让引擎收手 */
   let interrupt: (() => void) | null = null;
@@ -434,6 +500,16 @@ export function search(opts: SearchOpts, onDepth?: (lines: PvLine[], depth: numb
   const run = async (): Promise<void> => {
     if (!engineReady() || stopRequested) return answer({ ...done, stopped: stopRequested || undefined });
     if (!(await lane.ensure()) || stopRequested) {
+      // 这条车道起不来（手机内存只够一个引擎）：另一条还活着就挪过去排队，别让研究退回自带引擎
+      const alt = lane === lanes.study ? lanes.service : lanes.study;
+      if (!stopRequested && !moved && !alt.down) {
+        moved = true;
+        lane = alt;
+        return new Promise<void>((next) => {
+          const go = () => safe().then(next);
+          alt.queue = alt.queue.then(go, go);
+        });
+      }
       return answer({ ...done, stopped: stopRequested || undefined, failed: !stopRequested || undefined });
     }
     await new Promise<void>((idle) => {

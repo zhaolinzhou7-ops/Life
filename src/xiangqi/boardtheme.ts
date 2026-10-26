@@ -39,8 +39,11 @@ export type BoardId =
   | 'goldlac'
   | 'qinglv'
   | 'dunhuang'
+  | 'nanmu'
+  | 'duanyan'
+  | 'ruyao'
   | 'plain';
-export type PieceId = 'ivory' | 'boxwood' | 'jade' | 'bronze' | 'porcelain' | 'lacquer' | 'ink' | 'flat';
+export type PieceId = 'ivory' | 'boxwood' | 'jade' | 'bronze' | 'porcelain' | 'lacquer' | 'ink' | 'zitan' | 'ruyao' | 'jianzhan' | 'agate' | 'flat';
 export type FontId = 'wenkai' | 'mashan' | 'xingshu' | 'xiaowei' | 'hei';
 
 export interface Look {
@@ -238,8 +241,8 @@ export function onLook(fn: () => void): () => void {
 export const lookVersion = () => version;
 
 function bump() {
+  // 纹理按样式和尺寸存，换一套照样能用，不清（原来每点一下都清，样式页上几十张小样全部重算）
   version++;
-  texCache.clear();
   for (const f of [...subs]) f();
 }
 
@@ -259,6 +262,11 @@ export const PRESETS: { id: string; name: string; desc: string; look: Look }[] =
   { id: 'jinbi', name: '✨ 金碧青绿', desc: '绢本青绿山水、金线勾边、青花瓷棋子', look: { board: 'qinglv', piece: 'porcelain', font: 'xiaowei', trad: false } },
   // 典藏里水墨以外的一套：壁画。星河夜弈、霓虹赛博、烽火沙场（发光的格线、满盘闪的星、飞的火星）太晃眼，拿掉了
   { id: 'dunhuang', name: '✨ 敦煌飞天', desc: '土墙壁画、石绿石青、河里飘带和莲花、朱漆棋子；花瓣往下飘', look: { board: 'dunhuang', piece: 'lacquer', font: 'mashan', trad: false } },
+  // 耐看的四套：真材料，不发光、不会动
+  { id: 'nanmuset', name: '金丝楠 · 紫檀', desc: '金丝楠木棋盘，黄花梨对紫檀的棋子，朱砂字对描金字', look: { board: 'nanmu', piece: 'zitan', font: 'wenkai', trad: true } },
+  { id: 'songyun', name: '宋韵茶席', desc: '汝窑开片的天青棋盘，柿红对兔毫的建盏棋子，宋体字', look: { board: 'ruyao', piece: 'jianzhan', font: 'xiaowei', trad: false } },
+  { id: 'yantai', name: '端砚天青', desc: '端溪砚石棋盘（石眼、蕉叶白），汝窑天青棋子，毛笔字', look: { board: 'duanyan', piece: 'ruyao', font: 'mashan', trad: false } },
+  { id: 'nanhong', name: '南红汉白玉', desc: '汉白玉棋盘，南红玛瑙对墨玛瑙的棋子', look: { board: 'marble', piece: 'agate', font: 'wenkai', trad: true } },
   { id: 'clear', name: '清晰护眼', desc: '素色棋盘、扁平棋子、粗黑体：最好认', look: { board: 'plain', piece: 'flat', font: 'hei', trad: false } },
 ];
 
@@ -329,6 +337,43 @@ function fbm(n: (x: number, y: number) => number, x: number, y: number, oct = 4)
 const ROT_C = Math.cos(0.62);
 const ROT_S = Math.sin(0.62);
 
+/**
+ * 细胞噪声：平面上撒一把点，回到最近的点、第二近的点各多远。两者差得很小的地方就是两块的交界——
+ * 瓷釉的开片（冰裂纹）就这么画：f2 − f1 接近 0 处画一道细线
+ */
+function makeWorley(seed: number) {
+  const rnd = mulberry32(seed);
+  const pts = new Float32Array(512);
+  for (let i = 0; i < 512; i++) pts[i] = rnd();
+  return (x: number, y: number): [number, number] => {
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    let f1 = 9;
+    let f2 = 9;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const h = (Math.imul(ix + dx, 73856093) ^ Math.imul(iy + dy, 19349663)) & 255;
+        const d = Math.hypot(x - (ix + dx + pts[h * 2]), y - (iy + dy + pts[h * 2 + 1]));
+        if (d < f1) {
+          f2 = f1;
+          f1 = d;
+        } else if (d < f2) f2 = d;
+      }
+    }
+    return [f1, f2];
+  };
+}
+let worleys: ((x: number, y: number) => [number, number])[] | null = null;
+const worley = (i: number) => (worleys ??= [makeWorley(97), makeWorley(5303), makeWorley(811)])[i];
+/** 开片：大片、小片两层裂纹，坐标先扭一扭（裂纹不是规规矩矩的多边形）。回 [大片, 小片] 的线有多浓（0～1） */
+function crackle(n: (x: number, y: number) => number, u: number, v: number, scale: number): [number, number] {
+  const wx = u * scale + (fbm(n, u * scale * 0.9, v * scale * 0.9, 3) - 0.5) * 1.1;
+  const wy = v * scale + (fbm(n, u * scale * 0.9 + 7, v * scale * 0.9, 3) - 0.5) * 1.1;
+  const [a1, a2] = worley(0)(wx, wy);
+  const [b1, b2] = worley(1)(wx * 2.4 + 3.1, wy * 2.4 + 1.7);
+  return [1 - smooth(0, 0.045, a2 - a1), 1 - smooth(0, 0.035, b2 - b1)];
+}
+
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smooth = (a: number, b: number, v: number) => {
   const t = clamp01((v - a) / (b - a));
@@ -338,14 +383,26 @@ type RGB = [number, number, number];
 const hex = (h: string): RGB => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
-/** 纹理缓存：换尺寸、换样式时清掉 */
+/**
+ * 纹理缓存：满了只扔最久没用的那几张（Map 按放进去的先后排，用到一次就挪到最后）。
+ * 原来是满 80 张整个清空——样式页一屏小样就有五六十张（十五种棋盘、十二种棋子各两面），
+ * 一满就全部重算，点一下卡好几秒
+ */
 const texCache = new Map<string, HTMLCanvasElement>();
+const TEX_MAX = 140;
 function cached(key: string, make: () => HTMLCanvasElement): HTMLCanvasElement {
   const hit = texCache.get(key);
-  if (hit) return hit;
-  if (texCache.size > 80) texCache.clear();
+  if (hit) {
+    texCache.delete(key);
+    texCache.set(key, hit);
+    return hit;
+  }
   const cv = make();
   texCache.set(key, cv);
+  for (const k of texCache.keys()) {
+    if (texCache.size <= TEX_MAX) break;
+    texCache.delete(k);
+  }
   return cv;
 }
 
@@ -461,6 +518,15 @@ const DH_M = hex('#cf9d63');
 const DH_D = hex('#a46c3c');
 const DH_G = hex('#4f9480');
 const DH_B = hex('#2c5cb4');
+const NAN_L = hex('#d9a35a');
+const NAN_M = hex('#b47a34');
+const NAN_D = hex('#7a4b1c');
+const DUAN_L = hex('#6f5c66');
+const DUAN_M = hex('#54444d');
+const DUAN_D = hex('#382b33');
+const RU_L = hex('#cfe0d8');
+const RU_M = hex('#b4cbc3');
+const RU_D = hex('#93afa8');
 
 /** 棋盘纹理里格子的原点（decorate 拿到的是整块纹理，四周有边） */
 const gridOrigin = (w: number, h: number, c: number) => ({ ox: (w - 8 * c) / 2, oy: (h - 9 * c) / 2 });
@@ -1062,6 +1128,118 @@ export const BOARDS: BoardStyle[] = [
     corners: true,
     ambient: { sheen: 'rgba(255,226,160,0.45)', motes: '#f0c860', petals: '#e0705a' },
   },
+  // 下面三套是"耐看"的：真材料的样子，不发光、不会动（用户原话："找一些特别美观、赏心悦目的"；晃眼的上一轮刚拿掉）
+  {
+    id: 'nanmu',
+    res: 0.55,
+    name: '金丝楠',
+    desc: '金丝楠木：金黄的木色，顺着木纹一缕缕金丝，有水波似的明暗',
+    base: '#cf9d56',
+    surface: (n1, n2, u, v) => {
+      const c = woodGrain(n1, n2, u, v, NAN_L, NAN_M, NAN_D, 0.7);
+      // 水波纹：横着一道道柔和的明暗（光照上去像水面，金丝楠最出名的就是这个）
+      const wave = Math.sin((u * 0.45 + v * 0.12 + fbm(n2, u * 0.25 + 3, v * 0.25, 3) * 1.6) * Math.PI * 2) * 0.5 + 0.5;
+      const w = mix(c, hex('#e9bd6e'), smooth(0.4, 1, wave) * 0.14);
+      // 金丝：顺纹的细亮线（木纤维里的结晶反光），一片有、一片没有
+      const silk = Math.pow(n2(u * 1.3, v * 40), 12) * smooth(0.5, 0.7, fbm(n1, u * 0.3 + 40, v * 0.6, 3));
+      return mix(w, hex('#ffe3a0'), clamp01(silk * 1.6) * 0.6);
+    },
+    frame: '#4e2c0c',
+    line: '#3f2208',
+    lineW: 1.15,
+    engrave: 0.3,
+    river: 'rgba(62,32,8,0.85)',
+    label: 'rgba(72,40,12,0.85)',
+    gloss: 0.24,
+    vignette: 0.24,
+    double: true,
+  },
+  {
+    id: 'duanyan',
+    res: 0.4,
+    name: '端砚',
+    desc: '端溪砚石：紫里带青，有蕉叶白、火捺，几只石眼，线是刻进去的',
+    base: '#54444d',
+    surface: (n1, n2, u, v) => {
+      const t = fbm(n1, u * 0.5, v * 0.5, 5);
+      let c = t < 0.5 ? mix(DUAN_D, DUAN_M, t * 2) : mix(DUAN_M, DUAN_L, (t - 0.5) * 2);
+      // 蕉叶白：一大片淡的、发青发白
+      c = mix(c, hex('#a29aa0'), smooth(0.6, 0.82, fbm(n2, u * 0.22 + 7, v * 0.3, 4)) * 0.38);
+      // 火捺：紫红的一团
+      c = mix(c, hex('#7c3a40'), smooth(0.64, 0.86, fbm(n1, u * 0.35 + 30, v * 0.35 + 12, 3)) * 0.32);
+      // 青花：细密的小青点，淡淡的
+      return mix(c, hex('#66848c'), clamp01(Math.pow(n2(u * 7 + 3, v * 7), 16) * 3) * 0.22);
+    },
+    decorate: (g, w, h, c, _n1, rnd) => {
+      // 石眼：端砚最珍贵的，一圈圈青绿、中间一点深的瞳仁。只放在楚河汉界正中那一片（那里不落子，
+      // 也不会被看成"可以走"的提示点）——像河里映着一轮月亮
+      const { ox, oy } = gridOrigin(w, h, c);
+      const x = ox + 4 * c;
+      const y = oy + 4.5 * c;
+      const R = c * 0.3;
+      for (let k = 7; k >= 1; k--) {
+        g.fillStyle = k % 2 ? 'rgba(150,160,128,0.32)' : 'rgba(96,108,86,0.36)';
+        g.beginPath();
+        g.ellipse(x, y, (R * k) / 7, ((R * k) / 7) * 0.86, 0.2, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.fillStyle = 'rgba(40,44,34,0.6)';
+      g.beginPath();
+      g.ellipse(x, y, R * 0.14, R * 0.12, 0.2, 0, Math.PI * 2);
+      g.fill();
+      // 冰纹：两三道若有若无的细白线
+      g.lineCap = 'round';
+      for (let i = 0; i < 3; i++) {
+        let x = rnd() * w;
+        let y = rnd() * h;
+        g.strokeStyle = `rgba(232,228,222,${0.1 + rnd() * 0.1})`;
+        g.lineWidth = 0.5 + rnd() * 0.6;
+        g.beginPath();
+        g.moveTo(x, y);
+        let a = rnd() * Math.PI * 2;
+        for (let k = 0; k < 14; k++) {
+          a += (rnd() - 0.5) * 0.9;
+          x += Math.cos(a) * c * 0.35;
+          y += Math.sin(a) * c * 0.35;
+          g.lineTo(x, y);
+        }
+        g.stroke();
+      }
+    },
+    frame: '#2a1e25',
+    line: 'rgba(228,216,192,0.8)',
+    lineW: 1.1,
+    engrave: 0,
+    river: 'rgba(232,220,194,0.86)',
+    label: 'rgba(224,210,184,0.72)',
+    gloss: 0.12,
+    vignette: 0.3,
+    double: true,
+    dark: true,
+  },
+  {
+    id: 'ruyao',
+    res: 0.5,
+    name: '汝窑开片',
+    desc: '天青色的汝窑釉，满釉细细的开片，像雨过天晴',
+    base: '#b4cbc3',
+    surface: (n1, n2, u, v) => {
+      const t = fbm(n1, u * 0.35, v * 0.35, 4);
+      let c = t < 0.5 ? mix(RU_D, RU_M, t * 2) : mix(RU_M, RU_L, (t - 0.5) * 2);
+      const [big, small] = crackle(n2, u, v, 1.7);
+      c = mix(c, hex('#7d938f'), big * 0.26 + small * 0.1);
+      // 釉里的小气泡（"寥若晨星"）：一点点亮
+      return mix(c, hex('#f0f7f3'), clamp01(Math.pow(n2(u * 14, v * 14), 18) * 4) * 0.45);
+    },
+    frame: '#7f6f5f',
+    line: '#57442f',
+    lineW: 1.1,
+    engrave: 0.3,
+    river: 'rgba(84,64,46,0.84)',
+    label: 'rgba(92,72,56,0.8)',
+    gloss: 0.3,
+    vignette: 0.12,
+  },
   {
     id: 'plain',
     res: 0.2,
@@ -1383,8 +1561,13 @@ export interface PieceStyle {
   desc: string;
   r: Side;
   b: Side;
-  /** 棋面的纹理 */
-  tex: 'ivory' | 'wood' | 'jade' | 'metal' | 'paper' | 'none';
+  /**
+   * 棋面的纹理。hardwood：红方黄花梨（行云流水、鬼脸）、黑方紫檀（牛毛纹）；crackle：瓷釉开片；
+   * harefur：建盏的兔毫（从盏心往外放射的细丝）；agate：玛瑙一圈圈的缠丝
+   */
+  tex: 'ivory' | 'wood' | 'jade' | 'metal' | 'paper' | 'hardwood' | 'crackle' | 'harefur' | 'agate' | 'none';
+  /** 哪一方是深色棋面：阴刻的字影要换个方向（深色面上压暗看不出，提亮才看得出） */
+  dark?: Color[];
   /** 高光 */
   gloss: number;
   /** 字：阴刻（刻进去）、阳刻（凸出来）、墨（洇开一点）、平的 */
@@ -1428,6 +1611,7 @@ export const PIECES: PieceStyle[] = [
     gloss: 0.55,
     carve: 'deboss',
     thick: 0.1,
+    dark: ['b'],
   },
   {
     id: 'bronze',
@@ -1462,6 +1646,7 @@ export const PIECES: PieceStyle[] = [
     gloss: 0.62,
     carve: 'emboss',
     thick: 0.12,
+    dark: ['b'],
   },
   {
     id: 'ink',
@@ -1473,6 +1658,54 @@ export const PIECES: PieceStyle[] = [
     gloss: 0,
     carve: 'ink',
     thick: 0.07,
+  },
+  // 下面四种是"耐看"的：真材料的样子（用户原话："找一些特别美观、赏心悦目的棋子"），不发光
+  {
+    id: 'zitan',
+    name: '紫檀黄花梨',
+    desc: '红方黄花梨（金黄、行云流水的纹、带鬼脸），黑方紫檀（紫黑、牛毛纹），朱砂字对描金字',
+    r: { face: ['#f2cc86', '#d9a35a', '#a46c2c'], text: '#ad2316', halo: '#e2b26c', ring: '#ad2316', edge: '#74471a' },
+    b: { face: ['#5e3a40', '#3b2026', '#1c0d11'], text: ['#f5dfa0', '#c99e4e'], halo: '#3b2026', ring: '#d2ae68', edge: '#110608' },
+    tex: 'hardwood',
+    gloss: 0.26,
+    carve: 'deboss',
+    thick: 0.13,
+    dark: ['b'],
+  },
+  {
+    id: 'ruyao',
+    name: '汝窑天青',
+    desc: '天青釉，满面细开片，釉里红对铁褐的字，润得像玉',
+    r: { face: ['#e2eee8', '#c4d9d1', '#9db9b1'], text: '#9a2c22', halo: '#d3e4dd', ring: '#9a2c22', edge: '#7e9a93' },
+    b: { face: ['#dde9e4', '#bed3cc', '#97b2ab'], text: '#2c3c40', halo: '#cfe0da', ring: '#2c3c40', edge: '#7a958f' },
+    tex: 'crackle',
+    gloss: 0.34,
+    carve: 'deboss',
+    thick: 0.11,
+  },
+  {
+    id: 'jianzhan',
+    name: '建盏',
+    desc: '红方柿红釉，黑方兔毫黑釉（银褐色的细丝从中心放射出去），描金、描银的字',
+    r: { face: ['#c96a3e', '#9c3f1f', '#5c1f0d'], text: ['#f8e6b6', '#d6b066'], halo: '#7f3015', ring: '#e0c07a', edge: '#361205' },
+    b: { face: ['#3d3733', '#1d1917', '#080706'], text: ['#f0f2f4', '#b8bfc6'], halo: '#1d1917', ring: '#c6cbd0', edge: '#000000' },
+    tex: 'harefur',
+    gloss: 0.5,
+    carve: 'emboss',
+    thick: 0.12,
+    dark: ['r', 'b'],
+  },
+  {
+    id: 'agate',
+    name: '南红玛瑙',
+    desc: '红方南红玛瑙，黑方墨玛瑙，一圈圈缠丝，刻字填白',
+    r: { face: ['#f07c52', '#c63f28', '#861d12'], text: '#fff3dc', halo: '#b03520', ring: '#ffe4c0', edge: '#5a1109' },
+    b: { face: ['#4d4c51', '#27262b', '#0c0c0f'], text: '#f2efe8', halo: '#27262b', ring: '#dcd8ce', edge: '#000000' },
+    tex: 'agate',
+    gloss: 0.6,
+    carve: 'deboss',
+    thick: 0.11,
+    dark: ['r', 'b'],
   },
   {
     id: 'flat',
@@ -1530,6 +1763,47 @@ function pieceTexture(st: PieceStyle, c: Color, size: number, res: number): HTML
           const fiber = Math.pow(n2(u * 26, v * 7), 6) * 0.7 + Math.pow(n1(u * 6 + 4, v * 24), 7) * 0.6;
           const mottle = fbm(n1, u * 2, v * 2, 3) - 0.5;
           return [150, 128, 90, clamp01(fiber + mottle * 0.4) * 110];
+        }
+        case 'hardwood': {
+          if (c === 'r') {
+            // 黄花梨：行云流水的纹；右上有一处"鬼脸"（树结），纹到那里绕着它一圈圈转
+            const kx = u - 0.7;
+            const ky = v - 0.28;
+            const kr = Math.hypot(kx, ky);
+            const blend = Math.exp(-kr * 8);
+            const phase = (v * 5.5 + fbm(n1, u * 1.3, v * 3, 4) * 2.2) * (1 - blend) + kr * 15 * blend;
+            const line = Math.pow(0.5 + 0.5 * Math.sin(phase * Math.PI * 2), 3);
+            return [118, 58, 14, line * 105 + n2(u * 5, v * 80) * 28];
+          }
+          // 紫檀：牛毛纹——极细极密、几乎顺直，看不出年轮；暗处带一点紫的光
+          const fine = Math.pow(n2(u * 3, v * 150 + fbm(n1, u * 2, v * 2, 3) * 9), 3);
+          return fine > 0.22 ? [14, 4, 8, fine * 130] : [150, 96, 130, clamp01(fbm(n1, u * 2 + 5, v * 1.2, 3) - 0.5) * 70];
+        }
+        case 'crackle': {
+          // 汝窑开片：大片的线深一点，小片的淡；釉里有几个小气泡
+          const [big, small] = crackle(n1, u, v, 3.2);
+          const bubble = Math.pow(n2(u * 40, v * 40), 16);
+          if (bubble > 0.3) return [246, 252, 250, bubble * 120];
+          return [64, 86, 82, big * 120 + small * 48];
+        }
+        case 'harefur': {
+          // 兔毫：从中心往外放射的细丝，外圈密、中心淡。用角度的余弦正弦取噪声，绕一圈首尾接得上
+          const ang = Math.atan2(dy, dx);
+          const ca = Math.cos(ang);
+          const sa = Math.sin(ang);
+          const streak = Math.pow(n2(ca * 14 + 50, sa * 14 + rr * 1.5), 3) * 0.8 + Math.pow(n1(ca * 34 + 9, sa * 34 + rr * 3), 4) * 0.7;
+          const reach = smooth(0.04, 0.4, rr);
+          const col = c === 'r' ? [240, 160, 96] : [214, 186, 150];
+          return [col[0], col[1], col[2], clamp01(streak * reach * 1.3) * (c === 'r' ? 170 : 210)];
+        }
+        case 'agate': {
+          // 玛瑙：一圈圈缠丝（层层沉积的带），带子弯弯曲曲；带子之间是半透的"冻"
+          const warp = (fbm(n1, u * 1.8, v * 1.8, 4) - 0.5) * 0.4;
+          const d = (rr + warp + 0.15) * 46;
+          const band = Math.pow(0.5 + 0.5 * Math.sin(d), 6) * 0.8 + Math.pow(0.5 + 0.5 * Math.sin(d * 2.7 + 1), 10) * 0.5;
+          const cloud = fbm(n2, u * 2.5 + 3, v * 2.5, 3);
+          if (c === 'r') return band > 0.18 ? [255, 200, 160, band * 150] : [110, 14, 6, clamp01(0.58 - cloud) * 130];
+          return band > 0.18 ? [210, 210, 220, band * 95] : [0, 0, 0, clamp01(0.5 - cloud) * 90];
         }
       }
       void s;
@@ -1657,7 +1931,7 @@ export function paintPiece(g: CanvasRenderingContext2D, cx: number, cy: number, 
       })()
     : sd.text;
   const o = Math.max(0.6, r * 0.035);
-  const darkFace = c === 'b' && (st.id === 'jade' || st.id === 'lacquer');
+  const darkFace = !!st.dark?.includes(c);
   if (st.carve === 'deboss') {
     // 阴刻：字是凹下去的，左上边缘背光（暗）、右下边缘受光（亮）
     g.fillStyle = darkFace ? 'rgba(0,0,0,0.55)' : 'rgba(40,22,6,0.45)';

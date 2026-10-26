@@ -11,12 +11,12 @@ describe('棋盘样式', async () => {
     T.setLook(T.DEFAULT_LOOK);
   });
 
-  it('十二种棋盘（四种典藏：三种水墨、一种壁画）、八种棋子、五种字体，十三套搭配都指向有的样式', () => {
-    expect(T.BOARDS).toHaveLength(12);
+  it('十五种棋盘（四种典藏：三种水墨、一种壁画）、十二种棋子、五种字体，十七套搭配都指向有的样式', () => {
+    expect(T.BOARDS).toHaveLength(15);
     expect(T.BOARDS.filter((b) => b.premium).map((b) => b.id)).toEqual(['inkland', 'goldlac', 'qinglv', 'dunhuang']);
-    expect(T.PIECES).toHaveLength(8);
+    expect(T.PIECES).toHaveLength(12);
     expect(T.FONTS).toHaveLength(5);
-    expect(T.PRESETS).toHaveLength(13);
+    expect(T.PRESETS).toHaveLength(17);
     for (const p of T.PRESETS) {
       expect(T.BOARDS.some((b) => b.id === p.look.board), p.id).toBe(true);
       expect(T.PIECES.some((x) => x.id === p.look.piece), p.id).toBe(true);

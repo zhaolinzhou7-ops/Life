@@ -14,7 +14,7 @@ import {
   type Move,
 } from './rules';
 import { disposeAi, requestMove, warmupAi } from './aiclient';
-import { engineCapable, engineLevelMove, engineLost, engineReady, engineStats, loadEngine, onEngineLost } from './pikafish';
+import { engineCapable, engineLevelMove, engineLost, engineReady, engineStats, engineStoredOffline, loadEngine, onEngineLost } from './pikafish';
 import { PIKA_LEVELS } from './pikalevel';
 import { MOVE_LABEL, labelOf, reviewMove, type Judged, type MoveLabel } from './analysis';
 import { GameAnalysis } from './gamescore';
@@ -659,6 +659,13 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       pNote.innerHTML =
         '教练引擎：皮卡鱼 <a href="https://github.com/official-pikafish/Pikafish" target="_blank" rel="noopener">Pikafish</a>（开源，GPL-3.0）。全力档层数随时间一直涨，切到后台自动暂停。';
       s.appendChild(pNote);
+      // 皮卡鱼存没存进手机（离线缓存）：存了就断网也能用
+      void engineStoredOffline().then((stored) => {
+        const off = document.createElement('span');
+        off.className = 'xq-offline';
+        off.textContent = stored ? ' ✅ 已存在本机，断网也能用。' : ' 联网打开过一次就会存进本机（连同程序约 9MB），之后断网也能用。';
+        pNote.appendChild(off);
+      });
 
       const go = document.createElement('button');
       go.className = 'btn';
@@ -1972,6 +1979,10 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
           // 当场说一声：原来要到结算页才知道"这盘对手是替补"，下的时候只觉得最高档怎么也走错招
           if (!aiFellBack) showToast('皮卡鱼没加载起来，这一步对手用自带引擎替补——棋力比档位低，这盘不算实战分', 4200);
           aiFellBack = true;
+          // 开局还在定式里就按定式走：自带引擎在开局最弱（局面平，十来层分不出好坏，常走冷门棋），
+          // 定式是人下出来的，比它算的靠谱（book.ts）。几套定式都有这一手的，被挑中的机会也大
+          const book = bookMoves(board, foe);
+          if (book.length) return Promise.resolve(book[Math.floor(Math.random() * book.length)].move);
           return requestMove(board, foe, { maxDepth: L.depth, jitter: L.jitter, timeMs: L.timeMs, avoid: aiAvoid(false) });
         };
         const avoid = aiAvoid(cfg.multipv <= 1);
