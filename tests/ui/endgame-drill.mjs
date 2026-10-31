@@ -41,6 +41,8 @@ async function openDrill(group) {
 // （原来用单车对双士——对方只剩士，一眼必胜，残局库里已经不出了）
 await openDrill('单车对单炮');
 ok('进了残局练习', (await page.locator('.xq-po').count()) === 1);
+// 用户原话："在做残局和做复盘的时候，音乐也可以默认打开"
+ok('下残局默认放配乐', await until(page, () => !!document.documentElement.dataset.xqBgm, null, 5000));
 ok('对手是皮卡鱼（不再有换成自带引擎的开关）', (await page.evaluate(() => window.__xqPlay.opp().setting)) === 'pro' && (await page.locator('button.xq-po-opp').count()) === 0);
 ok('教练在算，并按目标说局面（胜势）', await until(page, () => /胜势/.test(window.__xqPlay.coach() ?? '') && (window.__xqPlay.study()?.depth ?? 0) >= 10, null, 20000));
 console.log('   教练：' + (await page.evaluate(() => window.__xqPlay.coach())));

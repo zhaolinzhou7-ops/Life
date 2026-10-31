@@ -60,6 +60,7 @@ import type { MoveScore } from './ai';
 import { engineAnalyse, engineReady, engineScoreMove, loadEngine } from './pikafish';
 import { xqSfxCapture, xqSfxMove } from '../xqsfx';
 import { preloadAnnounce, xqAnnounce } from '../xqvoice';
+import { holdXqMusic } from '../xqmusic';
 
 const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
@@ -100,6 +101,8 @@ type Sheet = 'none' | 'detail' | 'report';
 export function runReview(opts: ReviewOpts): () => void {
   const { host, scene, startColor, moves, playerColor, playerWon, onClose } = opts;
   const coachFlags = opts.coachFlags ?? new Map<number, string>();
+  // 复盘也放配乐（用户原话："在做残局和做复盘的时候，音乐也可以默认打开"）：刚下完的那盘还在放就接着放，情绪换成行云流水
+  const releaseMusic = holdXqMusic('flow', 0.3);
   const foe: Color = other(playerColor);
 
   let analysis =
@@ -1702,6 +1705,7 @@ export function runReview(opts: ReviewOpts): () => void {
   }
 
   function close() {
+    releaseMusic();
     clearTimeout(flashTimer);
     setAuto(false);
     stopDemo();

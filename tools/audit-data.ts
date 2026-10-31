@@ -24,6 +24,7 @@ import { verdict } from './playout-verdict';
 import { steadyAnalyze } from './steady-analyze';
 import { checkBoard } from './validate-positions';
 import { bareMinors, noAttackers } from '../src/xiangqi/endings';
+import { endgameUnfit, unfit } from '../src/xiangqi/balance';
 import puzzles from '../src/xiangqi/puzzles.json';
 import mates from '../src/xiangqi/matepatterns.json';
 import endgames from '../src/xiangqi/endgamelib.json';
@@ -187,6 +188,21 @@ function auditDeadDraws(rows: Row[], lib: { id: string; fen: string; you: Color 
   }
 }
 
+/**
+ * 大劣、对等没下头的不许回来（tools/prune-lopsided.ts 清过，判据在 balance.ts）：
+ * 用户原话："自己这边只剩一两个马，对方还有两个车……这种残局基本没法下了"；"对方一个车我也一个车、对方一个马我也一个马，这些也都全部取消掉"
+ */
+function auditLopsided(rows: Row[], lib: { id: string; fen: string; you: Color; target: string }[]) {
+  for (const r of rows) {
+    const why = unfit(r as Parameters<typeof unfit>[0]);
+    if (why) flag(why === 'hopeless' ? '题库·大劣（只剩一两个子还差一个车）' : '题库·对等没下头（车对车、马对马的和棋）', r.id);
+  }
+  for (const e of lib) {
+    const why = endgameUnfit(e);
+    if (why) flag(why === 'hopeless' ? '残局·大劣' : '残局·对等的和棋', e.id);
+  }
+}
+
 const all = [puzzles as unknown[], mates as unknown[], endgames as unknown[]];
 const labels = ['题库', '杀法图形', '残局'];
 all.forEach((rows, i) => auditEncoding(rows, labels[i]));
@@ -194,6 +210,7 @@ auditPositions(puzzles as Row[], '题库', true);
 auditPositions(mates as Row[], '杀法图形', true);
 auditPositions(endgames as unknown as Row[], '残局', false);
 auditDeadDraws(puzzles as Row[], endgames as { id: string; fen: string; you: Color }[]);
+auditLopsided(puzzles as Row[], endgames as { id: string; fen: string; you: Color; target: string }[]);
 
 if (!process.env.FAST) {
   auditMates(puzzles as Row[], '题库');

@@ -65,6 +65,8 @@ const PGN = '1. 炮二平五 马8进7 2. 马二进三 车9平8 3. 车一平二 �
 await page.locator('[data-imp-text]').fill(PGN);
 await page.locator('[data-imp-go]').click();
 ok('复盘打完分', await until(() => !!document.querySelector('[data-act="retry"]'), null, 240000));
+// 用户原话："在做残局和做复盘的时候，音乐也可以默认打开"
+ok('复盘默认放配乐（存档里的棋，不是刚下完那盘接着放的）', await until(() => !!document.documentElement.dataset.xqBgm, null, 5000));
 await page.waitForTimeout(600);
 const n = 24;
 

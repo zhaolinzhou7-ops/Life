@@ -1,8 +1,8 @@
 {
  "m-jiangjun": {
-  "text": "将君！",
-  "sid": 59,
-  "speed": 0.95,
+  "text": "将军！",
+  "voice": "zm_yunjian",
+  "speed": 1.0,
   "space": "court",
   "heard": [
    "将军",
@@ -10,14 +10,14 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 4.9,
-  "f0": 126,
-  "sec": 2.06,
-  "bytes": 21405
+  "shape": 1.0,
+  "f0": 103,
+  "sec": 1.99,
+  "bytes": 20685
  },
  "m-jiesha": {
-  "text": "绝，杀！",
-  "sid": 59,
+  "text": "绝杀！",
+  "voice": "zm_yunjian",
   "speed": 1.0,
   "space": "court",
   "heard": [
@@ -26,47 +26,47 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 7.7,
-  "f0": 123,
-  "sec": 1.94,
-  "bytes": 20205
+  "shape": 0.5,
+  "f0": 85,
+  "sec": 1.87,
+  "bytes": 19485
  },
  "m-kunbi": {
   "text": "困毙！",
-  "sid": 59,
-  "speed": 1.05,
+  "voice": "zm_yunjian",
+  "speed": 1.0,
   "space": "court",
   "heard": [
    "困闭",
-   "困病"
+   "困并"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 119,
-  "sec": 1.96,
-  "bytes": 20445
+  "shape": 0.5,
+  "f0": 101,
+  "sec": 1.9,
+  "bytes": 19965
  },
  "m-chiche": {
-  "text": "吃，居！",
-  "sid": 59,
-  "speed": 1.0,
+  "text": "吃居！",
+  "voice": "zm_yunjian",
+  "speed": 1.12,
   "space": "court",
   "heard": [
-   "赤橘",
-   "吃举"
+   "吃惊",
+   "吃句"
   ],
   "acc": 1.0,
   "tone": 0.5,
-  "range": 8.0,
-  "f0": 129,
-  "sec": 2.06,
-  "bytes": 21405
+  "shape": 0.5,
+  "f0": 93,
+  "sec": 1.85,
+  "bytes": 19485
  },
  "m-win": {
   "text": "大获全胜！",
-  "sid": 59,
-  "speed": 1.0,
+  "voice": "zm_yunjian",
+  "speed": 0.94,
   "space": "court",
   "heard": [
    "大获全胜",
@@ -74,15 +74,15 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 120,
-  "sec": 2.66,
-  "bytes": 27405
+  "shape": 1.0,
+  "f0": 117,
+  "sec": 2.45,
+  "bytes": 25485
  },
  "m-lose": {
-  "text": "胜败乃兵家常事。",
-  "sid": 59,
-  "speed": 0.92,
+  "text": "胜败乃兵家常事！",
+  "voice": "zm_yunjian",
+  "speed": 0.94,
   "space": "court",
   "heard": [
    "胜败乃兵家常事",
@@ -90,14 +90,14 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 133,
-  "sec": 3.43,
-  "bytes": 35325
+  "shape": 0.86,
+  "f0": 120,
+  "sec": 3.01,
+  "bytes": 31005
  },
  "m-draw": {
   "text": "握手言和！",
-  "sid": 59,
+  "voice": "zm_yunjian",
   "speed": 1.0,
   "space": "court",
   "heard": [
@@ -106,30 +106,30 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 107,
-  "sec": 2.64,
-  "bytes": 27165
+  "shape": 0.25,
+  "f0": 108,
+  "sec": 2.36,
+  "bytes": 24525
  },
  "m-win-2": {
   "text": "胜负已分！",
-  "sid": 59,
+  "voice": "zm_yunjian",
   "speed": 1.0,
   "space": "court",
   "heard": [
-   "胜负已分",
+   "胜负一分",
    "胜负一分"
   ],
   "acc": 1.0,
-  "tone": 1.0,
-  "range": 8.0,
-  "f0": 114,
-  "sec": 2.56,
-  "bytes": 26445
+  "tone": 0.75,
+  "shape": 1.0,
+  "f0": 109,
+  "sec": 2.32,
+  "bytes": 24045
  },
  "m-win-3": {
   "text": "痛快！再来！",
-  "sid": 59,
+  "voice": "zm_yunjian",
   "speed": 1.0,
   "space": "court",
   "heard": [
@@ -138,15 +138,15 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 137,
-  "sec": 2.6,
-  "bytes": 26925
+  "shape": 0.75,
+  "f0": 119,
+  "sec": 2.4,
+  "bytes": 25005
  },
  "m-lose-2": {
   "text": "卷土重来，再战！",
-  "sid": 59,
-  "speed": 1.0,
+  "voice": "zm_yunjian",
+  "speed": 0.94,
   "space": "court",
   "heard": [
    "卷土重来再战",
@@ -154,14 +154,14 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 112,
-  "sec": 2.98,
-  "bytes": 30765
+  "shape": 0.33,
+  "f0": 120,
+  "sec": 2.82,
+  "bytes": 29085
  },
  "m-lose-3": {
   "text": "这一盘，我记下了！",
-  "sid": 59,
+  "voice": "zm_yunjian",
   "speed": 1.0,
   "space": "court",
   "heard": [
@@ -170,30 +170,30 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 118,
-  "sec": 3.1,
-  "bytes": 31965
+  "shape": 0.71,
+  "f0": 130,
+  "sec": 2.77,
+  "bytes": 28605
  },
  "m-draw-2": {
   "text": "平分秋色！",
-  "sid": 59,
+  "voice": "zm_yunjian",
   "speed": 1.0,
   "space": "court",
   "heard": [
-   "平分秋色",
-   "平分秋色"
+   "平分球色",
+   "平分求色"
   ],
   "acc": 1.0,
-  "tone": 1.0,
-  "range": 8.0,
-  "f0": 141,
-  "sec": 2.59,
-  "bytes": 26685
+  "tone": 0.75,
+  "shape": 0.25,
+  "f0": 123,
+  "sec": 2.4,
+  "bytes": 25005
  },
  "m-draw-3": {
   "text": "棋逢对手！",
-  "sid": 59,
+  "voice": "zm_yunjian",
   "speed": 1.0,
   "space": "court",
   "heard": [
@@ -202,31 +202,31 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 109,
-  "sec": 2.59,
-  "bytes": 26925
+  "shape": 0.5,
+  "f0": 121,
+  "sec": 2.37,
+  "bytes": 24525
  },
  "f-jiangjun": {
-  "text": "将君！",
-  "sid": 38,
-  "speed": 1.15,
+  "text": "将军。",
+  "voice": "baker",
+  "speed": 1.0,
   "space": "court",
   "heard": [
    "将军",
-   "将军了"
+   "将军"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 267,
-  "sec": 2.69,
-  "bytes": 27885
+  "shape": 0.5,
+  "f0": 336,
+  "sec": 2.08,
+  "bytes": 21645
  },
  "f-jiesha": {
   "text": "绝杀！",
-  "sid": 38,
-  "speed": 0.95,
+  "voice": "baker",
+  "speed": 1.0,
   "space": "court",
   "heard": [
    "绝杀",
@@ -234,46 +234,46 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 216,
-  "sec": 2.96,
-  "bytes": 30525
+  "shape": 0.5,
+  "f0": 282,
+  "sec": 2.02,
+  "bytes": 20925
  },
  "f-kunbi": {
-  "text": "困，毙！",
-  "sid": 38,
+  "text": "困毙。",
+  "voice": "baker",
   "speed": 1.0,
   "space": "court",
   "heard": [
-   "困闭眼",
-   "困碧"
+   "困闭",
+   "困壁"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 235,
-  "sec": 2.76,
-  "bytes": 28605
+  "shape": 1.0,
+  "f0": 329,
+  "sec": 2.05,
+  "bytes": 21405
  },
  "f-chiche": {
-  "text": "吃居！",
-  "sid": 38,
-  "speed": 1.05,
+  "text": "吃居。",
+  "voice": "baker",
+  "speed": 1.0,
   "space": "court",
   "heard": [
-   "赤举",
-   "撤举"
+   "痴句",
+   "吃句"
   ],
   "acc": 1.0,
-  "tone": 0.0,
-  "range": 8.0,
-  "f0": 251,
-  "sec": 2.84,
-  "bytes": 29325
+  "tone": 0.5,
+  "shape": 0.5,
+  "f0": 333,
+  "sec": 2.03,
+  "bytes": 21165
  },
  "f-win": {
-  "text": "大获全胜！",
-  "sid": 38,
+  "text": "大获全胜。",
+  "voice": "baker",
   "speed": 1.0,
   "space": "court",
   "heard": [
@@ -282,14 +282,14 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 247,
-  "sec": 2.9,
-  "bytes": 29805
+  "shape": 0.5,
+  "f0": 314,
+  "sec": 2.45,
+  "bytes": 25245
  },
  "f-lose": {
-  "text": "胜败乃兵家常事！",
-  "sid": 38,
+  "text": "胜败乃兵家常事。",
+  "voice": "baker",
   "speed": 1.0,
   "space": "court",
   "heard": [
@@ -298,30 +298,30 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 260,
-  "sec": 3.6,
-  "bytes": 36765
+  "shape": 0.86,
+  "f0": 267,
+  "sec": 3.15,
+  "bytes": 32445
  },
  "f-draw": {
-  "text": "握手言和！",
-  "sid": 38,
+  "text": "握手言和。",
+  "voice": "baker",
   "speed": 1.0,
   "space": "court",
   "heard": [
    "握手言和",
-   "握手言和"
+   "握手言河"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 195,
-  "sec": 2.88,
-  "bytes": 29565
+  "shape": 0.75,
+  "f0": 225,
+  "sec": 2.57,
+  "bytes": 26445
  },
  "f-win-2": {
-  "text": "胜负已分！",
-  "sid": 38,
+  "text": "胜负已分。",
+  "voice": "baker",
   "speed": 1.0,
   "space": "court",
   "heard": [
@@ -330,14 +330,14 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 214,
-  "sec": 2.79,
-  "bytes": 28845
+  "shape": 1.0,
+  "f0": 304,
+  "sec": 2.52,
+  "bytes": 25965
  },
  "f-win-3": {
   "text": "痛快！再来！",
-  "sid": 38,
+  "voice": "baker",
   "speed": 1.0,
   "space": "court",
   "heard": [
@@ -346,14 +346,14 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
+  "shape": 0.75,
   "f0": 231,
-  "sec": 2.94,
-  "bytes": 30285
+  "sec": 2.65,
+  "bytes": 27405
  },
  "f-lose-2": {
   "text": "卷土重来，再战！",
-  "sid": 38,
+  "voice": "baker",
   "speed": 1.0,
   "space": "court",
   "heard": [
@@ -362,14 +362,14 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 212,
-  "sec": 3.45,
-  "bytes": 35325
+  "shape": 0.83,
+  "f0": 250,
+  "sec": 3.11,
+  "bytes": 31965
  },
  "f-lose-3": {
   "text": "这一盘，我记下了！",
-  "sid": 38,
+  "voice": "baker",
   "speed": 1.0,
   "space": "court",
   "heard": [
@@ -378,30 +378,30 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 222,
-  "sec": 3.4,
-  "bytes": 34845
+  "shape": 0.71,
+  "f0": 218,
+  "sec": 2.98,
+  "bytes": 30765
  },
  "f-draw-2": {
   "text": "平分秋色！",
-  "sid": 38,
+  "voice": "baker",
   "speed": 1.0,
   "space": "court",
   "heard": [
-   "平奋秋色",
+   "平分秋色",
    "平分秋色"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 6.0,
-  "f0": 244,
-  "sec": 2.94,
-  "bytes": 30285
+  "shape": 1.0,
+  "f0": 333,
+  "sec": 2.58,
+  "bytes": 26685
  },
  "f-draw-3": {
-  "text": "棋逢对手！",
-  "sid": 38,
+  "text": "棋逢对手。",
+  "voice": "baker",
   "speed": 1.0,
   "space": "court",
   "heard": [
@@ -410,303 +410,303 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 231,
-  "sec": 2.92,
-  "bytes": 30045
+  "shape": 0.75,
+  "f0": 279,
+  "sec": 2.55,
+  "bytes": 26445
  },
  "hero-guangong-1": {
   "text": "关某在此！鼠辈，谁敢与我一战！",
-  "sid": 63,
+  "voice": "zm_yunyang",
   "speed": 1.0,
   "space": "hall",
   "heard": [
-   "关某在此诸位谁敢与我一战",
-   "关某在此主辈谁敢与我一战"
+   "关某在此处被水赶与我一战",
+   "关某在此处被谁赶与我一战"
   ],
   "acc": 0.92,
   "tone": 0.92,
-  "range": 8.0,
-  "f0": 111,
-  "sec": 5.82,
-  "bytes": 59085
+  "shape": 0.75,
+  "f0": 123,
+  "sec": 4.38,
+  "bytes": 44685
  },
  "hero-guangong-2": {
   "text": "青龙偃月刀下，从无活口！",
-  "sid": 63,
-  "speed": 0.92,
+  "voice": "zm_yunyang",
+  "speed": 1.0,
   "space": "hall",
   "heard": [
-   "青龙偃月刀下曾无活口",
-   "青龙偃月刀下曾无河口"
+   "青龙偃月刀下从无活口",
+   "青龙偃月刀下从无火口"
   ],
-  "acc": 0.9,
-  "tone": 0.9,
-  "range": 7.9,
-  "f0": 107,
-  "sec": 5.76,
-  "bytes": 58605
+  "acc": 1.0,
+  "tone": 1.0,
+  "shape": 0.6,
+  "f0": 115,
+  "sec": 4.23,
+  "bytes": 43245
  },
  "hero-guangong-3": {
   "text": "过五关，斩六匠，岂惧你一盘棋！",
-  "sid": 63,
-  "speed": 1.0,
+  "voice": "zm_yunyang",
+  "speed": 0.92,
   "space": "hall",
   "heard": [
-   "过五关斩六将且据你一盘棋",
-   "过五关斩六将且聚你一盘棋"
+   "过五关斩六将起聚你一盘棋",
+   "过五观斩六将起聚你一盘棋"
   ],
-  "acc": 0.92,
-  "tone": 0.92,
-  "range": 8.0,
-  "f0": 107,
-  "sec": 6.04,
-  "bytes": 61245
+  "acc": 1.0,
+  "tone": 1.0,
+  "shape": 0.5,
+  "f0": 118,
+  "sec": 4.7,
+  "bytes": 47805
  },
  "hero-guangong-4": {
   "text": "吾观你，不过插标卖首之辈！",
-  "sid": 63,
+  "voice": "zm_yunyang",
   "speed": 1.0,
   "space": "hall",
   "heard": [
-   "无管你不过插镖卖手之辈",
-   "无管你不过插标卖手之辈"
+   "无关你不过插雕卖手之辈",
+   "无关你不过插掉卖手之辈"
   ],
-  "acc": 1.0,
+  "acc": 0.91,
   "tone": 0.91,
-  "range": 8.0,
-  "f0": 118,
-  "sec": 4.95,
-  "bytes": 50445
+  "shape": 0.55,
+  "f0": 129,
+  "sec": 4.32,
+  "bytes": 44205
  },
  "hero-guangong-5": {
   "text": "赤兔追风，取你帅首，易如反掌！",
-  "sid": 63,
-  "speed": 1.0,
+  "voice": "zm_yunyang",
+  "speed": 0.92,
   "space": "hall",
   "heard": [
-   "赤兔追风娶你率手易如反掌",
-   "赤兔追风娶你帅手易如凡掌"
+   "赤兔追风曲你率手易如反掌",
+   "赤兔追风曲你帅手一如反掌"
   ],
   "acc": 1.0,
-  "tone": 0.92,
-  "range": 8.0,
-  "f0": 113,
-  "sec": 5.86,
-  "bytes": 59565
+  "tone": 0.83,
+  "shape": 0.58,
+  "f0": 121,
+  "sec": 4.75,
+  "bytes": 48285
  },
  "hero-nezha-1": {
   "text": "哪吒在此！火尖枪下，片甲不留！",
-  "sid": 99,
-  "speed": 1.0,
+  "voice": "zm_yunxia",
+  "speed": 0.92,
   "space": "sky",
   "heard": [
-   "哪吒在此火尖枪下片甲不留",
-   "哪吒在此果肩枪下片甲不留"
+   "哪吒在此火间枪下片甲不留",
+   "哪吒在此火间敲下片甲不留"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 173,
-  "sec": 5.41,
-  "bytes": 55005
+  "shape": 0.83,
+  "f0": 308,
+  "sec": 4.7,
+  "bytes": 47805
  },
  "hero-nezha-2": {
   "text": "风火轮起，烧你个满盘皆空！",
-  "sid": 99,
+  "voice": "zm_yunxia",
   "speed": 1.0,
   "space": "sky",
   "heard": [
-   "烽火轮起烧你个满盘皆空",
-   "烽火抡起烧你个满盘皆空"
+   "风火轮起烧你各满盘皆空",
+   "风火轮起烧你各满盘皆空"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 152,
-  "sec": 4.8,
-  "bytes": 49005
+  "shape": 0.82,
+  "f0": 294,
+  "sec": 4.31,
+  "bytes": 43965
  },
  "hero-nezha-3": {
   "text": "小爷来也！谁敢接我三枪！",
-  "sid": 99,
+  "voice": "zm_yunxia",
   "speed": 1.0,
   "space": "sky",
   "heard": [
    "小爷来也谁敢接我三枪",
-   "小爷来也谁敢接我三枪"
+   "小爷来野谁敢接我三枪"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 160,
-  "sec": 4.88,
-  "bytes": 49725
+  "shape": 0.8,
+  "f0": 316,
+  "sec": 3.95,
+  "bytes": 40365
  },
  "hero-nezha-4": {
   "text": "乾坤圈出，管你是帅是匠，统统砸烂！",
-  "sid": 99,
+  "voice": "zm_yunxia",
   "speed": 1.0,
   "space": "sky",
   "heard": [
-   "乾坤圈楚管你是帅是将统统砸烂",
-   "乾坤全楚管你是帅世将统统砸烂"
+   "乾坤圈出管你是帅士将统统砸烂",
+   "乾坤圈出管你是帅事将统统砸烂"
   ],
   "acc": 1.0,
-  "tone": 0.86,
-  "range": 8.0,
-  "f0": 167,
-  "sec": 5.87,
-  "bytes": 59565
+  "tone": 0.93,
+  "shape": 0.64,
+  "f0": 316,
+  "sec": 5.05,
+  "bytes": 51405
  },
  "hero-nezha-5": {
   "text": "混天绫一卷，你的帅，跑不掉！",
-  "sid": 99,
+  "voice": "zm_yunxia",
   "speed": 1.0,
   "space": "sky",
   "heard": [
-   "混天灵一卷你的帅跑不掉",
-   "混天绫一卷你的帅跑不掉"
+   "混天灵一倦你的帅跑步调",
+   "混天绫一卷你的帅跑步调"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 161,
-  "sec": 5.0,
-  "bytes": 50925
+  "shape": 0.73,
+  "f0": 320,
+  "sec": 4.11,
+  "bytes": 42045
  },
  "hero-daoke-1": {
   "text": "刀已出鞘，不见血，不回鞘！",
-  "sid": 62,
+  "voice": "zm_yunjian",
   "speed": 1.0,
   "space": "valley",
   "heard": [
-   "刀已出鞘不见血不回鞘",
-   "刀已出鞘不见血不回鞘一"
+   "刀已出鞘不见血步回鞘",
+   "刀已出鞘不见血步回鞘"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 120,
-  "sec": 4.93,
-  "bytes": 50205
+  "shape": 0.7,
+  "f0": 128,
+  "sec": 4.57,
+  "bytes": 46605
  },
  "hero-daoke-2": {
   "text": "一人一刀，斩尽这一局！",
-  "sid": 62,
+  "voice": "zm_yunjian",
   "speed": 1.0,
   "space": "valley",
   "heard": [
-   "一人一刀斩紧这一局就",
-   "一人一道斩仅这一局一局"
+   "一人一刀斩尽这一阙",
+   "一人一刀斩尽这一句一"
   ],
   "acc": 0.89,
-  "tone": 1.0,
-  "range": 8.0,
-  "f0": 115,
-  "sec": 4.43,
-  "bytes": 45165
+  "tone": 0.89,
+  "shape": 0.56,
+  "f0": 121,
+  "sec": 4.18,
+  "bytes": 42765
  },
  "hero-daoke-3": {
   "text": "江湖路远，你的帅，今日留下！",
-  "sid": 62,
+  "voice": "zm_yunjian",
   "speed": 1.0,
   "space": "valley",
   "heard": [
-   "江湖路远你的帅今日留下",
-   "江湖路源你的帅今日留下"
+   "江湖路远你的率今日留下",
+   "江湖芦圆你的率今日留下"
   ],
-  "acc": 1.0,
-  "tone": 1.0,
-  "range": 8.0,
-  "f0": 115,
-  "sec": 5.2,
-  "bytes": 52845
+  "acc": 0.91,
+  "tone": 0.91,
+  "shape": 0.55,
+  "f0": 128,
+  "sec": 4.74,
+  "bytes": 48285
  },
  "hero-daoke-4": {
   "text": "我的刀，只问输赢，不问生死！",
-  "sid": 62,
-  "speed": 1.0,
+  "voice": "zm_yunjian",
+  "speed": 0.92,
   "space": "valley",
   "heard": [
-   "握的刀只问输赢不问生死",
+   "我的刀只问输赢不问生死",
    "我的刀只问输赢不问生死"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
+  "shape": 0.64,
   "f0": 119,
-  "sec": 5.09,
-  "bytes": 51885
+  "sec": 4.71,
+  "bytes": 48045
  },
  "hero-daoke-5": {
   "text": "落梓如刀，一步，便是一命！",
-  "sid": 62,
-  "speed": 1.0,
+  "voice": "zm_yunjian",
+  "speed": 0.92,
   "space": "valley",
   "heard": [
-   "落子如刀一步便是遗命",
-   "落子如刀一步便是一命一命"
+   "落子如刀一不变是一命",
+   "洛子如刀一不便是一面一面"
   ],
   "acc": 0.9,
   "tone": 0.8,
-  "range": 8.0,
-  "f0": 104,
-  "sec": 4.92,
-  "bytes": 50205
+  "shape": 0.5,
+  "f0": 115,
+  "sec": 4.47,
+  "bytes": 45645
  },
  "hero-shaoshuai-1": {
   "text": "三军听令！过河，斩匠，夺帅旗！",
-  "sid": 87,
-  "speed": 1.0,
+  "voice": "zm_yunxia",
+  "speed": 0.92,
   "space": "hall",
   "heard": [
-   "三军停令过河斩将夺帅旗",
-   "三军停领过河斩将夺帅旗"
+   "三军听令过河斩将夺帅旗",
+   "三军听令过河斩将夺帅旗"
   ],
   "acc": 1.0,
-  "tone": 0.82,
-  "range": 8.0,
-  "f0": 173,
-  "sec": 5.79,
-  "bytes": 58845
+  "tone": 0.91,
+  "shape": 0.91,
+  "f0": 300,
+  "sec": 4.94,
+  "bytes": 50205
  },
  "hero-shaoshuai-2": {
   "text": "擂鼓！列阵！今日踏平你的九宫！",
-  "sid": 87,
-  "speed": 1.0,
+  "voice": "zm_yunxia",
+  "speed": 0.92,
   "space": "hall",
   "heard": [
    "擂鼓列阵今日踏平你的九宫",
-   "擂鼓列阵今日踏平你的九宫"
+   "擂谷列阵今日踏平你的九宫"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 158,
-  "sec": 5.68,
-  "bytes": 57645
+  "shape": 0.67,
+  "f0": 277,
+  "sec": 4.79,
+  "bytes": 48765
  },
  "hero-shaoshuai-3": {
   "text": "居马炮齐出，一个不留！",
-  "sid": 87,
-  "speed": 1.0,
+  "voice": "zm_yunxia",
+  "speed": 0.92,
   "space": "hall",
   "heard": [
-   "军马炮齐出一个不留",
-   "军马炮齐出一个不留"
+   "局马炮齐出一个不留",
+   "局马炮骑出一个不留"
   ],
-  "acc": 0.89,
+  "acc": 1.0,
   "tone": 0.89,
-  "range": 8.0,
-  "f0": 154,
-  "sec": 5.3,
-  "bytes": 53805
+  "shape": 0.78,
+  "f0": 300,
+  "sec": 4.2,
+  "bytes": 42765
  },
  "hero-shaoshuai-4": {
   "text": "兵临城下，翔者免死！",
-  "sid": 87,
-  "speed": 1.0,
+  "voice": "zm_yunxia",
+  "speed": 0.92,
   "space": "hall",
   "heard": [
    "兵临城下降者免死",
@@ -714,14 +714,14 @@
   ],
   "acc": 0.88,
   "tone": 0.88,
-  "range": 8.0,
-  "f0": 157,
-  "sec": 4.45,
-  "bytes": 45405
+  "shape": 0.75,
+  "f0": 276,
+  "sec": 4.13,
+  "bytes": 42285
  },
  "hero-shaoshuai-5": {
   "text": "我的兵，只进不退！",
-  "sid": 87,
+  "voice": "zm_yunxia",
   "speed": 1.0,
   "space": "hall",
   "heard": [
@@ -730,46 +730,46 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 171,
-  "sec": 4.27,
-  "bytes": 43485
+  "shape": 0.86,
+  "f0": 300,
+  "sec": 3.82,
+  "bytes": 39165
  },
  "hero-hongzhuang-1": {
   "text": "步步为营，步步见血！你的帅，本姑娘要定了！",
-  "sid": 20,
+  "voice": "baker",
   "speed": 1.0,
   "space": "garden",
   "heard": [
-   "步步为营步步见血逆志率本姑娘要定了",
-   "步步为营步步见血逆志率本姑娘要定了"
+   "步步为营步步见血你的帅本姑娘要定了",
+   "步步为营步步见血你的帅本姑娘要定了"
   ],
-  "acc": 0.88,
-  "tone": 0.82,
-  "range": 8.0,
-  "f0": 261,
-  "sec": 5.48,
-  "bytes": 55725
+  "acc": 1.0,
+  "tone": 1.0,
+  "shape": 0.53,
+  "f0": 267,
+  "sec": 5.1,
+  "bytes": 51885
  },
  "hero-hongzhuang-2": {
   "text": "红妆上阵，不让须眉！接招！",
-  "sid": 20,
+  "voice": "baker",
   "speed": 1.0,
   "space": "garden",
   "heard": [
-   "工装上阵不让须眉接招",
-   "工装上阵不让须眉接招"
+   "红装上阵不让须眉接招",
+   "红装上阵不让须眉接招"
   ],
-  "acc": 0.9,
-  "tone": 0.9,
-  "range": 8.0,
+  "acc": 1.0,
+  "tone": 1.0,
+  "shape": 0.7,
   "f0": 286,
-  "sec": 4.13,
-  "bytes": 42045
+  "sec": 3.83,
+  "bytes": 39165
  },
  "hero-hongzhuang-3": {
   "text": "别眨眼！我红妆出手，绝不留情！",
-  "sid": 20,
+  "voice": "baker",
   "speed": 1.0,
   "space": "garden",
   "heard": [
@@ -778,15 +778,15 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 240,
-  "sec": 4.77,
-  "bytes": 48525
+  "shape": 0.92,
+  "f0": 270,
+  "sec": 4.18,
+  "bytes": 42765
  },
  "hero-hongzhuang-4": {
   "text": "哭也没用，这一盘，你输定了！",
-  "sid": 20,
-  "speed": 1.0,
+  "voice": "baker",
+  "speed": 0.92,
   "space": "garden",
   "heard": [
    "哭也没用这一盘你输定了",
@@ -794,14 +794,14 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 264,
-  "sec": 4.43,
-  "bytes": 45165
+  "shape": 0.64,
+  "f0": 261,
+  "sec": 4.07,
+  "bytes": 41565
  },
  "hero-hongzhuang-5": {
   "text": "胭脂是红的，血也是红的！",
-  "sid": 20,
+  "voice": "baker",
   "speed": 1.0,
   "space": "garden",
   "heard": [
@@ -810,30 +810,30 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 261,
-  "sec": 4.25,
-  "bytes": 43245
+  "shape": 0.7,
+  "f0": 258,
+  "sec": 3.5,
+  "bytes": 35805
  },
  "hero-ziyi-1": {
   "text": "炮已架好！隔山，也取你帅首！",
-  "sid": 57,
+  "voice": "baker",
   "speed": 1.0,
   "space": "night",
   "heard": [
-   "后以嫁好隔山也娶你帅手",
-   "炮已嫁好格山也娶你帅手"
+   "抛椅架好隔山也许你帅手",
+   "炮椅架好隔山也娶你帅手"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 7.4,
-  "f0": 195,
-  "sec": 5.62,
-  "bytes": 57165
+  "shape": 0.55,
+  "f0": 262,
+  "sec": 4.91,
+  "bytes": 49965
  },
  "hero-ziyi-2": {
   "text": "一炮定乾坤，你躲不过！",
-  "sid": 57,
+  "voice": "baker",
   "speed": 1.0,
   "space": "night",
   "heard": [
@@ -842,31 +842,31 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 7.9,
-  "f0": 188,
-  "sec": 5.08,
-  "bytes": 51645
+  "shape": 0.78,
+  "f0": 259,
+  "sec": 4.16,
+  "bytes": 42525
  },
  "hero-ziyi-3": {
   "text": "炮声一响，寸草不生！",
-  "sid": 57,
-  "speed": 0.92,
+  "voice": "baker",
+  "speed": 1.0,
   "space": "night",
   "heard": [
-   "好生以想寸草不生",
-   "炮声一响寸草不生"
+   "炮声音响寸草不生",
+   "好声一响寸草不生"
   ],
-  "acc": 1.0,
-  "tone": 1.0,
-  "range": 7.9,
-  "f0": 195,
-  "sec": 4.55,
-  "bytes": 46365
+  "acc": 0.88,
+  "tone": 0.88,
+  "shape": 0.5,
+  "f0": 267,
+  "sec": 4.05,
+  "bytes": 41325
  },
  "hero-ziyi-4": {
   "text": "隔梓打梓，专打你的心窝！",
-  "sid": 57,
-  "speed": 0.92,
+  "voice": "baker",
+  "speed": 1.0,
   "space": "night",
   "heard": [
    "格子打子专打你的心窝",
@@ -874,14 +874,14 @@
   ],
   "acc": 1.0,
   "tone": 0.8,
-  "range": 8.0,
-  "f0": 185,
-  "sec": 4.98,
-  "bytes": 50685
+  "shape": 1.0,
+  "f0": 255,
+  "sec": 4.18,
+  "bytes": 42765
  },
  "hero-ziyi-5": {
   "text": "点火！送你的帅，上路！",
-  "sid": 57,
+  "voice": "baker",
   "speed": 1.0,
   "space": "night",
   "heard": [
@@ -890,47 +890,47 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 8.0,
-  "f0": 185,
-  "sec": 4.72,
-  "bytes": 48045
+  "shape": 0.75,
+  "f0": 245,
+  "sec": 4.2,
+  "bytes": 43005
  },
  "hero-xuanyi-1": {
   "text": "落梓无悔！这一局，我要你满盘皆输！",
-  "sid": 72,
-  "speed": 0.92,
+  "voice": "zm_yunjian",
+  "speed": 1.0,
   "space": "night",
   "heard": [
-   "落子无悔这一局我要你满盘皆输",
-   "落子无悔这一局我要你满盘皆输"
+   "若此无悔这一局我要你满盘皆输",
+   "落子无悔这一局我要你满盘皆束"
   ],
   "acc": 0.93,
   "tone": 0.86,
-  "range": 6.7,
-  "f0": 110,
-  "sec": 6.15,
-  "bytes": 62445
+  "shape": 0.57,
+  "f0": 119,
+  "sec": 4.62,
+  "bytes": 47085
  },
  "hero-xuanyi-2": {
   "text": "一梓洛下，生死已定！",
-  "sid": 72,
-  "speed": 1.12,
+  "voice": "zm_yunjian",
+  "speed": 0.92,
   "space": "night",
   "heard": [
    "一子落下生死已定",
-   "一子落下争死已定"
+   "伊子洛下生死一殿"
   ],
   "acc": 0.88,
   "tone": 0.75,
-  "range": 6.7,
-  "f0": 111,
-  "sec": 3.95,
-  "bytes": 40365
+  "shape": 0.5,
+  "f0": 118,
+  "sec": 3.6,
+  "bytes": 36765
  },
  "hero-xuanyi-3": {
   "text": "你走的每一步，都在我算中！",
-  "sid": 72,
-  "speed": 0.92,
+  "voice": "zm_yunjian",
+  "speed": 1.0,
   "space": "night",
   "heard": [
    "你走的每一步都在我算中",
@@ -938,30 +938,30 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 5.9,
-  "f0": 106,
-  "sec": 5.64,
-  "bytes": 57165
+  "shape": 0.64,
+  "f0": 119,
+  "sec": 4.07,
+  "bytes": 41565
  },
  "hero-xuanyi-4": {
   "text": "黑云压城，这一局，没有活路！",
-  "sid": 72,
+  "voice": "zm_yunjian",
   "speed": 1.0,
   "space": "night",
   "heard": [
-   "悲云压成这一局没有佛路",
-   "飞云压成这一局没有活路"
+   "黑云压城这一局没有活路",
+   "黑云压城这一局没有活络"
   ],
-  "acc": 0.91,
-  "tone": 0.91,
-  "range": 7.0,
-  "f0": 112,
-  "sec": 5.17,
-  "bytes": 52605
+  "acc": 1.0,
+  "tone": 1.0,
+  "shape": 0.64,
+  "f0": 117,
+  "sec": 4.07,
+  "bytes": 41565
  },
  "hero-xuanyi-5": {
   "text": "算你十步，杀你一步！",
-  "sid": 72,
+  "voice": "zm_yunjian",
   "speed": 1.0,
   "space": "night",
   "heard": [
@@ -970,62 +970,62 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 5.0,
-  "f0": 111,
-  "sec": 4.09,
-  "bytes": 41805
+  "shape": 0.25,
+  "f0": 114,
+  "sec": 3.6,
+  "bytes": 37005
  },
  "hero-suyi-1": {
   "text": "莫看我笑！取你性命，只需一手！",
-  "sid": 45,
+  "voice": "baker",
   "speed": 0.92,
   "space": "forest",
   "heard": [
-   "莫看我笑取你性命只需一首",
-   "莫看我笑取你性命只需一手"
+   "莫看我笑屈你性命只虚手",
+   "莫看我笑取你性命只虚手"
   ],
-  "acc": 1.0,
-  "tone": 1.0,
-  "range": 7.4,
-  "f0": 247,
-  "sec": 6.54,
-  "bytes": 66285
+  "acc": 0.92,
+  "tone": 0.83,
+  "shape": 0.5,
+  "f0": 286,
+  "sec": 5.4,
+  "bytes": 55005
  },
  "hero-suyi-2": {
   "text": "花开一季，你的帅，撑不过一盘！",
-  "sid": 45,
-  "speed": 0.92,
+  "voice": "baker",
+  "speed": 1.0,
   "space": "forest",
   "heard": [
-   "花开一季你的帅称不过衣盘",
+   "花开一季你的帅撑不过一盘",
    "花开一季你的帅撑不过一盘"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 7.7,
-  "f0": 220,
-  "sec": 6.55,
-  "bytes": 66285
+  "shape": 0.58,
+  "f0": 284,
+  "sec": 4.89,
+  "bytes": 49725
  },
  "hero-suyi-3": {
   "text": "别怕，很快就结束了！",
-  "sid": 45,
+  "voice": "baker",
   "speed": 1.0,
   "space": "forest",
   "heard": [
    "别怕很快就结束了",
-   "别怕很快就结束了"
+   "别怕很快就结束了束了"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 6.9,
-  "f0": 219,
-  "sec": 4.47,
-  "bytes": 45645
+  "shape": 0.62,
+  "f0": 238,
+  "sec": 4.04,
+  "bytes": 41325
  },
  "hero-suyi-4": {
   "text": "我笑一次，就有人输一次！",
-  "sid": 45,
+  "voice": "baker",
   "speed": 1.0,
   "space": "forest",
   "heard": [
@@ -1034,14 +1034,14 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 7.9,
-  "f0": 226,
-  "sec": 4.59,
-  "bytes": 46845
+  "shape": 0.7,
+  "f0": 245,
+  "sec": 4.27,
+  "bytes": 43725
  },
  "hero-suyi-5": {
   "text": "梨花落尽，胜负已分！",
-  "sid": 45,
+  "voice": "baker",
   "speed": 1.0,
   "space": "forest",
   "heard": [
@@ -1050,89 +1050,89 @@
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 6.4,
-  "f0": 233,
-  "sec": 4.41,
-  "bytes": 44925
+  "shape": 0.88,
+  "f0": 270,
+  "sec": 4.22,
+  "bytes": 43005
  },
  "hero-moke-1": {
   "text": "行云流水，杀人不见血。请落梓！",
-  "sid": 93,
-  "speed": 0.92,
+  "voice": "zm_yunyang",
+  "speed": 1.0,
   "space": "forest",
   "heard": [
-   "行云流水杀人不见血请落子",
-   "行云流水杀人不见血请落子"
+   "行云流水杀人不见血晴落子",
+   "行云流水杀人顾见血请落此"
   ],
   "acc": 0.92,
   "tone": 0.83,
-  "range": 7.8,
-  "f0": 128,
-  "sec": 7.03,
-  "bytes": 71325
+  "shape": 0.42,
+  "f0": 133,
+  "sec": 4.14,
+  "bytes": 42285
  },
  "hero-moke-2": {
   "text": "一笔一画，皆是杀机！",
-  "sid": 93,
-  "speed": 0.92,
+  "voice": "zm_yunyang",
+  "speed": 1.0,
   "space": "forest",
   "heard": [
-   "一笔一画皆是杀机",
-   "一比一画揭是杀机"
+   "一比一化解是杀机",
+   "一比一化接是杀机"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 5.8,
-  "f0": 134,
-  "sec": 4.81,
-  "bytes": 49005
+  "shape": 0.38,
+  "f0": 118,
+  "sec": 3.53,
+  "bytes": 36045
  },
  "hero-moke-3": {
   "text": "胜负？我早已写好了！",
-  "sid": 93,
-  "speed": 0.92,
+  "voice": "zm_yunyang",
+  "speed": 1.0,
   "space": "forest",
   "heard": [
-   "胜负我早已写好了",
+   "胜负我早已经好了呃",
    "胜负我早已写好了"
   ],
   "acc": 1.0,
   "tone": 1.0,
-  "range": 6.4,
-  "f0": 131,
-  "sec": 5.15,
-  "bytes": 52365
+  "shape": 0.88,
+  "f0": 118,
+  "sec": 3.57,
+  "bytes": 36525
  },
  "hero-moke-4": {
   "text": "墨未甘，你已败！",
-  "sid": 93,
+  "voice": "zm_yunyang",
   "speed": 1.0,
   "space": "forest",
   "heard": [
-   "莫未干你已败",
-   "莫未干你已败"
+   "莫未干泥一拜",
+   "莫未甘你已败"
   ],
   "acc": 1.0,
-  "tone": 0.83,
-  "range": 5.2,
+  "tone": 1.0,
+  "shape": 0.67,
   "f0": 132,
-  "sec": 4.06,
-  "bytes": 41565
+  "sec": 3.14,
+  "bytes": 32205
  },
  "hero-moke-5": {
   "text": "风雪千里，只为斩你一局！",
-  "sid": 93,
-  "speed": 0.92,
+  "voice": "zm_yunyang",
+  "speed": 1.0,
   "space": "forest",
   "heard": [
-   "风雪千里只为缠你一局",
-   "风雪千里只为缠你一局"
+   "风雪千里只为斩你一局",
+   "风雪千里只为斩你一局"
   ],
-  "acc": 0.9,
-  "tone": 0.9,
-  "range": 7.3,
-  "f0": 138,
-  "sec": 5.55,
-  "bytes": 56445
+  "acc": 1.0,
+  "tone": 1.0,
+  "shape": 0.7,
+  "f0": 129,
+  "sec": 3.86,
+  "bytes": 39405
  }
 }

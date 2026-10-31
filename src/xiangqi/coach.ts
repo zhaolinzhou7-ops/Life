@@ -32,6 +32,7 @@ import {
   allDueSoon,
   srsCount,
   pruneSrs,
+  retireOwnPuzzles,
   lossProfile,
   recentAccuracy,
   daysSinceQuiz,
@@ -60,6 +61,7 @@ import {
 } from './save';
 import { Assessment, diagnose, type AssessResult } from './assess';
 import { loadPuzzles, pickNear, byId, ratingRange, freshCount, combos, type Puzzle, type PuzzleKind } from './puzzles';
+import { unfit } from './balance';
 import { runPuzzle } from './train';
 import { loadLibrary, matesByName, endgamesByName, type EndgamePos } from './library';
 import { runPlayout } from './playout';
@@ -221,8 +223,10 @@ export function runCoach(
     if (pruned) return;
     pruned = true;
     void loadPuzzles().then(() => {
+      // 实战抓的题里以前存下的大劣、对等没下头的（balance.ts），连卡一起删；
       // 真的清掉了才重画首页——没清掉就重画会白闪一下
-      if (pruneSrs((id) => !!byId(id)) > 0 && wrap.querySelector('.xq-hub')) showHome();
+      const gone = retireOwnPuzzles((p) => !!unfit(p)) + pruneSrs((id) => !!byId(id));
+      if (gone > 0 && wrap.querySelector('.xq-hub')) showHome();
     });
   }
 

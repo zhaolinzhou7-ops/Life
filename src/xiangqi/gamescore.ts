@@ -18,6 +18,7 @@ import { headlineOf, isWon, reviewMove, summarize, tagCounts, type GameReview, t
 import { setGameReview } from './archive';
 import { toFen } from './notation';
 import { addOwnPuzzle, recordGame } from './save';
+import { unfit } from './balance';
 import { localDay } from './daytasks';
 
 /** 自家引擎复盘的深度（专业引擎起不来时用） */
@@ -165,10 +166,16 @@ export class GameAnalysis {
       // 走完这一手还是赢定了（大优或者有杀）：这是"赢棋里少赢一点"，不是错着——不收进专属课
       // （用户原话："还是存在必胜残局在找最佳步数"）
       if (isWon({ score: m.playedScore, mateIn: m.playedMate })) return;
+      // 只剩一两个子还差对方一个车（没法下）、车对车马对马的和棋（没下头）：也不收（balance.ts）
+      const fen = toFen(this.boards[i], m.color);
+      if (unfit({ fen, line: m.bestPv ?? [m.bestText], ev: m.bestScore, mateIn: m.bestMate })) return;
       const ok = addOwnPuzzle({
         // 用复盘归因出来的维度：开局吃亏和残局走软是两回事
         kind: m.dim,
-        fen: toFen(this.boards[i], m.color),
+        fen,
+        // 最好那手的分：以后判"对等没下头"要看是不是和棋（balance.ts）
+        ev: m.bestScore,
+        mateIn: m.bestMate,
         answer: m.bestText,
         line: m.bestPv ?? [m.bestText],
         // 难度按亏损给：丢得越多说明越该一眼看出来，题反而越"简单"

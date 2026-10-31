@@ -389,6 +389,8 @@ export interface MusicInfo {
  * 开一盘的配乐：id 不给就随机挑一种乐队（不和上一盘重复）。从"开局 · 静"起。
  */
 export function startXqMusic(id?: string): MusicInfo | null {
+  // 对局（重新）开的配乐归对局管：残局、复盘还掉借的那一份时不停它（holdXqMusic 自己开的再标回去）
+  heldStart = false;
   let last: string | null = null;
   try {
     last = localStorage.getItem(LAST_KEY);
@@ -423,6 +425,8 @@ export function startXqMusic(id?: string): MusicInfo | null {
     },
   };
   startSong(song);
+  // 正在放哪一种乐队（测试看：残局、复盘有没有配乐）
+  if (typeof document !== 'undefined') document.documentElement.dataset.xqBgm = palette.id;
   return { palette, key: score.key, bpm: score.bpm };
 }
 
@@ -473,11 +477,49 @@ export function xqMusicDuck(depth = 0.45, hold = 1) {
 }
 
 export function stopXqMusic() {
+  clearTimeout(releaseTimer);
+  holds = 0;
+  heldStart = false;
   stopBgm();
   retireLive();
   score = null;
   cur = null;
   song = null;
+  if (typeof document !== 'undefined') delete document.documentElement.dataset.xqBgm;
+}
+
+// ───────────────────────── 残局、复盘也放配乐 ─────────────────────────
+
+/** 借着配乐的地方有几处（残局题一道接一道、下到底那一段套在残局题里面……） */
+let holds = 0;
+/** 配乐是借的人开起来的（不是对局开的）：最后一份还掉才停 */
+let heldStart = false;
+let releaseTimer = 0;
+
+/**
+ * 不是对局的地方也放配乐：残局（残局题、实用残局下到底）、复盘。
+ * 用户原话："在做残局和做复盘的时候，音乐也可以默认打开。"
+ * 进去借一份、出来还一份（回的函数）；最后一份还掉、一秒半之内没人再借才停——残局题做完一道接着下一道，配乐不断。
+ * 已经在放（刚下完那盘的配乐，接着复盘）就接着放，不换曲子，只换情绪。静音、配乐音量拉到 0 照常管用（总线上管）。
+ */
+export function holdXqMusic(mood: Mood, intensity = 0.3): () => void {
+  clearTimeout(releaseTimer);
+  holds++;
+  if (!score) {
+    startXqMusic();
+    heldStart = true;
+  }
+  target = { mood, intensity };
+  let returned = false;
+  return () => {
+    if (returned) return;
+    returned = true;
+    holds = Math.max(0, holds - 1);
+    if (holds > 0 || !heldStart) return;
+    releaseTimer = window.setTimeout(() => {
+      if (holds === 0 && heldStart) stopXqMusic();
+    }, 1500);
+  };
 }
 
 // ───────────────────────── 音色 ─────────────────────────

@@ -32,6 +32,7 @@ import { holds, holdsOk } from './holds';
 import { retireOwnPuzzle } from './save';
 import { bareMinors, noAttackers } from './endings';
 import { minorsDead } from './minors';
+import { holdXqMusic } from '../xqmusic';
 
 export interface PuzzleResult {
   correct: boolean;
@@ -121,6 +122,8 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
     setTimeout(() => opts.onDone({ correct: false, usedHint: false }), 600);
     return () => wrap.remove();
   }
+  // 残局题放配乐（一道接一道不断，见 holdXqMusic）。用户原话："在做残局和做复盘的时候，音乐也可以默认打开"
+  const releaseMusic = puzzle.kind === 'endgame' ? holdXqMusic('endgame', 0.3) : () => {};
 
   const start: Board = parsed.board;
   const me: Color = parsed.toMove;
@@ -811,6 +814,7 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
   }
 
   return () => {
+    releaseMusic();
     token++;
     clearInterval(timer);
     disposePlayout?.();

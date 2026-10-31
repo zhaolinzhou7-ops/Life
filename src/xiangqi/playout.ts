@@ -37,6 +37,7 @@ function within(p: Promise<boolean>, ms: number): Promise<boolean> {
 import { classifyEndgame, drillVerdict, type DrillVerdict } from './endgame';
 import { outlookOf, planHtml, planOf } from './plan';
 import { moveAccuracy, winPct } from './analysis';
+import { holdXqMusic } from '../xqmusic';
 
 export type PlayResult = 'win' | 'draw' | 'loss';
 
@@ -106,6 +107,8 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
   let board: Board = parsed.board;
   let turn: Color = parsed.toMove;
   const me = opts.you;
+  // 下残局也放配乐，残局那种情绪（用户原话："在做残局和做复盘的时候，音乐也可以默认打开"）
+  const releaseMusic = holdXqMusic('endgame', 0.35);
   const foe: Color = me === 'r' ? 'b' : 'r';
   const startFen = toFen(parsed.board, parsed.toMove);
   const info = classifyEndgame(board, me);
@@ -731,6 +734,7 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
   else ensureStudy();
 
   return () => {
+    releaseMusic();
     over = true;
     seq++;
     dropStudy();

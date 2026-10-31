@@ -23,10 +23,22 @@
   5. 压成立体声 MP3，放进 src/xiangqi/voice/；
   6. 听不见声音，就让机器听：两个开源普通话识别（paraformer、SenseVoice）任一个听出的拼音对得上才收（按成品听）。
 
+又一轮，用户原话："声音感觉不像真正的中国人说普通话，像外国人说中国话一样，比如'开局'、'吃车'、'将军'这些发音都不太对。"
+——是上一轮换的 Kokoro v1.1 带来的：量了它全部 46 个男声，念"将军"第二个字都往下掉（一声该是平的），
+v1.0 的云健、云扬念得平；用中国播音员录音训练的标贝（Matcha）也平。上一轮还把抑扬放大了一成、专挑起伏最大的念法、
+在字中间加停顿（"吃，居""绝，杀"），都会把声调带歪。现在：
+  - 男声回到 Kokoro v1.0 的云健（喊声）、云扬、云夏（人物）——前几轮用的就是它们，没人说过像外国人；
+    云希这次量出来"将军"也往下掉，不用；
+  - 女声换成标贝：sherpa-onnx 的 matcha-icefall-zh-baker（标贝中文标准女声音库训练，中国专业播音员录的）；
+  - 不再动抑扬（只按人物整体抬或压一两个半音，声调形状不变）、不在字中间加停顿、"将军"照常写；
+  - 每句几种语速里挑：机器听得准的里面，声调形状对得多的（tone_shape：按字切开看音高走向——一声平、二声升、三声低、四声降）；
+  - 处理链（干净的人声 + 立体声空间）照旧。
+
 准备（一次）：
   python3 -m venv venv && ./venv/bin/pip install kokoro-onnx "misaki[zh]" soundfile scipy sherpa-onnx praat-parselmouth pypinyin jieba
-  嗓子：github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2（解压到模型目录）
-  （报着法 gen-announce.py 还用 v1.0：github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/{kokoro-v1.0.onnx,voices-v1.0.bin}）
+  男声（报着法 gen-announce.py 也用）：github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/{kokoro-v1.0.onnx,voices-v1.0.bin}
+  女声：github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-baker.tar.bz2（解压到模型目录），
+        声码器 github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos-22khz-univ.onnx（放在模型目录）
   识别：github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/ 下的
         sherpa-onnx-paraformer-zh-2023-09-14、sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17（解压到模型目录）
 运行：
@@ -49,41 +61,37 @@ OUT = os.path.join(os.path.dirname(__file__), '..', 'src', 'xiangqi', 'voice')
 os.makedirs(OUT, exist_ok=True)
 SR = 24000
 
-# 对局里的喊声：男声、女声各一套。每一句列几种念法（念的字、语速），都试一遍。
+# 对局里的喊声：男声、女声各一套。每一句列几种语速，都试一遍。
 # 只喊关键的几步（用户原话："不是每一步都要说话，就是关键的那几步，比如说吃车、将军、绝杀……开局也不用说开局"）。
-# 念的字和屏幕上写的只差同音字：车念 jū，送进去的是"吃居"；
-# 词典里"将军"的"军"是轻声（jiāng·jun），喊出来就软了——送进去的是"将君"（两个字都是一声）
+# 念的字和屏幕上写的只差同音字：车念 jū，送进去的是"吃居"。别的照常写（上一轮的"将君""吃，居"这类改字、加停顿都去掉了）
 SHOUTS = {
-    # 女声 38 号喊完常带一个"啊"的尾音（识别器听成多了一个字），念快一点就干净
-    'jiangjun': [('将君！', 1.05), ('将君！', 0.95), ('将，君！', 1.0), ('将君！', 1.15), ('将，君！', 0.9), ('将君！', 1.1), ('将军！', 1.0)],
-    'jiesha': [('绝杀！', 1.05), ('绝杀！', 0.95), ('绝，杀！', 1.0)],
-    'kunbi': [('困毙！', 1.05), ('困毙！', 0.95), ('困，毙！', 1.0), ('困毙！', 1.15), ('困，毙！', 0.9)],
-    'chiche': [('吃居！', 1.05), ('吃居！', 0.95), ('吃，居！', 1.0)],
+    'jiangjun': [('将军！', 1.0), ('将军！', 1.08), ('将军！', 0.94)],
+    'jiesha': [('绝杀！', 1.0), ('绝杀！', 1.08), ('绝杀！', 0.94)],
+    'kunbi': [('困毙！', 1.0), ('困毙！', 1.08), ('困毙！', 0.94)],
+    'chiche': [('吃居！', 1.0), ('吃居！', 1.08), ('吃居！', 0.94)],
     # 终局：赢了、输了、和了，说一句有江湖气的话（输了宽慰一句，"胜败乃兵家常事"）
-    'win': [('大获全胜！', 1.0), ('大获全胜！', 0.92)],
-    'lose': [('胜败乃兵家常事！', 1.0), ('胜败乃兵家常事。', 0.92)],
-    'draw': [('握手言和！', 1.0), ('握手言和。', 0.92)],
+    'win': [('大获全胜！', 1.0), ('大获全胜！', 0.94)],
+    'lose': [('胜败乃兵家常事！', 1.0), ('胜败乃兵家常事！', 0.94)],
+    'draw': [('握手言和！', 1.0), ('握手言和！', 0.94)],
     # 终局每样再多两句，结果页随机挑一句（xqvoice 按"-2""-3"找）
-    'win-2': [('胜负已分！', 1.0), ('胜负已分！', 0.92)],
-    'win-3': [('痛快！再来！', 1.0), ('痛快！再来！', 0.92)],
-    'lose-2': [('卷土重来，再战！', 1.0), ('卷土重来，再战！', 0.92)],
-    'lose-3': [('这一盘，我记下了！', 1.0), ('这一盘，我记下了。', 0.92)],
-    'draw-2': [('平分秋色！', 1.0), ('平分秋色。', 0.92)],
-    'draw-3': [('棋逢对手！', 1.0), ('棋逢对手！', 0.92)],
+    'win-2': [('胜负已分！', 1.0), ('胜负已分！', 0.94)],
+    'win-3': [('痛快！再来！', 1.0), ('痛快！再来！', 0.94)],
+    'lose-2': [('卷土重来，再战！', 1.0), ('卷土重来，再战！', 0.94)],
+    'lose-3': [('这一盘，我记下了！', 1.0), ('这一盘，我记下了！', 0.94)],
+    'draw-2': [('平分秋色！', 1.0), ('平分秋色！', 0.94)],
+    'draw-3': [('棋逢对手！', 1.0), ('棋逢对手！', 0.94)],
 }
 
-# 嗓子（Kokoro v1.1 的说话人编号）：头一个是主嗓子，一整套喊声都用它（同一个人喊）；它哪一句怎么念机器都听不对，才换后面的。
-# 怎么挑的：一百零三个嗓子各念四句（将军、绝杀、关公一句、红妆一句），按基频分男女，
-# 两个识别器都听得准的里面，抑扬（基频起伏几个半音）、力度起伏（有声段响度的起落）最大的。
-# 男 59：起伏 16.9 半音、力度 16.5 dB，"将军"念得短促有力；女 38：起伏 12.9 半音、力度 18.2 dB，"将——军"拉得开。
-# 人物按基频配：关公最沉（63，102Hz），哪吒少年（99，163Hz），少帅点兵力度最大（87），墨客念得慢（93）……
-CAST = {'m': [59, 84, 87], 'f': [38, 57, 45]}
+# 嗓子：'baker' 是标贝女声，别的是 Kokoro v1.0 的嗓子名。头一个是主嗓子，一整套喊声都用它（同一个人喊）；
+# 它哪一句怎么念机器都听不对，才换后面的
+CAST = {'m': ['zm_yunjian', 'zm_yunyang'], 'f': ['baker', 'zf_xiaoyi']}
 
 # 人声怎么修（都是轻的）：body 胸腔那一段（160Hz）加几 dB、mud 380Hz 收几 dB、pres / pres_f 字头往前提几 dB、在哪、
-# air 9k 以上的空气、sat 并联饱和混多少（添一点谐波，听着"实"，不是失真）、rng 抑扬放大几倍（1 不动）
+# air 9k 以上的空气、sat 并联饱和混多少（添一点谐波，听着"实"，不是失真）、
+# semis 整句抬（压）几个半音（人物之间听得出不同；只挪高低，声调的形状不动——不再放大抑扬）
 TONE = {
-    'm': dict(body=2.0, mud=-2.0, pres=2.5, pres_f=2800, air=1.5, sat=0.22, rng=1.12),
-    'f': dict(body=0.5, mud=-1.5, pres=2.0, pres_f=3400, air=2.0, sat=0.15, rng=1.1),
+    'm': dict(body=2.0, mud=-2.0, pres=2.5, pres_f=2800, air=1.5, sat=0.22, semis=0.0),
+    'f': dict(body=0.5, mud=-1.5, pres=2.0, pres_f=3400, air=2.0, sat=0.15, semis=0.0),
 }
 
 # 空间：rv 混响尾多长（秒）、pre 预延迟（人声先到，混响晚一点才来——人声清楚、空间又大）、wet 混响多响、
@@ -105,35 +113,37 @@ SPACES = {
 # 用户原话："要有杀气，女的呢也要有特色……真正的是征战杀伐的那种感觉"；"出场动画和人物台词再多一些，随机台词"
 HEROES = {
     # 关公：最沉最稳，大殿
-    'guangong': ('m', [63, 100], ['关某在此！鼠辈，谁敢与我一战！', '青龙偃月刀下，从无活口！', '过五关，斩六匠，岂惧你一盘棋！', '吾观你，不过插标卖首之辈！', '赤兔追风，取你帅首，易如反掌！'],
-                 dict(body=3.0), 'hall'),
+    'guangong': ('m', ['zm_yunyang', 'zm_yunjian'], ['关某在此！鼠辈，谁敢与我一战！', '青龙偃月刀下，从无活口！', '过五关，斩六匠，岂惧你一盘棋！', '吾观你，不过插标卖首之辈！', '赤兔追风，取你帅首，易如反掌！'],
+                 dict(body=3.0, semis=-1.0), 'hall'),
     # 哪吒：少年音，亮、冲，天上
-    'nezha': ('m', [99, 13], ['哪吒在此！火尖枪下，片甲不留！', '风火轮起，烧你个满盘皆空！', '小爷来也！谁敢接我三枪！', '乾坤圈出，管你是帅是匠，统统砸烂！', '混天绫一卷，你的帅，跑不掉！'],
-              dict(body=1.0, air=2.5), 'sky'),
+    'nezha': ('m', ['zm_yunxia', 'zm_yunyang'], ['哪吒在此！火尖枪下，片甲不留！', '风火轮起，烧你个满盘皆空！', '小爷来也！谁敢接我三枪！', '乾坤圈出，管你是帅是匠，统统砸烂！', '混天绫一卷，你的帅，跑不掉！'],
+              dict(body=1.0, air=2.5, semis=1.0), 'sky'),
     # 刀客：一人一刀，山谷回声
-    'daoke': ('m', [62, 64], ['刀已出鞘，不见血，不回鞘！', '一人一刀，斩尽这一局！', '江湖路远，你的帅，今日留下！', '我的刀，只问输赢，不问生死！', '落梓如刀，一步，便是一命！'],
+    'daoke': ('m', ['zm_yunjian', 'zm_yunyang'], ['刀已出鞘，不见血，不回鞘！', '一人一刀，斩尽这一局！', '江湖路远，你的帅，今日留下！', '我的刀，只问输赢，不问生死！', '落梓如刀，一步，便是一命！'],
               dict(body=2.5, sat=0.3), 'valley'),
     # 少帅：点兵，大殿
-    'shaoshuai': ('m', [87, 69], ['三军听令！过河，斩匠，夺帅旗！', '擂鼓！列阵！今日踏平你的九宫！', '居马炮齐出，一个不留！', '兵临城下，翔者免死！', '我的兵，只进不退！'],
-                  dict(body=2.0, pres=3.0), 'hall'),
+    'shaoshuai': ('m', ['zm_yunxia', 'zm_yunjian'], ['三军听令！过河，斩匠，夺帅旗！', '擂鼓！列阵！今日踏平你的九宫！', '居马炮齐出，一个不留！', '兵临城下，翔者免死！', '我的兵，只进不退！'],
+                  dict(body=2.0, pres=3.0, semis=-0.5), 'hall'),
     # 红妆：脆、辣，带着笑，院子
-    'hongzhuang': ('f', [20, 47], ['步步为营，步步见血！你的帅，本姑娘要定了！', '红妆上阵，不让须眉！接招！', '别眨眼！我红妆出手，绝不留情！', '哭也没用，这一盘，你输定了！', '胭脂是红的，血也是红的！'],
-                   dict(pres=2.5), 'garden'),
+    'hongzhuang': ('f', ['baker', 'zf_xiaoyi'], ['步步为营，步步见血！你的帅，本姑娘要定了！', '红妆上阵，不让须眉！接招！', '别眨眼！我红妆出手，绝不留情！', '哭也没用，这一盘，你输定了！', '胭脂是红的，血也是红的！'],
+                   dict(pres=2.5, semis=1.0), 'garden'),
     # 紫衣：冷，像炮口，夜里
-    'ziyi': ('f', [57, 9], ['炮已架好！隔山，也取你帅首！', '一炮定乾坤，你躲不过！', '炮声一响，寸草不生！', '隔梓打梓，专打你的心窝！', '点火！送你的帅，上路！'],
-             dict(body=1.0, air=1.5), 'night'),
+    'ziyi': ('f', ['baker', 'zf_xiaoyi'], ['炮已架好！隔山，也取你帅首！', '一炮定乾坤，你躲不过！', '炮声一响，寸草不生！', '隔梓打梓，专打你的心窝！', '点火！送你的帅，上路！'],
+             dict(body=1.0, air=1.5, semis=-1.5), 'night'),
     # 玄衣：沉、冷，夜里
-    'xuanyi': ('m', [72, 84], ['落梓无悔！这一局，我要你满盘皆输！', '一梓洛下，生死已定！', '你走的每一步，都在我算中！', '黑云压城，这一局，没有活路！', '算你十步，杀你一步！'],
-               dict(body=2.5, air=1.0), 'night'),
+    'xuanyi': ('m', ['zm_yunjian', 'zm_yunyang'], ['落梓无悔！这一局，我要你满盘皆输！', '一梓洛下，生死已定！', '你走的每一步，都在我算中！', '黑云压城，这一局，没有活路！', '算你十步，杀你一步！'],
+               dict(body=2.5, air=1.0, semis=-1.0), 'night'),
     # 素衣：笑着说的狠话，竹林
-    'suyi': ('f', [45, 6], ['莫看我笑！取你性命，只需一手！', '花开一季，你的帅，撑不过一盘！', '别怕，很快就结束了！', '我笑一次，就有人输一次！', '梨花落尽，胜负已分！'],
+    'suyi': ('f', ['baker', 'zf_xiaoyi'], ['莫看我笑！取你性命，只需一手！', '花开一季，你的帅，撑不过一盘！', '别怕，很快就结束了！', '我笑一次，就有人输一次！', '梨花落尽，胜负已分！'],
              dict(), 'forest'),
     # 墨客：书生的冷，竹林里远远的回声
-    'moke': ('m', [93, 67], ['行云流水，杀人不见血。请落梓！', '一笔一画，皆是杀机！', '胜负？我早已写好了！', '墨未甘，你已败！', '风雪千里，只为斩你一局！'],
-             dict(body=1.5), 'forest'),
+    'moke': ('m', ['zm_yunyang', 'zm_yunjian'], ['行云流水，杀人不见血。请落梓！', '一笔一画，皆是杀机！', '胜负？我早已写好了！', '墨未甘，你已败！', '风雪千里，只为斩你一局！'],
+             dict(body=1.5, semis=0.5), 'forest'),
 }
-# 念的字里换过的同音字：查词典（分词以后）这个字确实是这个音才念（"斩匠"的匠 jiàng、"吃居"的居 jū、"将君"的君 jūn）
-MUST = {'居': 'ㄐ ㄩ 1', '匠': 'ㄐ 阳 4', '鞘': 'ㄑ 要 4', '帅': 'ㄕ 外 4', '落': 'ㄌ 我 4', '梓': 'ㄗ ㄭ 3', '洛': 'ㄌ 我 4', '翔': 'ㄒ 阳 2', '甘': 'ㄍ ㄢ 1', '君': 'ㄐ 云 1'}
+# 念的字里换过的同音字：查注音（Kokoro 是 misaki 的音标，标贝是分词以后查它的词典）这个字确实是这个音才念
+# （"斩匠"的匠 jiàng、"吃居"的居 jū、"落梓"的落 luò——标贝词典里"落子"是 lào zǐ）
+MUST_K10 = {'居': 'ʨy→', '匠': 'ʨja↘ŋ', '鞘': 'ʨʰjau↘', '帅': 'ʂwai↘', '落': 'lwo↘', '梓': 'ʦɨ↓', '洛': 'lwo↘', '翔': 'ɕja↗ŋ', '甘': 'ka→n'}
+MUST_BAKER = {'居': 'ju1', '匠': 'jiang4', '鞘': 'qiao4', '帅': 'shuai4', '落': 'luo4', '梓': 'zi3', '洛': 'luo4', '翔': 'xiang2', '甘': 'gan1'}
 
 
 # ───────── 合成（报着法 gen-announce.py 还用 v1.0：say、g2p） ─────────
@@ -150,26 +160,28 @@ def say(text, voice, speed):
     return np.asarray(x, dtype=np.float64)
 
 
-K11 = os.path.join(MODEL_DIR, 'kokoro-multi-lang-v1_1')
-_tts11 = None
+BAKER = os.path.join(MODEL_DIR, 'matcha-icefall-zh-baker')
+_baker = None
 
 
-def say11(text, sid, speed):
-    """Kokoro v1.1-zh 念一句（sid：说话人编号）"""
-    global _tts11
-    if _tts11 is None:
-        D = K11
-        cfg = sherpa_onnx.OfflineTtsConfig(
-            model=sherpa_onnx.OfflineTtsModelConfig(
-                kokoro=sherpa_onnx.OfflineTtsKokoroModelConfig(
-                    model=f'{D}/model.onnx', voices=f'{D}/voices.bin', tokens=f'{D}/tokens.txt',
-                    data_dir=f'{D}/espeak-ng-data', dict_dir=f'{D}/dict', lexicon=f'{D}/lexicon-us-en.txt,{D}/lexicon-zh.txt'),
-                num_threads=2),
-            rule_fsts=f'{D}/date-zh.fst,{D}/phone-zh.fst,{D}/number-zh.fst', max_num_sentences=1)
-        _tts11 = sherpa_onnx.OfflineTts(cfg)
-    a = _tts11.generate(text, sid=sid, speed=speed)
-    assert a.sample_rate == SR
-    return np.asarray(a.samples, dtype=np.float64)
+def say_baker(text, speed):
+    """标贝女声（Matcha + vocos 声码器，22.05kHz）念一句，换成 24kHz"""
+    global _baker
+    if _baker is None:
+        D = BAKER
+        m = sherpa_onnx.OfflineTtsMatchaModelConfig(acoustic_model=f'{D}/model-steps-3.onnx', vocoder=os.path.join(MODEL_DIR, 'vocos-22khz-univ.onnx'),
+                                                   lexicon=f'{D}/lexicon.txt', tokens=f'{D}/tokens.txt', dict_dir=f'{D}/dict')
+        rules = ','.join(f'{D}/{f}' for f in ('date.fst', 'phone.fst', 'number.fst') if os.path.exists(f'{D}/{f}'))
+        _baker = sherpa_onnx.OfflineTts(sherpa_onnx.OfflineTtsConfig(model=sherpa_onnx.OfflineTtsModelConfig(matcha=m, num_threads=2), rule_fsts=rules, max_num_sentences=1))
+    a = _baker.generate(text, sid=0, speed=speed)
+    x = np.asarray(a.samples, dtype=np.float64)
+    g = gcd(SR, a.sample_rate)
+    return resample_poly(x, SR // g, a.sample_rate // g)
+
+
+def speak(voice, text, speed):
+    """按嗓子名念：'baker' 是标贝，别的是 Kokoro v1.0"""
+    return say_baker(text, speed) if voice == 'baker' else say(text, voice, speed)
 
 
 # ───────── 处理 ─────────
@@ -350,9 +362,9 @@ def loudness(x):
 def voice_fx(raw, tone, space, target=-17.0):
     """干净的人声 + 立体声的空间（见文件头）。返回（成品 N×2，干声）"""
     x = trim(raw)
-    # 抑扬放大一点点（Praat 只动基频起伏，不动音高中心、不动共振峰）：起伏大一点，话里就有轻重
-    if abs(tone.get('rng', 1.0) - 1) > 0.01:
-        x = trim(effort(x, 0.0, 1.0, tone['rng'], 1.0))
+    # 人物之间整句抬或压一两个半音（Praat：抑扬、共振峰、语速都不动，声调的形状不变）
+    if abs(tone.get('semis', 0.0)) > 0.05:
+        x = trim(effort(x, tone['semis'], 1.0, 1.0, 1.0))
     x = eq(x, 'highpass', 75)
     x = eq(x, 'lowshelf', 160, tone['body'])
     x = eq(x, 'peak', 380, tone['mud'], 1.0)
@@ -398,27 +410,52 @@ def voice_fx(raw, tone, space, target=-17.0):
     return out, dry
 
 
-def expressive(x):
-    """抑扬：有声段的基频从 20 分位到 80 分位差几个半音（念得平就小；太大多半是测错了八度，封顶 8）"""
-    p = parselmouth.Sound(x, SR).to_pitch(time_step=0.01, pitch_floor=60, pitch_ceiling=600).selected_array['frequency']
-    v = p[p > 0]
-    if len(v) < 6:
+def tone_shape(x, text):
+    """声调的形状对不对：按字切开（强度曲线上找和字数一样多的峰，峰之间最低处当边界），每个字看有声部分中间七成的音高走向：
+    一声平（起止差不到 2.5 个半音、不低于整句）、二声升 1.5 个半音以上、三声低（或先降后升）、四声降 2.5 个半音以上、轻声不管。
+    回对上的比例。外国人说中文最明显的就是这个走样（上一轮 Kokoro v1.1 的"将军"，第二个字一路往下掉）"""
+    from pypinyin import Style, lazy_pinyin
+
+    tones = [int(p[-1]) if p[-1].isdigit() else 5 for p in lazy_pinyin(han(text), style=Style.TONE3, neutral_tone_with_five=True, tone_sandhi=True)]
+    n = len(tones)
+    snd = parselmouth.Sound(x, SR)
+    it = snd.to_intensity(time_step=0.01, minimum_pitch=80)
+    iv = it.values[0]
+    pitch = snd.to_pitch(time_step=0.01, pitch_floor=60, pitch_ceiling=600)
+    f0 = np.nan_to_num(np.array([pitch.get_value_at_time(t) or 0 for t in it.xs()]))
+    loud = iv > iv.max() - 25
+    sm = np.convolve(iv, np.ones(5) / 5, mode='same')
+    peaks = sorted((i for i in range(1, len(sm) - 1) if sm[i] >= sm[i - 1] and sm[i] > sm[i + 1] and loud[i]), key=lambda i: -sm[i])
+    chosen = []
+    for pk in peaks:
+        if all(abs(pk - q) >= 8 for q in chosen):
+            chosen.append(pk)
+        if len(chosen) == n:
+            break
+    chosen.sort()
+    on = np.where(loud)[0]
+    if len(on) < n or (v := f0[f0 > 0]).size < 5:
         return 0.0
-    return float(min(8.0, 12 * np.log2(np.percentile(v, 80) / np.percentile(v, 20))))
-
-
-def balance(x):
-    """两个字的喊声，后一个字有没有力：有声段切成前后两半，弱的那半比强的那半低几 dB（0 最匀；"将——军"的"军"
-    虚下去了就是负得多）"""
-    fr = int(0.01 * SR)
-    e = np.array([np.mean(x[i: i + fr] ** 2) for i in range(0, len(x) - fr, fr)]) + 1e-12
-    on = np.where(10 * np.log10(e) > 10 * np.log10(e.max()) - 25)[0]
-    if len(on) < 4:
-        return -99.0
-    a, b = on[0], on[-1] + 1
-    mid = (a + b) // 2
-    p1, p2 = np.mean(e[a:mid]), np.mean(e[mid:b])
-    return float(10 * np.log10(min(p1, p2) / max(p1, p2)))
+    if len(chosen) < n:
+        bounds = list(np.linspace(on[0], on[-1], n + 1).astype(int))
+    else:
+        bounds = [on[0]] + [a + int(np.argmin(sm[a:b + 1])) for a, b in zip(chosen, chosen[1:])] + [on[-1]]
+    st = np.where(f0 > 0, 12 * np.log2(np.maximum(f0, 1) / np.median(v)), np.nan)
+    good = 0
+    for k, tone in enumerate(tones):
+        seg = st[bounds[k]:bounds[k + 1]]
+        seg = seg[~np.isnan(seg)]
+        if tone == 5:
+            good += 1
+            continue
+        if len(seg) < 4:
+            continue
+        core = seg[int(len(seg) * 0.15):max(int(len(seg) * 0.85), int(len(seg) * 0.15) + 3)]
+        q = max(1, len(core) // 4)
+        start, end, level = float(np.mean(core[:q])), float(np.mean(core[-q:])), float(np.mean(core))
+        slope, dip = end - start, float(np.min(core)) - max(start, end)
+        good += {1: abs(slope) <= 2.5 and level >= -1.5, 2: slope >= 1.5, 3: level <= 0.5 or dip <= -1.5, 4: slope <= -2.5}[tone]
+    return good / n
 
 
 def write_mp3(name, x):
@@ -528,33 +565,27 @@ def score(got, text):
 _lex = None
 
 
-def check_reading(text):
-    """换过同音字的地方，词典里（按 sherpa 一样的分词）真是那个音。回念错了的字"""
+def check_reading(text, voice):
+    """换过同音字的地方真是那个音（回念错了的字）。Kokoro：misaki 注出来的音标里有；标贝：按它自己的分词查它的词典"""
     global _lex
+    if voice != 'baker':
+        ph = g2p(text)
+        return [f'{ch} 念成 {ph}' for ch, want in MUST_K10.items() if ch in text and want not in ph]
     import jieba
 
     if _lex is None:
         _lex = {}
-        with open(os.path.join(K11, 'lexicon-zh.txt'), encoding='utf8') as fh:
+        with open(os.path.join(BAKER, 'lexicon.txt'), encoding='utf8') as fh:
             for line in fh:
                 w, *ph = line.split()
                 _lex.setdefault(w, ph)
-        jieba.set_dictionary(os.path.join(K11, 'dict', 'jieba.dict.utf8'))
+        jieba.set_dictionary(os.path.join(BAKER, 'dict', 'jieba.dict.utf8'))
     bad = []
     for w in jieba.cut(han(text), HMM=False):
-        ph = _lex.get(w)
-        if ph is None:
-            parts = [' '.join(_lex.get(ch, [])) for ch in w]
-        else:
-            # 一个词的音标按声调数字切成每个字一段
-            parts, cur = [], []
-            for t in ph:
-                cur.append(t)
-                if t.isdigit():
-                    parts.append(' '.join(cur))
-                    cur = []
+        # 词典里有这个词就按词注音（每个字一个带声调的拼音），没有就一个字一个字查
+        parts = _lex.get(w) or [(_lex.get(ch) or [''])[0] for ch in w]
         for ch, p in zip(w, parts):
-            if ch in MUST and p != MUST[ch]:
+            if ch in MUST_BAKER and p != MUST_BAKER[ch]:
                 bad.append(f'{ch}（{w}）念成 {p}')
     return bad
 
@@ -571,7 +602,9 @@ def main():
 
 
 def run_jobs(report, bad):
-    jobs = [(f'{g}-{k}', CAST[g], cands, TONE[g], 'court', 1.0) for g in CAST for k, cands in SHOUTS.items()]
+    # 每句喊声再加一个句号收尾的念法：标贝念"吃居！"时"吃"的送气弱了，两个识别器都听成"诗句"；"吃居。"就听得准
+    plain = lambda cands: cands + [(t.replace('！', '。'), sp) for t, sp in cands if t.endswith('！')][:1]
+    jobs = [(f'{g}-{k}', CAST[g], plain(cands), TONE[g], 'court', 1.0) for g in CAST for k, cands in SHOUTS.items()]
     # 开场白长：十几个音节里错一两个（识别器没学过"鼠辈""帅首"这种词）也算听得出
     jobs += [(f'hero-{k}-{n}', sids, [(line, 1.0), (line, 0.92)], {**TONE[sex], **tw}, space, 0.85)
              for k, (sex, sids, lines, tw, space) in HEROES.items() for n, line in enumerate(lines, 1)]
@@ -582,28 +615,26 @@ def run_jobs(report, bad):
             report.update(json.load(fh))
     for name, sids, cands, tone, space, need in jobs:
         for text, _ in cands:
-            wrong = check_reading(text)
-            if wrong:
-                print(f'✗ {name} {text}：{"、".join(wrong)}')
-                bad.append(name)
-        # 主嗓子的每种念法都做一遍，按成品让机器听。够准的里面：声调对得够多（八成）的优先，再挑抑扬最大的——
-        # 有起伏、有轻重，才不是"念课文"。主嗓子哪种念法都不够准，才换下一个嗓子
+            for v in sids:
+                wrong = check_reading(text, v)
+                if wrong:
+                    print(f'✗ {name} {text}（{v}）：{"、".join(wrong)}')
+                    bad.append(name)
+        # 主嗓子的每种语速都做一遍，按成品让机器听。够准的里面：声调形状对得多的优先（tone_shape，按干声量），
+        # 再看识别出来的字声调对不对，同样好就要正常语速的。主嗓子哪种都不够准，先多试两种语速，还不行才换下一个嗓子
         best = None
-        # 主嗓子这几种念法都不够准，先多试两种语速（慢一点、快一点），还不行才换嗓子——同一个人物、同一套喊声尽量是同一个人
-        slower = [(cands[0][0], 0.85), (cands[0][0], 1.12)]
+        slower = [(cands[0][0], 0.88), (cands[0][0], 1.12)]
         for sid in sids:
             for tries in (cands, slower):
                 if best is not None and best[0][0]:
                     break
                 for text, speed in tries:
-                    x, dry = voice_fx(say11(text, sid, speed), tone, space)
+                    x, dry = voice_fx(speak(sid, text, speed), tone, space)
                     got = hear2(x.mean(axis=1))
                     acc = max(accuracy(gg, text) for gg in got)
                     tone_ok = max(tones(gg, text) for gg in got)
-                    ex = expressive(dry)
-                    # 两个字的喊声（将军、绝杀、困毙、吃居）：两个字都得有力（弱的那个字不比强的低 6 dB 以上），再比抑扬
-                    firm = len(han(text)) > 2 or balance(dry) > -6
-                    key = (acc >= need, min(tone_ok, 0.8), firm, ex)
+                    ex = tone_shape(dry, text)
+                    key = (acc >= need, round(ex, 2), min(tone_ok, 0.8), -abs(speed - 1))
                     if best is None or key > best[0]:
                         best = (key, sid, text, speed, got, acc, tone_ok, ex, x)
         key, sid, text, speed, got, acc, tone_ok, ex, x = best
@@ -611,11 +642,11 @@ def run_jobs(report, bad):
         f = pitch(path)
         size = os.path.getsize(path)
         dur = round(len(x) / SR, 2)
-        report[name] = {'text': text, 'sid': sid, 'speed': speed, 'space': space, 'heard': got, 'acc': round(acc, 2), 'tone': round(tone_ok, 2), 'range': round(ex, 1), 'f0': round(f), 'sec': dur, 'bytes': size}
+        report[name] = {'text': text, 'voice': sid, 'speed': speed, 'space': space, 'heard': got, 'acc': round(acc, 2), 'tone': round(tone_ok, 2), 'shape': round(ex, 2), 'f0': round(f), 'sec': dur, 'bytes': size}
         ok = key[0]
         if not ok:
             bad.append(name)
-        print(f'{"✓" if ok else "✗"} {name:16s} {text:22s} 嗓子 {sid:3d} 语速 {speed} 听成「{"／".join(got)}」 准 {acc:.2f} 声调 {tone_ok:.2f} 抑扬 {ex:.1f} 半音 基频 {f:4.0f}Hz {dur}s {size // 1024}KB', flush=True)
+        print(f'{"✓" if ok else "✗"} {name:16s} {text:22s} {sid:11s} 语速 {speed} 听成「{"／".join(got)}」 准 {acc:.2f} 声调形状 {ex:.2f} 识别声调 {tone_ok:.2f} 基频 {f:4.0f}Hz {dur}s {size // 1024}KB', flush=True)
 
 
 if __name__ == '__main__':

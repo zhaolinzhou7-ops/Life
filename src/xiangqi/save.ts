@@ -1032,6 +1032,20 @@ export function retireOwnPuzzle(id: string): boolean {
 }
 
 /**
+ * 实战抓的题里不该再出的（只剩一两个子还差一个车、车对车马对马的和棋……判据在 balance.ts），连同复习卡一起删。
+ * 用户原话："复盘错题时看一下题目：有些题目本身局势已经极度劣势了……把这类题目换掉"——以前存下的也要清。回删了几道
+ */
+export function retireOwnPuzzles(bad: (p: Puzzle) => boolean): number {
+  const d = load();
+  const drop = new Set(d.own.filter(bad).map((p) => p.id));
+  if (!drop.size) return 0;
+  d.own = d.own.filter((p) => !drop.has(p.id));
+  d.srs = d.srs.filter((c) => !drop.has(c.id));
+  store(d);
+  return drop.size;
+}
+
+/**
  * 复盘出来的毛病里，现在最贵的那一种：还没过关的那几手加起来亏分最多的。
  * 下一盘开局时教练提醒的"这盘盯住一件事"就是它——复盘的结论带进下一盘棋里。
  */

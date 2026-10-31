@@ -10,6 +10,7 @@
  * 题就是错的，而错的教材比没有教材更糟。所以正确性必须由可执行的判定担保。
  */
 import type { Color } from './rules';
+import { endgameUnfit } from './balance';
 
 // ---------------- 杀法图形 ----------------
 
@@ -128,7 +129,7 @@ export function loadLibrary(): Promise<void> {
       mateCache = ((m.default ?? m) as MatePattern[]).slice();
     }),
     import('./endgamelib.json').then((m) => {
-      egCache = ((m.default ?? m) as EndgamePos[]).filter((e) => !obviousWin(e) && !obviousDraw(e));
+      egCache = ((m.default ?? m) as EndgamePos[]).filter((e) => !obviousWin(e) && !obviousDraw(e) && !endgameUnfit(e));
     }),
   ])
     .then(() => undefined)

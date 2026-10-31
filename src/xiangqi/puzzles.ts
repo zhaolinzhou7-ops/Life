@@ -15,6 +15,7 @@ import type { Dim } from './save';
 import { getOwnPuzzles, effectiveRating, attemptedMap } from './save';
 import type { ErrTag } from './teach';
 import { WON_KEEP, isLost } from './analysis';
+import { unfit } from './balance';
 
 export type PuzzleKind = 'mate' | 'tactic' | 'safety' | 'endgame' | 'opening';
 
@@ -181,14 +182,15 @@ export function lostAnyway(p: Pick<Puzzle, 'goal' | 'ev'>): boolean {
 /** 中局组合里主题是"杀""连将杀"的，算杀法题——实战局面里的杀棋，对方子力齐全、自己也在进攻，比摆出来的光将杀有用 */
 const MATE_THEMES = new Set(['杀', '连将杀']);
 
-/** 加载题库（只下载一次）：一眼必胜的、本来就赢定或输定了的去掉，组合里的杀棋归到杀法 */
+/** 加载题库（只下载一次）：一眼必胜的、本来就赢定或输定了的、大劣和对等没下头的去掉，组合里的杀棋归到杀法 */
 export function loadPuzzles(): Promise<Puzzle[]> {
   if (cache) return Promise.resolve(cache);
   if (loading) return loading;
   loading = import('./puzzles.json')
     .then((m) => {
       cache = ((m.default ?? m) as Puzzle[])
-        .filter((p) => !defenseless(p.fen) && !wonAnyway(p) && !lostAnyway(p))
+        // 大劣（只剩一两个子还差一个车）、对等没下头（车对车的和棋）也不出：数据里已经清掉了（tools/prune-lopsided），这里再拦一道
+        .filter((p) => !defenseless(p.fen) && !wonAnyway(p) && !lostAnyway(p) && !unfit(p))
         .map((p) => (p.kind !== 'mate' && p.goal === 'mate' && p.themes?.some((t) => MATE_THEMES.has(t)) ? { ...p, kind: 'mate' as PuzzleKind } : p));
       return cache;
     })
