@@ -24,6 +24,12 @@ let revSend: GainNode | null = null;
  * 总线压缩会把话压平——用户原话："声音没有灵魂、没感觉，而且还有点吵"
  */
 let voiceIn: GainNode | null = null;
+/**
+ * 配音开口时音效总线让一让（锣鼓、落子声、配乐都在这条总线上）。
+ * 实测出场时台词开头一秒半被锣鼓整个盖住（开配音、关配音总输出只差 0～2 dB）——用户原话："开局说的有些话好像被吞掉了，
+ * 有些完全没有出声，刚开始那段配音声音一开始没出来"。配音降到 -15 LUFS 不吵了，锣鼓没跟着让，就把话盖住了
+ */
+let fxDuck: GainNode | null = null;
 
 /**
  * 程序生成的房间脉冲响应：早期反射 + 指数衰减噪声尾。
@@ -85,8 +91,10 @@ function ac(): AudioContext | null {
       revSend = ctx.createGain();
       revSend.gain.value = 0.2; // 干湿比：牌桌不是教堂，湿一点点就够
 
-      busIn.connect(glue);                 // 干声
-      busIn.connect(revSend);
+      fxDuck = ctx.createGain();
+      busIn.connect(fxDuck);
+      fxDuck.connect(glue);                // 干声
+      fxDuck.connect(revSend);
       revSend.connect(conv).connect(revReturn).connect(glue); // 湿声
 
       // 最后一道保险：几样声音叠在一起（锣鼓 + 喊声）峰过了满刻度就压住，不让浏览器硬削波（平时碰不到，-1.5 dB 以上才动）
@@ -744,6 +752,44 @@ export interface Song {
 export function musicCore(): { c: AudioContext; outAt: (pan?: number) => AudioNode; voiceOut: () => AudioNode } | null {
   const c = ac();
   return c ? { c, outAt, voiceOut: () => voiceIn! } : null;
+}
+
+/** 配音那一路、音效那一路（让过以后）各自的电平（测试看：台词有没有被锣鼓盖住） */
+let tapV: AnalyserNode | null = null;
+let tapF: AnalyserNode | null = null;
+export function voiceFxLevels(): { voice: number; fx: number } | null {
+  const c = ac();
+  if (!c || !voiceIn || !fxDuck) return null;
+  if (!tapV || !tapF) {
+    tapV = c.createAnalyser();
+    tapF = c.createAnalyser();
+    tapV.fftSize = tapF.fftSize = 2048;
+    voiceIn.connect(tapV);
+    fxDuck.connect(tapF);
+  }
+  const rms = (a: AnalyserNode) => {
+    const d = new Float32Array(a.fftSize);
+    a.getFloatTimeDomainData(d);
+    let s2 = 0;
+    for (const x of d) s2 += x * x;
+    return Math.sqrt(s2 / d.length);
+  };
+  return { voice: rms(tapV) * voiceIn.gain.value, fx: rms(tapF) };
+}
+
+/**
+ * 配音说话的这一段（音频时钟 from～to 秒），音效总线压到 depth（0.3 ≈ -10 dB）：开口前 40 毫秒压下去，说完 0.3 秒慢慢回来。
+ * 几句排着队说的话各压各的，后一句接上前一句不会中间弹回来（取消的是 from 之后安排的）
+ */
+export function duckFx(from: number, to: number, depth = 0.3) {
+  if (!fxDuck || !ctx) return;
+  const g = fxDuck.gain;
+  const t0 = Math.max(ctx.currentTime, from - 0.04);
+  g.cancelScheduledValues(t0);
+  g.setValueAtTime(g.value, t0);
+  g.linearRampToValueAtTime(depth, t0 + 0.04);
+  g.setValueAtTime(depth, Math.max(t0 + 0.04, to));
+  g.linearRampToValueAtTime(1, Math.max(t0 + 0.04, to) + 0.3);
 }
 
 /**

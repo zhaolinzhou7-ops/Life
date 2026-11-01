@@ -458,6 +458,17 @@ def tone_shape(x, text):
     return good / n
 
 
+def talk_end(x):
+    """话说到第几秒（后面的混响尾巴不算）：和 xqvoice.ts 的 speechEnd 一样，最后一个 10 毫秒窗口还到峰值三成的地方再加 80 毫秒。
+    出场动画按它定多长（intro.ts 的 voiceSec）"""
+    d = np.abs(x[:, 0] if x.ndim == 2 else x)
+    step = max(1, round(SR * 0.01))
+    n = len(d) // step
+    m = d[:n * step].reshape(n, step).max(axis=1)
+    hit = np.nonzero(m > d.max() * 0.32)[0]
+    return round(min(len(d) / SR, (hit[-1] + 1) * step / SR + 0.08), 2) if len(hit) else round(len(d) / SR, 2)
+
+
 def write_mp3(name, x):
     wav = os.path.join(OUT, f'{name}.wav')
     mp3 = os.path.join(OUT, f'{name}.mp3')
@@ -503,11 +514,14 @@ def hear2(x):
     return got
 
 
-def accuracy(got, text):
-    """听出来的拼音（不带声调）和原句的拼音对上几成：1 - 编辑距离 / 原句音节数"""
-    from pypinyin import lazy_pinyin
+def accuracy(got, text, tone=False):
+    """听出来的拼音和原句的拼音对上几成：1 - 编辑距离 / 原句音节数。
+    tone=True 连声调一起比（"墨未甘，你已败"听成"莫未干泥一拜"，不带声调全对；带声调"泥"ní ≠ "你"nǐ 就扣分——
+    外国人说中文最明显的就是声调走样）"""
+    from pypinyin import Style, lazy_pinyin
 
-    a, b = lazy_pinyin(got), lazy_pinyin(han(text))
+    st = Style.TONE3 if tone else Style.NORMAL
+    a, b = lazy_pinyin(got, style=st), lazy_pinyin(han(text), style=st)
     dp = list(range(len(b) + 1))
     for i in range(1, len(a) + 1):
         prev, dp[0] = dp[0], i
@@ -605,8 +619,10 @@ def run_jobs(report, bad):
     # 每句喊声再加一个句号收尾的念法：标贝念"吃居！"时"吃"的送气弱了，两个识别器都听成"诗句"；"吃居。"就听得准
     plain = lambda cands: cands + [(t.replace('！', '。'), sp) for t, sp in cands if t.endswith('！')][:1]
     jobs = [(f'{g}-{k}', CAST[g], plain(cands), TONE[g], 'court', 1.0) for g in CAST for k, cands in SHOUTS.items()]
-    # 开场白长：十几个音节里错一两个（识别器没学过"鼠辈""帅首"这种词）也算听得出
-    jobs += [(f'hero-{k}-{n}', sids, [(line, 1.0), (line, 0.92)], {**TONE[sex], **tw}, space, 0.85)
+    # 开场白：两种语速，感叹号、句号收尾各念一遍（"取你性命，只需一手！"念成句号收尾时"需"不再被吞）。
+    # 要两个识别器都听得出（取两个准确率的平均，0.9 以上）：上一版只要一个听对 85% 就收，结果"鼠辈谁敢"被听成"处被水赶"也收了
+    period = lambda line: [line] + ([line[:-1] + '。'] if line.endswith('！') else [])
+    jobs += [(f'hero-{k}-{n}', sids, [(t, sp) for sp in (1.0, 0.92) for t in period(line)], {**TONE[sex], **tw}, space, 0.9)
              for k, (sex, sids, lines, tw, space) in HEROES.items() for n, line in enumerate(lines, 1)]
     if ONLY:
         # 只补几句：别的录音不动，报告里原来的记录留着
@@ -620,10 +636,12 @@ def run_jobs(report, bad):
                 if wrong:
                     print(f'✗ {name} {text}（{v}）：{"、".join(wrong)}')
                     bad.append(name)
-        # 主嗓子的每种语速都做一遍，按成品让机器听。够准的里面：声调形状对得多的优先（tone_shape，按干声量），
-        # 再看识别出来的字声调对不对，同样好就要正常语速的。主嗓子哪种都不够准，先多试两种语速，还不行才换下一个嗓子
+        # 主嗓子的每种念法都做一遍，按成品让机器听。喊声：够准的里面声调形状对得多的优先（tone_shape，按干声量），
+        # 再看识别出来的字声调对不对，同样好就要正常语速的。开场白：两个识别器都听得准的优先（清楚排第一），
+        # 再看声调形状。主嗓子哪种都不够准，先多试两种语速，还不行才换下一个嗓子
         best = None
-        slower = [(cands[0][0], 0.88), (cands[0][0], 1.12)]
+        hero = name.startswith('hero-')
+        slower = [(t, sp) for t in dict.fromkeys(t for t, _ in cands) for sp in ((0.86,) if hero else (0.88, 1.12))]
         for sid in sids:
             for tries in (cands, slower):
                 if best is not None and best[0][0]:
@@ -631,10 +649,17 @@ def run_jobs(report, bad):
                 for text, speed in tries:
                     x, dry = voice_fx(speak(sid, text, speed), tone, space)
                     got = hear2(x.mean(axis=1))
-                    acc = max(accuracy(gg, text) for gg in got)
+                    accs = [accuracy(gg, text) for gg in got]
+                    # 喊声：一个识别器听对就算（两个字的词识别器常常各听各的）；开场白：两个识别器的平均
+                    acc = (min(accs) + max(accs)) / 2 if hero else max(accs)
                     tone_ok = max(tones(gg, text) for gg in got)
                     ex = tone_shape(dry, text)
-                    key = (acc >= need, round(ex, 2), min(tone_ok, 0.8), -abs(speed - 1))
+                    if hero:
+                        # 够准的里面：字音、声调两个识别器都听对得多的优先，再看声调形状
+                        tone_ok = sum(accuracy(gg, text, tone=True) for gg in got) / len(got)
+                        key = (acc >= need, round((acc + tone_ok) / 2, 2), round(ex, 1), -abs(speed - 1))
+                    else:
+                        key = (acc >= need, round(ex, 2), min(tone_ok, 0.8), -abs(speed - 1))
                     if best is None or key > best[0]:
                         best = (key, sid, text, speed, got, acc, tone_ok, ex, x)
         key, sid, text, speed, got, acc, tone_ok, ex, x = best
@@ -642,7 +667,7 @@ def run_jobs(report, bad):
         f = pitch(path)
         size = os.path.getsize(path)
         dur = round(len(x) / SR, 2)
-        report[name] = {'text': text, 'voice': sid, 'speed': speed, 'space': space, 'heard': got, 'acc': round(acc, 2), 'tone': round(tone_ok, 2), 'shape': round(ex, 2), 'f0': round(f), 'sec': dur, 'bytes': size}
+        report[name] = {'text': text, 'voice': sid, 'speed': speed, 'space': space, 'heard': got, 'acc': round(acc, 2), 'tone': round(tone_ok, 2), 'shape': round(ex, 2), 'f0': round(f), 'sec': dur, 'talk': talk_end(x), 'bytes': size}
         ok = key[0]
         if not ok:
             bad.append(name)

@@ -15,7 +15,7 @@
  * 默认关着（只在关键几步喊）；样式页打开了、开第一盘棋时才下载。
  * 几句话排着队说：先报"车二进六"，再喊"将军！"，不会两句叠在一起（busyUntil）。
  */
-import { isMuted, musicCore } from './gamesfx';
+import { duckFx, isMuted, musicCore } from './gamesfx';
 import { xqMusicDuck } from './xqmusic';
 
 const FILES = import.meta.glob('./xiangqi/voice/*.mp3', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
@@ -59,6 +59,10 @@ function load(name: string): Promise<AudioBuffer | null> {
           .catch(() => null)
       : Promise.resolve(null);
   decoded.set(name, p);
+  // 没拉下来（断网、半路断了）不记着：不然这一句整盘都不出声，下回再拉
+  void p.then((b) => {
+    if (!b && decoded.get(name) === p) decoded.delete(name);
+  });
   return p;
 }
 
@@ -137,6 +141,8 @@ async function play(name: string, delayMs: number, vol: number, seg?: [number, n
   src.connect(g).connect(seg ? core.outAt(0) : core.voiceOut());
   if (seg) src.start(t0, off, dur);
   else src.start(t0);
+  // 说话这一段音效让开（喊声、开场白压到三成；报着法只是念一声，压到六成）
+  duckFx(t0, t0 + talk, seg ? 0.6 : 0.3);
   const lead = Math.max(0, (t0 - core.c.currentTime) * 1000);
   window.setTimeout(() => {
     lastSaid = label;

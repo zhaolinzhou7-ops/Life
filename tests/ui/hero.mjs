@@ -188,6 +188,37 @@ for (const id of ['guangong', 'nezha', 'daoke', 'shaoshuai', 'hongzhuang', 'ziyi
   await until(() => !document.querySelector('.xqh'), null, 1500);
 }
 
+// ───────── 台词不被锣鼓盖住：九位各演一遍，说话那一段配音比音效（锣鼓、配乐）响 ─────────
+// 用户原话："开局说的有些话好像被吞掉了，有些完全没有出声，刚开始那段配音声音一开始没出来"——
+// 原来锣鼓不让，台词头一秒半和锣鼓一样响甚至更轻；现在一开口音效总线就压下去（gamesfx 的 duckFx）
+for (const id of ['guangong', 'nezha', 'daoke', 'shaoshuai', 'hongzhuang', 'ziyi', 'xuanyi', 'suyi', 'moke']) {
+  const r = await page.evaluate(async (id) => {
+    localStorage.setItem('xq-voice', 'm');
+    const G = await import('/Life/src/gamesfx.ts');
+    const I = await import('/Life/src/xiangqi/intro.ts');
+    const V = await import('/Life/src/xqvoice.ts');
+    G.unlockAudio();
+    V.preloadVoice([`hero-${id}-1`]);
+    await new Promise((res) => setTimeout(res, 1200));
+    const out = [];
+    const t0 = performance.now();
+    void I.playHeroIntro(id, document.body, { line: 0 });
+    while (performance.now() - t0 < 2800) {
+      await new Promise((res) => setTimeout(res, 20));
+      const l = G.voiceFxLevels();
+      if (l && performance.now() - t0 > 900) out.push([l.voice, l.fx]);
+    }
+    I.stopHeroIntro();
+    await new Promise((res) => setTimeout(res, 600));
+    return out;
+  }, id);
+  // 0.9～2.8 秒（台词 0.8 秒开口）：有声的帧里配音比音效响多少（中位数）
+  const diffs = r.filter(([v]) => v > 1e-3).map(([v, f]) => 20 * Math.log10(v / (f + 1e-6))).sort((a, b) => a - b);
+  const med = diffs.length ? diffs[Math.floor(diffs.length / 2)] : -99;
+  console.log(`   ${id}：说话那一段配音比音效响 ${med.toFixed(1)} dB（${diffs.length} 帧有声）`);
+  ok(`${id}：台词一开口就听得见，比锣鼓响（≥ 6 dB）`, diffs.length > 20 && med >= 6);
+}
+
 await browser.close();
 console.log('\n===== 失败项 =====\n' + (errs.length ? errs.join('\n') : '无'));
 process.exit(errs.length ? 1 : 0);
