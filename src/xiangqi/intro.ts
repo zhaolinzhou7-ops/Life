@@ -37,7 +37,7 @@ export interface HeroInfo {
   lines: string[];
   /** 一句话介绍（设置页） */
   desc: string;
-  /** 每一句录音多长（秒），整场按它排 */
+  /** 每一句话说到第几秒（后面的回声尾巴不算；tools/gen-voice.py 报告里的 talk，tests/heroline.test.ts 对着查），整场按它排 */
   voiceSec: number[];
   /** 画铺满屏幕时对齐哪里（object-position）：对着画上的题字那一边 */
   pos: string;
@@ -81,7 +81,7 @@ export const HEROES: HeroInfo[] = [
       '赤兔追风，取你帅首，易如反掌！',
     ],
     desc: '提刀斩将：骑赤兔马、提青龙偃月刀，古战场上冲锋',
-    voiceSec: [3.14, 3.0, 3.35, 3.16, 3.37],
+    voiceSec: [2.34, 2.07, 2.37, 2.18, 2.46],
     // 一上来贴得很近（马和刀冲到脸前），拉开到整幅；尘土碎石朝镜头飞过来；刀光顺着偃月刀的刃口划下去
     pos: '50% 0%',
     from: 'scale(1.24) translate(3%, 4%)',
@@ -103,7 +103,7 @@ export const HEROES: HeroInfo[] = [
       '混天绫一卷，你的帅，跑不掉！',
     ],
     desc: '踩风火轮：云海仙山间腾空，混天绫翻飞、火尖枪',
-    voiceSec: [3.33, 3.18, 2.94, 3.87, 2.99],
+    voiceSec: [2.5, 2.32, 1.97, 3.08, 2.14],
     // 近处拉开到全身；火星往上窜；太阳一团光晕；风火轮上炸开一圈火环
     pos: '50% 0%',
     from: 'scale(1.16) translateY(5%)',
@@ -126,7 +126,7 @@ export const HEROES: HeroInfo[] = [
       '落子如刀，一步，便是一命！',
     ],
     desc: '江湖一人一刀：云海孤峰，斗笠长刀，衣袍猎猎',
-    voiceSec: [3.16, 2.8, 3.32, 3.08, 2.98],
+    voiceSec: [1.8, 1.5, 1.95, 1.81, 1.72],
     // 慢慢推近斗笠和左上角的题字"江湖 一人一刀"（绕人物中间推会把字推出屏幕）；雪和落叶横着飘；一道横着的刀光
     pos: '50% 0%',
     from: 'scale(1.01) translateX(-1.5%)',
@@ -148,7 +148,7 @@ export const HEROES: HeroInfo[] = [
       '我的兵，只进不退！',
     ],
     desc: '运筹帷幄：夕阳下战旗猎猎，黑袍红襟、腰横长剑，按住一枚棋子',
-    voiceSec: [3.33, 3.26, 2.88, 2.78, 2.49],
+    voiceSec: [2.16, 2.07, 1.5, 1.47, 1.33],
     pos: '74% 0%',
     from: 'scale(1.2) translate(1%, 3%)',
     to: 'scale(1.02)',
@@ -169,7 +169,7 @@ export const HEROES: HeroInfo[] = [
       '胭脂是红的，血也是红的！',
     ],
     desc: '步步为营：朱楼红灯下一身红装，红绫翻飞，笑着等你送帅',
-    voiceSec: [4.41, 3.25, 3.63, 3.13, 3.13],
+    voiceSec: [3.91, 2.8, 2.94, 2.67, 2.49],
     pos: '0% 0%',
     from: 'scale(1.16) translate(-2%, 2%)',
     to: 'scale(1.02)',
@@ -190,7 +190,7 @@ export const HEROES: HeroInfo[] = [
       '点火！送你的帅，上路！',
     ],
     desc: '指尖风云：暮色宫阙、紫衣黑甲，指尖捏着一枚炮',
-    voiceSec: [3.13, 2.86, 2.68, 2.8, 2.62],
+    voiceSec: [3.11, 2.13, 1.96, 2.15, 2.19],
     pos: '100% 0%',
     from: 'scale(1.22) translate(-2%, 1%)',
     to: 'scale(1.02)',
@@ -211,7 +211,7 @@ export const HEROES: HeroInfo[] = [
       '算你十步，杀你一步！',
     ],
     desc: '落子无悔：悬崖古亭、飞瀑松风，一身玄衣，一子按下',
-    voiceSec: [3.83, 2.75, 3.23, 3.24, 2.84],
+    voiceSec: [2.66, 1.53, 2.01, 2.02, 1.51],
     pos: '50% 0%',
     from: 'scale(1.16) translate(-1%, 2%)',
     to: 'scale(1.02)',
@@ -233,7 +233,7 @@ export const HEROES: HeroInfo[] = [
       '梨花落尽，胜负已分！',
     ],
     desc: '自有乾坤：梨花树下、素衣轻纱，支颐一笑，一手定生死',
-    voiceSec: [3.29, 3.12, 2.57, 2.71, 2.47],
+    voiceSec: [2.22, 2.16, 1.58, 1.87, 1.47],
     pos: '50% 0%',
     from: 'scale(1.18) translate(1%, 2%)',
     to: 'scale(1.02)',
@@ -255,7 +255,7 @@ export const HEROES: HeroInfo[] = [
       '风雪千里，只为斩你一局！',
     ],
     desc: '行云流水：雪峰群鹤之间，一身泼墨白衣，抬手便是一局',
-    voiceSec: [3.29, 2.71, 2.75, 2.37, 3.02],
+    voiceSec: [1.93, 1.36, 1.31, 0.93, 1.52],
     pos: '50% 0%',
     from: 'scale(1.03) translateY(-1%)',
     to: 'scale(1.16)',

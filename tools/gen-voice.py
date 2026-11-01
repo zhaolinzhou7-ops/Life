@@ -141,7 +141,7 @@ HEROES = {
     'suyi': ('f', ['zf_xiaoyi'], ['莫看我笑！取你性命，只需一手！', '花开一季，你的帅，撑不过一盘！', '别怕，很快就结束了！', '我笑一次，就有人输一次！', '梨花落尽，胜负已分！'],
              dict(), 'forest'),
     # 墨客：书生的冷，竹林里远远的回声
-    'moke': ('m', ['zm_yunyang'], ['行云流水，杀人不见血。请落梓！', '一笔一画，皆是杀机！', '胜负？我早已写好了！', '墨未甘，你已败！', '风雪千里，只为斩你一局！'],
+    'moke': ('m', ['zm_yunxi'], ['行云流水，杀人不见血。请落梓！', '一笔一画，皆是杀机！', '胜负？我早已写好了！', '墨未甘，你已败！', '风雪千里，只为斩你一局！'],
              dict(body=1.5, semis=1.0), 'forest'),
 }
 # 念的字里换过的同音字：查注音（Kokoro 是 misaki 的音标，标贝是分词以后查它的词典）这个字确实是这个音才念
@@ -504,6 +504,18 @@ SV = os.path.join(MODEL_DIR, 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17
 rec2 = sherpa_onnx.OfflineRecognizer.from_sense_voice(model=f'{SV}/model.int8.onnx', tokens=f'{SV}/tokens.txt', num_threads=2, use_itn=False, language='zh')
 
 
+def drop_echo(g):
+    """带回声的空间（山谷、天上、竹林）：识别器把句尾的回声也听成字（"不回鞘鞘鞘""斩尽这一局这一局"），句尾重复的那几个字去掉"""
+    again = True
+    while again:
+        again = False
+        for k in range(min(4, len(g) // 2), 0, -1):
+            if g.endswith(g[-k:] * 2):
+                g, again = g[:-k], True
+                break
+    return g
+
+
 def hear2(x):
     """两个识别器各听一遍（前后垫一点静音、音量拉齐）"""
     g = gcd(16000, SR)
@@ -659,6 +671,8 @@ def run_jobs(report, bad):
                 for text, speed in tries:
                     x, dry = voice_fx(speak(sid, text, speed), tone, space)
                     got = hear2(x.mean(axis=1))
+                    if hero and SPACES[space]['echo']:
+                        got = [drop_echo(g) for g in got]
                     # 换过同音字的开场白，识别器写出真字（"翔者免死"听成"降者免死"、"一梓洛下"听成"一子落下"）也是听对了
                     real = text.translate(REAL) if hero else text
                     accs = [max(accuracy(gg, text), accuracy(gg, real)) for gg in got]
