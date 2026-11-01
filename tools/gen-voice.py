@@ -107,38 +107,42 @@ SPACES = {
 }
 
 # 出场人物的开场白：(男/女, 嗓子, [念的字（五句，出场时随机挑一句）], 人声的修法（在男/女的基础上改几项）, 空间)。
+# 用户原话："这 9 个人的声音每一个都需要去调整一下。有些说话发音不太像中国人，还有一些是直接没有声音"——
+# 每位人物各用一个嗓子（五句不换人）：男声四个（云健、云夏、云希、云扬）、女声两个（标贝、小艺）都把九位人物的台词念过一遍，
+# 按两个识别器连声调一起听对几成、声调形状挑的（scratchpad 里的 heropick / shapepick）。同一个嗓子给两位人物的，
+# 整句一个抬一个压（隔两个半音），空间也不一样
 # 屏幕上的字幕在 intro.ts，和这里只差同音字——
 # 注音器按日常读法念错的几个字：车念 jū（居），斩将、是将的将念 jiàng（匠），落子念 luò zǐ（落梓；"落下"念成 là，换"洛"），
 # 降者免死的降念 xiáng（翔），墨未干的干念 gān（甘），隔子打子的子带上声调（梓）。
 # 用户原话："要有杀气，女的呢也要有特色……真正的是征战杀伐的那种感觉"；"出场动画和人物台词再多一些，随机台词"
 HEROES = {
     # 关公：最沉最稳，大殿
-    'guangong': ('m', ['zm_yunyang', 'zm_yunjian'], ['关某在此！鼠辈，谁敢与我一战！', '青龙偃月刀下，从无活口！', '过五关，斩六匠，岂惧你一盘棋！', '吾观你，不过插标卖首之辈！', '赤兔追风，取你帅首，易如反掌！'],
+    'guangong': ('m', ['zm_yunjian'], ['关某在此！鼠辈，谁敢与我一战！', '青龙偃月刀下，从无活口！', '过五关，斩六匠，岂惧你一盘棋！', '吾观你，不过插标卖首之辈！', '赤兔追风，取你帅首，易如反掌！'],
                  dict(body=3.0, semis=-1.0), 'hall'),
     # 哪吒：少年音，亮、冲，天上
-    'nezha': ('m', ['zm_yunxia', 'zm_yunyang'], ['哪吒在此！火尖枪下，片甲不留！', '风火轮起，烧你个满盘皆空！', '小爷来也！谁敢接我三枪！', '乾坤圈出，管你是帅是匠，统统砸烂！', '混天绫一卷，你的帅，跑不掉！'],
+    'nezha': ('m', ['zm_yunxia'], ['哪吒在此！火尖枪下，片甲不留！', '风火轮起，烧你个满盘皆空！', '小爷来也！谁敢接我三枪！', '乾坤圈出，管你是帅是匠，统统砸烂！', '混天绫一卷，你的帅，跑不掉！'],
               dict(body=1.0, air=2.5, semis=1.0), 'sky'),
     # 刀客：一人一刀，山谷回声
-    'daoke': ('m', ['zm_yunjian', 'zm_yunyang'], ['刀已出鞘，不见血，不回鞘！', '一人一刀，斩尽这一局！', '江湖路远，你的帅，今日留下！', '我的刀，只问输赢，不问生死！', '落梓如刀，一步，便是一命！'],
-              dict(body=2.5, sat=0.3), 'valley'),
+    'daoke': ('m', ['zm_yunyang'], ['刀已出鞘，不见血，不回鞘！', '一人一刀，斩尽这一局！', '江湖路远，你的帅，今日留下！', '我的刀，只问输赢，不问生死！', '落梓如刀，一步，便是一命！'],
+              dict(body=2.5, sat=0.3, semis=-0.5), 'valley'),
     # 少帅：点兵，大殿
-    'shaoshuai': ('m', ['zm_yunxia', 'zm_yunjian'], ['三军听令！过河，斩匠，夺帅旗！', '擂鼓！列阵！今日踏平你的九宫！', '居马炮齐出，一个不留！', '兵临城下，翔者免死！', '我的兵，只进不退！'],
-                  dict(body=2.0, pres=3.0, semis=-0.5), 'hall'),
+    'shaoshuai': ('m', ['zm_yunxi'], ['三军听令！过河，斩匠，夺帅旗！', '擂鼓！列阵！今日踏平你的九宫！', '居马炮齐出，一个不留！', '兵临城下，翔者免死！', '我的兵，只进不退！'],
+                  dict(body=2.0, pres=3.0), 'hall'),
     # 红妆：脆、辣，带着笑，院子
-    'hongzhuang': ('f', ['baker', 'zf_xiaoyi'], ['步步为营，步步见血！你的帅，本姑娘要定了！', '红妆上阵，不让须眉！接招！', '别眨眼！我红妆出手，绝不留情！', '哭也没用，这一盘，你输定了！', '胭脂是红的，血也是红的！'],
+    'hongzhuang': ('f', ['baker'], ['步步为营，步步见血！你的帅，本姑娘要定了！', '红妆上阵，不让须眉！接招！', '别眨眼！我红妆出手，绝不留情！', '哭也没用，这一盘，你输定了！', '胭脂是红的，血也是红的！'],
                    dict(pres=2.5, semis=1.0), 'garden'),
     # 紫衣：冷，像炮口，夜里
-    'ziyi': ('f', ['baker', 'zf_xiaoyi'], ['炮已架好！隔山，也取你帅首！', '一炮定乾坤，你躲不过！', '炮声一响，寸草不生！', '隔梓打梓，专打你的心窝！', '点火！送你的帅，上路！'],
+    'ziyi': ('f', ['baker'], ['炮已架好！隔山，也取你帅首！', '一炮定乾坤，你躲不过！', '炮声一响，寸草不生！', '隔梓打梓，专打你的心窝！', '点火！送你的帅，上路！'],
              dict(body=1.0, air=1.5, semis=-1.5), 'night'),
     # 玄衣：沉、冷，夜里
-    'xuanyi': ('m', ['zm_yunjian', 'zm_yunyang'], ['落梓无悔！这一局，我要你满盘皆输！', '一梓洛下，生死已定！', '你走的每一步，都在我算中！', '黑云压城，这一局，没有活路！', '算你十步，杀你一步！'],
+    'xuanyi': ('m', ['zm_yunxia'], ['落梓无悔！这一局，我要你满盘皆输！', '一梓洛下，生死已定！', '你走的每一步，都在我算中！', '黑云压城，这一局，没有活路！', '算你十步，杀你一步！'],
                dict(body=2.5, air=1.0, semis=-1.0), 'night'),
     # 素衣：笑着说的狠话，竹林
-    'suyi': ('f', ['baker', 'zf_xiaoyi'], ['莫看我笑！取你性命，只需一手！', '花开一季，你的帅，撑不过一盘！', '别怕，很快就结束了！', '我笑一次，就有人输一次！', '梨花落尽，胜负已分！'],
+    'suyi': ('f', ['zf_xiaoyi'], ['莫看我笑！取你性命，只需一手！', '花开一季，你的帅，撑不过一盘！', '别怕，很快就结束了！', '我笑一次，就有人输一次！', '梨花落尽，胜负已分！'],
              dict(), 'forest'),
     # 墨客：书生的冷，竹林里远远的回声
-    'moke': ('m', ['zm_yunyang', 'zm_yunjian'], ['行云流水，杀人不见血。请落梓！', '一笔一画，皆是杀机！', '胜负？我早已写好了！', '墨未甘，你已败！', '风雪千里，只为斩你一局！'],
-             dict(body=1.5, semis=0.5), 'forest'),
+    'moke': ('m', ['zm_yunyang'], ['行云流水，杀人不见血。请落梓！', '一笔一画，皆是杀机！', '胜负？我早已写好了！', '墨未甘，你已败！', '风雪千里，只为斩你一局！'],
+             dict(body=1.5, semis=1.0), 'forest'),
 }
 # 念的字里换过的同音字：查注音（Kokoro 是 misaki 的音标，标贝是分词以后查它的词典）这个字确实是这个音才念
 # （"斩匠"的匠 jiàng、"吃居"的居 jū、"落梓"的落 luò——标贝词典里"落子"是 lào zǐ）
@@ -518,16 +522,18 @@ def accuracy(got, text, tone=False):
     """听出来的拼音和原句的拼音对上几成：1 - 编辑距离 / 原句音节数。
     tone=True 连声调一起比（"墨未甘，你已败"听成"莫未干泥一拜"，不带声调全对；带声调"泥"ní ≠ "你"nǐ 就扣分——
     外国人说中文最明显的就是声调走样）"""
-    from pypinyin import Style, lazy_pinyin
+    from pypinyin import Style, lazy_pinyin, pinyin
 
     st = Style.TONE3 if tone else Style.NORMAL
-    a, b = lazy_pinyin(got, style=st), lazy_pinyin(han(text), style=st)
+    # 听出来的字按它所有的读音算（多音字："你的帅"听成"你的率"，率也念 shuài，是听对了）；原句按上下文的读音
+    a = [set(r) for r in pinyin(han(got), style=st, heteronym=True)]
+    b = lazy_pinyin(han(text), style=st)
     dp = list(range(len(b) + 1))
     for i in range(1, len(a) + 1):
         prev, dp[0] = dp[0], i
         for j in range(1, len(b) + 1):
             cur = dp[j]
-            dp[j] = min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] != b[j - 1]))
+            dp[j] = min(dp[j] + 1, dp[j - 1] + 1, prev + (b[j - 1] not in a[i - 1]))
             prev = cur
     return max(0.0, 1 - dp[len(b)] / max(1, len(b)))
 
@@ -615,6 +621,10 @@ def main():
         sys.exit(1)
 
 
+# 开场白里为了念准换的同音字 → 台词里的真字（intro.ts 里写的是真字）
+REAL = str.maketrans({'匠': '将', '梓': '子', '居': '车', '翔': '降', '洛': '落', '甘': '干'})
+
+
 def run_jobs(report, bad):
     # 每句喊声再加一个句号收尾的念法：标贝念"吃居！"时"吃"的送气弱了，两个识别器都听成"诗句"；"吃居。"就听得准
     plain = lambda cands: cands + [(t.replace('！', '。'), sp) for t, sp in cands if t.endswith('！')][:1]
@@ -649,14 +659,16 @@ def run_jobs(report, bad):
                 for text, speed in tries:
                     x, dry = voice_fx(speak(sid, text, speed), tone, space)
                     got = hear2(x.mean(axis=1))
-                    accs = [accuracy(gg, text) for gg in got]
+                    # 换过同音字的开场白，识别器写出真字（"翔者免死"听成"降者免死"、"一梓洛下"听成"一子落下"）也是听对了
+                    real = text.translate(REAL) if hero else text
+                    accs = [max(accuracy(gg, text), accuracy(gg, real)) for gg in got]
                     # 喊声：一个识别器听对就算（两个字的词识别器常常各听各的）；开场白：两个识别器的平均
                     acc = (min(accs) + max(accs)) / 2 if hero else max(accs)
                     tone_ok = max(tones(gg, text) for gg in got)
                     ex = tone_shape(dry, text)
                     if hero:
                         # 够准的里面：字音、声调两个识别器都听对得多的优先，再看声调形状
-                        tone_ok = sum(accuracy(gg, text, tone=True) for gg in got) / len(got)
+                        tone_ok = sum(max(accuracy(gg, text, tone=True), accuracy(gg, real, tone=True)) for gg in got) / len(got)
                         key = (acc >= need, round((acc + tone_ok) / 2, 2), round(ex, 1), -abs(speed - 1))
                     else:
                         key = (acc >= need, round(ex, 2), min(tone_ok, 0.8), -abs(speed - 1))
