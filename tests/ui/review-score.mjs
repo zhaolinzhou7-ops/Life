@@ -60,7 +60,7 @@ await page.getByText('复盘这一局').click();
 await page.waitForTimeout(600);
 const acc = await page.locator('.xq-rv-side.me b').textContent();
 console.log('   复盘里你的准确率：' + acc);
-ok('复盘直接用结算页那份分析（不重算），准确率已经有了', /^\d+$/.test(acc ?? ''));
+ok('复盘直接用结算页那份分析（不重算），准确率已经有了', /^\d+%$/.test(acc ?? ''));
 ok('优势曲线画出来了', await page.evaluate(() => {
   const c = document.querySelector('.xq-rv-graph');
   return !!c && c.width > 50;
