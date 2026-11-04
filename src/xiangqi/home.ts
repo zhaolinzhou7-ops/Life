@@ -18,6 +18,7 @@ import { initialBoard, type Color } from './rules';
 import { ERR_INFO, pawns } from './teach';
 import { todayProgress } from './daytasks';
 import { liftBack } from './navbar';
+import { engineCapable, engineProgress, onEngineProgress } from './pikafish';
 import {
   askPersist,
   describeBackup,
@@ -133,6 +134,29 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
     s.appendChild(box);
   }
 
+  // 皮卡鱼第一次要下 4.6MB：下的时候说一声进度（原来看不出来，网慢时第一盘头几步其实是自带引擎在算）
+  let offEngine: (() => void) | null = null;
+  if (engineCapable() && !engineProgress().ready) {
+    const st = document.createElement('div');
+    st.className = 'xq-engine-st';
+    st.dataset.home = 'engine';
+    const paint = () => {
+      const p = engineProgress();
+      if (p.ready) {
+        st.textContent = '♟ 皮卡鱼引擎已就绪';
+        st.classList.add('ok');
+        setTimeout(() => st.remove(), 2500);
+        offEngine?.();
+        offEngine = null;
+      } else if (p.loading) {
+        st.textContent = `⏬ 皮卡鱼引擎下载中 ${p.pct}%（约 4.6MB，只下这一次；下完以前，对局里先用自带引擎）`;
+      } else st.textContent = '';
+    };
+    paint();
+    offEngine = onEngineProgress(paint);
+    s.appendChild(st);
+  }
+
   // 进度只在这台手机的浏览器里：攒了值得保的东西、又很久没备份（iPhone 在 Safari 里开着更要紧——七天不用会被清），提醒一句
   void askPersist();
   if (act.onBackup && shouldNag({ games: games.length, srs: srs.total })) {
@@ -220,7 +244,10 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
   back.onclick = act.onExit;
   s.appendChild(back);
 
-  return () => s.remove();
+  return () => {
+    offEngine?.();
+    s.remove();
+  };
 }
 
 // ───────────────────────── 最近棋局 ─────────────────────────

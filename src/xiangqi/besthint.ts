@@ -73,11 +73,14 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: Hi
       <span class="xq-tip-icon">🔍</span>
       <span class="xq-tip-text">正在算这个局面的最优解…</span>
     </div>
-    <div class="xq-tip-status"></div>
-    <div class="xq-tip-plan"></div>
-    <div class="xq-tip-why"></div>
+    <div class="xq-tip-more" hidden>
+      <div class="xq-tip-alt"></div>
+      <div class="xq-tip-plan"></div>
+      <div class="xq-tip-why"></div>
+      <div class="xq-tip-status"></div>
+    </div>
     <div class="xq-tip-bar">
-      <button class="xq-btn" data-act="more">看完整梯次</button>
+      <button class="xq-btn" data-act="more">展开讲解</button>
       <button class="xq-btn primary" data-act="close">知道了</button>
     </div>`;
   opts.host.appendChild(el);
@@ -85,6 +88,10 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: Hi
   const elWhy = el.querySelector('.xq-tip-why') as HTMLElement;
   const elStatus = el.querySelector('.xq-tip-status') as HTMLElement;
   const elPlan = el.querySelector('.xq-tip-plan') as HTMLElement;
+  // 先短后长：一打开只有一句"最好是哪一手"，棋盘不被一大段字挤小（原来一打开棋盘就缩到一百七十像素宽）；
+  // 别的走法、计划、完整梯次、算到第几层都在"展开讲解"里
+  const elMoreBox = el.querySelector('.xq-tip-more') as HTMLElement;
+  const elAlt = el.querySelector('.xq-tip-alt') as HTMLElement;
   const elMore = el.querySelector('[data-act="more"]') as HTMLButtonElement;
   elMore.disabled = true;
 
@@ -101,8 +108,8 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: Hi
       close();
       opts.onClose();
     } else if (act === 'more' && latest) {
-      elWhy.classList.toggle('on');
-      elMore.textContent = elWhy.classList.contains('on') ? '收起' : '看完整梯次';
+      elMoreBox.hidden = !elMoreBox.hidden;
+      elMore.textContent = elMoreBox.hidden ? '展开讲解' : '收起';
     }
   });
 
@@ -129,22 +136,22 @@ export function showBestHint(opts: BestHintUI): { update: (r: HintResult, st: Hi
     if (lead && st.book) {
       const others = r.ranked.filter((x) => x !== lead && x.gap <= 30).slice(0, 2);
       const cracking = st.book.opening.startsWith('破解');
-      elText.innerHTML =
-        (cracking
-          ? `对方走的是邪门布局，这样破：<b>${lead.text}</b>（${bookWhy(st.book)}）。`
-          : `开局按定式走 <b>${lead.text}</b>（${bookWhy(st.book)}）。`) +
+      elText.innerHTML = cracking
+        ? `对方走的是邪门布局，这样破：<b>${lead.text}</b>（${bookWhy(st.book)}）。`
+        : `开局按定式走 <b>${lead.text}</b>（${bookWhy(st.book)}）。`;
+      elAlt.innerHTML =
         (others.length
           ? cracking
-            ? `　<span class="dim">引擎算下来 ${others.map((a) => a.text).join('、')} 也可以，${lead.text} 最简单、最不容易走错。</span>`
-            : `　<span class="dim">引擎算下来 ${others.map((a) => a.text).join('、')} 也差不多——分差都在 30 以内，开局阶段这点差别是误差，先把定式走熟。</span>`
-          : '') +
-        (st.note ? `<div class="xq-tip-note">${st.note}</div>` : '');
+            ? `<span class="dim">引擎算下来 ${others.map((a) => a.text).join('、')} 也可以，${lead.text} 最简单、最不容易走错。</span>`
+            : `<span class="dim">引擎算下来 ${others.map((a) => a.text).join('、')} 也差不多——差不到 0.3 个兵，开局阶段这点差别是误差，先把定式走熟。</span>`
+          : '') + (st.note ? `<div class="xq-tip-note">${st.note}</div>` : '');
     } else {
       const alt = r.ranked.slice(1, 3).filter((x) => x.gap <= 30);
       elText.innerHTML =
         `${st.done ? '最优' : '目前看最好'}是 <b>${r.best.text}</b>${r.best.why ? `（${r.best.why}）` : ''}。` +
-        (lost ? '　<span class="dim">局面已经挡不住杀了，这是最顽强的一手。</span>' : '') +
-        (alt.length ? `　<span class="dim">${alt.map((a) => a.text).join('、')} 也一样好。</span>` : '') +
+        (lost ? '　<span class="dim">局面已经挡不住杀了，这是最顽强的一手。</span>' : '');
+      elAlt.innerHTML =
+        (alt.length ? `<span class="dim">${alt.map((a) => a.text).join('、')} 也一样好。</span>` : '') +
         (st.note ? `<div class="xq-tip-note">${st.note}</div>` : '');
     }
     // 计划、对方的想法、残局要领：只报一手棋不够，要讲清接下来往哪儿走

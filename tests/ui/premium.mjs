@@ -138,7 +138,7 @@ for (const [id, t] of Object.entries(NEW)) {
   await page.screenshot({ path: `${OUT}/premium-${id}.png` });
 }
 // 对局里点 🎨 换下一套（敦煌飞天的下一套是"清晰护眼"）：底当场换回水墨远山（不用重进）
-await page.locator('#xq-look').click(); await page.waitForTimeout(600);
+await page.locator('#xq-more').click(); await page.waitForTimeout(150); await page.locator('#xq-look').click(); await page.waitForTimeout(600);
 ok('对局里换到普通棋盘：底当场换回水墨远山', (await page.evaluate(() => document.querySelector('.xq-ink-bg')?.dataset.bg)) === 'ink');
 
 // ───────── 出场：黑边、亮相一招、对阵 ─────────

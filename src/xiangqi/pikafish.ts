@@ -188,6 +188,58 @@ export function cooperativeStop(): boolean {
 
 const baseUrl = () => `${import.meta.env.BASE_URL}pika/`;
 
+/**
+ * 下载进度（首页那一行"皮卡鱼引擎下载中 45%"）。第一次打开要下 4.6MB：网慢的话第一盘的头几步是自带引擎在算，
+ * 原来界面上看不出来。服务器压缩过时 content-length 对不上解压后的大小，所以按已知的大小算
+ */
+const PIKA_BYTES = 500621 + 4103914;
+let progressBytes = 0;
+const progressCbs = new Set<() => void>();
+export function engineProgress(): { pct: number; ready: boolean; loading: boolean } {
+  return { pct: Math.min(99, Math.round((progressBytes / PIKA_BYTES) * 100)), ready, loading: !!loading && !ready };
+}
+export function onEngineProgress(cb: () => void): () => void {
+  progressCbs.add(cb);
+  return () => progressCbs.delete(cb);
+}
+const emitProgress = () => progressCbs.forEach((cb) => cb());
+
+/** 下载一个文件，边下边报进度（浏览器不给流就整个读） */
+async function fetchCounting(url: string, tag: string): Promise<ArrayBuffer> {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(tag);
+  if (!r.body) {
+    const b = await r.arrayBuffer();
+    progressBytes += b.byteLength;
+    emitProgress();
+    return b;
+  }
+  const reader = r.body.getReader();
+  const parts: Uint8Array[] = [];
+  let n = 0;
+  let last = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value);
+    n += value.length;
+    progressBytes += value.length;
+    // 别每一小块都刷界面：攒够 100KB 报一次
+    if (progressBytes - last > 100_000) {
+      last = progressBytes;
+      emitProgress();
+    }
+  }
+  const out = new Uint8Array(n);
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  emitProgress();
+  return out.buffer;
+}
+
 /** 给一个 Promise 加上限时：超时当作失败，别让教练一直等一个起不来的引擎 */
 function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
   return Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms))]);
@@ -204,10 +256,7 @@ export function loadEngine(): Promise<boolean> {
   loading = (async () => {
     try {
       const got = await within(
-        Promise.all([
-          fetch(baseUrl() + 'pikafish.wasm').then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('wasm')))),
-          fetch(baseUrl() + 'pikafish.data').then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error('data')))),
-        ]),
+        Promise.all([fetchCounting(baseUrl() + 'pikafish.wasm', 'wasm'), fetchCounting(baseUrl() + 'pikafish.data', 'data')]),
         60000,
       );
       if (!got) return false;
@@ -216,9 +265,12 @@ export function loadEngine(): Promise<boolean> {
       // 真的起一个试跑一下：能回 uciok 才算好
       const ok = await lanes.service.ensure();
       ready = ok;
+      emitProgress();
       return ok;
     } catch {
       return false;
+    } finally {
+      emitProgress();
     }
   })();
   return loading;

@@ -1141,12 +1141,32 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       <button class="moba-back xq-back">← 退出</button>
       <div class="xq-turn"><span id="xq-turn-dot"></span><span id="xq-turn-text">红方走棋</span></div>
       <div class="xq-actions">
-        <button class="xq-btn" id="xq-music" title="换一种配乐">🎵</button>
-        <button class="xq-btn" id="xq-look" title="换一套棋盘、棋子">🎨</button>
-        <button class="xq-btn" id="xq-mute">${isMuted() ? '🔇' : '🔊'}</button>
-        <button class="xq-btn" id="xq-best" title="问最优解：告诉我这一步该走哪"${rated ? ' hidden' : ''}>🔍</button>
-        <button class="xq-btn" id="xq-hint" title="教练提示档位"${rated ? ' hidden' : ''}>🧑‍🏫${HINT_LEVELS[hintLevel].short}</button>
+        <button class="xq-btn" id="xq-best" title="问最优解：告诉我这一步该走哪" aria-label="求助"${rated ? ' hidden' : ''}>🔍</button>
+        <button class="xq-btn" id="xq-hint" title="教练提示档位" aria-label="教练提示档位"${rated ? ' hidden' : ''}>🧑‍🏫${HINT_LEVELS[hintLevel].short}</button>
+        <button class="xq-btn" id="xq-more" title="配乐、样式、声音" aria-label="更多" aria-expanded="false">⋯</button>
+      </div>
+      <div class="xq-more-menu" hidden>
+        <button class="xq-btn" id="xq-music">🎵 换一种配乐</button>
+        <button class="xq-btn" id="xq-look">🎨 换一套棋盘</button>
+        <button class="xq-btn" id="xq-mute">${isMuted() ? '🔇 声音：关' : '🔊 声音：开'}</button>
       </div>`;
+    // 顶上原来一排六个 30 像素的小按钮（配乐、样式、声音、求助、教练、退出），手指点不准：
+    // 下棋时常用的求助、教练档留在外面（44 像素），配乐、样式、声音收进"⋯"
+    const moreBtn = hud.querySelector('#xq-more') as HTMLButtonElement;
+    const moreMenu = hud.querySelector('.xq-more-menu') as HTMLElement;
+    const setMore = (open: boolean) => {
+      moreMenu.hidden = !open;
+      moreBtn.setAttribute('aria-expanded', String(open));
+    };
+    moreBtn.onclick = (e) => {
+      e.stopPropagation();
+      setMore(moreMenu.hidden);
+    };
+    moreMenu.addEventListener('click', () => setTimeout(() => setMore(false), 0));
+    const closeMore = (e: Event) => {
+      if (!moreMenu.hidden && !hud.contains(e.target as Node)) setMore(false);
+    };
+    document.addEventListener('pointerdown', closeMore, true);
     wrap.appendChild(hud);
     (hud.querySelector('.xq-back') as HTMLButtonElement).onclick = async () => {
       // 下到一半点退出，多半是手滑。问一句，别让一盘棋无声无息地没了
@@ -1296,7 +1316,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
     const muteBtn = hud.querySelector('#xq-mute') as HTMLButtonElement;
     muteBtn.onclick = () => {
       setMuted(!isMuted());
-      muteBtn.textContent = isMuted() ? '🔇' : '🔊';
+      muteBtn.textContent = isMuted() ? '🔇 声音：关' : '🔊 声音：开';
     };
     // 🎵 换一种乐队：用户原话"每次下棋的感觉都不一样"——不喜欢就点一下换（局势不变，还是这会儿的情绪）
     const musicName = (m: ReturnType<typeof startXqMusic>) => (m ? `🎵 ${m.palette.name}（${m.key}）· ${m.palette.desc}` : '');
@@ -1312,7 +1332,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       const m = nextXqMusic();
       if (isMuted()) {
         setMuted(false);
-        muteBtn.textContent = '🔊';
+        muteBtn.textContent = '🔊 声音：开';
       }
       showToast(musicName(m), 3200);
     };
@@ -2646,6 +2666,7 @@ export function bootXiangqi(app: HTMLElement, onExit: (restart: boolean) => void
       clearTimeout(toastTimer);
       clearTimeout(bubbleTimer);
       clearInterval(clockTimer);
+      document.removeEventListener('pointerdown', closeMore, true);
       stopXqMusic();
       scene.dispose();
       disposeAi();

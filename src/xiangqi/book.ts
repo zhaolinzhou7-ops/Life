@@ -28,6 +28,13 @@ export interface BookMove {
 
 let book: Map<string, BookMove[]> | null = null;
 
+/** 一手定式出自几套布局时怎么叫：一套就叫它的名字；都是同一个体系叫体系名；不然只说是几套布局的共同走法 */
+export function sharedName(names: Set<string>, systems: Set<string>): string {
+  if (names.size === 1) return [...names][0];
+  if (systems.size === 1) return `${[...systems][0]}（${names.size} 套布局都这么走）`;
+  return `${names.size} 套布局都这么走`;
+}
+
 const same = (a: Move, b: Move) => a.fx === b.fx && a.fy === b.fy && a.tx === b.tx && a.ty === b.ty;
 /** 定式说明里带 <b> 标记，而且往往好几句；求助面板只要第一句 */
 const firstSentence = (html: string) => html.replace(/<[^>]+>/g, '').split('。')[0] + '。';
@@ -36,9 +43,15 @@ function build(): Map<string, BookMove[]> {
   const map = new Map<string, BookMove[]>();
   // 只有谱上的着法（人写的定式）算定式；引擎延伸出来的那一截不算——它们是"好棋"，不是"定式"
   const lines = OPENINGS.flatMap((o) => [
-    { name: o.name, moves: o.moves },
-    ...o.variations.map((v) => ({ name: o.name, moves: [...o.moves.slice(0, v.at), ...v.moves] })),
+    { name: o.name, system: o.system, moves: o.moves },
+    ...o.variations.map((v) => ({ name: o.name, system: o.system, moves: [...o.moves.slice(0, v.at), ...v.moves] })),
   ]);
+  /**
+   * 同一个局面、同一手棋出现在好几套布局里（中炮之后的马8进7，屏风马、左炮封车、三步虎都这么走），
+   * 原来记的是第一套的名字——才走一步就说成"中炮过河车对屏风马（平炮兑车）"，说早了。
+   * 记下所有出处，最后按共同的那一层起名
+   */
+  const names = new Map<BookMove, { names: Set<string>; systems: Set<string> }>();
   for (const o of lines) {
     let b = initialBoard();
     let c: Color = 'r';
@@ -48,12 +61,21 @@ function build(): Map<string, BookMove[]> {
       if (!m) break; // 数据有误就停在这里，不往下猜
       const key = toFen(b, c);
       const list = map.get(key) ?? [];
-      if (!list.some((x) => same(x.move, m))) list.push({ move: m, text: om.t, why: firstSentence(om.why), opening: o.name });
+      let bm = list.find((x) => same(x.move, m));
+      if (!bm) {
+        bm = { move: m, text: om.t, why: firstSentence(om.why), opening: o.name };
+        list.push(bm);
+      }
+      const src = names.get(bm) ?? { names: new Set<string>(), systems: new Set<string>() };
+      src.names.add(o.name);
+      src.systems.add(o.system);
+      names.set(bm, src);
       map.set(key, list);
       b = applyMove(b, m);
       c = c === 'r' ? 'b' : 'r';
     }
   }
+  for (const [bm, src] of names) bm.opening = sharedName(src.names, src.systems);
   // 邪门布局的破解也算定式：对方走了邪门着之后，破解那几手教练不拦，求助里以它领衔。
   // 这几手都过了 tools/check-tricks.ts 的引擎复核
   for (const t of TRICKS) {

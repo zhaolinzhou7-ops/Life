@@ -110,7 +110,7 @@ await page.getByText('开始对弈').first().click(); await page.waitForTimeout(
 const gameLook = () => page.locator('.xq-boardwrap canvas.xq-b2d').first().getAttribute('data-look');
 ok('对局的棋盘就是选好的那一套', (await gameLook()) === 'jade/jade/wenkai/trad');
 await page.screenshot({ path: OUT + '/looks-game.png' });
-await page.locator('#xq-look').click(); await page.waitForTimeout(800);
+await page.locator('#xq-more').click(); await page.waitForTimeout(150); await page.locator('#xq-look').click(); await page.waitForTimeout(800);
 ok('对局里点 🎨 换下一套（青花汉白玉），当场重画', (await gameLook()) === 'marble/porcelain/xiaowei');
 await page.screenshot({ path: OUT + '/looks-game2.png' });
 

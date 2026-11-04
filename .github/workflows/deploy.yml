@@ -29,6 +29,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # 先跑单元测试（一千一百多条，半分钟），过不了就不部署：原来只打包，测试全靠手动跑，坏了也照样上线
+      - run: npm test
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -59,7 +59,7 @@ ok('将军、吃子、终局的点缀放得出来、不报错', !errs.length);
 
 // 🎵：换下一种
 const before = (await page.evaluate(() => window.__xqMusic.current()))?.palette.id;
-await page.locator('#xq-music').click(); await page.waitForTimeout(300);
+await page.locator('#xq-more').click(); await page.waitForTimeout(150); await page.locator('#xq-music').click(); await page.waitForTimeout(300);
 const after = (await page.evaluate(() => window.__xqMusic.current()))?.palette.id;
 ok(`点 🎵 换一种乐队（${before} → ${after}）`, !!after && after !== before);
 

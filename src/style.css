@@ -3883,12 +3883,33 @@ canvas {
 .xq-back { white-space: nowrap; }
 
 @media (max-width: 400px) {
-  .xq-hud { gap: 3px; padding-left: 4px; padding-right: 4px; }
-  .xq-hud .xq-btn,
-  .xq-hud .xq-back { padding: 6px 7px; font-size: 11.5px; }
-  .xq-turn { padding: 6px 7px; font-size: 11.5px; gap: 5px; }
-  .xq-actions { gap: 3px; }
+  .xq-hud { gap: 4px; padding-left: 6px; padding-right: 6px; }
+  .xq-hud .xq-back { padding: 6px 9px; font-size: 13px; }
+  .xq-turn { padding: 6px 9px; font-size: 13px; gap: 5px; }
+  .xq-actions { gap: 4px; }
 }
+
+/* 顶上的按钮至少 44 像素见方（苹果、安卓的建议），字 13px 起：原来 30×29、11.5px，手指点不准、看着费劲 */
+.xq-hud .xq-actions .xq-btn { min-width: 44px; min-height: 44px; padding: 0 8px; font-size: 16px; display: inline-flex; align-items: center; justify-content: center; }
+.xq-hud .xq-back { min-height: 44px; }
+.xq-hud .xq-turn { min-height: 36px; box-sizing: border-box; }
+.xq-hud #xq-more { font-size: 20px; font-weight: 700; letter-spacing: 1px; }
+.xq-more-menu {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 54px);
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(8, 14, 20, 0.95);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  z-index: 20;
+}
+.xq-more-menu[hidden] { display: none; }
+.xq-more-menu .xq-btn { min-height: 44px; min-width: 168px; padding: 0 14px; font-size: 15px; text-align: left; border-radius: 12px; }
 
 /* ---------- 窄屏适配 ---------- */
 /* 手机端优先：主要操作必须适合单手，面板一律贴底 */
@@ -4099,14 +4120,17 @@ canvas {
 .xq-bar {
   flex: none;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* 正式对局没有悔棋：几个按钮就分几格，不留空位 */
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 6px;
   padding: 0 10px;
   z-index: 12;
 }
 .xq-bar .xq-btn {
+  min-height: 44px;
   padding: 8px 4px;
-  font-size: 12.5px;
+  font-size: 14px;
   border-radius: 12px;
   text-align: center;
 }
@@ -4162,7 +4186,7 @@ canvas {
 .xq-rv-item .f { font-size: 11px; margin-left: 2px; }
 
 @media (max-height: 700px) {
-  .xq-bar .xq-btn { padding: 6px 4px; }
+  .xq-bar .xq-btn { padding: 6px 4px; min-height: 40px; }
   .xq-coachline { font-size: 11.5px; padding: 3px 8px; }
 }
 
@@ -4483,13 +4507,18 @@ canvas {
  * 求助面板、教练提示条里有计划时，面板高了不少，会盖住棋盘下半截（你自己的子和推荐的箭头）。
  * 和展开"为什么"时一样：棋盘挪到上面，头像和吃子托盘先收起来。
  */
-.xq-root:has(.xq-tip .xq-plan) .xq-play {
+/* 求助面板的计划收在"展开讲解"里：收着的时候不算（不然面板只有一句话，棋盘还是被挪上去缩小） */
+.xq-root:has(.xq-tip:not(.xq-besthint) .xq-plan) .xq-play,
+.xq-root:has(.xq-besthint .xq-tip-more:not([hidden]) .xq-plan) .xq-play {
   justify-content: flex-start;
   bottom: 47vh;
 }
-.xq-root:has(.xq-tip .xq-plan) .xq-tray,
-.xq-root:has(.xq-tip .xq-plan) .xq-rivalbox,
-.xq-root:has(.xq-tip .xq-plan) .xq-bubble { display: none; }
+.xq-root:has(.xq-tip:not(.xq-besthint) .xq-plan) .xq-tray,
+.xq-root:has(.xq-tip:not(.xq-besthint) .xq-plan) .xq-rivalbox,
+.xq-root:has(.xq-tip:not(.xq-besthint) .xq-plan) .xq-bubble,
+.xq-root:has(.xq-besthint .xq-tip-more:not([hidden]) .xq-plan) .xq-tray,
+.xq-root:has(.xq-besthint .xq-tip-more:not([hidden]) .xq-plan) .xq-rivalbox,
+.xq-root:has(.xq-besthint .xq-tip-more:not([hidden]) .xq-plan) .xq-bubble { display: none; }
 .xq-tip:has(.xq-plan) { max-height: 46vh; }
 .xq-root:has(.xq-tip-why.on) .xq-play { bottom: 58vh; }
 .xq-tip:has(.xq-tip-why.on) { max-height: 56vh; }
@@ -6625,3 +6654,25 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
 .xq-clock.low { color: #ff6b5e; font-weight: 700; animation: xq-clock-low 1s ease-in-out infinite; }
 @keyframes xq-clock-low { 50% { opacity: 0.55; } }
 .xq-tc-row .card .title { font-size: 14px; }
+
+/* 求助面板先短后长（besthint.ts）：一打开只有一句话，棋盘不缩；"展开讲解"才出别的走法、计划、完整梯次 */
+.xq-besthint .xq-tip-more .xq-tip-why { display: block; }
+.xq-besthint .xq-tip-more[hidden] { display: none; }
+.xq-besthint .xq-tip-more { max-height: 40vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.xq-besthint .xq-tip-alt:empty { display: none; }
+.xq-besthint .xq-tip-alt { margin-top: 6px; font-size: 13px; line-height: 1.6; }
+.xq-root:has(.xq-besthint .xq-tip-more:not([hidden])) .xq-play { justify-content: flex-start; bottom: 58vh; }
+.xq-root:has(.xq-besthint .xq-tip-more:not([hidden])) .xq-tray,
+.xq-root:has(.xq-besthint .xq-tip-more:not([hidden])) .xq-rivalbox,
+.xq-root:has(.xq-besthint .xq-tip-more:not([hidden])) .xq-bubble { display: none; }
+
+/* 对局两边那两框的小字：原来 10.5～11.5px，看着费劲，提到 12～13px；正式对局的倒计时要一眼看得清 */
+.xq-rivalbox .info span,
+.xq-mebox .info span { font-size: 12px; }
+.xq-clock { font-size: 13px; }
+/* 求助收起的时候计划在面板里藏着，不收你这一框 */
+.xq-root:has(.xq-besthint .xq-tip-more[hidden]):not(:has(.xq-tip:not(.xq-besthint) .xq-plan)):not(:has(.xq-tip-why.on)) .xq-mebox { display: flex; }
+/* 皮卡鱼下载进度（象棋首页） */
+.xq-engine-st { width: min(560px, 92vw); margin: 0 auto 10px; font-size: 13px; color: rgba(240, 230, 210, 0.75); text-align: left; line-height: 1.5; }
+.xq-engine-st:empty { display: none; }
+.xq-engine-st.ok { color: #6fe09a; }
