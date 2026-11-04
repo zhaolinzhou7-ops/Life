@@ -12,7 +12,7 @@
  *   B 下完一盘能不能知道自己错在哪
  *   C 的画像是不是建立在真实数据上、训练是不是真按短板排的
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { memStore } from './setup-dom';
 import { applyMove, initialBoard, legalMoves, statusAfter, type Board, type Color, type Move } from '../src/xiangqi/rules';
 import { bestMove, judgeMove, resetEngine } from '../src/xiangqi/ai';
@@ -46,7 +46,8 @@ function playGame(
     if (statusAfter(b, c) !== 'playing') {
       return { moves, result: c === 'r' ? 'loss' : 'win' };
     }
-    const m = c === 'r' ? redPolicy(b) : bestMove(b, 'b', opts.blackDepth ?? 3, 40, 100)!;
+    // 时间给足（5 秒），让深度封顶而不是时间封顶：不然快慢不同的机器（本机、GitHub 上跑测试的机器）下出来的棋不一样
+    const m = c === 'r' ? redPolicy(b) : bestMove(b, 'b', opts.blackDepth ?? 3, 40, 5000)!;
     if (!m) break;
     moves.push(m);
     b = applyMove(b, m);
@@ -159,15 +160,19 @@ describe('用户B：会下棋，水平一般', () => {
   it('下完一盘 → 自动存档 → 复盘 → 知道自己最该改哪一手', () => {
     let seed = 99;
     const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    // 引擎的"手感"（jitter）用的是 Math.random：换成定好种子的，整盘棋在哪台机器上都一样
+    let seed2 = 7;
+    const spy = vi.spyOn(Math, 'random').mockImplementation(() => ((seed2 = (seed2 * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff));
     // "水平一般"：大部分时候走引擎前几名，偶尔走一手随机的
     const { moves, result } = playGame(
       (b) => {
         const ms = legalMoves(b, 'r');
         if (rnd() < 0.3) return ms[(rnd() * ms.length) | 0];
-        return bestMove(b, 'r', 2, 60, 60) ?? ms[0];
+        return bestMove(b, 'r', 2, 60, 5000) ?? ms[0];
       },
       { maxPlies: 40 },
     );
+    spy.mockRestore();
     expect(moves.length).toBeGreaterThan(10);
 
     // 存档
