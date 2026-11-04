@@ -27,10 +27,10 @@ import { ratingRange } from '../src/xiangqi/puzzles';
 
 beforeEach(() => memStore.clear());
 
-const DAMEI = AI_LEVEL_NAMES.indexOf('大师');
+const DAMEI = AI_LEVEL_NAMES.indexOf('第 5 档');
 
 describe('实战分', () => {
-  it('一直输给"大师"，实战分落到"大师"以下', () => {
+  it('一直输给第 5 档，实战分落到第 5 档以下', () => {
     for (let i = 0; i < 6; i++) recordPlay({ opp: AI_LEVEL_RATING[DAMEI], res: 0, w: 1, who: '大师' });
     expect(honestLevel().r).toBeLessThan(AI_LEVEL_RATING[DAMEI]);
     expect(honestLevel().source).toBe('play');
@@ -70,8 +70,8 @@ describe('实战分', () => {
   it('推荐的对手在实战分附近', () => {
     // 实战分正好等于某一档：就推荐那一档（赢一半输一半最涨棋）
     AI_LEVEL_RATING.forEach((r, i) => expect(suggestLevel(r), AI_LEVEL_NAMES[i]).toBe(i));
-    expect(AI_LEVEL_NAMES[suggestLevel(AI_LEVEL_RATING[2] + 60)]).toBe('中级');
-    expect(AI_LEVEL_NAMES[suggestLevel(300)]).toBe('入门');
+    expect(AI_LEVEL_NAMES[suggestLevel(AI_LEVEL_RATING[2] + 60)]).toBe('第 3 档');
+    expect(AI_LEVEL_NAMES[suggestLevel(300)]).toBe('第 1 档');
     expect(suggestLevel(AI_LEVEL_RATING[DAMEI])).toBe(DAMEI);
   });
 });

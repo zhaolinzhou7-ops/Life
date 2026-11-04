@@ -208,7 +208,7 @@ export function offlineText(f: Facts): string {
         if (f.bestLine?.length) bits.push(`走完之后大致是：${joinLine(f.bestLine)}。`);
       }
       if (f.loss && f.loss >= 200) {
-        bits.push(`\n\n这一手大约亏了 ${f.loss} 分`);
+        bits.push(`\n\n这一手大约亏了 ${(f.loss / 100).toFixed(1)} 个兵`);
         bits.push(f.loss >= 900 ? '，相当于白丢一个车。' : f.loss >= 420 ? '，相当于白丢一个马或炮。' : '。');
       }
       return bits.join('');
@@ -283,7 +283,7 @@ function deepText(f: Facts): string {
           ? '和首选同分'
           : f.place.gap >= 9999
             ? '首选能成杀，这一手不能'
-            : `比首选落后 ${f.place.gap} 分`;
+            : `比首选落后约 ${(f.place.gap / 100).toFixed(1)} 个兵`;
     P.push(`**你走的 ${f.played ?? ''}：${f.place.tier}**　排第 ${f.place.rank}，${gap}。`);
   } else if (f.played) {
     P.push(`**你走的：${f.played}**`);

@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { chooseMove, PIKA_LEVELS, type Cand } from '../src/xiangqi/pikalevel';
-import { AI_LEVEL_NAMES, AI_LEVEL_RATING, LADDER, LEVEL_FLOOR, migrateLevel, opponentFor } from '../src/xiangqi/save';
+import { AI_LEVEL_NAMES, AI_LEVEL_RATING, LADDER, LEVEL_FLOOR, migrateLevel, OLD_LEVEL_NAMES, opponentFor } from '../src/xiangqi/save';
 import { endgameTarget } from '../src/xiangqi/train';
 import type { Puzzle } from '../src/xiangqi/puzzles';
 
@@ -58,44 +58,53 @@ describe('按档位挑着', () => {
   });
 });
 
-describe('十四档配置', () => {
-  it('十四档，名字、分数、配置一一对应，分数一档比一档高', () => {
-    expect(PIKA_LEVELS.length).toBe(14);
-    expect(AI_LEVEL_NAMES.length).toBe(14);
-    expect(AI_LEVEL_RATING.length).toBe(14);
-    for (let i = 1; i < 14; i++) expect(AI_LEVEL_RATING[i]).toBeGreaterThan(AI_LEVEL_RATING[i - 1]);
+describe('十二档配置', () => {
+  it('十二档，名字、分数、配置一一对应，分数一档比一档高', () => {
+    expect(PIKA_LEVELS.length).toBe(12);
+    expect(AI_LEVEL_NAMES.length).toBe(12);
+    expect(AI_LEVEL_RATING.length).toBe(12);
+    for (let i = 1; i < 12; i++) expect(AI_LEVEL_RATING[i]).toBeGreaterThan(AI_LEVEL_RATING[i - 1]);
   });
 
-  it('大师往上细分成十档，一档之间不超过两百分（用户原话："至少要从大师档位起步""如果现在的 7 个等级不够分，需要再增加等级"）', () => {
+  it('不用真实的棋手称号（大师、特级大师、国手、棋王、棋圣）当档位名：按编号叫', () => {
+    for (const n of AI_LEVEL_NAMES) expect(n).not.toMatch(/大师|国手|棋王|棋圣/);
+    expect(AI_LEVEL_NAMES[0]).toBe('第 1 档');
+    expect(AI_LEVEL_NAMES[11]).toBe('第 12 档');
+  });
+
+  it('第 5 档往上细分成八档，一档之间至少差六十分（分得出高低）、不超过两百分', () => {
     const top = AI_LEVEL_RATING.slice(LEVEL_FLOOR);
-    expect(AI_LEVEL_NAMES[LEVEL_FLOOR]).toBe('大师');
-    expect(top.length).toBe(10);
-    for (let i = 1; i < top.length; i++) expect(top[i] - top[i - 1]).toBeLessThanOrEqual(200);
-    // 给你排对手不低于大师
+    expect(AI_LEVEL_NAMES[LEVEL_FLOOR]).toBe('第 5 档');
+    expect(top.length).toBe(8);
+    for (let i = 1; i < top.length; i++) {
+      expect(top[i] - top[i - 1]).toBeLessThanOrEqual(200);
+      expect(top[i] - top[i - 1]).toBeGreaterThanOrEqual(60);
+    }
+    // 给你排对手不低于第 5 档
     expect(opponentFor(600)).toBe(LEVEL_FLOOR);
     expect(opponentFor(AI_LEVEL_RATING[9])).toBe(9);
   });
 
-  it('最高三档不削弱：只走引擎第一名，按节点数算（和设备快慢无关），一档比一档算得多', () => {
-    const top = PIKA_LEVELS.slice(-3);
-    expect(AI_LEVEL_NAMES.slice(-3)).toEqual(['国手 · 二段', '棋王', '棋圣']);
-    for (const cfg of top) {
-      expect(cfg.multipv).toBe(1);
-      expect(cfg.slip).toBe(0);
-      expect(cfg.nodes).toBeGreaterThanOrEqual(150000);
-      // 时间只是封顶：快的设备节点数先到
-      expect(cfg.movetime).toBeGreaterThan(cfg.nodes! / 100);
-    }
-    // 棋王不比原来"电脑上想 3 秒"（约 45 万节点）弱
-    expect(PIKA_LEVELS[AI_LEVEL_NAMES.indexOf('棋王')].nodes).toBeGreaterThanOrEqual(450000);
+  it('最高一档不削弱：只走引擎第一名，按节点数算（和设备快慢无关），用原来棋圣的 120 万节点', () => {
+    const cfg = PIKA_LEVELS[PIKA_LEVELS.length - 1];
+    expect(cfg.multipv).toBe(1);
+    expect(cfg.slip).toBe(0);
+    expect(cfg.nodes).toBe(1200000);
+    // 时间只是封顶：快的设备节点数先到
+    expect(cfg.movetime).toBeGreaterThan(cfg.nodes! / 100);
+    // 下面一档还在削弱
+    expect(PIKA_LEVELS[PIKA_LEVELS.length - 2].multipv).toBeGreaterThan(1);
   });
 
-  it('老存档的档位编号换成新编号：名字不变', () => {
+  it('老存档的档位编号换成新编号：同一个对手（最上面三档并进第 12 档）', () => {
+    const NOW = (old: string) => Math.min(11, OLD_LEVEL_NAMES.indexOf(old));
     const V1 = ['入门', '初级', '中级', '高级', '大师', '特级大师', '棋王'];
-    V1.forEach((name, i) => expect(AI_LEVEL_NAMES[migrateLevel(i)]).toBe(name));
-    V1.forEach((name, i) => expect(AI_LEVEL_NAMES[migrateLevel(i, 1)]).toBe(name));
+    V1.forEach((name, i) => expect(migrateLevel(i), name).toBe(NOW(name)));
+    V1.forEach((name, i) => expect(migrateLevel(i, 1), name).toBe(NOW(name)));
     const V2 = ['入门', '初级', '中级', '高级', '大师', '大师 · 二段', '特级大师', '特级大师 · 二段', '特级大师 · 三段', '国手', '棋王'];
-    V2.forEach((name, i) => expect(AI_LEVEL_NAMES[migrateLevel(i, 2)]).toBe(name));
+    V2.forEach((name, i) => expect(migrateLevel(i, 2), name).toBe(NOW(name)));
+    OLD_LEVEL_NAMES.forEach((name, i) => expect(migrateLevel(i, 3), name).toBe(NOW(name)));
+    expect([11, 12, 13].map((i) => migrateLevel(i, 3))).toEqual([11, 11, 11]);
   });
 
   it('越往上算得越多、挑得越认真', () => {

@@ -107,11 +107,11 @@ const p2 = await (await browser.newContext({ viewport: { width: 390, height: 844
 // 出场人物（四秒多的过场）另有 hero.mjs 测，这里直接开局
 await p2.addInitScript(() => { try { if (!localStorage.getItem('xq-hero')) localStorage.setItem('xq-hero', 'off'); } catch { /* 无痕模式 */ } });
 p2.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
-await openGame(p2, '棋王');
+await openGame(p2, '第 12 档');
 await until(p2, () => window.__xq.engine() === 'pro', null, 15000);
 await p2.evaluate(() => window.__xq.play({ fx: 7, fy: 7, tx: 4, ty: 7 }));
-ok('棋王档对手在合理时间内回了一手', await until(p2, () => window.__xq.moves().length >= 2, null, 20000));
-ok('棋王档对手用的是专业引擎', (await p2.evaluate(() => window.__xq.aiEngine())) === 'pro');
+ok('第 12 档对手在合理时间内回了一手', await until(p2, () => window.__xq.moves().length >= 2, null, 20000));
+ok('第 12 档对手用的是专业引擎', (await p2.evaluate(() => window.__xq.aiEngine())) === 'pro');
 await p2.close();
 
 // ── 最低档也是皮卡鱼（按档位削弱），不再是自带引擎 ──

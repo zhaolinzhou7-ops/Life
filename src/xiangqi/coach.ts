@@ -79,7 +79,7 @@ import { listGames } from './archive';
 import { setHintLevel, getHintLevel } from './livecoach';
 import { CHECK_GAMES, checkLesson, closeIntro, getLessonLog, habitCounts, isSkill, markStep, pickPlayout, planLesson, ratePerGame, startLesson, themeName, type Lesson, type Step } from './tutor';
 import { roleOf } from './endgame';
-import { ERR_INFO, inPieces, type ErrTag } from './teach';
+import { ERR_INFO, inPieces, pawns, type ErrTag } from './teach';
 import { Board2D } from './board2d';
 import { fromFen, toFen } from './notation';
 import { STAGES, stageFor, gameGate, graduateStatus, dailyPlan, focusDim, nextMilestone, WEEK_PLAN, PRO_PRINCIPLES, prescribeFocus, monthGoals, weekFor, type Block, type TrainInput } from './curriculum';
@@ -460,8 +460,8 @@ export function runCoach(
         ps.trend === null
           ? '再下几盘就能看出趋势。'
           : ps.trend > 0
-            ? `比之前 ${ps.games} 盘平均亏损<b>降了 ${ps.trend} 分</b>——在涨棋。`
-            : `比之前 ${ps.games} 盘平均亏损高了 ${-ps.trend} 分，最近可能下得急了。`
+            ? `比之前 ${ps.games} 盘平均每手亏损<b>少了约 ${pawns(ps.trend)}</b>——在涨棋。`
+            : `比之前 ${ps.games} 盘平均每手亏损多了约 ${pawns(ps.trend)}，最近可能下得急了。`
       }</div>`;
     return card;
   }

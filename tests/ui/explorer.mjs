@@ -256,7 +256,8 @@ ok('点进去就是自己执红走主线', (await page.locator('.xq-rp').count()
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => { localStorage.clear(); localStorage.setItem('xq-power', 'save'); });
 await page.reload({ waitUntil: 'networkidle' });
-await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
+// 进过象棋再刷新，地址带着 ?app=xiangqi，直接回到象棋首页；没进过才在合集首页点
+if (await page.getByText('中国象棋', { exact: false }).count()) await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
 await page.locator('[data-home="games"]').click(); await page.waitForTimeout(400);
 await page.locator('[data-act="import-game"]').click(); await page.waitForTimeout(150);
 await page.locator('[data-imp-text]').fill('1. 炮二平五 马8进7');
@@ -286,7 +287,7 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => { localStorage.setItem('xq-hint-level', '2'); localStorage.setItem('xq-power', 'save'); });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
 await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
-await page.evaluate(() => { const d = document.querySelector('.xq-lowlv'); if (d) d.open = true; }); await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
+await page.evaluate(() => { const d = document.querySelector('.xq-lowlv'); if (d) d.open = true; }); await page.locator('.diff-row .card', { hasText: '第 1 档' }).first().click();
 await page.getByText('执红先行').first().click();
 await page.getByText('开始对弈').first().click();
 await until(page, () => window.__xq && window.__xq.turn() === 'r' && !window.__xq.state().busy, null, 15000);

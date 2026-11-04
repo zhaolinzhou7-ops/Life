@@ -12,12 +12,25 @@
  */
 import { Board2D } from './board2d';
 import { buildProfile, type Profile } from './insight';
-import { archiveFromBoard, getGame, listGames, openGame, type ArchivedGame } from './archive';
+import { archiveFromBoard, droppedCount, getGame, listGames, openGame, type ArchivedGame } from './archive';
 import { parseImport, parseMoves } from './explorer';
 import { initialBoard, type Color } from './rules';
-import { ERR_INFO } from './teach';
+import { ERR_INFO, pawns } from './teach';
 import { todayProgress } from './daytasks';
 import { liftBack } from './navbar';
+import {
+  askPersist,
+  describeBackup,
+  iosTab,
+  isStandalone,
+  lastBackupAt,
+  makeBackup,
+  parseBackup,
+  restoreBackup,
+  saveBackupFile,
+  shouldNag,
+  snoozeNag,
+} from './backup';
 import {
   DIM_INFO,
   DIMS,
@@ -47,6 +60,8 @@ export interface HomeActions {
   onTutor?: () => void;
   /** 棋盘、棋子样式 */
   onLook?: () => void;
+  /** 备份 / 恢复进度 */
+  onBackup?: () => void;
   onExit: () => void;
   /**
    * 有一盘没下完的棋（被系统杀掉的后台页面、刷新、手滑关掉）。
@@ -118,6 +133,34 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
     s.appendChild(box);
   }
 
+  // 进度只在这台手机的浏览器里：攒了值得保的东西、又很久没备份（iPhone 在 Safari 里开着更要紧——七天不用会被清），提醒一句
+  void askPersist();
+  if (act.onBackup && shouldNag({ games: games.length, srs: srs.total })) {
+    const nag = document.createElement('div');
+    nag.className = 'xq-backup-nag';
+    nag.dataset.home = 'backup-nag';
+    const last = lastBackupAt();
+    nag.innerHTML = `
+      <div class="txt"><b>💾 存一份进度</b><span>${
+        iosTab()
+          ? 'iPhone 的 Safari 七天不打开这个网站，会把进度清掉。备份一份，或者加到主屏幕。'
+          : last
+            ? `上次备份是 ${last.toLocaleDateString('sv')}，之后又攒了不少，再存一份。`
+            : '下过的棋、错题本、实战分都只存在这台手机的浏览器里，换手机、清数据就没了。'
+      }</span></div>
+      <button class="xq-btn primary" data-act="go">备份</button>
+      <button class="xq-btn" data-act="later">以后再说</button>`;
+    nag.addEventListener('click', (e) => {
+      const a = (e.target as HTMLElement).closest('[data-act]')?.getAttribute('data-act');
+      if (a === 'go') act.onBackup?.();
+      else if (a === 'later') {
+        snoozeNag();
+        nag.remove();
+      }
+    });
+    s.appendChild(nag);
+  }
+
   // 首页只留三件事（用户原话："界面上的信息太多、太繁杂了……布局、战术、杀法、残局这些内容到处都是，非常混乱。
   // 我希望有一个统一的私教入口"）：练棋全在私教里，一级一级往下选；下棋；看自己的棋。
   const list = document.createElement('div');
@@ -162,6 +205,14 @@ export function renderHome(host: HTMLElement, act: HomeActions): () => void {
     look.onclick = act.onLook;
     s.appendChild(look);
   }
+  if (act.onBackup) {
+    const bk = document.createElement('button');
+    bk.className = 'btn ghost xq-home-look';
+    bk.dataset.home = 'backup';
+    bk.textContent = '💾 备份 / 恢复进度';
+    bk.onclick = act.onBackup;
+    s.appendChild(bk);
+  }
 
   const back = document.createElement('button');
   back.className = 'btn ghost';
@@ -196,7 +247,19 @@ export function renderGameList(
   } else {
     const list = document.createElement('div');
     list.className = 'xq-glist';
-    for (const g of games) {
+    // 能存五百盘了：一次先列六十盘，往下再点着看更早的
+    const PAGE = 60;
+    let shown = 0;
+    const more = document.createElement('button');
+    more.className = 'btn ghost xq-glist-more';
+    const addRows = () => {
+      for (const g of games.slice(shown, shown + PAGE)) list.appendChild(rowOf(g));
+      shown = Math.min(games.length, shown + PAGE);
+      more.textContent = `再看更早的 ${Math.min(PAGE, games.length - shown)} 盘（一共 ${games.length} 盘）`;
+      more.hidden = shown >= games.length;
+    };
+    more.onclick = addRows;
+    const rowOf = (g: ArchivedGame) => {
       const row = document.createElement('button');
       row.className = `xq-grow ${g.result}`;
       const plies = Math.ceil(g.moves.length / 4 / 2);
@@ -209,13 +272,22 @@ export function renderGameList(
         </span>
         <span class="tail">${
           rv
-            ? `${typeof rv.accuracy === 'number' ? `<em class="acc">准确率 ${rv.accuracy}</em>` : ''}<em class="${rv.blunders ? 'bad' : ''}">漏着 ${rv.blunders}</em><em>失误 ${rv.mistakes}</em>`
+            ? `${typeof rv.accuracy === 'number' ? `<em class="acc">准确率 ${rv.accuracy}%</em>` : ''}<em class="${rv.blunders ? 'bad' : ''}">漏着 ${rv.blunders}</em><em>失误 ${rv.mistakes}</em>`
             : '<em class="dim">未分析</em>'
         }</span>`;
       row.onclick = () => onOpen(g);
-      list.appendChild(row);
-    }
+      return row;
+    };
+    addRows();
     s.appendChild(list);
+    s.appendChild(more);
+    const lost = droppedCount();
+    if (lost) {
+      const note = document.createElement('div');
+      note.className = 'xq-empty-note dim';
+      note.textContent = `手机存储不够时删掉过最早的 ${lost} 盘。到首页"备份 / 恢复进度"存一份，换手机、清数据也不怕。`;
+      s.appendChild(note);
+    }
   }
 
   // 导入一盘棋来复盘：天天象棋、东萍、象棋巫师复制出来的中文棋谱都行。导进来的棋照样逐手打分、
@@ -262,6 +334,96 @@ export function renderGameList(
   s.appendChild(imp);
   s.appendChild(back);
   liftBack(s, '我的棋局');
+  return () => s.remove();
+}
+
+// ───────────────────────── 备份 / 恢复 ─────────────────────────
+
+/**
+ * 进度存成一个文件、再从文件导回来。恢复是**换掉**现在的进度：先给人看清楚两边各有什么，再点确认。
+ * onRestored：恢复完重新载入（各处读进度的地方都从头读一遍）
+ */
+export function renderBackup(host: HTMLElement, onBack: () => void, onRestored: () => void): () => void {
+  const s = document.createElement('div');
+  s.className = 'screen xq-setup xq-backup';
+  host.appendChild(s);
+  const now = describeBackup(makeBackup());
+  const last = lastBackupAt();
+  s.innerHTML = `
+    <h1>备份 / 恢复进度</h1>
+    <div class="sub">进度都存在这台手机的浏览器里：换手机、清浏览器数据都会丢。隔一阵存一份文件，丢了能找回来。</div>
+    <div class="xq-backup-now">
+      <div><b>${now.games}</b><span>盘棋</span></div>
+      <div><b>${now.srs}</b><span>道错题</span></div>
+      <div><b>${now.solved}</b><span>道做对过的题</span></div>
+    </div>
+    <div class="xq-backup-st" data-st>上次备份：${last ? last.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }) : '从来没备份过'}</div>
+    <div class="xq-backup-st" data-persist>浏览器存储：查询中…</div>
+    <button class="btn primary" data-act="save">💾 备份到文件</button>
+    <button class="btn" data-act="pick">📂 从备份文件恢复</button>
+    <input type="file" accept=".json,application/json,text/plain" data-file hidden>
+    <div class="xq-backup-confirm" data-confirm hidden></div>
+    <div class="xq-backup-tip">${
+      isStandalone()
+        ? '✓ 你是从主屏幕图标打开的：不受 Safari"七天不用就清"的限制。'
+        : iosTab()
+          ? `<b>iPhone 要注意</b>：在 Safari 里开着、七天没打开这个网站，进度会被系统清掉。
+             加到主屏幕（Safari 底部的分享按钮 →"添加到主屏幕"），从主屏幕图标打开就不会。
+             但主屏幕图标打开的是<b>另一份</b>存储：先在这里"备份到文件"，到主屏幕那边再"从备份文件恢复"。`
+          : '备份文件可以存在手机的"文件"里、发给微信里的自己，换了手机从这里恢复。'
+    }</div>
+    <button class="btn ghost">← 返回</button>`;
+  const persist = s.querySelector('[data-persist]') as HTMLElement;
+  void askPersist().then((p) => {
+    persist.textContent =
+      p === true
+        ? '浏览器存储：已申请"持久保存" ✓（手机空间紧张时不会先清它）'
+        : p === false
+          ? '浏览器存储：浏览器没给"持久保存"，空间紧张时可能被清——更要备份'
+          : '浏览器存储：这个浏览器不支持"持久保存"，记得隔一阵备份';
+  });
+  const st = s.querySelector('[data-st]') as HTMLElement;
+  const confirmBox = s.querySelector('[data-confirm]') as HTMLElement;
+  const file = s.querySelector('[data-file]') as HTMLInputElement;
+  (s.querySelector('[data-act="save"]') as HTMLButtonElement).onclick = async () => {
+    const ok = await saveBackupFile();
+    if (ok) st.textContent = `上次备份：刚才（${now.games} 盘棋、${now.srs} 道错题）`;
+  };
+  (s.querySelector('[data-act="pick"]') as HTMLButtonElement).onclick = () => file.click();
+  file.onchange = async () => {
+    const f = file.files?.[0];
+    file.value = '';
+    if (!f) return;
+    const r = parseBackup(await f.text());
+    confirmBox.hidden = false;
+    if (!r.ok) {
+      confirmBox.innerHTML = `<div class="err">${esc(r.error)}</div>`;
+      return;
+    }
+    const b = describeBackup(r.backup);
+    const when = new Date(b.at);
+    confirmBox.innerHTML = `
+      <b>用这份备份换掉现在的进度？</b>
+      <p>备份（${Number.isNaN(when.getTime()) ? '时间不详' : when.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })}）：
+        ${b.games} 盘棋、${b.srs} 道错题、${b.solved} 道做对过的题。</p>
+      <p>现在这台手机上：${now.games} 盘棋、${now.srs} 道错题、${now.solved} 道做对过的题——恢复以后这些会被换掉。</p>
+      <div class="row"><button class="btn primary" data-act="restore">恢复</button><button class="btn ghost" data-act="cancel">取消</button></div>`;
+    (confirmBox.querySelector('[data-act="cancel"]') as HTMLButtonElement).onclick = () => {
+      confirmBox.hidden = true;
+    };
+    (confirmBox.querySelector('[data-act="restore"]') as HTMLButtonElement).onclick = () => {
+      const res = restoreBackup(r.backup);
+      if (!res.ok) {
+        confirmBox.innerHTML = `<div class="err">${esc(res.error)}</div>`;
+        return;
+      }
+      confirmBox.innerHTML = '<b>恢复好了</b>，重新载入……';
+      setTimeout(onRestored, 600);
+    };
+  };
+  const back = s.querySelector(':scope > button.btn.ghost') as HTMLButtonElement;
+  back.onclick = onBack;
+  liftBack(s, '备份 / 恢复');
   return () => s.remove();
 }
 
@@ -346,8 +508,8 @@ export function renderLevel(host: HTMLElement, onBack: () => void, onAssess: () 
     <div><b>${profile.wins}</b><span>胜</span></div>
     <div><b>${profile.losses}</b><span>负</span></div>
     <div><b>${profile.draws}</b><span>和</span></div>
-    <div><b>${acc ? acc.avg : '—'}</b><span>近期准确率</span></div>
-    <div><b>${ps ? ps.avgLoss : '—'}</b><span>平均每手亏</span></div>
+    <div><b>${acc ? `${acc.avg}%` : '—'}</b><span>近期准确率</span></div>
+    <div><b>${ps ? pawns(ps.avgLoss).replace(' 个兵', '') : '—'}</b><span>平均每手亏（兵）</span></div>
     <div><b>${ps ? `${ps.winRate}%` : '—'}</b><span>近期胜率</span></div>
     <div><b>${totalSolved()}</b><span>做对的题</span></div>`;
   s.appendChild(stats);

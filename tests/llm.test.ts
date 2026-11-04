@@ -92,7 +92,7 @@ describe('离线讲解：没有网络也要讲得出东西', () => {
     expect(t).toContain('马八进七');
     expect(t).toContain('车二进六');
     expect(t).toContain('没有保护');
-    expect(t).toContain('480');
+    expect(t).toContain('4.8 个兵');
   });
 
   it('好棋也讲', () => {

@@ -395,7 +395,7 @@ function commentOf(b: Board, j: Judged, me: Color, grade: Grade, flip: Flip | un
     parts.push(lost.line ? `走完这步，按引擎算的走下去（${lost.line}），你的${lost.piece}要丢` : `走完这步，对方 ${lost.text} 就吃掉你的${lost.piece}`);
   }
   else if (flip) parts.push(FLIP_LABEL[flip]);
-  else parts.push(`这步之后局面明显变差（亏 ${loss} 分，约${lossInPieces(loss)}）`);
+  else parts.push(`这步之后局面明显变差（亏约 ${(loss / 100).toFixed(1)} 个兵，差不多${lossInPieces(loss)}）`);
 
   if (better) parts.push(`改走 ${better} 更好`);
   return parts.join('，') + '。';

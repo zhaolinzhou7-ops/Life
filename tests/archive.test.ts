@@ -100,10 +100,11 @@ describe('存档读写', () => {
     expect(ids.size).toBe(20);
   });
 
-  it('只留最近 40 盘，不会把 localStorage 撑爆', () => {
+  it('不再只留 40 盘（原来第 41 盘进来最早那盘就悄悄没了）：五十盘都在，新的在前', () => {
     for (let i = 0; i < 50; i++) archiveGame(sample({ level: `第${i}盘` }));
-    expect(gameCount()).toBe(40);
+    expect(gameCount()).toBe(50);
     expect(listGames()[0].level).toBe('第49盘'); // 最新的还在
+    expect(listGames()[49].level).toBe('第0盘'); // 最早的也还在
   });
 
   it('复盘结论能回填', () => {

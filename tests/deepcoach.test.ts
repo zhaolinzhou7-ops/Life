@@ -209,14 +209,14 @@ describe('describeCandidates：候选走法要说清各自想干什么', () => {
     expect(cands[1].behind).toBeLessThanOrEqual(9999);
   });
 
-  it('正常分差用分数加"几个子"说明，不是裸数字', () => {
+  it('正常分差用"几个兵"加"几个子"说明，不是裸数字', () => {
     const b = initialBoard();
     const ms = legalMoves(b, 'r').slice(0, 2);
     const cands = describeCandidates(b, 'r', [
       { move: ms[0], score: 100, pv: [ms[0]] },
       { move: ms[1], score: -400, pv: [ms[1]] },
     ]);
-    expect(cands[1].gap).toContain('500');
+    expect(cands[1].gap).toContain('5.0 个兵');
     expect(cands[1].gap).toContain('马或炮');
   });
 

@@ -26,8 +26,8 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => { localStorage.setItem('xq-hint-level', '2'); localStorage.setItem('xq-power', 'max'); });
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(600);
 await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
-// 对手用最强的棋王：特级大师按设定会偶尔走软，照引擎首选走的红方十几手就把它将死了，凑不够"长对局"
-await page.locator('.diff-row .card', { hasText: process.env.LEVEL || '棋王' }).first().click();
+// 对手用最强的第 12 档：第 8 档（原特级大师）按设定会偶尔走软，照引擎首选走的红方十几手就把它将死了，凑不够"长对局"
+await page.locator('.diff-row .card', { hasText: process.env.LEVEL || '第 12 档' }).first().click();
 await page.getByText('执红先行').first().click();
 await page.getByText('开始对弈').first().click();
 ok('专业引擎加载', await until(page, () => window.__xq.engine() === 'pro', null, 15000));

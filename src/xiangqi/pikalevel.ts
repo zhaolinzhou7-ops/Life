@@ -62,7 +62,7 @@ export function chooseMove(cands: Cand[], cfg: LevelCfg, rand: () => number = Ma
 }
 
 /**
- * 十四档的配置：国手往下是削弱过的皮卡鱼，国手 · 二段往上不削弱、只差算多深。
+ * 十二档的配置：第 11 档往下是削弱过的皮卡鱼，第 12 档不削弱。
  * 每一档值多少分见 save.ts 的 AI_LEVEL_RATING（对下实测）。
  * 同一个引擎，节点数和温度差一点强弱就差很多（5000 节点和 7000 节点对下是 2.5 比 13.5），
  * 所以高级、大师两档只差一小步——实战分落在一千三到一千五的人最多，这一段不能断。
@@ -72,30 +72,27 @@ export const PIKA_LEVELS: LevelCfg[] = [
   { nodes: 1500, multipv: 7, temp: 140, maxLoss: 450, slip: 0.08, slipLoss: 1000 },
   { nodes: 2500, multipv: 6, temp: 110, maxLoss: 380, slip: 0.06, slipLoss: 900 },
   { nodes: 5000, multipv: 6, temp: 80, maxLoss: 280, slip: 0.05, slipLoss: 600 },
-  // 大师
+  // 第 5 档（原来叫大师）
   { nodes: 6000, multipv: 6, temp: 72, maxLoss: 250, slip: 0.045, slipLoss: 550 },
-  // 大师 · 二段
+  // 第 6 档（原大师 · 二段）
   { nodes: 8000, multipv: 6, temp: 62, maxLoss: 220, slip: 0.04, slipLoss: 480 },
-  // 大师 · 三段（新）：补大师 · 二段和特级大师之间一百六十分的空。
+  // 第 7 档（原大师 · 三段）：补大师 · 二段和特级大师之间一百六十分的空。
   // 先试的 1 万节点对特级大师 40 盘 +15 =5 -20，几乎一样强，退到 9000 节点、挑得松一点，正好落在中间
   { nodes: 9000, multipv: 5, temp: 58, maxLoss: 210, slip: 0.038, slipLoss: 460 },
-  // 特级大师
+  // 第 8 档（原特级大师）
   { nodes: 12000, multipv: 5, temp: 50, maxLoss: 180, slip: 0.03, slipLoss: 400 },
-  // 特级大师 · 二段、三段、国手：节点越来越多，挑着法越来越认真，看走眼越来越少。
+  // 第 9、10、11 档（原特级大师 · 二段、三段、国手）：节点越来越多，挑着法越来越认真，看走眼越来越少。
   // 国手原来试的是 8 万节点、只在前两名里挑：对棋王 5 盘一胜四和，和棋王分不开，退到 5 万节点、温度放一点
   { nodes: 20000, multipv: 4, temp: 35, maxLoss: 130, slip: 0.02, slipLoss: 300 },
   { nodes: 40000, multipv: 3, temp: 22, maxLoss: 80, slip: 0.01, slipLoss: 200 },
   { nodes: 50000, multipv: 2, temp: 16, maxLoss: 60, slip: 0.008, slipLoss: 160 },
-  // 下面三档不再削弱：每步都走引擎认定的第一名，只差算多深。
+  // 最高一档不再削弱：每步都走引擎认定的第一名。
   // 用户原话："最高水平的应该没有漏招才对，每一步都必须精准。"
   // 原来棋王是"每步想 3 秒"：电脑上算 45 万个局面，手机慢两三倍，估计只有一二十万——同一档换台设备就弱一截。
   // 现在按节点数给，到哪台设备上都算这么多（movetime 只是封顶，免得特别慢的手机一步想太久）。
   // tools/top-level-check.ts 实测（36 个中局局面，拿 400 万节点复核）：20 万节点以上没有一手亏到一个兵，
   // 100 万节点最多亏 0.4 个兵。
-  // 国手 · 二段（新）
-  { nodes: 150000, movetime: 8000, multipv: 1, temp: 0, maxLoss: 0, slip: 0, slipLoss: 0 },
-  // 棋王：全力
-  { nodes: 450000, movetime: 15000, multipv: 1, temp: 0, maxLoss: 0, slip: 0, slipLoss: 0 },
-  // 棋圣（新）：全力再加码
+  // 原来这里是三档不削弱的：国手 · 二段 15 万、棋王 45 万、棋圣 120 万节点。对下多是和棋（2200、2220、2230），
+  // 分不出档，并成一档"第 12 档"：用算得最准的 120 万节点（平均亏 0.03 个兵、最多 0.4 个）
   { nodes: 1200000, movetime: 25000, multipv: 1, temp: 0, maxLoss: 0, slip: 0, slipLoss: 0 },
 ];

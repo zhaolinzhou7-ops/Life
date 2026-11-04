@@ -21,7 +21,7 @@ await page.evaluate(() => { localStorage.setItem('xq-hint-level', '0'); localSto
 await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(500);
 ok('没有没下完的棋时不显示"继续"', (await page.locator('.xq-resume').count()) === 0);
 await page.locator('[data-home="play"]').click(); await page.waitForTimeout(300);
-await page.evaluate(() => { const d = document.querySelector('.xq-lowlv'); if (d) d.open = true; }); await page.locator('.diff-row .card', { hasText: '入门' }).first().click();
+await page.evaluate(() => { const d = document.querySelector('.xq-lowlv'); if (d) d.open = true; }); await page.locator('.diff-row .card', { hasText: '第 1 档' }).first().click();
 await page.getByText('执红先行').first().click();
 await page.getByText('开始对弈').first().click(); await page.waitForTimeout(800);
 for (let i = 0; i < 3; i++) {
@@ -34,7 +34,8 @@ await until(page, () => window.__xq.turn() === 'r' && window.__xq.moves().length
 const before = await page.evaluate(() => ({ n: window.__xq.moves().length, fen: window.__xq.fen() }));
 // 模拟手机把页面回收：直接刷新
 await page.reload({ waitUntil: 'networkidle' });
-await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(500);
+// 进过象棋再刷新，地址带着 ?app=xiangqi，直接回到象棋首页；没进过才在合集首页点
+if (await page.getByText('中国象棋', { exact: false }).count()) await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(500);
 ok('首页出现"有一盘没下完"', (await page.locator('.xq-resume').count()) === 1);
 console.log('   ' + (await page.locator('.xq-resume').innerText()).replace(/\s+/g, ' '));
 await page.locator('.xq-resume [data-act="go"]').click();
@@ -50,7 +51,8 @@ await page.locator('#xq-resign').click();
 await page.locator('.xq-confirm [data-act="yes"]').click();
 await page.waitForTimeout(800);
 await page.reload({ waitUntil: 'networkidle' });
-await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(500);
+// 进过象棋再刷新，地址带着 ?app=xiangqi，直接回到象棋首页；没进过才在合集首页点
+if (await page.getByText('中国象棋', { exact: false }).count()) await page.getByText('中国象棋', { exact: false }).first().click(); await page.waitForTimeout(500);
 ok('下完（认输）之后不再提示继续', (await page.locator('.xq-resume').count()) === 0);
 await browser.close();
 console.log('\n===== 失败项 =====\n' + (errs.length ? errs.join('\n') : '无'));

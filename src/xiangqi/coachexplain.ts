@@ -17,7 +17,7 @@ import { moveToText } from './notation';
 import { noteMove } from './movenote';
 import { lineSteps, punishLine } from './punish';
 import { planHtml, planOf, stepTags } from './plan';
-import { inPieces } from './teach';
+import { NEGLIGIBLE, pawns } from './teach';
 
 export { WON_KEEP, isWon } from './analysis';
 
@@ -92,7 +92,7 @@ export function wrongTalk(before: Board, mover: Color, mine: MoveScore, o: Wrong
     const diff = best.mateIn === undefined && mine.mateIn === undefined ? best.score - mine.score : null;
     parts.push(
       `<div class="xq-talk-row dim">走 ${bt}：${words(mover, best)}；走 ${moveToText(before, mv)}：${words(mover, mine)}${
-        diff !== null && diff >= 30 ? `——差约 ${diff} 分（${inPieces(diff)}）` : ''
+        diff !== null && diff >= NEGLIGIBLE ? `——差约 ${pawns(diff)}` : ''
       }。</div>`,
     );
   }

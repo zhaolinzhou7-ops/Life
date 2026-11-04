@@ -52,7 +52,7 @@ import { runPuzzle } from './train';
 import { toFen } from './notation';
 import { applyMove, initialBoard, isInCheck, legalMoves } from './rules';
 import type { Puzzle } from './puzzles';
-import { ERR_INFO, inPieces, type ErrTag } from './teach';
+import { ERR_INFO, inPieces, NEGLIGIBLE, pawns, type ErrTag } from './teach';
 import { lineSteps, punishLine, type Punish, type PunishStep } from './punish';
 import { openLineLab } from './linelab';
 import { lineTalk, whatItDoes } from './coachexplain';
@@ -403,7 +403,7 @@ export function runReview(opts: ReviewOpts): () => void {
           <span class="n">${roundOf(m.ply)}${m.color === 'r' ? '.' : '…'}</span><b>${m.text}</b>
           <span class="who">${sideName(m.color)}</span>
           ${m.loss >= 30 ? `<span class="xq-rv-loss">亏 ${m.loss}</span>` : ''}
-          <span class="xq-rv-acc" title="这一手的准确率（0～100）">准确率 ${m.accuracy}</span>
+          <span class="xq-rv-acc" title="这一手的准确率（0～100%）">准确率 ${m.accuracy}%</span>
         </div>
         ${bestBlock(m)}
         <button class="xq-rv-gist" data-act="detail" title="展开这一手的完整讲解"><span>${esc(gist)}</span><i>讲解 ›</i></button>
@@ -506,7 +506,9 @@ export function runReview(opts: ReviewOpts): () => void {
     const replay = opts.onReplayFrom ? `<button class="xq-rv-act" data-replay="${cursor}" title="从这一手走之前的局面接着下">♟ 从这里重下</button>` : '';
     if (m.isBest) return `<div class="xq-rv-best ok" data-best>✅ ${mine ? '这就是最佳走法' : '对手这一手就是最佳走法'}。<div class="acts">${pun}${tryBtn}${replay}</div></div>`;
     if (!m.bestMove || !m.bestText) return `<div class="xq-rv-best"><div class="acts">${pun}${tryBtn}${replay}</div></div>`;
-    const pawns = (m.loss / 100).toFixed(1);
+    // 差不到 0.3 个兵：一样好。原来照样写"他该走 卒3进1：比他这手多得约 3 分（约 0.0 个兵）"，旁边还标着"好棋"，自相矛盾
+    if (m.loss < NEGLIGIBLE)
+      return `<div class="xq-rv-best ok" data-best>✅ ${mine ? '这手' : '对手这手'}和最佳差不多（引擎首选 <b>${m.bestText}</b>，差不到 0.3 个兵，算一样好）。<div class="acts"><button class="xq-rv-act" data-act="best-demo">▶ 看首选的后续</button>${pun}${tryBtn}${replay}</div></div>`;
     const who = mine ? '你这手' : '他这手';
     // 箭头怎么看：头几次说一句，看懂了就不再占地方（不然每一手都多一行，一屏放不下）
     const hint = !tipOnce()
@@ -517,7 +519,7 @@ export function runReview(opts: ReviewOpts): () => void {
           ? '<div class="tip">棋盘上 <b class="g">绿箭头「罚」</b>是你该怎么罚他——点它看整条。</div>'
           : '';
     return `<div class="xq-rv-best" data-best>
-      <div class="rec">★ ${mine ? '最佳走法' : '他该走'} <b>${m.bestText}</b>：比${who}多得约 <b>${m.loss} 分</b><em>（约 ${pawns} 个兵）</em></div>
+      <div class="rec">★ ${mine ? '最佳走法' : '他该走'} <b>${m.bestText}</b>：比${who}多得约 <b>${pawns(m.loss)}</b>${m.loss >= 420 ? `<em>（${inPieces(m.loss)}）</em>` : ''}</div>
       ${hint}
       <div class="acts"><button class="xq-rv-act" data-act="best-demo">▶ 看最佳的后续</button>${pun}${tryBtn}<button class="xq-rv-act" data-act="lab">🔀 推演</button>${replay}</div>
     </div>`;
@@ -763,8 +765,8 @@ export function runReview(opts: ReviewOpts): () => void {
     }
     const me = rep.stats[playerColor];
     const them = rep.stats[foe];
-    elMeAcc.textContent = String(me.accuracy);
-    elFoeAcc.textContent = String(them.accuracy);
+    elMeAcc.textContent = `${me.accuracy}%`;
+    elFoeAcc.textContent = `${them.accuracy}%`;
     const wi = rep.worst[playerColor];
     const w = wi >= 0 ? rep.moves[wi] : null;
     // "决定胜负的一手"只在真有一手亏得很重时才说：一盘双方都没大错的棋硬挑出一手来，是胡说
@@ -780,7 +782,7 @@ export function runReview(opts: ReviewOpts): () => void {
       `<tr class="${cls}"><td>${name}</td><td class="me">${cnt(playerColor, ls)}</td><td class="foe">${cnt(foe, ls)}</td></tr>`;
     const table = `<table class="xq-rv-table" data-report>
       <tr><th></th><th class="me">你</th><th class="foe">对手</th></tr>
-      <tr class="acc"><td>准确率</td><td class="me"><b>${me.accuracy}</b></td><td class="foe"><b>${them.accuracy}</b></td></tr>
+      <tr class="acc"><td>准确率</td><td class="me"><b>${me.accuracy}%</b></td><td class="foe"><b>${them.accuracy}%</b></td></tr>
       ${(['opening', 'middle', 'endgame'] as Phase[]).map(phaseRow).join('')}
       ${countRow('★ 好棋', ['brilliant', 'only', 'top', 'best'], 'good')}
       ${countRow('?! 不佳', ['dubious'])}
@@ -942,7 +944,7 @@ export function runReview(opts: ReviewOpts): () => void {
     const lines: string[] = [];
     if (opts.title) lines.push(opts.title);
     const rep = analysis.report;
-    if (rep) lines.push(`准确率 你 ${rep.stats[playerColor].accuracy} · 对手 ${rep.stats[foe].accuracy}`);
+    if (rep) lines.push(`准确率 你 ${rep.stats[playerColor].accuracy}% · 对手 ${rep.stats[foe].accuracy}%`);
     const texts = boards.length ? moveTexts() : [];
     let row = '';
     texts.forEach((t, i) => {
@@ -1085,7 +1087,7 @@ export function runReview(opts: ReviewOpts): () => void {
     const mine = m.color === playerColor;
     return {
       steps,
-      summary: `${mine ? '这一手该走' : '他该走'} <b>${m.bestText}</b>——${p.goal}。这一路走下去：${end}；比${mine ? '你' : '他'}走的 ${m.text} 多得约 ${m.loss} 分。`,
+      summary: `${mine ? '这一手该走' : '他该走'} <b>${m.bestText}</b>——${p.goal}。这一路走下去：${end}；比${mine ? '你' : '他'}走的 ${m.text} 多得约 ${pawns(m.loss)}。`,
       title: `✅ 最佳走法 ${m.bestText} 怎么走下去`,
       firstWho: mine ? '应该走' : '他该走',
       mine,
@@ -1393,10 +1395,10 @@ export function runReview(opts: ReviewOpts): () => void {
       if (p) rows.push(`<div class="xq-talk-sum">⚠️ ${p.summary}</div>`);
     }
     if (lb === 'top') rows.push(`<div class="xq-talk-row good">👍 ${same(best.move, mv) ? '这就是皮卡鱼的首选' : '和最好的一手一样好'}。</div>`);
-    else if (loss < 30) rows.push(`<div class="xq-talk-row good">👍 和最好的一手（${textOf(b, best.move)}）差不多。</div>`);
+    else if (loss < NEGLIGIBLE) rows.push(`<div class="xq-talk-row good">👍 和最好的一手（${textOf(b, best.move)}）差不多。</div>`);
     else
       rows.push(
-        `<div class="xq-talk-row good"><span class="k">这里最好</span><b>${textOf(b, best.move)}</b>：${whatItDoes(b, best.move, c, me)}——比你这手多约 ${loss} 分（${inPieces(loss)}）。</div>`,
+        `<div class="xq-talk-row good"><span class="k">这里最好</span><b>${textOf(b, best.move)}</b>：${whatItDoes(b, best.move, c, me)}——比你这手多约 ${pawns(loss)}。</div>`,
       );
     return `<div class="xq-talk" data-talk>${rows.join('')}</div>`;
   }
@@ -1416,13 +1418,13 @@ export function runReview(opts: ReviewOpts): () => void {
     const lb: MoveLabel = loss < 10 || (ref.bestMove && same(mv, ref.bestMove)) ? 'top' : grade;
     const L = MOVE_LABEL[lb];
     const chip = `<span class="lv" style="--g:${L.badge}">${L.short}</span>`;
-    const vsBest = lb === 'top' ? '这就是最佳走法' : loss < 30 ? `和最佳 ${ref.bestText ?? ''} 差不多` : `比最佳 <b>${ref.bestText ?? ''}</b> 少约 ${loss} 分`;
+    const vsBest = lb === 'top' ? '这就是最佳走法' : loss < NEGLIGIBLE ? `和最佳 ${ref.bestText ?? ''} 差不多` : `比最佳 <b>${ref.bestText ?? ''}</b> 少约 ${pawns(loss)}`;
     const vsGame = same(mv, ref.move)
       ? '——就是实战走的那一手'
-      : ref.loss - loss >= 30
-        ? `，比实战走的 ${ref.text} <b class="up">好约 ${ref.loss - loss} 分</b>`
-        : loss - ref.loss >= 30
-          ? `，比实战走的 ${ref.text} <b class="down">还差约 ${loss - ref.loss} 分</b>`
+      : ref.loss - loss >= NEGLIGIBLE
+        ? `，比实战走的 ${ref.text} <b class="up">好约 ${pawns(ref.loss - loss)}</b>`
+        : loss - ref.loss >= NEGLIGIBLE
+          ? `，比实战走的 ${ref.text} <b class="down">还差约 ${pawns(loss - ref.loss)}</b>`
           : `，和实战走的 ${ref.text} 差不多`;
     return `${chip} 你试的 <b>${text}</b>：${L.name}，${vsBest}${vsGame}。`;
   }

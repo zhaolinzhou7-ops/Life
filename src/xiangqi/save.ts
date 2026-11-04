@@ -95,7 +95,7 @@ export function ttNear(r: number) {
  * 被说成"专业级"，可实际连"大师"档都下不赢——做题会做和下得赢是两回事。
  * 现在"你是什么水平"以**跟这几档 AI 下棋的输赢**为准（Elo），做题分只用来看五维里哪一维弱。
  *
- * 十四档都是皮卡鱼（pikalevel.ts）。分数是 tools/calibrate-levels.ts 对下实测的，
+ * 十二档都是皮卡鱼（pikalevel.ts）。分数是 tools/calibrate-levels.ts 对下实测的，
  * 以旧版的「高级」1300、「大师」1450 为锚（旧版前五档是自带引擎，实战分以前就是在这两档附近算的）：
  *   入门   650   和初级互下 2 比 22，分差打六折推的（误差大）
  *   初级   880   对旧高级 6 盘 0.5 分
@@ -118,46 +118,43 @@ export function ttNear(r: number) {
  *   棋圣          2230   对国手 8 盘 +1 =7，对棋王 3 盘全和——和棋王分不出高低；每步算得更准（tools/top-level-check.ts：
  *                         平均亏 0.03 个兵、最多 0.4 个，棋王是 0.04、0.7），只比棋王多记 10 分
  * 顶上几档都很强，互下多是和棋，差距挤在一起。
+ * **最上面三档（国手 · 二段 2200、棋王 2220、棋圣 2230）只差三十分、互下多是和棋，分不出档**，
+ * 并成一档"第 12 档"：用棋圣的配置（每步算得最准），记 2230。
  * 同一个引擎自己跟自己下会把差距放大，所以只要能对旧档下的，都按对旧档的结果算。
  * 估得不准也不要紧——你的实战分跟着输赢走，几盘之后自己会落到对的位置。
  */
-export const AI_LEVEL_RATING = [650, 880, 1050, 1300, 1420, 1530, 1590, 1690, 1860, 2000, 2130, 2200, 2220, 2230];
+export const AI_LEVEL_RATING = [650, 880, 1050, 1300, 1420, 1530, 1590, 1690, 1860, 2000, 2130, 2230];
 /** 旧版本各档（前五档是自带引擎）的名字和分：只给补算老存档里的棋用 */
 export const LEGACY_LEVEL_NAMES = ['入门', '初级', '中级', '高级', '大师', '特级大师', '棋王'];
 export const LEGACY_LEVEL_RATING = [750, 950, 1150, 1300, 1450, 1900, 2100];
-/** 和对弈设置页的难度名一一对应（单元测试核对） */
-export const AI_LEVEL_NAMES = [
-  '入门',
-  '初级',
-  '中级',
-  '高级',
-  '大师',
-  '大师 · 二段',
-  '大师 · 三段',
-  '特级大师',
-  '特级大师 · 二段',
-  '特级大师 · 三段',
-  '国手',
-  '国手 · 二段',
-  '棋王',
-  '棋圣',
-];
+/**
+ * 和对弈设置页的难度名一一对应（单元测试核对）。
+ *
+ * 原来叫入门、初级……大师、特级大师、国手、棋王、棋圣：大师约 1420、特级大师约 1690——
+ * 用的是真实的棋手称号，数却是本软件自己的刻度，懂行的人一看就觉得不对；"中级""高级"又和
+ * 你自己的水平段（RANKS：中级 1300 起、高级 1500 起）同名不同分。现在按档位编号，分数注明是本软件分。
+ */
+export const AI_LEVEL_NAMES = AI_LEVEL_RATING.map((_, i) => `第 ${i + 1} 档`);
+/** 老名字（存档里、老对局记录里还写着这些）→ 现在的档位编号；国手 · 二段、棋王并进了最高档 */
+export const OLD_LEVEL_NAMES = ['入门', '初级', '中级', '高级', '大师', '大师 · 二段', '大师 · 三段', '特级大师', '特级大师 · 二段', '特级大师 · 三段', '国手', '国手 · 二段', '棋王', '棋圣'];
+
 
 /**
- * 对弈设置默认展开、推荐对手的最低一档：大师。
+ * 对弈设置默认展开、推荐对手的最低一档：第 5 档（原来叫"大师"）。
  * 用户原话："对手档位建议多分几个细分级别。目前前面那几档我基本用不上……我至少要从目前显示的'大师'档位起步。"
  * 低四档还在（给刚学棋的人），设置页里折起来。
  */
 export const LEVEL_FLOOR = 4;
 
 /**
- * 老存档里记的档位编号换成现在十四档的编号。
- * 第一版七档（from = 1）：0～4 不变，特级大师 5 → 7，棋王 6 → 12。
- * 第二版十一档（from = 2）：大师 · 二段往下不变，往上插了大师 · 三段、国手 · 二段：特级大师 6 → 7 …… 国手 9 → 10，棋王 10 → 12。
+ * 老存档里记的档位编号换成现在十二档的编号。
+ * 第一版七档（from = 1）：0～4 不变，特级大师 5 → 7，棋王 6 → 最高档。
+ * 第二版十一档（from = 2）：大师 · 二段往下不变，往上插了大师 · 三段、国手 · 二段：特级大师 6 → 7 …… 国手 9 → 10，棋王 10 → 最高档。
+ * 第三版十四档（from = 3）：国手 · 二段、棋王、棋圣（11、12、13）并成最高档 11，下面不变。
  */
-export function migrateLevel(old: number, from: 1 | 2 = 1): number {
-  const map = from === 1 ? [0, 1, 2, 3, 4, 7, 12] : [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 12];
-  return map[old] ?? old;
+export function migrateLevel(old: number, from: 1 | 2 | 3 = 1): number {
+  const v3 = from === 3 ? old : ((from === 1 ? [0, 1, 2, 3, 4, 7, 12] : [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 12])[old] ?? old);
+  return Math.max(0, Math.min(AI_LEVEL_RATING.length - 1, v3));
 }
 
 /**
@@ -175,7 +172,7 @@ export function suggestLevel(r: number): number {
   return best;
 }
 
-/** 给你排对手：实战分附近那一档，但不低于大师（LEVEL_FLOOR） */
+/** 给你排对手：实战分附近那一档，但不低于第 5 档（LEVEL_FLOOR） */
 export function opponentFor(r: number): number {
   return Math.max(LEVEL_FLOOR, suggestLevel(r));
 }
@@ -523,11 +520,11 @@ export function recentAccuracy(dim: Dim, n = 20): { acc: number; n: number } | n
  * 让一个马大约值 250 分（按对手档位的分数往下折），分数只是参考，升降档看的是输赢。
  */
 export const LADDER: { id: string; name: string; desc: string; strip: number; lv: number; approx: number }[] = [
-  { id: 'h2', name: '让双马', desc: '对手（高级）少两个马', strip: 2, lv: 3, approx: AI_LEVEL_RATING[3] - 450 },
-  { id: 'h1', name: '让单马', desc: '对手（高级）少一个马', strip: 1, lv: 3, approx: AI_LEVEL_RATING[3] - 250 },
-  { id: 'e0', name: '分先 · 进阶', desc: '子力相同，对手是高级', strip: 0, lv: 3, approx: AI_LEVEL_RATING[3] },
-  { id: 'e1', name: '分先 · 高手', desc: '子力相同，对手是大师', strip: 0, lv: 4, approx: AI_LEVEL_RATING[4] },
-  { id: 'e2', name: '分先 · 大师', desc: '子力相同，对手是特级大师', strip: 0, lv: 7, approx: AI_LEVEL_RATING[7] },
+  { id: 'h2', name: '让双马', desc: '对手（第 4 档）少两个马', strip: 2, lv: 3, approx: AI_LEVEL_RATING[3] - 450 },
+  { id: 'h1', name: '让单马', desc: '对手（第 4 档）少一个马', strip: 1, lv: 3, approx: AI_LEVEL_RATING[3] - 250 },
+  { id: 'e0', name: '分先 · 进阶', desc: '子力相同，对手是第 4 档', strip: 0, lv: 3, approx: AI_LEVEL_RATING[3] },
+  { id: 'e1', name: '分先 · 高手', desc: '子力相同，对手是第 5 档', strip: 0, lv: 4, approx: AI_LEVEL_RATING[4] },
+  { id: 'e2', name: '分先 · 强手', desc: '子力相同，对手是第 8 档', strip: 0, lv: 7, approx: AI_LEVEL_RATING[7] },
 ];
 
 export interface LadderState {

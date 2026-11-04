@@ -26,7 +26,7 @@ import {
   type Move,
   type PType,
 } from './rules';
-import { PIECE_VALUE, hangingPieces, inPieces, mateInOne, moveRisk, other, seeAt, type Hanging } from './teach';
+import { PIECE_VALUE, hangingPieces, inPieces, mateInOne, moveRisk, other, pawns, seeAt, type Hanging } from './teach';
 import { moveToText, pieceName } from './notation';
 import { requestAnalysis } from './aiclient';
 import { engineAnalyse } from './pikafish';
@@ -286,7 +286,7 @@ export function globalNotes(before: Board, m: Move, me: Color): GlobalNote[] {
     out.push({
       tone: dMat > 0 ? 'good' : 'bad',
       label: '子力',
-      text: dMat > 0 ? `你这一手净赚 ${dMat} 分子力。` : `这一手直接亏了 ${-dMat} 分子力。`,
+      text: dMat > 0 ? `你这一手净赚约 ${pawns(dMat)}的子力。` : `这一手直接亏了约 ${pawns(dMat)}的子力。`,
     });
   }
 
@@ -297,8 +297,8 @@ export function globalNotes(before: Board, m: Move, me: Color): GlobalNote[] {
       label: '空间',
       text:
         dSpace > 0
-          ? `你过河的大子价值从 ${a.crossed} 涨到 ${b.crossed}，是在往对方半场推进、抢空间。`
-          : `你把过河的子撤了回来，让出 ${-dSpace} 分的空间。`,
+          ? `你往对方半场多压上去约 ${pawns(dSpace)}的子力，是在推进、抢空间。`
+          : `你把约 ${pawns(dSpace)}的过河子力撤了回来，让出了空间。`,
     });
   }
 
@@ -393,7 +393,7 @@ export function describeCandidates(
     const d = best - score;
     if (d <= 20) return '（和首选一样好）';
     if (d >= 2000) return '（差得很多，基本等于把优势让出去）';
-    return `（比首选差 ${d} 分，约${inPieces(d)}）`;
+    return `（比首选差约 ${pawns(d)}${d >= 420 ? `，${inPieces(d)}` : ''}）`;
   };
   return scored.slice(0, limit).map((s) => {
     const intents = intentsOf(before, s.move, me);

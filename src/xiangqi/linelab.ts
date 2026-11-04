@@ -13,7 +13,7 @@
 import { applyMove, isInCheck, legalMoves, type Board, type Color, type Move } from './rules';
 import { Board2D, type Arrow, type Mark } from './board2d';
 import { lineTalk, wrongTalk } from './coachexplain';
-import { inPieces } from './teach';
+import { pawns } from './teach';
 import type { MoveScore } from './ai';
 import { lineSteps, type PunishStep } from './punish';
 import { engineAnalyse, engineReady, engineScoreMove, loadEngine } from './pikafish';
@@ -277,7 +277,7 @@ export function runLineLab(host: HTMLElement, opts: LabOpts): () => void {
     const loss = same(best.move, mv) ? 0 : Math.max(0, best.score - mine.score);
     const html =
       loss >= 30
-        ? `<div class="hd">🧑‍🏫 你走的 ${moveToText(b, mv)} 比皮卡鱼的首选差约 ${loss} 分（${inPieces(loss)}）——点「下一步」在棋盘上看对方怎么接：</div>${wrongTalk(b, c, mine, { best, me })}`
+        ? `<div class="hd">🧑‍🏫 你走的 ${moveToText(b, mv)} 比皮卡鱼的首选差约 ${pawns(loss)}——点「下一步」在棋盘上看对方怎么接：</div>${wrongTalk(b, c, mine, { best, me })}`
         : `<div class="hd">👍 ${moveToText(b, mv)}${same(best.move, mv) ? '就是皮卡鱼的首选' : '和皮卡鱼的首选差不多'}。对方会这样接（点「下一步」在棋盘上走）：</div>${lineTalk(applyMove(b, mv), rest, other(c), me, 4)}`;
     ownTalk = { at, html };
     elAlts.innerHTML = html;

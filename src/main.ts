@@ -67,12 +67,52 @@ async function launchSing() {
   dispose = bootSing(app, showHome);
 }
 
+/**
+ * 象棋有自己的地址（?app=xiangqi）：刷新、从备份恢复以后还在象棋；加到主屏幕的图标直接打开象棋，
+ * 名字、图标是象棋自己的（public/xiangqi/manifest.webmanifest），不是"小游戏合集"。
+ */
+const XQ_PARAM = 'xiangqi';
+function setAppParam(v: string | null) {
+  const u = new URL(location.href);
+  if (v) u.searchParams.set('app', v);
+  else u.searchParams.delete('app');
+  history.replaceState(history.state, '', u);
+}
+function setXiangqiHead(on: boolean) {
+  const base = import.meta.env.BASE_URL;
+  const head = document.head;
+  head.querySelectorAll('[data-xq-head]').forEach((el) => el.remove());
+  if (!on) {
+    document.title = 'Life · 小游戏合集';
+    return;
+  }
+  document.title = '楚河汉界 · 象棋教练';
+  const add = (tag: string, attrs: Record<string, string>) => {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    el.setAttribute('data-xq-head', '');
+    head.appendChild(el);
+  };
+  add('link', { rel: 'manifest', href: `${base}xiangqi/manifest.webmanifest` });
+  add('link', { rel: 'apple-touch-icon', href: `${base}xiangqi/icon-180.png` });
+  add('meta', { name: 'apple-mobile-web-app-capable', content: 'yes' });
+  add('meta', { name: 'mobile-web-app-capable', content: 'yes' });
+  add('meta', { name: 'apple-mobile-web-app-title', content: '楚河汉界' });
+  add('meta', { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' });
+}
+
 async function launchXiangqi() {
   clear();
+  setAppParam(XQ_PARAM);
+  setXiangqiHead(true);
   const { bootXiangqi } = await import('./xiangqi/index');
   dispose = bootXiangqi(app, (restart) => {
     if (restart) launchXiangqi();
-    else showHome();
+    else {
+      setAppParam(null);
+      setXiangqiHead(false);
+      showHome();
+    }
   });
 }
 
@@ -207,8 +247,8 @@ function showHome() {
       tag: 'NEW',
     },
     {
-      title: '♟️ 中国象棋 · 3D 对弈',
-      desc: '3D 木纹棋盘、立体棋子与走子动画，楚河汉界排兵布阵，单人对战 AI。',
+      title: '♟️ 中国象棋 · AI 学棋教练',
+      desc: '和 AI 下棋，教练在旁边看着：走坏了当场提醒，下完逐手复盘，按你真实的毛病安排训练。',
       go: launchXiangqi,
       tag: 'NEW',
     },
@@ -245,4 +285,6 @@ function showHome() {
   app.appendChild(screen);
 }
 
-showHome();
+// 象棋的地址（主屏幕图标、刷新、恢复备份以后）直接进象棋
+if (new URLSearchParams(location.search).get('app') === XQ_PARAM) open(launchXiangqi);
+else showHome();

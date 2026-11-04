@@ -64,7 +64,7 @@ describe('教练讲解：走错一手', () => {
     expect(text).toContain('对方会这样接');
     expect(text).toContain('炮8平5');
     expect(text).toContain('该走 炮二平五');
-    expect(text).toMatch(/差约 100 分/);
+    expect(text).toMatch(/差约 1\.0 个兵/);
   });
 
   it('该走的和你走的不会是同一手：原谱的记谱优先', () => {

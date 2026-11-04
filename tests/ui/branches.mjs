@@ -116,7 +116,7 @@ await page.evaluate(() => document.querySelector('.xq-rv-item[data-i="4"]')?.cli
 await page.waitForTimeout(600);
 const best = (await page.locator('[data-best]').innerText()).replace(/\s+/g, ' ');
 note('最佳走法：' + best.slice(0, 120));
-ok('写着最佳走法是什么、比你这手多得多少分', /最佳走法 \S+：比你这手多得约 \d+ 分/.test(best));
+ok('写着最佳走法是什么、比你这手多得几个兵', /最佳走法 \S+：比你这手多得约 [\d.]+ 个兵/.test(best) || /和最佳差不多/.test(best));
 const rvArrows = await page.evaluate(() => document.querySelector('.xq-boardwrap canvas.xq-b2d').dataset.arrows);
 ok(`你走错的一手：棋盘上红"你"、绿"★"两条箭头（${rvArrows}）`, rvArrows === 'mine,best');
 ok('点绿箭头（画布上）：在棋盘上一步步看最佳走法的后续', (await tapArrow('.xq-boardwrap canvas.xq-b2d', 'best')) && (await until(page, () => !!document.querySelector('[data-demo]'), null, 3000)));

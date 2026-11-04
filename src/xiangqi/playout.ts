@@ -611,7 +611,7 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
     const bad = list.filter((x) => x.v.bad);
     const slow = list.filter((x) => x.v.kind === 'slow');
     const acc = Math.round(list.reduce((a, x) => a + x.acc, 0) / list.length);
-    const parts = [`教练看了你 ${list.length} 手：${best} 手和引擎首选一样，准确率 ${acc} 分`];
+    const parts = [`教练看了你 ${list.length} 手：${best} 手和引擎首选一样，准确率 ${acc}%`];
     if (bad.length) parts.push(`${bad.map((x) => x.text).join('、')} 让结果变了`);
     if (slow.length) parts.push(`${slow.length} 手走软`);
     if (hintsUsed) parts.push(`用了 ${hintsUsed} 次提示`);

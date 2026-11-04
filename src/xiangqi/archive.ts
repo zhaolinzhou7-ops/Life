@@ -14,8 +14,13 @@ import { fromFen, toFen } from './notation';
 import type { ErrTag } from './teach';
 
 const KEY = 'xq-archive';
-/** 最多留多少盘。太多了首页列表也看不过来，而且 localStorage 有配额 */
-const MAX_GAMES = 40;
+/**
+ * 最多留多少盘。一盘连复盘结论不到 1KB，五百盘四百来 KB，localStorage 吃得下。
+ * 原来只留 40 盘、第 41 盘进来最早那盘就悄悄没了——下了两三个月的棋，回头想看开头那几盘就找不到了。
+ * 真满了（配额不够）才从最老的删起，而且列表里会说一声（droppedCount）。
+ */
+export const MAX_GAMES = 500;
+const DROPPED_KEY = 'xq-archive-dropped';
 
 export interface ArchivedReview {
   blunders: number;
@@ -103,11 +108,39 @@ function load(): ArchivedGame[] {
   }
 }
 
+/**
+ * 写回去。超过上限、或者手机存储配额满了写不进去，从最老的删起，删了几盘记下来（列表里会说）。
+ * 原来写不进去就"静默放弃"——刚下完的那一盘就这么没了。
+ */
 function store(list: ArchivedGame[]) {
+  let keep = list.slice(0, MAX_GAMES);
+  let dropped = list.length - keep.length;
+  for (;;) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(keep));
+      break;
+    } catch {
+      if (keep.length <= 1) return;
+      const cut = Math.max(1, Math.ceil(keep.length / 10));
+      keep = keep.slice(0, keep.length - cut);
+      dropped += cut;
+    }
+  }
+  if (dropped > 0) {
+    try {
+      localStorage.setItem(DROPPED_KEY, String(droppedCount() + dropped));
+    } catch {
+      /* 记不下就不说了 */
+    }
+  }
+}
+
+/** 因为存不下、删掉了的最老的棋一共几盘（列表底下说一声，建议先备份） */
+export function droppedCount(): number {
   try {
-    localStorage.setItem(KEY, JSON.stringify(list));
+    return Number(localStorage.getItem(DROPPED_KEY) ?? 0) || 0;
   } catch {
-    // 配额满或写不进去：功能不依赖它，静默放弃
+    return 0;
   }
 }
 
@@ -150,7 +183,7 @@ export function archiveGame(g: Omit<ArchivedGame, 'id' | 'd' | 'ts'>): string {
   const ts = Date.now();
   const id = freshId(list, ts);
   list.unshift({ ...g, id, ts, d: new Date().toLocaleDateString('sv') });
-  store(list.slice(0, MAX_GAMES));
+  store(list);
   return id;
 }
 

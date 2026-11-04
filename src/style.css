@@ -6587,3 +6587,41 @@ details.xq-fold:not([open]) > summary::after { content: '（点开看）'; font-
 .xq-look-vols span { flex: none; width: 92px; }
 .xq-look-vols input { flex: 1; accent-color: #e0b04a; }
 
+
+/* ───────── 备份 / 恢复进度（xiangqi/backup.ts、home.ts renderBackup） ───────── */
+.xq-backup-nag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(560px, 92vw);
+  margin: 0 auto 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(240, 190, 80, 0.1);
+  border: 1px solid rgba(240, 190, 80, 0.4);
+  box-sizing: border-box;
+}
+.xq-backup-nag .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.xq-backup-nag .txt b { font-size: 14px; }
+.xq-backup-nag .txt span { font-size: 13px; color: rgba(240, 230, 210, 0.75); line-height: 1.45; }
+.xq-backup-nag .xq-btn { min-height: 40px; flex: none; }
+.xq-backup .xq-backup-now { display: flex; gap: 10px; width: min(560px, 92vw); margin: 4px auto 10px; }
+.xq-backup .xq-backup-now > div { flex: 1; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 10px 6px; text-align: center; }
+.xq-backup .xq-backup-now b { display: block; font-size: 20px; color: #f0e6d2; }
+.xq-backup .xq-backup-now span { font-size: 12px; color: rgba(240, 230, 210, 0.65); }
+.xq-backup .xq-backup-st { width: min(560px, 92vw); margin: 2px auto; font-size: 13px; color: rgba(240, 230, 210, 0.75); text-align: left; }
+.xq-backup > .btn { width: min(560px, 92vw); margin: 8px auto 0; display: block; min-height: 48px; }
+.xq-backup .xq-backup-tip { width: min(560px, 92vw); margin: 14px auto 0; font-size: 13px; line-height: 1.6; color: rgba(240, 230, 210, 0.78); text-align: left; background: rgba(255, 255, 255, 0.04); border-radius: 12px; padding: 10px 12px; box-sizing: border-box; }
+.xq-backup .xq-backup-confirm { width: min(560px, 92vw); margin: 10px auto 0; padding: 12px; border-radius: 12px; background: var(--panel-solid); border: 1px solid rgba(240, 190, 80, 0.45); text-align: left; font-size: 14px; box-sizing: border-box; }
+.xq-backup .xq-backup-confirm p { margin: 6px 0; font-size: 13px; line-height: 1.5; color: rgba(240, 230, 210, 0.8); }
+.xq-backup .xq-backup-confirm .row { display: flex; gap: 10px; margin-top: 8px; }
+.xq-backup .xq-backup-confirm .row .btn { flex: 1; min-height: 44px; }
+.xq-backup .xq-backup-confirm .err { color: var(--danger); }
+.xq-glist-more { display: block; width: 100%; margin-top: 8px; }
+.xq-empty-note { font-size: 13px; margin: 8px 0; text-align: left; line-height: 1.5; }
+
+/* 正式对局（xiangqi/gamemode.ts）：藏起来的悔棋、求助、教练档按钮；限时快用完钟变红 */
+.xq-btn[hidden] { display: none !important; }
+.xq-clock.low { color: #ff6b5e; font-weight: 700; animation: xq-clock-low 1s ease-in-out infinite; }
+@keyframes xq-clock-low { 50% { opacity: 0.55; } }
+.xq-tc-row .card .title { font-size: 14px; }

@@ -75,7 +75,7 @@ await until(() => window.__xq?.turn() === 'r' && !window.__xq.state().busy, null
 await page.waitForTimeout(2200);
 const c1 = await page.evaluate(() => ({ me: document.querySelector('.xq-mebox .xq-clock')?.textContent, foe: document.querySelector('.xq-rivalbox .xq-clock')?.textContent, meOn: document.querySelector('.xq-mebox')?.classList.contains('on'), foeOn: document.querySelector('.xq-rivalbox')?.classList.contains('on') }));
 console.log('   钟：' + JSON.stringify(c1));
-ok('你那一框：执红、实战分、用时', /执红/.test(await page.locator('.xq-mebox').innerText()) && /实战分/.test(await page.locator('.xq-mebox').innerText()));
+ok('你那一框：执红、练习还是正式（计不计实战分）、用时', /执红/.test(await page.locator('.xq-mebox').innerText()) && /实战分|不计分/.test(await page.locator('.xq-mebox').innerText()));
 ok('轮到你：你那一框亮着、你的钟在走', c1.meOn && !c1.foeOn && c1.me !== '00:00');
 
 // 报着法

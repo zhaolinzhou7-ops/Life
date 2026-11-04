@@ -10,8 +10,10 @@ import {
   noAttackers,
   pliesSinceCapture,
   repetitionState,
+  chaseOf,
   type PlyRecord,
 } from '../src/xiangqi/endings';
+import { applyMove } from '../src/xiangqi/rules';
 import { fromFen } from '../src/xiangqi/notation';
 import { initialBoard } from '../src/xiangqi/rules';
 import { obviousDraw } from '../src/xiangqi/library';
@@ -136,5 +138,59 @@ describe('各只剩一个马或炮：判和之前让引擎看一眼（minors.ts�
       const p = fromFen(fen)!;
       expect(await minorsDead(p.board, p.toMove), fen).toBe(true);
     }
+  });
+});
+
+// 评估里提的："专业规则缺长捉"——原来长捉只能按重复局面判和。认得很保守：宁可漏判不错判
+describe('长捉', () => {
+  const chase = (fen: string, fx: number, fy: number, tx: number, ty: number) => {
+    const b = fromFen(fen)!.board;
+    const m = { fx, fy, tx, ty };
+    return chaseOf(b, m, applyMove(b, m));
+  };
+
+  it('车走过去瞄上没根的马：捉', () => {
+    expect(chase('4k4/9/9/9/4n4/9/9/9/9/R2K5 w', 0, 9, 0, 4)).toBe('H');
+  });
+
+  it('马有根（后面有车护着）：车去瞄它不算捉', () => {
+    expect(chase('4k4/4r4/9/9/4n4/9/9/9/9/R2K5 w', 0, 9, 0, 4)).toBeNull();
+  });
+
+  it('马去瞄车：车有根也算捉（小子捉大子）', () => {
+    expect(chase('4k4/4r4/9/4r4/9/9/9/2N6/9/3K5 w', 2, 7, 3, 5)).toBe('R');
+  });
+
+  it('兵去瞄子不算捉（竞赛规则里兵卒可以长捉）', () => {
+    // 过河兵走到马旁边（横着能吃到马）：没根的马也不算被捉
+    expect(chase('4k4/9/9/9/4n4/3P5/9/9/9/3K5 w', 3, 5, 3, 4)).toBeNull();
+  });
+
+  it('走之前就瞄着它（不是新的捉）：不算', () => {
+    // 车在同一条横线上平移，原来就吃得到马
+    expect(chase('4k4/9/9/9/R3n4/9/9/9/9/3K5 w', 0, 4, 1, 4)).toBeNull();
+  });
+
+  it('一方每一步都在捉、另一方没有：长捉方判负', () => {
+    const p = cycle(4, false).map((r) => (r.mover === 'r' ? { ...r, chase: 'H' } : r));
+    expect(repetitionState('A', p).chaser).toBe('r');
+    expect(drawOrForfeit(initialBoard(), 'A', p)).toEqual({ winner: 'b', reason: 'perpetual-chase' });
+  });
+
+  it('一将一捉也算（每一步不是将军就是捉）', () => {
+    const p = cycle(4, false).map((r, i) => (r.mover === 'r' ? (i === 0 ? { ...r, check: true } : { ...r, chase: 'R' }) : r));
+    expect(drawOrForfeit(initialBoard(), 'A', p)).toEqual({ winner: 'b', reason: 'perpetual-chase' });
+  });
+
+  it('双方对捉、或者循环里有一步没捉：作和', () => {
+    const both = cycle(4, false).map((r) => ({ ...r, chase: 'H' }));
+    expect(drawOrForfeit(initialBoard(), 'A', both)).toEqual({ winner: null, reason: 'repetition' });
+    const gap = cycle(4, false).map((r, i) => (r.mover === 'r' && i !== 2 ? { ...r, chase: 'H' } : r));
+    expect(drawOrForfeit(initialBoard(), 'A', gap)).toEqual({ winner: null, reason: 'repetition' });
+  });
+
+  it('一方长将、另一方长捉：按长将判（长将方负）', () => {
+    const p = cycle(4, true).map((r) => (r.mover === 'b' ? { ...r, chase: 'R' } : r));
+    expect(drawOrForfeit(initialBoard(), 'A', p)).toEqual({ winner: 'b', reason: 'perpetual-check' });
   });
 });

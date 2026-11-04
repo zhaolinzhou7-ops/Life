@@ -43,6 +43,18 @@ export const PIECE_VALUE: Record<PType, number> = {
 export const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 
 /** 把分数换算成"约等于几个子"，给不认识数字的人看 */
+/**
+ * 局面差多少，统一用"几个兵"说（一个兵 = 100）：原来复盘里"多得约 3 分（约 0.0 个兵）"、
+ * 走势图"红 +0.9"、实战分"1420 分"、准确率"73"——四个数都叫"分"，看糊涂了。现在局面一律说兵，"分"只留给实战分。
+ */
+export function pawns(v: number): string {
+  const n = Math.abs(v) / 100;
+  return `${n >= 10 ? Math.round(n) : n.toFixed(1)} 个兵`;
+}
+
+/** 差得太少（不到 0.3 个兵）：引擎算两次都能差这么多，不该说"该走那一手" */
+export const NEGLIGIBLE = 30;
+
 export function inPieces(v: number): string {
   const n = Math.abs(v);
   if (n >= 1900) return '两个车';
