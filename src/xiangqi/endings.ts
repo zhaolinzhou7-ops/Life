@@ -19,6 +19,7 @@
  *     原来这一条不做，长捉只能按重复局面判和——评估里说"专业规则缺长捉"，补上最没争议的那部分。
  */
 import { applyMove, isInCheck, legalMoves, type Board, type Color, type Move } from './rules';
+import { toFen } from './notation';
 
 export type EndReason =
   | 'mate'
@@ -52,6 +53,16 @@ export interface PlyRecord {
   capture: boolean;
   /** 这一手捉了对方哪个子（chaseOf：车马炮的类型；没捉是 null / 不填） */
   chase?: string | null;
+}
+
+/**
+ * 走一手要记的那条记录。对局、残局下到底、离线工具都用这一个，记法一致，裁判才一致。
+ * before 是走之前的局面，after 是走完的（applyMove(before, m)）。
+ */
+export function plyRecord(before: Board, m: Move, after: Board): PlyRecord {
+  const mover = before[m.fy][m.fx]!.c;
+  const next: Color = mover === 'r' ? 'b' : 'r';
+  return { key: toFen(after, next), mover, check: isInCheck(after, next), capture: !!before[m.ty][m.tx], chase: chaseOf(before, m, after) };
 }
 
 /** 算"捉"时子的分量：小子捉大子，大子有根也算捉 */

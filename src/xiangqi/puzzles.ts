@@ -63,6 +63,12 @@ export interface Puzzle {
   goal?: 'mate' | 'win' | 'only' | 'defend' | 'best';
   /** 走棋方这时的局面分（引擎，车≈1000）：说明"你现在是领先还是落后" */
   ev?: number;
+  /**
+   * 残局题主变走完以后"接着下到底"的目标，皮卡鱼两边真下到底验过的（tools/recheck-puzzle-ends.ts）：
+   * win 要下到将死、draw 要守成和棋、none 主变走完就算做对（真下下去结果不稳，不能要求你下到底）。
+   * 原来按局面分定（三个兵以上就要将死），可分数不是结果：车兵对车这类残局分数过了三个兵，皮卡鱼照样守得住。
+   */
+  end?: 'win' | 'draw' | 'none';
   /** 第二好的走法值多少（走棋方视角，tools/find-won-puzzles 算的）：也赢定了的题不出，见 wonAnyway */
   ev2?: number;
   /** 中局组合的主题：连将杀、杀、弃子、抽将、捉双、将军抽子、组合（tools/gen-combos.ts 按主变标的） */

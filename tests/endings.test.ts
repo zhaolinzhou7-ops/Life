@@ -9,11 +9,13 @@ import {
   drawOrForfeit,
   noAttackers,
   pliesSinceCapture,
+  plyRecord,
   repetitionState,
   chaseOf,
   type PlyRecord,
 } from '../src/xiangqi/endings';
-import { applyMove } from '../src/xiangqi/rules';
+import { applyMove, isInCheck } from '../src/xiangqi/rules';
+import { toFen as toFenN } from '../src/xiangqi/notation';
 import { fromFen } from '../src/xiangqi/notation';
 import { initialBoard } from '../src/xiangqi/rules';
 import { obviousDraw } from '../src/xiangqi/library';
@@ -192,5 +194,38 @@ describe('长捉', () => {
   it('一方长将、另一方长捉：按长将判（长将方负）', () => {
     const p = cycle(4, true).map((r) => (r.mover === 'b' ? { ...r, chase: 'R' } : r));
     expect(drawOrForfeit(initialBoard(), 'A', p)).toEqual({ winner: 'b', reason: 'perpetual-check' });
+  });
+});
+
+// 用户截图（残局下到底，你领先一个车）：对方的车贴着帅一路将军，帅只能四进一、四退一来回躲，
+// 第三次重复原来判"走成和棋了 · 多子没赢下来"。按棋规是对方长将判负——你赢
+describe('截图那一局：对方长将，你赢', () => {
+  it('黑车来回将军、红帅来回躲：第三次重复判黑方长将负', () => {
+    const start = fromFen('4k4/3P1R3/9/9/9/9/9/9/4r4/5K3 b')!;
+    const toFen = toFenN;
+    const startKey = toFen(start.board, 'b');
+    const seq = [
+      { fx: 4, fy: 8, tx: 4, ty: 9 }, // 车5进1 将军（帅吃不了：吃了就和将对脸）
+      { fx: 5, fy: 9, tx: 5, ty: 8 }, // 帅四进一
+      { fx: 4, fy: 9, tx: 4, ty: 8 }, // 车5退1 将军
+      { fx: 5, fy: 8, tx: 5, ty: 9 }, // 帅四退一
+    ];
+    let b = start.board;
+    let c: 'r' | 'b' = 'b';
+    const plies: PlyRecord[] = [];
+    let end = null;
+    for (let i = 0; i < 12 && !end; i++) {
+      const m = seq[i % 4];
+      const after = applyMove(b, m);
+      const next = c === 'r' ? 'b' : 'r';
+      const rec = { key: toFen(after, next), mover: c, check: isInCheck(after, next), capture: !!b[m.ty][m.tx], chase: chaseOf(b, m, after) };
+      // 残局下到底、离线工具用的 plyRecord 和对局里手写的记法一样
+      expect(plyRecord(b, m, after)).toEqual(rec);
+      plies.push(rec);
+      b = after;
+      c = next;
+      end = drawOrForfeit(b, startKey, plies);
+    }
+    expect(end).toEqual({ winner: 'r', reason: 'perpetual-check' });
   });
 });

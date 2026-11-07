@@ -15,11 +15,14 @@
  *     才用自带引擎顶上，并且当场说出来；
  *   - **结束有小结**：走了几手、几手是最佳、在哪儿走软的；结果当场记下（不用点"再来一次"才记）。
  *
- * 判定规则和实战一致：将死判负、60 回合无吃子判和、三次重复判和。
+ * 判定规则和实战**同一个裁判**（endings.ts 的 drawOrForfeit）：将死判负；同一局面第三次出现时，一方一直将军（长将）
+ * 或一直捉子（长捉）判负，否则判和；60 回合无吃子判和；双方都没有进攻子力判和。
+ * 原来这里自己数"三次重复就判和"，不管是谁在长将：多一个车的那一方，被对方的车一路将军、帅只能来回躲，
+ * 第三次重复就被判成和棋——用户截图里八手都和引擎首选一样，结果"多子没赢下来"。按棋规那是对方长将判负，是你赢。
  * 要赢的局面必须下到将死；给了 winAt（邪门布局的"破解到底"）的，引擎连续几步确认胜势已定也算过，
  * 可以选择接着下到将死。
  */
-import { END_TEXT, bareMinors, noAttackers } from './endings';
+import { END_TEXT, bareMinors, drawOrForfeit, pliesSinceCapture, plyRecord, type GameEnd, type PlyRecord } from './endings';
 import { applyMove, isInCheck, legalMoves, statusAfter, type Board, type Color, type Move } from './rules';
 import type { MoveScore } from './ai';
 import { fromFen, moveToText, toFen } from './notation';
@@ -124,7 +127,6 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
   let selected: { x: number; y: number } | null = null;
   let busy = false;
   let over = false;
-  let sinceCapture = 0;
   let myMoves = 0;
   let seq = 0;
   /** 每悔一次棋加一：悔掉的那几手，迟到的反馈不能再显示 */
@@ -134,8 +136,9 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
   let hintsUsed = 0;
   /** 整局的着法（研究要知道重复局面） */
   const moves: Move[] = [];
-  const seen = new Map<string, number>();
-  const history: { board: Board; turn: Color; sinceCapture: number; moves: number }[] = [];
+  /** 每一手走完之后的局面记录：重复局面、长将、长捉、自然限着都靠它（和对局同一份规则） */
+  const plies: PlyRecord[] = [];
+  const history: { board: Board; turn: Color; moves: number }[] = [];
   /** 你每一手的反馈（第几手 → 判读），小结用 */
   const marks = new Map<number, { v: DrillVerdict; acc: number; text: string }>();
   /** 上一步对手用的是哪个引擎（测试用） */
@@ -223,11 +226,59 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
   const myLegal = () => legalMoves(board, me).filter((m) => !isInCheck(applyMove(board, m), me));
 
   function updateCount() {
-    const left = Math.max(0, Math.ceil((NO_CAPTURE_LIMIT - sinceCapture) / 2));
+    const left = Math.max(0, Math.ceil((NO_CAPTURE_LIMIT - pliesSinceCapture(plies)) / 2));
     elCnt.textContent = opts.par
       ? `已走 ${myMoves} 步 / 最快 ${opts.par} 步杀`
       : `第 ${myMoves} 手 · 60 回合不吃子判和（还剩 ${left}）`;
   }
+
+  /** 一手棋的记录：走完的局面、谁走的、将没将军、吃没吃子、捉没捉子 */
+  const plyOf = plyRecord;
+
+  /** 结局说成人话：谁长将、谁长捉，按规则谁负 */
+  function endText(end: GameEnd): string {
+    const foeDid = end.winner === me;
+    if (end.reason === 'perpetual-check') return foeDid ? '对方一直将军（长将），同一局面出现三次，按规则对方判负' : '你一直在将军（长将），同一局面出现三次，按规则判负';
+    if (end.reason === 'perpetual-chase') return foeDid ? '对方不是将军就是捉子（长捉），同一局面出现三次，按规则对方判负' : '你不是将军就是捉子（长捉），同一局面出现三次，按规则判负';
+    if (end.reason === 'repetition') return '三次重复局面';
+    return END_TEXT[end.reason];
+  }
+
+  /**
+   * 你这一手走下去会不会当场按棋规结束：长将、长捉判负，或者要赢的局面走成重复判和。
+   * 会的话先说一句，再点一次才走（对局里是弹窗问，这里在反馈条上说）
+   */
+  function ruleWarn(mv: Move): string | null {
+    const after = applyMove(board, mv);
+    const recs = [...plies, plyOf(board, mv, after)];
+    const end = drawOrForfeit(after, startFen, recs);
+    if (!end) return replyWarn(after, recs);
+    if (end.winner && end.winner !== me)
+      return `⚠️ 这一手走完，同一局面就第三次出现了，而你每一步都在${end.reason === 'perpetual-chase' ? '将军、捉子（不是将就是捉）' : '将军'}——按规则是<b>${end.reason === 'perpetual-chase' ? '长捉' : '长将'}判负</b>。换一手；真要走，再点一次。`;
+    if (end.winner === null && opts.target === 'win')
+      return `⚠️ 这一手走完就${end.reason === 'repetition' ? '是三次重复局面' : END_TEXT[end.reason]}，按规则判和——赢棋就没了。换一手；真要走，再点一次。`;
+    return null;
+  }
+
+  /**
+   * 这一手本身不成三次重复，但对方回一手就成了（来回走的时候，第三次常常落在对方那一手上，
+   * 那时候已经来不及提醒）。对方走回去要是判你长将负、或者要赢的局面判和，先说一声。
+   */
+  function replyWarn(after: Board, recs: PlyRecord[]): string | null {
+    for (const r of legalMoves(after, foe)) {
+      const a2 = applyMove(after, r);
+      if (isInCheck(a2, foe)) continue;
+      const end = drawOrForfeit(a2, startFen, [...recs, plyOf(after, r, a2)]);
+      if (!end || (end.reason !== 'repetition' && end.reason !== 'perpetual-check' && end.reason !== 'perpetual-chase')) continue;
+      if (end.winner && end.winner !== me)
+        return `⚠️ 这一手走完，对方一走回去，同一局面就第三次出现了，而你每一步都在${end.reason === 'perpetual-chase' ? '将军、捉子（不是将就是捉）' : '将军'}——按规则是<b>${end.reason === 'perpetual-chase' ? '长捉' : '长将'}判负</b>。换一手；真要走，再点一次。`;
+      if (end.winner === null && opts.target === 'win')
+        return '⚠️ 这一手走完，对方一走回去，同一局面就第三次出现了，按规则判和——赢棋就没了。换一手；真要走，再点一次。';
+    }
+    return null;
+  }
+  /** 刚提醒过的那一手（再点一次就照走） */
+  let warnedMove = '';
 
   // ───────── 判和：已经是死和，就不用再走满 60 回合 ─────────
 
@@ -460,7 +511,17 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
     const p = board[y][x];
     if (selected) {
       const mv = myLegal().find((m) => m.fx === selected!.x && m.fy === selected!.y && m.tx === x && m.ty === y);
-      if (mv) return play(mv);
+      if (mv) {
+        const k = `${mv.fx}${mv.fy}${mv.tx}${mv.ty}:${moves.length}`;
+        const w = ruleWarn(mv);
+        if (w && warnedMove !== k) {
+          warnedMove = k;
+          showFb(w, 'bad');
+          return;
+        }
+        warnedMove = '';
+        return play(mv);
+      }
     }
     if (p && p.c === me) {
       selected = { x, y };
@@ -484,13 +545,12 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
       dropStudy();
       showFb('', 'info');
     }
-    history.push({ board, turn, sinceCapture, moves: moves.length });
-    const cap = !!board[mv.ty][mv.tx];
+    history.push({ board, turn, moves: moves.length });
     const after = applyMove(board, mv);
+    plies.push(plyOf(board, mv, after));
     board = after;
     moves.push(mv);
     turn = turn === 'r' ? 'b' : 'r';
-    sinceCapture = cap ? 0 : sinceCapture + 1;
     if (turn === foe) myMoves++;
     updateCount();
     // 反馈和对手思考同时进行
@@ -527,13 +587,9 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
       // statusAfter 返回的是"谁赢"，turn 是被将死的一方
       return finish(turn === me ? 'loss' : 'win');
     }
-    if (sinceCapture >= NO_CAPTURE_LIMIT) return finish('draw', '60 回合无吃子');
-    // 子力不够谁都赢不了：双方都没有进攻子力——直接作和，不用走满 60 回合
-    if (noAttackers(board)) return finish('draw', END_TEXT['no-attackers']);
-    const key = toFen(board, turn);
-    const n = (seen.get(key) ?? 0) + 1;
-    seen.set(key, n);
-    if (n >= 3) return finish('draw', '三次重复局面');
+    // 重复局面（长将、长捉判负）、60 回合无吃子、双方都没有进攻子力：和对局同一个裁判
+    const end = drawOrForfeit(board, startFen, plies);
+    if (end) return finish(end.winner === null ? 'draw' : end.winner === me ? 'win' : 'loss', endText(end));
     // 各只剩一个马或炮：引擎看过没杀也直接作和（有的摆法有杀，光看子力会把赢棋判没了，见 minors.ts）
     if (bareMinors(board, turn)) {
       const my = ++seq;
@@ -554,6 +610,12 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
   /** 棋没结束：轮到谁就让谁走 */
   function nextTurn() {
     if (turn === foe) {
+      // 开发期测试：让对手停着，等测试替它走（tests/ui/playout-rules.mjs 照着长将的路线走）
+      if (import.meta.env.DEV && (window as unknown as { __xqHoldOpp?: boolean }).__xqHoldOpp) {
+        busy = false;
+        renderCoach();
+        return;
+      }
       const my = ++seq;
       busy = true;
       renderCoach();
@@ -575,12 +637,10 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
     let back = false;
     while (history.length) {
       const h = history.pop()!;
-      const key = toFen(board, turn);
-      seen.set(key, Math.max(0, (seen.get(key) ?? 1) - 1));
       board = h.board;
       turn = h.turn;
-      sinceCapture = h.sinceCapture;
       moves.length = h.moves;
+      plies.length = h.moves;
       back = true;
       if (turn === me) break;
     }
@@ -716,8 +776,17 @@ export function runPlayout(host: HTMLElement, opts: PlayoutOpts): () => void {
         return true;
       },
       legal: () => myLegal(),
+      /** 替对手走指定的一手（测试棋规用：让对手照着长将的路线走）；对手正在想的那一步作废 */
+      oppPlay: (m: Move) => {
+        if (turn !== foe || over || animating) return false;
+        if (!legalMoves(board, foe).some((x) => same(x, m) && !isInCheck(applyMove(board, x), foe))) return false;
+        seq++;
+        busy = false;
+        play(m);
+        return true;
+      },
       board: () => board,
-      state: () => ({ over, turn, myMoves, sinceCapture, busy }),
+      state: () => ({ over, turn, myMoves, sinceCapture: pliesSinceCapture(plies), busy }),
       study: () =>
         study && study.is(board, me)
           ? { depth: study.depth, done: study.done, engine: study.engine, best: study.moves[0]?.move ?? null, score: study.moves[0]?.score ?? 0, mateIn: study.moves[0]?.mateIn }

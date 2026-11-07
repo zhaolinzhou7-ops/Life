@@ -20,6 +20,7 @@ import { toFen } from '../src/xiangqi/notation';
 import { moveToUci, parseInfo, uciToMove, type PvLine } from '../src/xiangqi/pikafish';
 import { think } from '../src/xiangqi/ai';
 import { chooseMove, PIKA_LEVELS, type Cand, type LevelCfg } from '../src/xiangqi/pikalevel';
+import { drawOrForfeit, plyRecord, type PlyRecord } from '../src/xiangqi/endings';
 
 const OLD = [
   { jitter: 200, timeMs: 200 },
@@ -91,11 +92,14 @@ function play(red: Player, black: Player): { r: number; plies: number; why: stri
   let board = initialBoard();
   let color: Color = 'r';
   const moves: Move[] = [];
-  const seen = new Map<string, number>();
-  let quiet = 0;
+  // 和 App 同一个裁判（endings.ts）：重复局面里长将、长捉判负，60 回合不吃子判和
+  const startKey = toFen(board, color);
+  const plies: PlyRecord[] = [];
   for (let ply = 0; ply < 300; ply++) {
     const st = statusAfter(board, color);
     if (st !== 'playing') return { r: st === 'red-win' ? 1 : 0, plies: ply, why: '将死' };
+    const end = drawOrForfeit(board, startKey, plies);
+    if (end) return { r: end.winner === 'r' ? 1 : end.winner === 'b' ? 0 : 0.5, plies: ply, why: end.reason };
     let m: Move | null;
     if (ply < 2) {
       const { cands } = pikaSearch(board, color, moves, 5, 'nodes 20000');
@@ -105,15 +109,11 @@ function play(red: Player, black: Player): { r: number; plies: number; why: stri
       m = pick(color === 'r' ? red : black, board, color, moves);
     }
     if (!m) return { r: color === 'r' ? 0 : 1, plies: ply, why: '无着' };
-    quiet = board[m.ty][m.tx] ? 0 : quiet + 1;
-    board = applyMove(board, m);
+    const after = applyMove(board, m);
+    plies.push(plyRecord(board, m, after));
+    board = after;
     moves.push(m);
     color = color === 'r' ? 'b' : 'r';
-    const key = toFen(board, color);
-    const n = (seen.get(key) ?? 0) + 1;
-    seen.set(key, n);
-    if (n >= 3) return { r: 0.5, plies: ply + 1, why: '重复' };
-    if (quiet >= 120) return { r: 0.5, plies: ply + 1, why: '60回合' };
   }
   const { best } = pikaSearch(board, color, moves, 1, 'nodes 200000');
   const red3 = color === 'r' ? best : -best;

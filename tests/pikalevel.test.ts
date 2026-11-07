@@ -133,5 +133,9 @@ describe('残局题下到底的目标', () => {
     expect(endgameTarget(p({ ev: 20, goal: 'only' }))).toBe('draw');
     expect(endgameTarget(p({ ev: -500, goal: 'defend' }))).toBeNull();
     expect(endgameTarget(p({ kind: 'tactic', ev: 900 }))).toBeNull();
+    // 真下到底验过的优先：分数够"要赢"，可皮卡鱼守得住，就不要求下到将死
+    expect(endgameTarget(p({ ev: 900, goal: 'only', end: 'none' }))).toBeNull();
+    expect(endgameTarget(p({ ev: 400, goal: 'only', end: 'draw' }))).toBe('draw');
+    expect(endgameTarget(p({ ev: 20, goal: 'only', end: 'win' }))).toBe('win');
   });
 });

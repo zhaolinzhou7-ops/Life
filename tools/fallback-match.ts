@@ -10,6 +10,7 @@ import fs from 'fs';
 import { evaluatePosition, setPlayPruning, think } from '../src/xiangqi/ai';
 import { fromFen, toFen } from '../src/xiangqi/notation';
 import { applyMove, statusAfter, type Board, type Color } from '../src/xiangqi/rules';
+import { drawOrForfeit, plyRecord, type PlyRecord } from '../src/xiangqi/endings';
 
 const [, , a0 = '0', a1 = '1'] = process.argv;
 const shard = Number(a0);
@@ -29,16 +30,18 @@ function play(fen: string, newIs: Color): { score: number; why: string; plies: n
   const f = fromFen(fen)!;
   let b: Board = f.board;
   let c: Color = f.toMove;
-  const seen = new Map<string, number>();
+  // 和 App 同一个裁判（endings.ts）：重复局面里长将、长捉判负，60 回合不吃子判和
+  const startKey = toFen(b, c);
+  const plies: PlyRecord[] = [];
   for (let ply = 0; ply < MAX_PLY; ply++) {
-    const key = toFen(b, c);
-    const n = (seen.get(key) ?? 0) + 1;
-    seen.set(key, n);
-    if (n >= 3) return { score: 0.5, why: '重复', plies: ply };
+    const end = drawOrForfeit(b, startKey, plies);
+    if (end) return { score: end.winner === null ? 0.5 : end.winner === newIs ? 1 : 0, why: end.reason, plies: ply };
     setPlayPruning(c === newIs);
     const m = think(b, c, { maxDepth: 64, timeMs: TIME, jitter: 0 });
     if (!m) return { score: c === newIs ? 0 : 1, why: '无着', plies: ply };
-    b = applyMove(b, m);
+    const after = applyMove(b, m);
+    plies.push(plyRecord(b, m, after));
+    b = after;
     c = c === 'r' ? 'b' : 'r';
     const st = statusAfter(b, c);
     if (st !== 'playing') {

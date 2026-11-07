@@ -11,6 +11,7 @@ import { startPikafish } from './pikafish-node';
 import { parseInfo, moveToUci, uciToMove, type PvLine } from '../src/xiangqi/pikafish';
 import { fromFen, moveToText, textToMove, toFen } from '../src/xiangqi/notation';
 import { applyMove, isInCheck, legalMoves, statusAfter, type Board, type Color, type Move } from '../src/xiangqi/rules';
+import { END_TEXT, drawOrForfeit, plyRecord, type PlyRecord } from '../src/xiangqi/endings';
 
 const [, , fen0, pre = '', cands = '', d0 = '22', n0 = '400000'] = process.argv;
 const DEPTH = Number(d0);
@@ -76,10 +77,11 @@ for (const m of list) {
   const sc = last.mateIn !== undefined ? `${last.mateIn > 0 ? '' : '被'}${Math.abs(last.mateIn)} 步杀` : `${last.score}`;
   console.log(`\n${t}：${DEPTH} 层 ${sc}（${((Date.now() - t0) / 1000).toFixed(0)} 秒）\n  主变：${pvText(b, c, last.pv)}`);
   // 两边对下到底
+  // 和 App 同一个裁判（endings.ts）：重复局面里长将、长捉判负，60 回合不吃子判和
+  const startKey = toFen(b, c);
+  const plies: PlyRecord[] = [plyRecord(b, m, applyMove(b, m))];
   let bb = applyMove(b, m);
   let cc = other(c);
-  const seen = new Map<string, number>();
-  let quiet = 0;
   let res = '';
   const moves: string[] = [t];
   for (let ply = 1; ply < 240; ply++) {
@@ -89,19 +91,14 @@ for (const m of list) {
     }
     const g = search(toFen(bb, cc), `go nodes ${NODES}`);
     const mv = uciToMove(g[g.length - 1].pv[0])!;
-    const cap = !!bb[mv.ty][mv.tx];
     moves.push(moveToText(bb, mv));
-    bb = applyMove(bb, mv);
+    const after = applyMove(bb, mv);
+    plies.push(plyRecord(bb, mv, after));
+    bb = after;
     cc = other(cc);
-    quiet = cap ? 0 : quiet + 1;
-    const k = toFen(bb, cc);
-    seen.set(k, (seen.get(k) ?? 0) + 1);
-    if (seen.get(k)! >= 3) {
-      res = `三次重复（第 ${ply} 手）`;
-      break;
-    }
-    if (quiet >= 120) {
-      res = `60 回合不吃子（第 ${ply} 手）`;
+    const end = statusAfter(bb, cc) === 'playing' ? drawOrForfeit(bb, startKey, plies) : null;
+    if (end) {
+      res = `${END_TEXT[end.reason]}（第 ${ply} 手）`;
       break;
     }
   }

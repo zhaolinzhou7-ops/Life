@@ -14,6 +14,7 @@
 import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color } from '../src/xiangqi/rules';
 import { toFen } from '../src/xiangqi/notation';
 import { think, analyze, resetEngine } from '../src/xiangqi/ai';
+import { drawOrForfeit, plyRecord, type EndReason, type PlyRecord } from '../src/xiangqi/endings';
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 const legalOf = (b: Board, c: Color) => legalMoves(b, c).filter((m) => !isInCheck(applyMove(b, m), c));
@@ -43,7 +44,7 @@ function edge(b: Board): number {
 }
 
 /**
- * 引擎双方下到底，判定规则和 App 里一致（将死、60 回合无吃子、三次重复）。
+ * 引擎双方下到底，判定规则和 App 里一致（将死、60 回合无吃子、三次重复——长将长捉判负）。
  *
  * 关键的一条：**子力占优的一方不许原地打转**。第一版量出来的 50 个"和棋"
  * 全部是三次重复判的、平均只走了 17 步——那不是技术不够，是引擎在这类局面里
@@ -53,35 +54,41 @@ function edge(b: Board): number {
 export function playOut(board: Board, toMove: Color, depth: number, timeMs: number, maxPlies = MAX_PLIES): Outcome {
   let b = board;
   let c = toMove;
-  let sinceCapture = 0;
-  const seen = new Map<string, number>();
-  for (let ply = 0; ply < maxPlies; ply++) {
+  // 和 App 同一个裁判（endings.ts）：三次重复里一方一直将军 / 一直捉子判那一方负，不是一律判和
+  const startKey = toFen(board, toMove);
+  const plies: PlyRecord[] = [];
+  const timesSeen = (k: string) => (k === startKey ? 1 : 0) + plies.filter((p) => p.key === k).length;
+  for (let ply = 0; ; ply++) {
     const st = statusAfter(b, c);
     if (st !== 'playing') return { result: st, plies: ply, reason: '将死/困毙' };
+    const end = drawOrForfeit(b, startKey, plies);
+    if (end) return { result: end.winner === 'r' ? 'red-win' : end.winner === 'b' ? 'black-win' : 'draw', plies: ply, reason: REASON[end.reason] ?? end.reason };
+    if (ply >= maxPlies) return { result: 'draw', plies: maxPlies, reason: '未分胜负' };
     if (!legalOf(b, c).length) return { result: c === 'r' ? 'black-win' : 'red-win', plies: ply, reason: '无着可走' };
     let m = think(b, c, { maxDepth: depth, timeMs, jitter: 0 });
     if (!m) return { result: 'draw', plies: ply, reason: '引擎无着' };
     const strongSide = edge(b) > 150 ? 'r' : edge(b) < -150 ? 'b' : null;
-    if (c === strongSide && (seen.get(toFen(applyMove(b, m), other(c))) ?? 0) >= 1) {
+    if (c === strongSide && timesSeen(toFen(applyMove(b, m), other(c))) >= 1) {
       const a = analyze(b, c, { maxDepth: depth, timeMs, jitter: 0 });
       const top = a.moves[0];
-      const alt = a.moves.find(
-        (x) => top.score - x.score < 120 && (seen.get(toFen(applyMove(b, x.move), other(c))) ?? 0) === 0,
-      );
+      const alt = a.moves.find((x) => top.score - x.score < 120 && timesSeen(toFen(applyMove(b, x.move), other(c))) === 0);
       if (alt) m = alt.move;
     }
-    const cap = !!b[m.ty][m.tx];
-    b = applyMove(b, m);
+    const after = applyMove(b, m);
+    plies.push(plyRecord(b, m, after));
+    b = after;
     c = other(c);
-    sinceCapture = cap ? 0 : sinceCapture + 1;
-    if (sinceCapture >= 120) return { result: 'draw', plies: ply + 1, reason: '60 回合无吃子' };
-    const key = toFen(b, c);
-    const n = (seen.get(key) ?? 0) + 1;
-    seen.set(key, n);
-    if (n >= 3) return { result: 'draw', plies: ply + 1, reason: '三次重复' };
   }
-  return { result: 'draw', plies: maxPlies, reason: '未分胜负' };
 }
+
+/** 裁判的结论写进残局库的说法（老数据里的"三次重复""60 回合无吃子"照旧） */
+const REASON: Partial<Record<EndReason, string>> = {
+  repetition: '三次重复',
+  'perpetual-check': '长将判负',
+  'perpetual-chase': '长捉判负',
+  'move-limit': '60 回合无吃子',
+  'no-attackers': '双方无进攻子力',
+};
 
 /**
  * 定这一局是胜是和。

@@ -15,6 +15,7 @@ import { parseInfo, uciToMove, moveToUci, type PvLine } from '../src/xiangqi/pik
 import { fromFen, textToMove, toFen } from '../src/xiangqi/notation';
 import { applyMove, isInCheck, legalMoves, statusAfter, type Board, type Color } from '../src/xiangqi/rules';
 import { isLost, isWon } from '../src/xiangqi/analysis';
+import { END_TEXT, drawOrForfeit, plyRecord, type PlyRecord } from '../src/xiangqi/endings';
 
 const [, , a0 = '0', a1 = '1', a2 = '6', a3 = '200000'] = process.argv;
 const shard = Number(a0);
@@ -94,11 +95,13 @@ function playOut(fen: string, first: string): { res: 'win' | 'draw' | 'loss'; pl
   let c = f.toMove;
   const m0 = textToMove(b, c, first, legal(b, c))!;
   const hist = [moveToUci(m0)];
+  // 和 App 同一个裁判（endings.ts）：重复局面里长将、长捉判负，60 回合不吃子判和
+  const startKey = toFen(b, c);
+  const plies: PlyRecord[] = [plyRecord(b, m0, applyMove(b, m0))];
+  const timesSeen = (k: string) => (k === startKey ? 1 : 0) + plies.filter((p) => p.key === k).length;
   b = applyMove(b, m0);
   c = other(c);
   e.send('ucinewgame');
-  const seen = new Map<string, number>([[toFen(b, c), 1]]);
-  let quiet = 0;
   let streak = 0;
   let lead: Color | null = null;
   for (let ply = 1; ply < 260; ply++) {
@@ -116,20 +119,19 @@ function playOut(fen: string, first: string): { res: 'win' | 'draw' | 'loss'; pl
     let mv = uciToMove(top.pv[0])!;
     if (sc >= 150 && lines[1]) {
       const nb = applyMove(b, mv);
-      if ((seen.get(toFen(nb, other(c))) ?? 0) >= 1) {
+      if (timesSeen(toFen(nb, other(c))) >= 1) {
         const alt = lines[1];
         if (sc - alt.score < 120) mv = uciToMove(alt.pv[0])!;
       }
     }
-    const cap = !!b[mv.ty][mv.tx];
     hist.push(moveToUci(mv));
-    b = applyMove(b, mv);
+    const after = applyMove(b, mv);
+    plies.push(plyRecord(b, mv, after));
+    b = after;
     c = other(c);
-    quiet = cap ? 0 : quiet + 1;
-    if (quiet >= 120) return { res: 'draw', plies: ply, why: '60 回合不吃子' };
-    const k = toFen(b, c);
-    seen.set(k, (seen.get(k) ?? 0) + 1);
-    if (seen.get(k)! >= 3) return { res: 'draw', plies: ply, why: '三次重复' };
+    if (statusAfter(b, c) !== 'playing') continue;
+    const end = drawOrForfeit(b, startKey, plies);
+    if (end) return { res: end.winner === null ? 'draw' : end.winner === solver ? 'win' : 'loss', plies: ply, why: END_TEXT[end.reason] };
   }
   return { res: 'draw', plies: 260, why: '下满了' };
 }

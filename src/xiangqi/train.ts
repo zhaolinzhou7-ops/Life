@@ -105,7 +105,10 @@ function within(p: Promise<boolean>, ms: number): Promise<boolean> {
 
 /** 残局题要下到底的话，目标是什么：领先够多的要赢（下到将死），接近均势的守和；落后的不下 */
 export function endgameTarget(p: Puzzle): 'win' | 'draw' | null {
-  if (p.kind !== 'endgame' || p.ev === undefined) return null;
+  if (p.kind !== 'endgame') return null;
+  // 真下到底验过的优先（见 Puzzle.end）；没验过的才按局面分
+  if (p.end) return p.end === 'none' ? null : p.end;
+  if (p.ev === undefined) return null;
   if (p.goal === 'mate' || p.ev >= 300) return 'win';
   if (Math.abs(p.ev) < 150) return 'draw';
   return null;
