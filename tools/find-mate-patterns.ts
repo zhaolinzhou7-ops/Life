@@ -23,7 +23,7 @@ import {
 } from '../src/xiangqi/rules';
 import { analyze } from '../src/xiangqi/ai';
 import { toFen, fromFen, moveToText } from '../src/xiangqi/notation';
-import { checkBoard } from './validate-positions';
+import { checkPosition } from './validate-positions';
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
 
@@ -653,7 +653,7 @@ for (const sh of shapes) {
       bump('FEN 读不回来');
       continue;
     }
-    const errs = checkBoard(chk.board);
+    const errs = checkPosition(chk.board, chk.toMove);
     if (errs.length) {
       bump(`摆位不合法(${errs[0]})`);
       continue;

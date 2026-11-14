@@ -10,7 +10,7 @@
  *
  * 用法：入库前跑一遍，或 node validate.mjs < any.json
  */
-import type { Board, Color, PType } from '../src/xiangqi/rules';
+import { positionIllegal, type Board, type Color, type PType } from '../src/xiangqi/rules';
 
 const eq = (l: readonly (readonly [number, number])[], x: number, y: number) =>
   l.some(([a, b]) => a === x && b === y);
@@ -73,3 +73,15 @@ export function checkBoard(b: Board): string[] {
 }
 
 export const isValidBoard = (b: Board): boolean => checkBoard(b).length === 0;
+
+/**
+ * 局面（含轮到谁走）能不能出现：子摆得对，而且不该走的一方没有正被将军。
+ * 只看摆位不够——随机摆残局能摆出"黑将被车照着、却轮到红走"，第一手就能吃将（用户截图那道题）。
+ * 生成器、体检、数据测试都用这一个。
+ */
+export function checkPosition(b: Board, toMove: Color): string[] {
+  const errs = checkBoard(b);
+  const why = positionIllegal(b, toMove);
+  if (why && !errs.some((e) => /数量/.test(e))) errs.push(why);
+  return errs;
+}

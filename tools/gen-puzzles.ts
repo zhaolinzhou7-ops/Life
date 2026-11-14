@@ -35,7 +35,7 @@ import {
 import { analyze, think } from '../src/xiangqi/ai';
 import { steadyAnalyze } from './steady-analyze';
 import { toFen, fromFen, moveToText } from '../src/xiangqi/notation';
-import { checkBoard } from './validate-positions';
+import { checkPosition } from './validate-positions';
 import { rateDifficulty } from './rate-difficulty';
 
 const other = (c: Color): Color => (c === 'r' ? 'b' : 'r');
@@ -293,6 +293,8 @@ const bump = (k: string) => { stat[k] = (stat[k] ?? 0) + 1; };
 function tryTrap(b: Board, c: Color, kind: 'tactic' | 'safety' | 'endgame' | 'opening'): Puzzle | null {
   bump(`${kind}:看过`);
   if (isInCheck(b, c)) return bump(`${kind}:自己被将`), null;
+  // 对方正被将军、却轮到你走：这种局面出不来（随机摆残局会摆出来），"顺手的那一手"就是吃将。用户截图那道题就是这么来的
+  if (isInCheck(b, other(c))) return bump(`${kind}:对方正被将军`), null;
   // 1. 顺手的那一手：浅算的首选
   const shallow = analyze(b, c, { maxDepth: 2, timeMs: 800, jitter: 0 });
   if (shallow.moves.length < 12) return bump(`${kind}:着法太少`), null;
@@ -511,9 +513,9 @@ const push = (p: Puzzle | null) => {
     bump(`${p.kind}:难度不够(${p.rating})`);
     return false;
   }
-  // 闸门：局面必须是真实对局里能出现的（士象兵的落点、子力数量）
+  // 闸门：局面必须是真实对局里能出现的（士象兵的落点、子力数量、不该走的一方没被将军）
   const parsed = fromFen(p.fen);
-  const errs = parsed ? checkBoard(parsed.board) : ['FEN 解析失败'];
+  const errs = parsed ? checkPosition(parsed.board, parsed.toMove) : ['FEN 解析失败'];
   if (errs.length) {
     rejected++;
     return false;

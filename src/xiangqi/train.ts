@@ -18,7 +18,7 @@
  *   2. **走错要看见反驳**——只说"错了"学不到东西，必须把对方怎么惩罚你演出来。
  */
 import { fromFen, moveToText, textToMove, toFen } from './notation';
-import { legalMoves, applyMove, isInCheck, statusAfter, type Board, type Color, type Move } from './rules';
+import { legalMoves, applyMove, isInCheck, positionIllegal, statusAfter, type Board, type Color, type Move } from './rules';
 import { movesFromTexts, openLineLab } from './linelab';
 import { Board2D, type Mark } from './board2d';
 import { requestMove } from './aiclient';
@@ -120,8 +120,10 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
   wrap.className = 'xq-tr';
   host.appendChild(wrap);
 
-  if (!parsed) {
-    wrap.innerHTML = '<div class="xq-tr-bad">这道题的局面读不出来，已跳过。</div>';
+  // 局面在真实对局里出不来（不该走的一方正被将军——第一手就能吃将）：不出，直接跳过
+  const impossible = parsed ? positionIllegal(parsed.board, parsed.toMove) : null;
+  if (!parsed || impossible) {
+    wrap.innerHTML = `<div class="xq-tr-bad">${parsed ? `这道题的局面有问题（${impossible}），已跳过。` : '这道题的局面读不出来，已跳过。'}</div>`;
     setTimeout(() => opts.onDone({ correct: false, usedHint: false }), 600);
     return () => wrap.remove();
   }
@@ -358,6 +360,12 @@ export function runPuzzle(host: HTMLElement, puzzle: Puzzle, opts: PuzzleOpts): 
       // 离线深算过（tools/deep-audit + deep-apply）：这一步走这手，最后的结果和原谱一样
       ok = true;
       note = `皮卡鱼深算过：这一手和原谱的 <b>${line[ply]}</b> 一样站得住`;
+      onLine = false;
+    } else if (statusAfter(applyMove(before, mv), foe) !== 'playing') {
+      // 这一手直接把对方将死（或困毙）了：不管原谱写的是哪一手，都是对的，不用等皮卡鱼——
+      // 皮卡鱼没加载起来的时候，原来只认原谱，直接将死反倒被判错
+      ok = true;
+      note = '这一手直接将死';
       onLine = false;
     } else {
       elFb.className = 'xq-tr-fb tip';

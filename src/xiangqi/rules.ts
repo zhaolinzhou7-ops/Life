@@ -222,6 +222,21 @@ export function applyMove(b: Board, m: Move): Board {
   return nb;
 }
 
+/**
+ * 这个局面在真实对局里出不出得来；出不来返回原因。
+ * 用户截图：题目里黑将已经被红车照着、却轮到红方走——第一手就能把将吃掉，吃了还判"不对"。
+ * 上一手的一方不能把自己的将留在被将军的地方，所以"不该走的一方正被将军"（含将帅对脸）的局面不可能出现。
+ */
+export function positionIllegal(b: Board, toMove: Color): string | null {
+  let rk = 0;
+  let bk = 0;
+  for (const row of b) for (const p of row) if (p?.t === 'K') p.c === 'r' ? rk++ : bk++;
+  if (rk !== 1 || bk !== 1) return '将帅不全';
+  const idle: Color = toMove === 'r' ? 'b' : 'r';
+  if (isInCheck(b, idle)) return `轮到${toMove === 'r' ? '红' : '黑'}走，可${idle === 'r' ? '红' : '黑'}方正被将军`;
+  return null;
+}
+
 /** 该颜色的王是否被将军（从王位置反向扫描，快速） */
 export function isInCheck(b: Board, c: Color): boolean {
   const king = findKing(b, c);

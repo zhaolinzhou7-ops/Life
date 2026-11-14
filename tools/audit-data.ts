@@ -22,7 +22,7 @@ import { legalMoves, applyMove, isInCheck, type Board, type Color } from '../src
 import { fromFen, moveToText, textToMove } from '../src/xiangqi/notation';
 import { verdict } from './playout-verdict';
 import { steadyAnalyze } from './steady-analyze';
-import { checkBoard } from './validate-positions';
+import { checkPosition } from './validate-positions';
 import { bareMinors, noAttackers } from '../src/xiangqi/endings';
 import { endgameUnfit, unfit } from '../src/xiangqi/balance';
 import puzzles from '../src/xiangqi/puzzles.json';
@@ -74,7 +74,7 @@ function auditPositions(rows: Row[], label: string, hasAnswer: boolean) {
       flag(`${label}·FEN 读不出`, r.id);
       continue;
     }
-    const errs = checkBoard(parsed.board);
+    const errs = checkPosition(parsed.board, parsed.toMove);
     if (errs.length) flag(`${label}·摆位不可能出现`, `${r.id} ${errs[0]}`);
     if (!hasAnswer) continue;
 
